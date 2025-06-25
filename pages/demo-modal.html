@@ -1,0 +1,24 @@
+<div id="demo-modal" class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="w-full max-w-md modal-container rounded-xl shadow-2xl p-8 relative">
+        <button id="close-demo-btn" class="absolute top-4 right-4 text-gray-400 hover:text-white z-10">✕</button>
+        <h2 class="text-2xl font-bold text-center mb-6 text-white font-brand">Request a Personalized Demo</h2>
+        <form id="demo-form" class="space-y-4">
+            <div>
+                <label for="demo-name" class="block text-sm font-medium text-gray-300">Your Name</label>
+                <input type="text" id="demo-name" required class="mt-1 block w-full form-input rounded-md">
+            </div>
+            <div>
+                <label for="demo-business" class="block text-sm font-medium text-gray-300">Business Name</label>
+                <input type="text" id="demo-business" required class="mt-1 block w-full form-input rounded-md">
+            </div>
+            <div>
+                <label for="demo-email" class="block text-sm font-medium text-gray-300">Email Address</label>
+                <input type="email" id="demo-email" required class="mt-1 block w-full form-input rounded-md">
+            </div>
+            <div id="demo-form-message" class="text-center text-sm h-5"></div>
+            <div class="pt-2">
+                <button type="submit" class="btn-primary w-full font-bold py-3 rounded-lg">Submit Request</button>
+            </div>
+        </form>
+    </div>
+</div>

@@ -1,0 +1,65 @@
+<div id="registration-modal" class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl modal-container rounded-xl shadow-2xl relative">
+        <button id="close-modal-btn" class="absolute top-4 right-4 text-gray-400 hover:text-white z-10">✕</button>
+        
+        <!-- Step 1: Role Selection -->
+        <div id="step-role" class="form-step active p-8 md:p-12">
+            <h2 class="text-3xl font-bold text-center mb-2 text-white">Let's Get Started</h2>
+            <p class="text-gray-400 text-center mb-8">First, tell us about your role in the supply chain.</p>
+            <div class="space-y-4">
+                <div class="role-card p-6 rounded-lg cursor-pointer" data-role="retailer">
+                    <h3 class="text-xl font-bold text-white">Retailer</h3>
+                    <p class="text-gray-400">I own a business and sell products to customers.</p>
+                </div>
+                <div class="role-card p-6 rounded-lg cursor-pointer" data-role="distributor">
+                    <h3 class="text-xl font-bold text-white">Distributor</h3>
+                    <p class="text-gray-400">I supply products to retail businesses.</p>
+                </div>
+                <div class="role-card p-6 rounded-lg cursor-pointer" data-role="product-owner">
+                    <h3 class="text-xl font-bold text-white">Product Owner</h3>
+                    <p class="text-gray-400">I manufacture or own product brands.</p>
+                </div>
+            </div>
+            <div class="mt-8 text-center">
+                <button id="next-to-details" class="btn-primary font-bold py-3 px-8 rounded-lg" disabled>Continue</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Registration Form -->
+        <div id="step-details" class="form-step p-8 md:p-12">
+            <h2 class="text-3xl font-bold mb-6 text-center text-white">Register Your Business</h2>
+            <form id="details-form" class="space-y-4 max-h-[70vh] overflow-y-auto pr-4">
+                <fieldset>
+                    <legend class="text-lg font-semibold text-indigo-400 mb-2">1. Business Identity</legend>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="business-name" class="block text-sm font-medium text-gray-300">Business Name</label>
+                            <input type="text" id="business-name" class="mt-1 block w-full form-input rounded-md" required>
+                        </div>
+                    </div>
+                </fieldset>
+                <fieldset>
+                    <legend class="text-lg font-semibold text-indigo-400 mt-4 mb-2">2. Secure Credentials</legend>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="email" class="block text-sm font-medium text-gray-300">Email Address</label>
+                            <input type="email" id="email" class="mt-1 block w-full form-input rounded-md" required>
+                        </div>
+                        <div>
+                            <label for="password" class="block text-sm font-medium text-gray-300">Password</label>
+                            <input type="password" id="password" class="mt-1 block w-full form-input rounded-md" required>
+                        </div>
+                        <div>
+                            <label for="confirm-password" class="block text-sm font-medium text-gray-300">Confirm Password</label>
+                            <input type="password" id="confirm-password" class="mt-1 block w-full form-input rounded-md" required>
+                        </div>
+                    </div>
+                </fieldset>
+                <div class="pt-6">
+                    <button type="submit" class="btn-primary w-full font-bold py-3 rounded-lg">Create Account</button>
+                </div>
+                <div id="form-error" class="error-message text-center"></div>
+            </form>
+        </div>
+    </div>
+</div>

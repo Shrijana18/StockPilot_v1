@@ -4,208 +4,55 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StockPilot - Your Business, Automated.</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-    <!-- Chosen Palette: Indigo & Slate -->
-    <!-- Application Structure Plan: A single-page application with a dramatic, animated entry. An initial splash screen focuses the user on the "StockPilot" brand, then fluidly transitions into the main marketing page. This creates a high-impact first impression. The page itself uses a dynamic, single-column layout with subtle scroll-based animations to guide the user through a narrative, from the problem to the solution. The registration flow remains a JS-driven, multi-step modal, ensuring a seamless onboarding experience without leaving the primary view. -->
-    <!-- Visualization & Content Choices:
-        - Animated Logo Entry -> Goal: Create 'Wow' Factor & Brand Identity -> Presentation: A full-screen overlay with a CSS-animated logo -> Interaction: Automatic animation on load -> Justification: Establishes a premium, app-like feel from the very first second, differentiating it from static websites. Method: HTML/CSS/JS.
-        - Interactive Feature Showcase -> Goal: Engage & Inform -> Presentation: A set of cards that reveal content and change a central visual on hover/click -> Justification: More engaging than a static list. It encourages user interaction to discover features, improving information retention. Method: HTML/Tailwind/JS.
-        - Restyled UI -> Goal: Premium Look & Feel -> Presentation: Sophisticated color palette (indigo/slate), modern typography (Inter/Space Grotesk), gradients, and micro-interactions -> Interaction: Hover effects, scroll-triggered animations -> Justification: Builds user trust and perceived value through high-quality aesthetics. Method: HTML/Tailwind/JS.
-    -->
-    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #030712; /* Nearly black */
-            color: #E5E7EB;
-        }
-        .font-brand { font-family: 'Space Grotesk', sans-serif; }
-        
-        /* Splash Screen */
-        #splash-screen {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: #030712; z-index: 100; display: flex;
-            align-items: center; justify-content: center;
-            transition: opacity 1s ease-out;
-        }
-        #splash-logo {
-            font-size: 3rem; font-weight: 700; color: white;
-            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex; align-items: center;
-        }
-        #splash-logo .pilot-icon {
-            display: inline-block; width: 2.5rem; height: 2.5rem;
-            background-color: #4f46e5; margin-right: 0.75rem;
-            clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
-            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        /* Animation Classes */
-        .splash-active #splash-logo { transform: scale(0.6) translate(-150%, -150%); }
-        .splash-active #splash-screen { opacity: 0; pointer-events: none; }
-
-        /* Main Nav Logo */
-        #main-logo { opacity: 0; transition: opacity 0.5s ease-out 0.5s; }
-        .logo-visible #main-logo { opacity: 1; }
-        #main-logo .pilot-icon {
-            display: inline-block; width: 1.5rem; height: 1.5rem;
-            background-color: #4f46e5; margin-right: 0.5rem;
-            clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
-        }
-        
-        .main-content { opacity: 0; transition: opacity 1s ease-in 0.2s; }
-        .content-visible { opacity: 1; }
-
-        /* General & Button Styles */
-        .btn-primary { background-color: #4f46e5; color: white; transition: background-color 0.2s; }
-        .btn-primary:hover { background-color: #4338ca; }
-        .btn-secondary {
-            background-color: rgba(255, 255, 255, 0.1); color: white;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: background-color 0.2s;
-        }
-        .btn-secondary:hover { background-color: rgba(255, 255, 255, 0.15); }
-        .hidden-view { display: none !important; }
-
-        /* Animate-in on scroll */
-        .reveal {
-            opacity: 0;
-            transform: translateY(30px);
-            transition: opacity 0.8s, transform 0.8s;
-        }
-        .reveal.visible {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    </style>
+    <!-- Our Custom Stylesheet -->
+    <link rel="stylesheet" href="./css/style.css">
 </head>
 <body class="bg-gray-900">
 
-    <!-- =========== Splash Screen =========== -->
-    <div id="splash-screen">
-        <div id="splash-logo" class="font-brand">
-            <div class="pilot-icon"></div>
-            StockPilot
+    <div id="app-container">
+        <!-- Splash Screen -->
+        <div id="splash-screen" style="display: none;"><div id="splash-logo" class="font-brand"><div class="pilot-icon"></div>StockPilot</div></div>
+        <!-- Main Application Wrapper -->
+        <div id="main-app" 
+            
+            <!-- This view is shown to logged-out users -->
+            <div id="landing-page-view">
+                <!-- Landing page content will be loaded here by main.js -->
+            </div>
+            
+            <!-- This view is shown to logged-in users -->
+            <div id="dashboard-view" class="hidden-view flex h-screen">
+                <aside class="w-64 bg-gray-900 border-r border-white/10 flex flex-col">
+                    <div class="flex items-center justify-center h-16 border-b border-white/10">
+                        <div class="text-2xl font-bold text-white font-brand flex items-center"><div class="pilot-icon"></div>StockPilot</div>
+                    </div>
+                    <nav class="flex-1 px-4 py-6 space-y-2">
+                        <a href="#dashboard" class="dashboard-nav-link active flex items-center px-4 py-2 text-white rounded-lg">Dashboard</a>
+                        <a href="#inventory" class="dashboard-nav-link flex items-center px-4 py-2 text-gray-400 hover:bg-gray-700/50 rounded-lg">Inventory</a>
+                        <a href="#billing" class="dashboard-nav-link flex items-center px-4 py-2 text-gray-400 hover:bg-gray-700/50 rounded-lg">Billing</a>
+                    </nav>
+                    <div class="px-4 py-4 border-t border-white/10">
+                        <button id="sign-out-btn" class="w-full btn-secondary font-medium px-4 py-2 rounded-lg">Sign Out</button>
+                    </div>
+                </aside>
+                <!-- The content for the selected dashboard page will be loaded into this main element -->
+                <main id="page-content" class="flex-1 p-8 bg-gray-800/30 overflow-y-auto">
+                    <!-- Page content from pages/*.html goes here -->
+                </main>
+            </div>
+
+            <!-- Modals will be injected here by main.js when needed -->
+            <div id="modal-container"></div>
         </div>
     </div>
     
-    <div id="main-content-wrapper" class="main-content">
-        <!-- =========== Landing Page View =========== -->
-        <div id="landing-page-view">
-            <header class="fixed top-0 left-0 right-0 z-50 bg-gray-900/50 backdrop-blur-sm">
-                <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
-                    <div id="main-logo" class="text-2xl font-bold text-white font-brand flex items-center">
-                         <div class="pilot-icon"></div>
-                         StockPilot
-                    </div>
-                    <div class="hidden md:flex items-center space-x-8">
-                        <a href="#features" class="text-gray-300 hover:text-white">Features</a>
-                        <a href="#pricing" class="text-gray-300 hover:text-white">Pricing</a>
-                    </div>
-                    <div class="flex items-center space-x-2">
-                        <button id="sign-in-btn" class="hidden md:block text-gray-300 font-medium px-4 py-2 rounded-lg hover:text-white">Sign In</button>
-                        <button id="register-btn" class="btn-primary font-medium px-4 py-2 rounded-lg shadow-lg">Register for Free</button>
-                    </div>
-                </nav>
-            </header>
-
-            <main>
-                <!-- Hero Section -->
-                <section id="hero" class="pt-40 pb-20 text-center relative overflow-hidden">
-                    <div class="absolute inset-0 bg-grid-gray-700/5 [mask-image:linear-gradient(to_bottom,white_5%,transparent_50%)]"></div>
-                     <div class="container mx-auto px-6 relative z-10">
-                        <h1 class="text-5xl md:text-7xl font-extrabold text-white leading-tight mb-6 font-brand">Stop Guessing. Start Selling.</h1>
-                        <p class="text-lg md:text-xl text-gray-400 max-w-3xl mx-auto mb-10">StockPilot is the intelligent command center for your retail business. It connects your inventory to your sales in real-time, so you always know what to stock, what to sell, and how to grow.</p>
-                        <div class="flex justify-center items-center space-x-4">
-                            <button id="register-btn-hero" class="btn-primary font-bold text-lg px-8 py-3 rounded-lg shadow-xl">Start Your Free Trial</button>
-                            <button class="btn-secondary font-bold text-lg px-8 py-3 rounded-lg">Watch Demo →</button>
-                        </div>
-                    </div>
-                </section>
-                
-                <section id="features" class="py-24">
-                    <div class="container mx-auto px-6">
-                        <div class="text-center mb-16 reveal">
-                            <h2 class="text-4xl md:text-5xl font-bold font-brand text-white">Your Business, Fully Automated.</h2>
-                            <p class="text-lg text-gray-400 mt-4">StockPilot works like a real pilot, handling the complex tasks so you can focus on the destination.</p>
-                        </div>
-                        <div class="grid lg:grid-cols-3 gap-8">
-                            <div class="bg-gray-800/50 p-8 rounded-2xl border border-white/10 reveal">
-                                <h3 class="text-2xl font-bold mb-3 font-brand text-white">Live Inventory Sync</h3>
-                                <p class="text-gray-400">Every sale instantly updates your stock. See an accurate count of every item, across every location, 24/7. Eliminate stockouts and overstocking forever.</p>
-                            </div>
-                            <div class="bg-gray-800/50 p-8 rounded-2xl border border-white/10 reveal" style="transition-delay: 0.2s;">
-                                <h3 class="text-2xl font-bold mb-3 font-brand text-white">Predictive Reordering</h3>
-                                <p class="text-gray-400">Our AI analyzes your sales trends and tells you exactly what to reorder, and when. Turn your historical data into future profit.</p>
-                            </div>
-                             <div class="bg-gray-800/50 p-8 rounded-2xl border border-white/10 reveal" style="transition-delay: 0.4s;">
-                                <h3 class="text-2xl font-bold mb-3 font-brand text-white">One-Click Purchasing</h3>
-                                <p class="text-gray-400">Convert reorder suggestions into purchase orders and send them to your distributors directly from the platform. Your supply chain, simplified.</p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-                
-                <section id="pricing" class="py-24">
-                     <div class="container mx-auto px-6">
-                         <div class="text-center mb-16 reveal">
-                            <h2 class="text-4xl md:text-5xl font-bold font-brand text-white">Pricing that Scales with You</h2>
-                            <p class="text-lg text-gray-400 mt-4">No hidden fees. No surprises. Just powerful software.</p>
-                        </div>
-                        <div class="grid lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
-                            <div class="bg-gray-800/50 border border-white/10 rounded-2xl p-8 flex flex-col reveal">
-                                <h3 class="text-2xl font-bold mb-2 font-brand">Starter</h3><p class="text-gray-400 mb-6">For new businesses getting off the ground.</p>
-                                <div class="text-5xl font-extrabold text-white mb-6">$29<span class="text-lg font-medium text-gray-400">/mo</span></div>
-                                <ul class="space-y-3 text-gray-300 mb-8 flex-grow"><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> 250 Products</li><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Live Inventory Sync</li><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Standard Billing</li></ul>
-                                <button class="btn-secondary w-full font-bold py-3 rounded-lg">Choose Starter</button>
-                            </div>
-                            <div class="border-2 border-indigo-500 rounded-2xl p-8 flex flex-col relative bg-gray-900 shadow-2xl shadow-indigo-500/10 reveal" style="transition-delay: 0.2s;">
-                                <div class="absolute top-0 -translate-y-1/2 bg-indigo-500 text-white text-sm font-bold px-4 py-1 rounded-full">RECOMMENDED</div>
-                                <h3 class="text-2xl font-bold mb-2 font-brand text-white">Pro Pilot</h3><p class="text-gray-400 mb-6">For growing businesses ready to optimize.</p>
-                                <div class="text-5xl font-extrabold text-white mb-6">$79<span class="text-lg font-medium text-gray-400">/mo</span></div>
-                                <ul class="space-y-3 text-gray-300 mb-8 flex-grow"><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Unlimited Products</li><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Predictive Reordering (AI)</li><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Distributor Integration</li><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Advanced Analytics</li></ul>
-                                <button class="btn-primary w-full font-bold py-3 rounded-lg">Start Pro Trial</button>
-                            </div>
-                            <div class="bg-gray-800/50 border border-white/10 rounded-2xl p-8 flex flex-col reveal" style="transition-delay: 0.4s;">
-                                <h3 class="text-2xl font-bold mb-2 font-brand">Enterprise</h3><p class="text-gray-400 mb-6">For large-scale, custom needs.</p>
-                                <div class="text-4xl font-extrabold text-white mb-6">Let's Talk</div>
-                                <ul class="space-y-3 text-gray-300 mb-8 flex-grow"><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Multi-Location & Warehouse</li><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Custom Integrations (API)</li><li class="flex items-center"><span class="text-indigo-400 mr-3">✓</span> Dedicated Support</li></ul>
-                                <button class="btn-secondary w-full font-bold py-3 rounded-lg">Contact Sales</button>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-            </main>
-        </div>
-    </div>
-    
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const splashScreen = document.getElementById('splash-screen');
-            const mainContentWrapper = document.getElementById('main-content-wrapper');
-            
-            // --- Initial Animation Logic ---
-            setTimeout(() => {
-                document.body.classList.add('splash-active');
-                document.body.classList.add('logo-visible');
-                mainContentWrapper.classList.add('content-visible');
-            }, 500);
-            
-            // --- Scroll Animation Logic ---
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('visible');
-                    }
-                });
-            }, { threshold: 0.1 });
-
-            const revealElements = document.querySelectorAll('.reveal');
-            revealElements.forEach(el => observer.observe(el));
-        });
-    </script>
+    <!-- Our main application logic script -->
+    <script src="./js/main.js" type="module"></script>
 </body>
 </html>
