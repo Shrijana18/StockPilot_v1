@@ -6,8 +6,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebas
 import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-import { initInventoryPage } from './inventory.js';
-import { initBillingPage } from './billing.js';
+import { initInventoryPage } from './js/inventory.js';
+import { initBillingPage } from './js/billing.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE",
@@ -20,6 +20,7 @@ const firebaseConfig = {
 };
 
 let app, auth, db, currentUser;
+let selectedBusinessRole = '';
 const elements = {};
 
 const cacheDOMElements = () => {
@@ -31,7 +32,7 @@ const cacheDOMElements = () => {
 
 const fetchAndInjectHTML = async (filePath, targetElement) => {
   try {
-    const res = await fetch(filePath.startsWith('./') ? filePath : `./pages/${filePath}`);
+    const res = await fetch(filePath.startsWith('./') ? filePath : `./src/views/${filePath}`);
     if (!res.ok) throw new Error(`Could not fetch ${filePath}`);
     const html = await res.text();
     targetElement.innerHTML = html;
@@ -48,7 +49,7 @@ const loadPage = async (page) => {
       console.warn("Landing page view container not found");
       return;
     }
-    await fetchAndInjectHTML('landing-page.html', elements.landingPageView);
+    await fetchAndInjectHTML('./src/views/landing-page.html', elements.landingPageView);
     showView('landing');
     return;
   }
@@ -58,56 +59,16 @@ const loadPage = async (page) => {
     return;
   }
 
-  // Clear content before injecting new page
   elements.pageContent.innerHTML = '';
 
   document.querySelectorAll('.dashboard-nav-link').forEach(link => {
     link.classList.toggle('active', link.getAttribute('href') === `#${page}`);
   });
 
-  await fetchAndInjectHTML(`./pages/${page}.html`, elements.pageContent);
+  await fetchAndInjectHTML(`./src/views/${page}.html`, elements.pageContent);
 
   if (page === 'inventory') initInventoryPage(db, currentUser);
   if (page === 'billing') initBillingPage(db, currentUser);
-};
-
-const initRegistrationModal = () => {
-  const registrationModal = document.getElementById('registration-modal');
-  if (!registrationModal) return;
-
-  registrationModal.querySelector('#close-modal-btn').addEventListener('click', closeModal);
-
-  registrationModal.querySelector('#details-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const errorEl = form.querySelector('#form-error');
-    errorEl.textContent = '';
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, form.email.value, form.password.value);
-      const businessRole = form['business-role'].value;
-
-      await setDoc(doc(db, "businesses", userCredential.user.uid), {
-        ownerId: userCredential.user.uid,
-        businessName: form['business-name'].value,
-        role: businessRole,
-        createdAt: new Date()
-      });
-
-      closeModal();
-
-      // Redirect to dashboard and load specific module if needed
-      showView('dashboard');
-      if (businessRole === 'retailer') {
-        loadPage('inventory');
-      } else if (businessRole === 'distributor') {
-        loadPage('billing');
-      } else {
-        loadPage('dashboard');
-      }
-    } catch (error) {
-      errorEl.textContent = error.message;
-    }
-  });
 };
 
 const initSignInModal = () => {
@@ -122,7 +83,7 @@ const initSignInModal = () => {
     const errorEl = form.querySelector('#form-error');
     errorEl.textContent = '';
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, form.email.value, form.password.value);
+      const userCredential = await signInWithEmailAndPassword(auth, form['login-email'].value, form['login-password'].value);
       const userDocRef = doc(db, "businesses", userCredential.user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
@@ -146,10 +107,70 @@ const initSignInModal = () => {
   });
 };
 
+const initRegistrationModal = () => {
+  const roleCards = document.querySelectorAll('.role-card');
+  const continueBtn = document.getElementById('next-to-details');
+  const closeBtn = document.getElementById('close-modal-btn');
+  const registrationSteps = document.querySelectorAll('[data-step]');
+
+  roleCards.forEach(card => {
+    card.addEventListener('click', () => {
+      roleCards.forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedBusinessRole = card.getAttribute('data-role');
+    });
+  });
+
+  continueBtn?.addEventListener('click', () => {
+    if (!selectedBusinessRole) {
+      alert("Please select a role to continue.");
+      return;
+    }
+
+    fetchAndInjectHTML('./src/views/registration-form.html', elements.modalContainer).then(() => {
+      const roleInput = document.getElementById('selected-role');
+      if (roleInput) roleInput.value = selectedBusinessRole;
+      initRegistrationModal(); // Re-init registration logic on new form
+    });
+  });
+
+  closeBtn?.addEventListener('click', () => {
+    closeModal();
+  });
+
+  const registrationForm = document.getElementById('registration-form');
+  if (registrationForm) {
+    registrationForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      try {
+        const userCredential = await createUserWithEmailAndPassword(auth, form['register-email'].value, form['register-password'].value);
+        const userId = userCredential.user.uid;
+        await setDoc(doc(db, 'businesses', userId), {
+          businessName: form['business-name'].value,
+          ownerName: form['owner-name'].value,
+          email: form['register-email'].value,
+          phone: form['phone'].value,
+          city: form['city'].value,
+          role: form['selected-role'].value,
+          createdAt: new Date().toISOString(),
+        });
+        closeModal();
+        showView('dashboard');
+        if (form['selected-role'].value === 'retailer') loadPage('inventory');
+        else if (form['selected-role'].value === 'distributor') loadPage('billing');
+        else loadPage('dashboard');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+};
+
 const showModal = async (modalName) => {
-  await fetchAndInjectHTML(`./pages/${modalName}.html`, elements.modalContainer);
-  if (modalName === 'registration-modal') initRegistrationModal();
+  await fetchAndInjectHTML(`./src/modals/${modalName}.html`, elements.modalContainer);
   if (modalName === 'sign-in-modal') initSignInModal();
+  if (modalName === 'registration-modal') initRegistrationModal();
 };
 
 const attachEventListeners = () => {
@@ -175,13 +196,6 @@ const showView = (view) => {
 
 const initializeAppLogic = async () => {
   cacheDOMElements();
-  console.log("Initializing AppLogic with views:", {
-    landing: elements.landingPageView,
-    dashboard: elements.dashboardView,
-    pageContent: elements.pageContent
-  });
-  console.log("📦 Cached Elements:", elements);
-
   try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
@@ -194,8 +208,6 @@ const initializeAppLogic = async () => {
 
   onAuthStateChanged(auth, async (user) => {
     currentUser = user;
-    console.log("👤 Auth State Changed:", user);
-
     if (user) {
       showView('dashboard');
       await loadPage('inventory');
@@ -207,7 +219,6 @@ const initializeAppLogic = async () => {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  console.log("🚀 DOM Ready. Initializing app...");
   if (!window.location.hash) {
     window.location.hash = '#landing';
   }

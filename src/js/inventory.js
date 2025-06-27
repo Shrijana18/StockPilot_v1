@@ -1,5 +1,5 @@
 import { doc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { fetchAndInjectHTML, closeModal } from './utils.js';
+import { fetchAndInjectHTML, closeModal } from '../utils.js';
 
 // --- State ---
 let db = null;

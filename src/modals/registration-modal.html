@@ -39,8 +39,8 @@
                         </div>
                         <div>
                             <label for="business-role" class="block text-sm font-medium text-gray-300">Business Role</label>
-                            <select id="business-role" class="mt-1 block w-full form-input rounded-md" required>
-                                <option value="" selected>Select your role</option>
+                            <select id="business-role" name="business-role" class="mt-1 block w-full form-input rounded-md bg-gray-800 text-white border border-gray-600" required>
+                                <option value="" disabled selected>Select your role</option>
                                 <option value="retailer">Retailer</option>
                                 <option value="distributor">Distributor</option>
                                 <option value="product-owner">Product Owner</option>
@@ -73,9 +73,3 @@
         </div>
     </div>
 </div>
-<script>
-document.getElementById('next-to-details')?.addEventListener('click', () => {
-  document.querySelector('[data-step="role"]').classList.add('hidden-view');
-  document.querySelector('[data-step="details"]').classList.remove('hidden-view');
-});
-</script>
