@@ -75,7 +75,11 @@ const initSignInModal = () => {
   const signInModal = document.getElementById('sign-in-modal');
   if (!signInModal) return;
 
-  signInModal.querySelector('#close-modal-btn').addEventListener('click', closeModal);
+  signInModal.querySelector('#close-modal-btn').addEventListener('click', () => {
+    signInModal.querySelector('#sign-in-form')?.reset();
+    signInModal.querySelector('#form-error').textContent = '';
+    closeModal();
+  });
 
   signInModal.querySelector('#sign-in-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -90,13 +94,18 @@ const initSignInModal = () => {
       if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
         closeModal();
+        form.reset();
+
+        currentUser = userCredential.user;
+
         showView('dashboard');
+
         if (userData.role === 'retailer') {
-          loadPage('inventory');
+          await loadPage('inventory');
         } else if (userData.role === 'distributor') {
-          loadPage('billing');
+          await loadPage('billing');
         } else {
-          loadPage('dashboard');
+          await loadPage('inventory');
         }
       } else {
         errorEl.textContent = "User profile not found.";
@@ -111,60 +120,76 @@ const initRegistrationModal = () => {
   const roleCards = document.querySelectorAll('.role-card');
   const continueBtn = document.getElementById('next-to-details');
   const closeBtn = document.getElementById('close-modal-btn');
-  const registrationSteps = document.querySelectorAll('[data-step]');
 
   roleCards.forEach(card => {
     card.addEventListener('click', () => {
       roleCards.forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       selectedBusinessRole = card.getAttribute('data-role');
+
+      const roleInput = document.getElementById('selected-role');
+      if (roleInput) roleInput.value = selectedBusinessRole;
     });
   });
 
-  continueBtn?.addEventListener('click', () => {
+  continueBtn?.addEventListener('click', async () => {
     if (!selectedBusinessRole) {
       alert("Please select a role to continue.");
       return;
     }
 
-    fetchAndInjectHTML('./src/views/registration-form.html', elements.modalContainer).then(() => {
-      const roleInput = document.getElementById('selected-role');
-      if (roleInput) roleInput.value = selectedBusinessRole;
-      initRegistrationModal(); // Re-init registration logic on new form
-    });
+    const roleInput = document.getElementById('selected-role');
+    if (roleInput) roleInput.value = selectedBusinessRole;
+
+    const stepContainer = document.getElementById('registration-modal');
+    if (stepContainer) {
+      const res = await fetch('./src/views/registration-form.html');
+      const formHtml = await res.text();
+      stepContainer.innerHTML = formHtml;
+
+      setTimeout(() => {
+        const roleInputInjected = document.getElementById('selected-role');
+        if (roleInputInjected) roleInputInjected.value = selectedBusinessRole;
+
+        const form = document.getElementById('registration-form');
+        if (form) {
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+              const userCredential = await createUserWithEmailAndPassword(auth, form['register-email'].value, form['register-password'].value);
+              const userId = userCredential.user.uid;
+              await setDoc(doc(db, 'businesses', userId), {
+                businessName: form['business-name'].value,
+                ownerName: form['owner-name'].value,
+                email: form['register-email'].value,
+                phone: form['phone'].value,
+                city: form['city'].value,
+                role: selectedBusinessRole,
+                createdAt: new Date().toISOString(),
+              });
+              closeModal();
+              elements.modalContainer.innerHTML = '';
+              showView('dashboard');
+              if (selectedBusinessRole === 'retailer') {
+                await loadPage('inventory');
+              } else if (selectedBusinessRole === 'distributor') {
+                await loadPage('billing');
+              } else {
+                await loadPage('inventory');
+              }
+              selectedBusinessRole = '';
+            } catch (err) {
+              alert(err.message);
+            }
+          });
+        }
+      }, 0);
+    }
   });
 
   closeBtn?.addEventListener('click', () => {
     closeModal();
   });
-
-  const registrationForm = document.getElementById('registration-form');
-  if (registrationForm) {
-    registrationForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const form = e.target;
-      try {
-        const userCredential = await createUserWithEmailAndPassword(auth, form['register-email'].value, form['register-password'].value);
-        const userId = userCredential.user.uid;
-        await setDoc(doc(db, 'businesses', userId), {
-          businessName: form['business-name'].value,
-          ownerName: form['owner-name'].value,
-          email: form['register-email'].value,
-          phone: form['phone'].value,
-          city: form['city'].value,
-          role: form['selected-role'].value,
-          createdAt: new Date().toISOString(),
-        });
-        closeModal();
-        showView('dashboard');
-        if (form['selected-role'].value === 'retailer') loadPage('inventory');
-        else if (form['selected-role'].value === 'distributor') loadPage('billing');
-        else loadPage('dashboard');
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  }
 };
 
 const showModal = async (modalName) => {
@@ -177,10 +202,24 @@ const attachEventListeners = () => {
   document.body.addEventListener('click', (e) => {
     const registerBtn = e.target.closest('#register-btn, #register-btn-hero');
     const signInBtn = e.target.closest('#sign-in-btn');
+    const signOutBtn = e.target.closest('#sign-out-btn');
     const navLink = e.target.closest('.dashboard-nav-link');
 
-    if (registerBtn) showModal('registration-modal');
+    if (registerBtn) {
+      selectedBusinessRole = '';
+      showModal('registration-modal');
+    }
     if (signInBtn) showModal('sign-in-modal');
+    if (signOutBtn) {
+      signOut(auth)
+        .then(async () => {
+          currentUser = null;
+          showView('landing');
+          await loadPage('landing');
+          attachEventListeners();
+        })
+        .catch((error) => console.error("Sign out failed:", error));
+    }
     if (navLink) {
       e.preventDefault();
       const page = navLink.getAttribute('href').substring(1);
@@ -200,6 +239,37 @@ const initializeAppLogic = async () => {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const loginEmail = urlParams.get("login-email");
+    const loginPassword = urlParams.get("login-password");
+
+    if (loginEmail && loginPassword) {
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+        currentUser = userCredential.user;
+        const userDoc = await getDoc(doc(db, "businesses", currentUser.uid));
+        const role = userDoc.exists() ? userDoc.data().role : null;
+
+        showView('dashboard');
+        if (role === 'retailer') await loadPage('inventory');
+        else if (role === 'distributor') await loadPage('billing');
+        else await loadPage('inventory');
+
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname + "#dashboard");
+        attachEventListeners();
+        return;
+      } catch (err) {
+        console.error("Auto-login from URL failed", err);
+        alert("Login failed. Please try again.");
+        await loadPage('landing');
+      }
+    } else {
+      await loadPage('landing');
+    }
+
+    attachEventListeners();
   } catch (e) {
     console.error("Firebase init failed:", e);
     document.body.innerHTML = `<div class="p-10 bg-red-900 text-white">FATAL ERROR: Firebase not configured</div>`;
@@ -209,11 +279,22 @@ const initializeAppLogic = async () => {
   onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     if (user) {
+      const userDoc = await getDoc(doc(db, "businesses", user.uid));
+      const role = userDoc.exists() ? userDoc.data().role : null;
+
       showView('dashboard');
-      await loadPage('inventory');
+
+      if (role === 'retailer') {
+        await loadPage('inventory');
+      } else if (role === 'distributor') {
+        await loadPage('billing');
+      } else {
+        await loadPage('inventory');
+      }
     } else {
       await loadPage('landing');
     }
+
     attachEventListeners();
   });
 };
