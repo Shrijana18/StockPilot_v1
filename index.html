@@ -1,58 +1,53 @@
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StockPilot - Your Business, Automated.</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-    <!-- Our Custom Stylesheet -->
-    <link rel="stylesheet" href="./css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BusinessPilot - Inventory & Billing</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/style.css" />
+  <style>
+    body {
+      font-family: 'Manrope', sans-serif;
+      background-color: #0b1120;
+      color: #e5e7eb;
+    }
+    .hidden-view {
+      display: none !important;
+    }
+  </style>
 </head>
-<body class="bg-gray-900">
+<body>
+  <div id="app-container">
+    <!-- Landing Page Content Injected -->
+    <div id="landing-page-view" class="hidden-view"></div>
 
-    <div id="app-container">
-        <!-- Splash Screen -->
-        <div id="splash-screen" style="display: none;"><div id="splash-logo" class="font-brand"><div class="pilot-icon"></div>StockPilot</div></div>
-        <!-- Main Application Wrapper -->
-        <div id="main-app" 
-            
-            <!-- This view is shown to logged-out users -->
-            <div id="landing-page-view">
-                <!-- Landing page content will be loaded here by main.js -->
-            </div>
-            
-            <!-- This view is shown to logged-in users -->
-            <div id="dashboard-view" class="hidden-view flex h-screen">
-                <aside class="w-64 bg-gray-900 border-r border-white/10 flex flex-col">
-                    <div class="flex items-center justify-center h-16 border-b border-white/10">
-                        <div class="text-2xl font-bold text-white font-brand flex items-center"><div class="pilot-icon"></div>StockPilot</div>
-                    </div>
-                    <nav class="flex-1 px-4 py-6 space-y-2">
-                        <a href="#dashboard" class="dashboard-nav-link active flex items-center px-4 py-2 text-white rounded-lg">Dashboard</a>
-                        <a href="#inventory" class="dashboard-nav-link flex items-center px-4 py-2 text-gray-400 hover:bg-gray-700/50 rounded-lg">Inventory</a>
-                        <a href="#billing" class="dashboard-nav-link flex items-center px-4 py-2 text-gray-400 hover:bg-gray-700/50 rounded-lg">Billing</a>
-                    </nav>
-                    <div class="px-4 py-4 border-t border-white/10">
-                        <button id="sign-out-btn" class="w-full btn-secondary font-medium px-4 py-2 rounded-lg">Sign Out</button>
-                    </div>
-                </aside>
-                <!-- The content for the selected dashboard page will be loaded into this main element -->
-                <main id="page-content" class="flex-1 p-8 bg-gray-800/30 overflow-y-auto">
-                    <!-- Page content from pages/*.html goes here -->
-                </main>
-            </div>
-
-            <!-- Modals will be injected here by main.js when needed -->
-            <div id="modal-container"></div>
+    <!-- Dashboard Content -->
+    <div id="dashboard-view" class="hidden-view flex h-screen">
+      <aside class="w-64 bg-gray-900/50 border-r border-white/10 flex flex-col">
+        <div class="flex items-center justify-center h-16 border-b border-white/10">
+          <div class="text-2xl font-brand text-white">BusinessPilot</div>
         </div>
+        <nav class="flex-1 px-4 py-6 space-y-2">
+          <a href="#dashboard" class="dashboard-nav-link active flex items-center px-4 py-2 font-semibold rounded-lg">Dashboard</a>
+          <a href="#inventory" class="dashboard-nav-link flex items-center px-4 py-2 font-semibold text-gray-300 hover:bg-white/5 hover:text-white rounded-lg">Inventory</a>
+          <a href="#billing" class="dashboard-nav-link flex items-center px-4 py-2 font-semibold text-gray-300 hover:bg-white/5 hover:text-white rounded-lg">Billing</a>
+        </nav>
+        <div class="px-4 py-4 border-t border-white/10">
+          <button id="sign-out-btn" class="w-full font-medium px-4 py-2 text-white hover:text-teal-400 rounded-lg">Sign Out</button>
+        </div>
+      </aside>
+      <main class="flex-1 p-8 overflow-y-auto">
+        <div id="page-content" class="text-white"></div>
+      </main>
     </div>
-    
-    <!-- Our main application logic script -->
-    <script src="./js/main.js" type="module"></script>
+
+    <!-- Modal Container -->
+    <div id="modal-container"></div>
+  </div>
+
+  <!-- Main Application Logic -->
+  <script type="module" src="./js/main.js"></script>
 </body>
 </html>

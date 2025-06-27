@@ -1,24 +1,30 @@
 <div id="add-product-modal" class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="w-full max-w-lg modal-container rounded-xl shadow-2xl relative">
+    <div class="w-full max-w-lg card rounded-2xl shadow-2xl relative">
         <button id="close-add-product-modal-btn" class="absolute top-4 right-4 text-gray-400 hover:text-white z-10">✕</button>
         <div class="p-8">
-            <h2 class="text-2xl font-bold text-center mb-6 text-white font-brand">Add New Product</h2>
+            <h2 class="text-2xl font-brand text-center mb-6 text-white">Add New Product</h2>
             <form id="add-product-form" class="space-y-4">
                 <div>
                     <label for="product-name" class="block text-sm font-medium text-gray-300">Product Name</label>
-                    <input type="text" id="product-name" required class="mt-1 block w-full form-input rounded-md">
+                    <input type="text" id="product-name" required
+                        class="mt-1 block w-full px-4 py-2 rounded-md bg-gray-900 text-white border border-gray-600 focus:ring-2 focus:ring-teal-400"
+                        placeholder="e.g., LED Bulb 12W">
                 </div>
                 <div>
                     <label for="product-sku" class="block text-sm font-medium text-gray-300">SKU (Stock Keeping Unit)</label>
-                    <input type="text" id="product-sku" required class="mt-1 block w-full form-input rounded-md">
+                    <input type="text" id="product-sku" required
+                        class="mt-1 block w-full px-4 py-2 rounded-md bg-gray-900 text-white border border-gray-600 focus:ring-2 focus:ring-teal-400"
+                        placeholder="e.g., LED-12W-BL123">
                 </div>
                 <div>
                     <label for="product-quantity" class="block text-sm font-medium text-gray-300">Current Quantity</label>
-                    <input type="number" id="product-quantity" required class="mt-1 block w-full form-input rounded-md">
+                    <input type="number" id="product-quantity" required
+                        class="mt-1 block w-full px-4 py-2 rounded-md bg-gray-900 text-white border border-gray-600 focus:ring-2 focus:ring-teal-400"
+                        placeholder="e.g., 100">
                 </div>
-                <div id="add-product-form-error" class="error-message text-center"></div>
+                <div id="add-product-form-error" class="text-center text-red-400 text-sm font-medium"></div>
                 <div class="pt-2">
-                    <button type="submit" class="btn-primary w-full font-bold py-3 rounded-lg">Save Product</button>
+                    <button type="submit" class="w-full py-3 bg-teal-400 hover:bg-teal-300 text-gray-900 font-bold rounded-lg">Save Product</button>
                 </div>
             </form>
         </div>
