@@ -1,4 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Billing Module</title>
+  <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/js/billing.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      new TomSelect('#productSearch', {
+        valueField: 'id',
+        labelField: 'name',
+        searchField: ['name', 'sku', 'brand'],
+        render: {
+          option: function(data, escape) {
+            return `
+              <div class="flex items-center">
+                <img src="${escape(data.image || '')}" class="w-8 h-8 rounded mr-2 object-cover" />
+                <div>
+                  <div class="font-semibold">${escape(data.name)}</div>
+                  <div class="text-xs text-gray-500">SKU: ${escape(data.sku)} | Stock: ${escape(data.quantity)}</div>
+                </div>
+              </div>`;
+          },
+          item: function(data, escape) {
+            return `<div>${escape(data.name)} (${escape(data.sku)})</div>`;
+          }
+        }
+      });
+    });
+  </script>
+  <script>
+    function editPreviewField(spanId) {
+      const span = document.getElementById(spanId);
+      const currentValue = span.innerText;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = currentValue;
+      input.className = "border p-1 text-black rounded";
+      input.onblur = () => {
+        span.innerText = input.value;
+        span.style.display = "inline";
+        input.remove();
+      };
+      span.style.display = "none";
+      span.parentNode.insertBefore(input, span);
+      input.focus();
+    }
+  </script>
+</head>
+<body>
 <div class="p-6 text-white">
-  <h2 class="text-3xl font-bold mb-4">Billing Module</h2>
-  <p>This is a placeholder for the billing dashboard. Functionality coming soon.</p>
+  <div class="mb-4 flex space-x-4">
+    <button class="billing-tab-btn px-4 py-2 bg-blue-600 text-white rounded" data-tab="generate-invoice-tab" data-billing-tab="generate-invoice-tab">Generate Invoice</button>
+    <button class="billing-tab-btn px-4 py-2 bg-gray-700 text-white rounded" data-tab="all-invoices-tab" data-billing-tab="all-invoices-tab">All Invoices</button>
+    <button class="billing-tab-btn px-4 py-2 bg-gray-700 text-white rounded" data-tab="customer-history-tab" data-billing-tab="customer-history-tab">Customer History</button>
+  </div>
+  <div id="billing-tab-content">
+    <div id="generate-invoice-tab" class="billing-tab-panel" data-billing-tab-content="generate-invoice-tab">
+      <h2 class="text-3xl font-bold mb-4">Billing Module</h2>
+
+      <!-- Product Selection -->
+      <div class="mb-4">
+        <label for="productSearch" class="block mb-2 text-lg font-semibold">Search Product:</label>
+        <div class="relative">
+          <select id="productSearch" data-render="custom" placeholder="Search product by name, brand or SKU" autocomplete="off" class="w-full p-2 text-black rounded">
+            <option value="">Select a product</option>
+          </select>
+          <input type="hidden" id="selectedProductUnit" />
+          <input type="hidden" id="selectedProductPrice" />
+        </div>
+        <button id="addToCartBtn" class="mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">Add to Cart</button>
+      </div>
+
+      <!-- Customer Information -->
+      <div class="mb-6 bg-gray-800 p-4 rounded" id="customer-info-section">
+        <h3 class="text-xl font-semibold mb-2">Customer Information</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-white">
+          <div>
+            <label for="customerName" class="block text-sm font-medium">Customer Name:</label>
+            <input type="text" id="customerName" class="w-full p-2 rounded text-black" placeholder="Enter customer name" />
+          </div>
+          <div>
+            <label for="customerPhone" class="block text-sm font-medium">Phone Number:</label>
+            <input type="text" id="customerPhone" class="w-full p-2 rounded text-black" placeholder="Enter phone number" />
+          </div>
+          <div>
+            <label for="customerEmail" class="block text-sm font-medium">Email Address:</label>
+            <input type="email" id="customerEmail" class="w-full p-2 rounded text-black" placeholder="Enter email address" />
+          </div>
+          <div>
+            <label for="customerAddress" class="block text-sm font-medium">Address:</label>
+            <input type="text" id="customerAddress" class="w-full p-2 rounded text-black" placeholder="Enter address" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Invoice Settings -->
+      <div class="mb-6 bg-gray-800 p-4 rounded" id="invoice-settings-section">
+        <h3 class="text-xl font-semibold mb-2">Invoice Settings</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-white">
+          <div>
+            <label class="flex items-center space-x-2">
+              <input type="checkbox" id="toggleCustomerDetails" checked />
+              <span>Include Customer Details</span>
+            </label>
+          </div>
+          <div>
+            <label class="flex items-center space-x-2">
+              <input type="checkbox" id="toggleGST" />
+              <span>Include GST/CGST/SGST</span>
+            </label>
+          </div>
+          <div>
+            <label for="invoiceType" class="block text-sm font-medium">Invoice Type:</label>
+            <select id="invoiceType" class="w-full text-black p-1 rounded">
+              <option value="retail">Retail</option>
+              <option value="tax">Tax Invoice</option>
+              <option value="wholesale">Wholesale</option>
+            </select>
+          </div>
+        </div>
+        <div id="gstRateInputs" class="col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 hidden">
+          <input type="number" id="cgstRate" placeholder="CGST %" class="p-2 rounded text-black" />
+          <input type="number" id="sgstRate" placeholder="SGST %" class="p-2 rounded text-black" />
+          <input type="number" id="igstRate" placeholder="IGST %" class="p-2 rounded text-black" />
+        </div>
+      </div>
+
+      <!-- Cart Table -->
+      <div class="mb-4">
+        <h3 class="text-2xl font-semibold mb-2">Cart</h3>
+        <table class="w-full bg-white text-black rounded">
+          <thead>
+            <tr class="bg-gray-200">
+              <th class="p-2">Product</th>
+              <th class="p-2">Quantity</th>
+              <th class="p-2">Unit Price</th>
+              <th class="p-2">Discount %</th>
+              <th class="p-2">Total</th>
+              <th class="p-2">Remove</th>
+            </tr>
+          </thead>
+          <tbody id="cartItems">
+            <!-- Example row structure (to be created dynamically via JS)
+            <tr>
+              <td>Product Name</td>
+              <td><input type="number" value="1" class="cart-qty-input" /></td>
+              <td class="unit-price">₹100</td>
+              <td class="item-total">₹100</td>
+              <td><button class="remove-item-btn">❌</button></td>
+            </tr>
+            -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Billing Summary -->
+      <div class="mb-4 text-right">
+        <p class="text-lg">Subtotal: <span id="billingSubtotal">₹0.00</span></p>
+        <h3 class="text-xl font-bold">Grand Total: <span id="billingGrandTotal">₹0.00</span></h3>
+        <button id="generateInvoiceBtn" class="mt-4 px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Generate Bill</button>
+        <button id="toggleInvoicePreviewBtn" class="mt-2 ml-2 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">Toggle Invoice Preview</button>
+
+        <!-- Payment Mode Selection -->
+        <div class="mb-6 bg-gray-800 p-4 rounded" id="payment-section">
+          <h3 class="text-xl font-semibold mb-2">Select Payment Method</h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-white">
+            <label class="flex items-center space-x-2">
+              <input type="radio" name="paymentMode" value="cash" checked />
+              <span>Cash</span>
+            </label>
+            <label class="flex items-center space-x-2">
+              <input type="radio" name="paymentMode" value="upi" />
+              <span>UPI</span>
+            </label>
+            <label class="flex items-center space-x-2">
+              <input type="radio" name="paymentMode" value="card" />
+              <span>Card</span>
+            </label>
+          </div>
+        </div>
+
+        <hr class="my-6 border-gray-500" />
+        <!-- Invoice Preview -->
+        <div id="invoicePreview" class="hidden mt-10 mt-6 bg-white text-black p-6 rounded shadow">
+          <h2 class="text-2xl font-bold mb-4">Invoice Preview</h2>
+
+          <!-- Business Details -->
+          <div id="previewBusinessDetails" class="mb-4">
+            <p class="font-semibold">Business Name: <span id="previewBusinessName"></span> <span class="text-blue-600 cursor-pointer" onclick="editPreviewField('previewBusinessName')">✏️</span></p>
+            <p class="text-sm">Address: <span id="previewBusinessAddress"></span> <span class="text-blue-600 cursor-pointer" onclick="editPreviewField('previewBusinessAddress')">✏️</span></p>
+          </div>
+
+          <!-- Customer Info -->
+          <div id="previewCustomerInfo" class="mb-4">
+            <p><strong>Customer Name:</strong> <span id="previewCustomerName"></span> <span class="text-blue-600 cursor-pointer" onclick="editPreviewField('previewCustomerName')">✏️</span></p>
+            <p><strong>Phone:</strong> <span id="previewCustomerPhone"></span> <span class="text-blue-600 cursor-pointer" onclick="editPreviewField('previewCustomerPhone')">✏️</span></p>
+            <p><strong>Email:</strong> <span id="previewCustomerEmail"></span> <span class="text-blue-600 cursor-pointer" onclick="editPreviewField('previewCustomerEmail')">✏️</span></p>
+          </div>
+
+          <!-- Invoice Metadata -->
+          <div class="mb-4">
+            <p><strong>Invoice Type:</strong> <span id="previewInvoiceType"></span> <span class="text-blue-600 cursor-pointer" onclick="editPreviewField('previewInvoiceType')">✏️</span></p>
+            <p><strong>Date:</strong> <span id="previewInvoiceDate"></span> <span class="text-blue-600 cursor-pointer" onclick="editPreviewField('previewInvoiceDate')">✏️</span></p>
+          </div>
+
+          <!-- Product Table -->
+          <table class="w-full border border-collapse border-gray-400 mb-4">
+            <thead class="bg-gray-200">
+              <tr>
+                <th class="p-2 border">Product</th>
+                <th class="p-2 border">Qty</th>
+                <th class="p-2 border">Unit Price</th>
+                <th class="p-2 border">Discount %</th>
+                <th class="p-2 border">Total</th>
+              </tr>
+            </thead>
+            <tbody id="previewProductTable" class="text-sm"></tbody>
+          </table>
+
+          <!-- Edit Cart in Preview -->
+          <div class="mt-4">
+            <button id="editCartBtn" class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600">Edit Cart</button>
+          </div>
+          <div class="mb-4">
+            <label for="previewProductSearch" class="block mb-2 text-sm font-semibold">Add Product in Preview:</label>
+            <select id="previewProductSearch" placeholder="Search and add product" class="w-full p-2 rounded text-black" autocomplete="off">
+              <option value="">Select a product</option>
+            </select>
+            <button id="previewAddToCartBtn" class="mt-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">Add to Cart</button>
+          </div>
+          <div id="editCartSection" class="hidden mt-4 bg-gray-100 p-4 rounded">
+            <h3 class="text-lg font-semibold mb-2">Modify Cart</h3>
+            <table class="w-full text-black">
+              <thead>
+                <tr class="bg-gray-200">
+                  <th class="p-2">Product</th>
+                  <th class="p-2">Quantity</th>
+                  <th class="p-2">Unit Price</th>
+                  <th class="p-2">Discount %</th>
+                  <th class="p-2">Total</th>
+                  <th class="p-2">Remove</th>
+                </tr>
+              </thead>
+              <tbody id="editCartItems"></tbody>
+            </table>
+            <div class="mt-4 text-right">
+              <button id="applyCartChangesBtn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Apply Changes</button>
+            </div>
+          </div>
+
+          <!-- Totals -->
+          <div class="text-right">
+            <p><strong>Subtotal:</strong> ₹<span id="previewSubtotal">0.00</span></p>
+            <div id="previewGSTBreakdown" style="display: none;">
+              <p><strong>CGST:</strong> ₹<span id="previewCGSTAmount">0.00</span></p>
+              <p><strong>SGST:</strong> ₹<span id="previewSGSTAmount">0.00</span></p>
+              <p><strong>IGST:</strong> ₹<span id="previewIGSTAmount">0.00</span></p>
+            </div>
+            <h3 class="text-xl mt-2">Grand Total: ₹<span id="previewGrandTotal">0.00</span></h3>
+            <p class="text-sm italic">Amount in words: <span id="previewAmountWords">Zero</span></p>
+          </div>
+          <button id="finalizeInvoiceBtn" class="mt-4 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">Finalize & Save Invoice</button>
+          <button id="cancelInvoiceBtn" class="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 ml-2">Cancel Bill</button>
+        </div>
+      </div>
+    </div>
+      <div id="all-invoices-tab" class="billing-tab-panel hidden" data-billing-tab-content="all-invoices-tab">
+        <h3 class="text-xl font-semibold mb-4">All Invoices</h3>
+        <div id="invoiceListContainer" class="bg-gray-800 p-4 rounded text-white">
+          <h4 class="text-lg font-semibold mb-2">Saved Invoices</h4>
+          <!-- Filter Fields -->
+          <div class="mb-4 flex flex-col md:flex-row md:items-center md:space-x-4 text-black">
+            <input type="text" id="filterCustomer" placeholder="Filter by Customer Name" class="p-2 rounded mb-2 md:mb-0" />
+            <input type="date" id="filterDateStart" class="p-2 rounded mb-2 md:mb-0" />
+            <input type="date" id="filterDateEnd" class="p-2 rounded mb-2 md:mb-0" />
+            <button id="applyInvoiceFilters" class="px-4 py-2 bg-blue-600 text-white rounded">Apply Filters</button>
+          </div>
+          <!-- Invoice Card Container -->
+          <div id="invoiceCardContainer" class="space-y-4"></div>
+          <!-- Slide-Over Invoice Preview Panel -->
+          <div id="invoiceSlideOver" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex justify-end">
+            <div class="w-full max-w-2xl bg-white text-black shadow-lg p-6 relative overflow-y-auto">
+              <button id="closeInvoicePanelBtn" class="absolute top-2 right-2 text-gray-600 hover:text-red-600 text-2xl font-bold">&times;</button>
+              <h2 class="text-2xl font-bold mb-4">Invoice Preview</h2>
+
+              <div id="slideInvoiceContent">
+                <!-- Populated dynamically via JS -->
+              </div>
+
+              <div class="mt-4 text-right">
+                <button id="printInvoiceBtn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">🖨️ Print</button>
+                <button id="downloadInvoiceBtn" class="ml-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">⬇️ Download</button>
+                <button id="shareInvoiceBtn" class="ml-2 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">📤 WhatsApp</button>
+              </div>
+            </div>
+          </div>
+          <p id="noInvoicesMsg" class="text-gray-400 mt-4 hidden">No invoices found yet.</p>
+        </div>
+      </div>
+    <div id="customer-history-tab" class="billing-tab-panel hidden" data-billing-tab-content="customer-history-tab">
+      <h3 class="text-xl font-semibold mb-4">Customer History & Insights</h3>
+      <p class="text-gray-300">View purchase history, frequency, and retention insights for each customer.</p>
+    </div>
+  </div>
 </div>
+  <template id="product-suggestion-template">
+    <li class="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer border-b border-gray-200">
+      <img src="" alt="Product Image" class="w-10 h-10 object-cover rounded mr-2 suggestion-image" />
+      <div class="flex flex-col">
+        <span class="font-semibold suggestion-name"></span>
+        <span class="text-xs text-gray-600 suggestion-meta"></span>
+      </div>
+    </li>
+  </template>
+
+</body>
+  <!-- Toast Notification -->
+  <div id="invoiceToast" class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-green-600 text-white px-6 py-3 rounded shadow-lg text-center hidden z-50">
+    Invoice Draft Created. Scroll below to preview & edit.
+  </div>
+
+  <!-- Success Toast -->
+  <div id="invoiceSuccessToast" class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-green-600 text-white px-6 py-4 rounded shadow-lg text-center hidden z-50 animate-fade-in">
+    <p class="text-xl font-semibold mb-2">✅ Invoice saved successfully!</p>
+    <button id="newBillBtn" class="mt-2 px-4 py-2 bg-white text-green-700 font-bold rounded hover:bg-gray-100">🧾 Create New Bill</button>
+  </div>
+
+  <style>
+    @keyframes fade-in {
+      from { opacity: 0; transform: scale(0.9) translate(-50%, -50%); }
+      to { opacity: 1; transform: scale(1) translate(-50%, -50%); }
+    }
+    .animate-fade-in {
+      animation: fade-in 0.4s ease-out;
+    }
+  </style>
+</body>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const editCartBtn = document.getElementById('editCartBtn');
+    const editCartSection = document.getElementById('editCartSection');
+
+    if (editCartBtn && editCartSection) {
+      editCartBtn.addEventListener('click', () => {
+        editCartSection.classList.toggle('hidden');
+      });
+    }
+  });
+</script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    window.previewSelect = new TomSelect('#previewProductSearch', {
+      shouldLoad: false,
+      valueField: 'id',
+      labelField: 'name',
+      searchField: ['name', 'sku', 'brand'],
+      render: {
+        option: function(data, escape) {
+          return `
+            <div class="flex items-center">
+              <img src="${escape(data.image || '')}" class="w-6 h-6 rounded mr-2 object-cover" />
+              <div>
+                <div class="font-semibold">${escape(data.name)}</div>
+                <div class="text-xs text-gray-500">SKU: ${escape(data.sku)} | Stock: ${escape(data.quantity)}</div>
+              </div>
+            </div>`;
+        },
+        item: function(data, escape) {
+          return `<div>${escape(data.name)} (${escape(data.sku)})</div>`;
+        }
+      }
+    });
+  });
+</script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const tabButtons = document.querySelectorAll('.billing-tab-btn');
+    const tabPanels = document.querySelectorAll('.billing-tab-panel');
+
+    tabButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const targetId = button.getAttribute('data-tab');
+        const targetPanel = document.getElementById(targetId);
+
+        // Hide all panels
+        tabPanels.forEach(panel => panel.classList.add('hidden'));
+
+        // Reset button styles
+        tabButtons.forEach(btn => {
+          btn.classList.remove('bg-blue-600');
+          btn.classList.add('bg-gray-700');
+        });
+
+        // Activate the clicked tab
+        button.classList.remove('bg-gray-700');
+        button.classList.add('bg-blue-600');
+        targetPanel.classList.remove('hidden');
+      });
+    });
+
+    // Optional: show default tab on page load
+    const defaultTab = document.querySelector('.billing-tab-btn[data-tab="generate-invoice-tab"]');
+    if (defaultTab) defaultTab.click();
+  });
+</script>
+</html>

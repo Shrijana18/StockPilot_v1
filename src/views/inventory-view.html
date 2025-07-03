@@ -1,0 +1,49 @@
+<!-- inventory-view.html -->
+<div class="p-6 bg-white rounded shadow">
+  <h2 class="text-xl font-bold mb-4 text-gray-800">Current Inventory</h2>
+  <div class="mb-4 flex flex-wrap gap-4 items-center">
+    <input
+      type="text"
+      id="search-input"
+      placeholder="Search Product Name, SKU or Brand"
+      class="px-4 py-2 border rounded w-full md:w-1/3 shadow-sm focus:outline-none focus:ring focus:border-blue-300"
+    />
+
+    <select
+      id="sort-select"
+      class="px-4 py-2 border rounded shadow-sm focus:outline-none focus:ring focus:border-blue-300"
+    >
+      <option value="">Sort By</option>
+      <option value="name-asc">Product Name (A-Z)</option>
+      <option value="name-desc">Product Name (Z-A)</option>
+      <option value="qty-asc">Quantity (Low to High)</option>
+      <option value="qty-desc">Quantity (High to Low)</option>
+      <option value="price-asc">Selling Price (Low to High)</option>
+      <option value="price-desc">Selling Price (High to Low)</option>
+    </select>
+  </div>
+  <div class="filter-chips flex flex-wrap gap-2 mb-4">
+    <button class="chip bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm" data-filter="status:in-stock">🟢 In Stock</button>
+    <button class="chip bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm" data-filter="status:low">🔴 Low</button>
+    <button class="chip bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm" data-filter="status:out-of-stock">⚫ Out of Stock</button>
+  </div>
+  <table class="w-full text-sm border border-gray-200 shadow-sm">
+    <thead class="bg-gray-100 text-gray-600 uppercase text-xs">
+      <tr>
+        <th class="px-4 py-2 text-left">Image</th>
+        <th class="px-4 py-2 text-left">Product Name</th>
+        <th class="px-4 py-2 text-left">SKU</th>
+        <th class="px-4 py-2 text-left">Brand</th>
+        <th class="px-4 py-2 text-left">Category</th>
+        <th class="px-4 py-2 text-left">Quantity</th>
+        <th class="px-4 py-2 text-left">Unit</th>
+        <th class="px-4 py-2 text-left">Cost Price</th>
+        <th class="px-4 py-2 text-left">Selling Price</th>
+        <th class="px-4 py-2 text-right w-24">Status</th>
+      </tr>
+    </thead>
+    <tbody id="inventory-list" class="text-gray-800">
+      <!-- Populated dynamically, including image cells -->
+    </tbody>
+  </table>
+</div>

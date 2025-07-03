@@ -24,7 +24,9 @@ export const fetchAndInjectHTML = async (filePath, targetElement) => {
   try {
     const res = await fetch(filePath);
     if (!res.ok) throw new Error(`Could not fetch ${filePath}`);
-    targetElement.innerHTML = await res.text();
+    const html = await res.text();
+    console.log(`🔍 Injecting HTML from: ${filePath}`);
+    targetElement.innerHTML = html;
     console.log(`✅ Loaded ${filePath}`);
   } catch (error) {
     console.error("HTML Injection Error:", error);

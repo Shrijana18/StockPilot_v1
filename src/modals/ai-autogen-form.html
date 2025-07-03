@@ -1,0 +1,30 @@
+
+
+<div class="p-6">
+  <h2 class="text-2xl font-bold mb-4">AI-Generated Inventory Setup</h2>
+  <form id="ai-autogen-form" class="space-y-4">
+    <label class="block">
+      <span class="text-gray-300">Business Category</span>
+      <input type="text" id="business-category" placeholder="e.g. Sanitary, Electronics" class="w-full p-2 bg-gray-800 rounded mt-1" required />
+    </label>
+
+    <label class="block">
+      <span class="text-gray-300">Brands You Deal With</span>
+      <input type="text" id="brands" placeholder="e.g. Jaquar, Hindware, Cera" class="w-full p-2 bg-gray-800 rounded mt-1" required />
+    </label>
+
+    <label class="block">
+      <span class="text-gray-300">Product Categories</span>
+      <input type="text" id="product-categories" placeholder="e.g. Faucets, Showers, Pipes" class="w-full p-2 bg-gray-800 rounded mt-1" required />
+    </label>
+
+    <label class="block">
+      <span class="text-gray-300">Product Types You Sell</span>
+      <textarea id="product-types" placeholder="e.g. Single lever basin mixer, Overhead rain shower, CPVC pipe 1 inch" class="w-full p-2 bg-gray-800 rounded mt-1" rows="3" required></textarea>
+    </label>
+
+    <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded">
+      Generate Inventory
+    </button>
+  </form>
+</div>
