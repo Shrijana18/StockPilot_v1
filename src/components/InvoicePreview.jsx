@@ -1,0 +1,64 @@
+import React from "react";
+
+const InvoicePreview = ({ invoice, onClose }) => {
+  if (!invoice) return null;
+
+  const { customerInfo, items, total, subtotal, gst, createdAt, settings } = invoice;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex justify-end">
+      <div className="w-full sm:max-w-xl bg-white shadow-xl p-6 overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Invoice Preview</h2>
+          <button onClick={onClose} className="text-red-500 font-bold text-lg">✕</button>
+        </div>
+
+        <p className="text-sm text-gray-500 mb-2">Date: {new Date(createdAt).toLocaleString()}</p>
+
+        <div className="mb-4">
+          <h3 className="font-semibold">Customer Info</h3>
+          <p>Name: {customerInfo?.name}</p>
+          <p>Email: {customerInfo?.email}</p>
+          <p>Phone: {customerInfo?.phone}</p>
+          <p>Address: {customerInfo?.address}</p>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="font-semibold">Items</h3>
+          <table className="w-full text-sm border">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="text-left p-2 border">Product</th>
+                <th className="text-left p-2 border">Qty</th>
+                <th className="text-left p-2 border">Price</th>
+                <th className="text-left p-2 border">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items?.map((item, idx) => (
+                <tr key={idx}>
+                  <td className="p-2 border">{item.name}</td>
+                  <td className="p-2 border">{item.quantity}</td>
+                  <td className="p-2 border">₹{item.unitPrice}</td>
+                  <td className="p-2 border">₹{item.subtotal}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="text-sm border-t pt-4">
+          <p>Subtotal: ₹{subtotal}</p>
+          <p>GST: ₹{gst}</p>
+          <p className="font-bold">Total: ₹{total}</p>
+        </div>
+
+        <div className="mt-4">
+          <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Download PDF</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default InvoicePreview;

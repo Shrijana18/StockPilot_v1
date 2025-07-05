@@ -1,85 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BusinessPilot - Inventory & Billing</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.5/dist/tesseract.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/style.css" />
-  <!-- TomSelect CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css" rel="stylesheet" />
-  <!-- TomSelect JS -->
-  <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
-  <style>
-    body {
-      font-family: 'Manrope', sans-serif;
-      background-color: #0b1120;
-      color: #e5e7eb;
-    }
-    .hidden-view {
-      display: none !important;
-    }
-  </style>
-</head>
-<body>
-  <div id="app-container">
-    <!-- Landing Page Content Injected -->
-    <div id="landing-page-view" class="hidden-view"></div>
-
-    <!-- Dashboard Content -->
-    <div id="dashboard-view" class="hidden-view flex h-screen">
-      <aside class="w-64 bg-gray-900/50 border-r border-white/10 flex flex-col">
-        <div class="flex items-center justify-center h-16 border-b border-white/10">
-          <div class="text-2xl font-brand text-white">BusinessPilot</div>
-        </div>
-        <nav class="flex-1 px-4 py-6 space-y-2">
-          <a href="#dashboard" class="dashboard-nav-link active flex items-center px-4 py-2 font-semibold rounded-lg">Dashboard</a>
-          <a href="#inventory" class="dashboard-nav-link flex items-center px-4 py-2 font-semibold text-gray-300 hover:bg-white/5 hover:text-white rounded-lg">Inventory</a>
-          <a href="#billing" class="dashboard-nav-link flex items-center px-4 py-2 font-semibold text-gray-300 hover:bg-white/5 hover:text-white rounded-lg">Billing</a>
-        </nav>
-        <div class="px-4 py-4 border-t border-white/10">
-          <button id="sign-out-btn" class="w-full font-medium px-4 py-2 text-white hover:text-teal-400 rounded-lg">Sign Out</button>
-        </div>
-      </aside>
-      <main class="flex-1 p-8 overflow-y-auto">
-        <div id="page-content" class="text-white"></div>
-      </main>
-    </div>
-
-    <!-- Modal Container -->
-    <div id="modal-container"></div>
-  </div>
-
-  <!-- Firebase SDKs -->
-  <script type="module">
-    // Firebase App (the core Firebase SDK)
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-    import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-    import { getStorage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-
-   // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE",
-  authDomain: "stockpilotv1.firebaseapp.com",
-  databaseURL: "https://stockpilotv1-default-rtdb.firebaseio.com",
-  projectId: "stockpilotv1",
-  storageBucket: "stockpilotv1.firebasestorage.app",
-  messagingSenderId: "30934537475",
-  appId: "1:30934537475:web:84a2f76609dbb1db290536",
-  measurementId: "G-SENFJ2HSBW"
-};
-
-    const app = initializeApp(firebaseConfig);
-    window.firebaseApp = app;
-    window.firebaseAuth = getAuth(app);
-    window.firebaseDB = getFirestore(app);
-    window.firebaseStorage = getStorage(app);
-  </script>
-
-  <!-- Main Application Logic -->
-  <script type="module" src="./src/main.js"></script>
-</body>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BusinessPilot</title>
+  </head>
+  <body class="bg-white text-gray-900">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+   
+  </body>
 </html>
