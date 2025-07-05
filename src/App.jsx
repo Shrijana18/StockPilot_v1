@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 import LandingPage from './pages/LandingPage.jsx';
@@ -19,15 +19,6 @@ import 'react-toastify/dist/ReactToastify.css';
 import { AuthContext } from './context/AuthContext';
 
 const App = () => {
-  const { user, setUser } = useContext(AuthContext);
-
-  useEffect(() => {
-    const storedUser = JSON.parse(localStorage.getItem('user'));
-    if (storedUser) {
-      setUser(storedUser);
-    }
-  }, [setUser]);
-
   return (
     <AuthProvider>
       <Routes>
