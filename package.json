@@ -16,6 +16,7 @@
     "serve": "vite preview"
   },
   "dependencies": {
+    "@google-cloud/vision": "^5.2.0",
     "@react-google-maps/api": "^2.20.7",
     "aos": "^2.3.4",
     "chart.js": "^4.5.0",
@@ -25,6 +26,7 @@
     "react-icons": "^5.5.0",
     "react-router-dom": "^7.6.3",
     "react-toastify": "^11.0.5",
-    "recharts": "^3.0.2"
+    "recharts": "^3.0.2",
+    "tesseract.js": "^6.0.1"
   }
 }

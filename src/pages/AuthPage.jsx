@@ -79,10 +79,10 @@ const AuthPage = () => {
           <div className="flex w-full min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
             {/* Left Panel */}
             <div className="w-1/2 flex flex-col justify-center items-center bg-gradient-to-br from-yellow-100 to-yellow-200 text-black p-12">
-              <h2 className="text-3xl font-bold mb-4 text-left w-full">Why Choose BusinessPilot?</h2>
+              <h2 className="text-3xl font-bold mb-4 text-left w-full">Why Choose FLYP?</h2>
               <p className="text-lg mb-8 text-left w-full">Empowering Indian Retailers, Distributors, and Product Owners with automated billing, smart inventory, and real-time supply chain dashboards.</p>
               <div className="text-sm italic text-left w-full">
-                "With BusinessPilot, our order processing time dropped by 70%. Now I track my dealers, stock, and invoices in one place."
+                "With FLYP, our order processing time dropped by 70%. Now I track my dealers, stock, and invoices in one place."
                 <br />– Raghav, Distributor, Pune
               </div>
             </div>

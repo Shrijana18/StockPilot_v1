@@ -93,7 +93,10 @@ const Register = ({ role = 'retailer' }) => {
           Register as {role.charAt(0).toUpperCase() + role.slice(1)}
         </h2>
         <p className="text-sm text-center text-cyan-300 mb-2">
-          You're signing up as a <strong>{role.charAt(0).toUpperCase() + role.slice(1)}</strong>
+          Welcome to <span className="font-bold text-white">FLYP</span> — India's Smart Supply Chain Platform
+        </p>
+        <p className="text-sm text-center text-cyan-300 mb-2">
+          You’re joining <strong>FLYP</strong> as a <strong>{role.charAt(0).toUpperCase() + role.slice(1)}</strong>
         </p>
 
         {error && <div className="text-red-400 mb-3 text-sm">{error}</div>}

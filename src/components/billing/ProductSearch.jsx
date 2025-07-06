@@ -1,0 +1,81 @@
+
+
+import React, { useState, useEffect } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { db, auth } from "../../firebase/firebaseConfig";
+
+const ProductSearch = ({ onSelect }) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [allProducts, setAllProducts] = useState([]);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+        const snapshot = await getDocs(collection(db, "businesses", userId, "products"));
+        const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        setAllProducts(items);
+      } catch (err) {
+        console.error("Failed to load inventory:", err);
+      }
+    };
+    fetchProducts();
+  }, []);
+
+  useEffect(() => {
+    const term = searchTerm.toLowerCase();
+    const matches = allProducts.filter((item) =>
+      item.productName?.toLowerCase().includes(term) ||
+      item.sku?.toLowerCase().includes(term) ||
+      item.brand?.toLowerCase().includes(term) ||
+      item.category?.toLowerCase().includes(term)
+    );
+    setSuggestions(term ? matches : []);
+  }, [searchTerm, allProducts]);
+
+  return (
+    <div className="relative mb-4">
+      <input
+        type="text"
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        placeholder="Search product by name, SKU, brand, category..."
+        className="border w-full px-4 py-2 rounded"
+      />
+      {suggestions.length > 0 && (
+        <ul className="absolute bg-white border w-full mt-1 max-h-64 overflow-y-auto z-10">
+          {suggestions.map((product) => (
+            <li
+              key={product.id}
+              onClick={() => {
+                onSelect(product);
+                setSearchTerm("");
+                setSuggestions([]);
+              }}
+              className="p-2 hover:bg-blue-100 cursor-pointer flex items-center gap-4 border-b"
+            >
+              {product.imageUrl && (
+                <img
+                  src={product.imageUrl}
+                  alt={product.productName}
+                  className="w-10 h-10 object-cover rounded"
+                />
+              )}
+              <div className="flex flex-col">
+                <span className="font-medium">{product.productName}</span>
+                <span className="text-sm text-gray-500">
+                  {product.sku || product.brand || product.category}
+                </span>
+                <span className="text-xs text-green-600">Stock: {product.quantity}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+export default ProductSearch;

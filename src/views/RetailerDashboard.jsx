@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useContext } from 'react';
+import Billing from "../pages/Billing";
 import ManualEntryForm from "../components/inventory/ManualEntryForm";
 import OCRUploadForm from "../components/inventory/OCRUploadForm";
+import ViewInventory from "../components/inventory/ViewInventory";
 import { FaUser, FaSignOutAlt, FaHome, FaBoxes, FaFileInvoice, FaChartLine, FaUsers, FaUserPlus, FaBuilding } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import { signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
+import { onAuthStateChanged } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 
 const RetailerDashboard = () => {
@@ -16,21 +19,22 @@ const RetailerDashboard = () => {
 
   const navigate = useNavigate();
   useEffect(() => {
-    const fetchUserProfile = async () => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
-        const user = auth.currentUser;
         if (user) {
           const userRef = doc(db, "businesses", user.uid);
           const docSnap = await getDoc(userRef);
           if (docSnap.exists()) {
             setUserData({ ...docSnap.data(), userId: user.uid });
           }
+        } else {
+          console.warn("User not authenticated yet.");
         }
       } catch (error) {
         console.error("Error fetching user profile:", error);
       }
-    };
-    fetchUserProfile();
+    });
+    return () => unsubscribe();
   }, []);
   const handleSignOut = () => {
     signOut(auth)
@@ -56,8 +60,8 @@ const RetailerDashboard = () => {
     <div className="flex h-screen bg-gray-100 text-gray-800">
       {/* Sidebar */}
       <div className="w-64 bg-white shadow-md border-r border-gray-200">
-        <div className="p-6 text-xl font-bold border-b border-gray-200">
-          BusinessPilot
+        <div className="p-5 text-xl font-bold border-b border-gray-200">
+          FLYP
         </div>
         <nav className="flex flex-col p-4 gap-2">
           {sidebarItems.map((item) => (
@@ -136,7 +140,7 @@ const RetailerDashboard = () => {
               </div>
             </div>
           )}
-          {activeTab === 'billing' && <div>🧾 Billing Section: Generate/View/Add Invoices.</div>}
+          {activeTab === 'billing' && <Billing />}
           {activeTab === 'inventory' && (
     <div>
       <div className="flex gap-4 mb-6 border-b pb-2">
@@ -204,13 +208,19 @@ const RetailerDashboard = () => {
             </button>
           </div>
           <div className="mt-4">
-            {addMethod === 'manual' && <ManualEntryForm />}
-            {addMethod === 'ocr' && <OCRUploadForm />}
+            {addMethod === 'manual' && userData?.userId && (
+  <ManualEntryForm userId={userData.userId} />
+)}
+{addMethod === 'ocr' && userData?.userId && (
+  <OCRUploadForm userId={userData.userId} />
+)}
             {addMethod === 'ai' && <div>🤖 AI Generation Component Placeholder</div>}
           </div>
         </div>
       )}
-      {inventoryTab === 'view' && <div>📋 Current Inventory List Component Placeholder</div>}
+      {inventoryTab === 'view' && userData?.userId && (
+        <ViewInventory userId={userData.userId} />
+      )}
       {inventoryTab === 'group' && <div>🧩 Group Items Component Placeholder</div>}
       {inventoryTab === 'lowstock' && <div>🚨 Low Stock Alert Component Placeholder</div>}
     </div>

@@ -1,66 +1,139 @@
-
-
 import React, { useState } from "react";
 import { storage, db } from "../../firebase/firebaseConfig";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { addDoc, collection } from "firebase/firestore";
+import { toast } from "react-toastify";
 
 const OCRUploadForm = ({ userId }) => {
   const [imageFile, setImageFile] = useState(null);
   const [previewURL, setPreviewURL] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [products, setProducts] = useState([]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-    setImageFile(file);
-    setPreviewURL(URL.createObjectURL(file));
-    setSuccess(false);
+    if (
+      file &&
+      file.size <= 5 * 1024 * 1024 &&
+      (file.type.includes("image") || file.type === "application/pdf")
+    ) {
+      setImageFile(file);
+      setPreviewURL(URL.createObjectURL(file));
+      toast.info(`✅ ${file.name} selected. Ready to scan.`);
+    } else {
+      toast.error("File must be under 5MB and in JPG/PNG/PDF format.");
+    }
   };
 
-  const handleUpload = async () => {
-    if (!imageFile || !userId) return;
+  const handleScan = async () => {
+    if (!imageFile) {
+      toast.error("No image selected.");
+      return;
+    }
+
+    if (!userId) {
+      console.error("handleScan: Missing userId from props or AuthContext.");
+      toast.dismiss();
+      toast.error("User not authenticated. Please log in again.");
+      return;
+    }
 
     setUploading(true);
+    toast.loading("📤 Scanning Image with OCR...");
+
     try {
-      const imageRef = ref(storage, `inventory_ocr/${userId}/${imageFile.name}`);
-      await uploadBytes(imageRef, imageFile);
-      const url = await getDownloadURL(imageRef);
+      // Convert image file to base64
+      const toBase64 = (file) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result.split(",")[1]); // strip data URL prefix
+          reader.onerror = (error) => reject(error);
+        });
 
-      // Placeholder: parse products from image - mock example
-      const parsedProducts = [
-        {
-          productName: "Toothbrush",
-          brand: "Colgate",
-          quantity: 10,
-          unit: "pcs",
-          costPrice: 15,
-          sellingPrice: 20,
-          description: "Auto-parsed item from OCR",
-          imageURL: url,
-          createdAt: new Date(),
+      const base64 = await toBase64(imageFile);
+
+      const response = await fetch("https://us-central1-stockpilotv1.cloudfunctions.net/ocrFromImage", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      ];
+        body: JSON.stringify({ base64 }),
+      });
 
-      const batchPromises = parsedProducts.map((product) =>
-        addDoc(collection(db, "businesses", userId, "products"), product)
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Cloud Function OCR failed.");
+      }
+
+      const parsedProducts = result?.products || [];
+
+      if (!Array.isArray(parsedProducts) || parsedProducts.length === 0) {
+        throw new Error("No recognizable products parsed.");
+      }
+
+      const enriched = parsedProducts.map((product) => ({
+        ...product,
+        imageURL: previewURL,
+      }));
+
+      setProducts(enriched);
+      toast.dismiss();
+      toast.success("✅ Scan complete. Review and save.");
+    } catch (err) {
+      toast.dismiss();
+      toast.error("❌ OCR scan failed. Check console for details.");
+      console.error("OCR Scan Error:", err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleInputChange = (index, field, value) => {
+    const updated = [...products];
+    updated[index][field] = value;
+    setProducts(updated);
+  };
+
+  const handleSave = async () => {
+    if (!products.length || !userId) {
+      toast.error("No products to save or user not authenticated.");
+      return;
+    }
+
+    try {
+      const batch = products.map((p) =>
+        addDoc(collection(db, "businesses", userId, "products"), {
+          ...p,
+          createdAt: new Date(),
+        })
       );
-
-      await Promise.all(batchPromises);
-
-      setSuccess(true);
+      await Promise.all(batch);
+      toast.success("Products saved to inventory.");
+      setProducts([]);
       setImageFile(null);
       setPreviewURL("");
-    } catch (error) {
-      console.error("OCR upload error:", error);
+    } catch (err) {
+      toast.error("Failed to save products.");
+      console.error(err);
     }
-    setUploading(false);
+  };
+
+  const handleDeleteRow = (index) => {
+    const filtered = products.filter((_, i) => i !== index);
+    setProducts(filtered);
   };
 
   return (
     <div className="p-4 bg-white rounded shadow-md">
+      {process.env.NODE_ENV === "development" && (
+        <p className="text-xs text-gray-500 mb-1">
+          {userId ? `User Authenticated: ${userId}` : "User not authenticated"}
+        </p>
+      )}
       <h3 className="text-lg font-semibold mb-2">OCR Inventory Upload</h3>
-      <input type="file" accept="image/*" onChange={handleFileChange} />
+      <input type="file" accept="image/*,.pdf" onChange={handleFileChange} />
       {previewURL && (
         <img
           src={previewURL}
@@ -69,13 +142,61 @@ const OCRUploadForm = ({ userId }) => {
         />
       )}
       <button
-        onClick={handleUpload}
+        onClick={handleScan}
         className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
         disabled={uploading || !imageFile}
       >
-        {uploading ? "Uploading..." : "Scan & Import"}
+        {uploading ? "Scanning..." : "Scan & Import"}
       </button>
-      {success && <p className="text-green-600 mt-2">Upload successful!</p>}
+
+      {products.length > 0 && (
+        <>
+          <table className="mt-4 w-full border text-sm">
+            <thead>
+              <tr className="bg-gray-100">
+                <th>Product</th>
+                <th>Brand</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th>Cost</th>
+                <th>Sell</th>
+                <th>Desc</th>
+                <th>🗑️</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((p, i) => (
+                <tr key={i}>
+                  {["productName", "brand", "quantity", "unit", "costPrice", "sellingPrice", "description"].map((f) => (
+                    <td key={f}>
+                      <input
+                        type="text"
+                        value={p[f]}
+                        onChange={(e) => handleInputChange(i, f, e.target.value)}
+                        className="border w-full px-1"
+                      />
+                    </td>
+                  ))}
+                  <td>
+                    <button
+                      onClick={() => handleDeleteRow(i)}
+                      className="text-red-600 hover:text-red-800"
+                    >
+                      ❌
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button
+            onClick={handleSave}
+            className="mt-4 px-4 py-2 bg-green-600 text-white rounded"
+          >
+            Save Products
+          </button>
+        </>
+      )}
     </div>
   );
 };

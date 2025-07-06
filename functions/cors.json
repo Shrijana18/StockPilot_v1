@@ -1,0 +1,17 @@
+[
+  {
+    "origin": [
+      "http://localhost:5173",
+      "http://localhost:5180",
+      "https://stockpilot.netlify.app",
+      "https://www.stockpilot.in"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "x-goog-meta-custom"
+    ]
+  }
+]

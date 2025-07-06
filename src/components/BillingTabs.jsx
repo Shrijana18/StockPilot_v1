@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import GenerateInvoice from "./GenerateInvoice";
+import GenerateInvoice from "./billing/GenerateInvoice";
 import AllInvoices from "./AllInvoices";
 
 const BillingTabs = () => {
@@ -8,6 +8,7 @@ const BillingTabs = () => {
   const renderTabContent = () => {
     if (activeTab === "generate") return <GenerateInvoice />;
     if (activeTab === "all") return <AllInvoices />;
+    if (activeTab === "upload") return <div>Manual Upload Invoice - Coming Soon</div>;
     return null;
   };
 
@@ -25,6 +26,12 @@ const BillingTabs = () => {
           onClick={() => setActiveTab("all")}
         >
           All Invoices
+        </button>
+        <button
+          className={`py-2 px-4 rounded ${activeTab === "upload" ? "bg-blue-600 text-white shadow-md" : "bg-gray-100"}`}
+          onClick={() => setActiveTab("upload")}
+        >
+          Manual Upload
         </button>
       </div>
       {renderTabContent()}

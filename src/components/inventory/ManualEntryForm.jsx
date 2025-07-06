@@ -21,13 +21,15 @@ const ManualEntryForm = () => {
     image: null,
   });
 
+  const [previewUrl, setPreviewUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
-  // Removed success state; toast will handle feedback
 
   const handleChange = (e) => {
     const { name, value, files } = e.target;
     if (name === "image") {
-      setFormData({ ...formData, image: files[0] });
+      const file = files[0];
+      setFormData({ ...formData, image: file });
+      setPreviewUrl(URL.createObjectURL(file));
     } else {
       setFormData({ ...formData, [name]: value });
     }
@@ -39,28 +41,34 @@ const ManualEntryForm = () => {
     if (!userId) return;
 
     setUploading(true);
-    // Validation
+
     const { productName, sku, quantity, costPrice, sellingPrice } = formData;
     if (!productName || !sku || !quantity || !costPrice || !sellingPrice) {
       toast.error("Please fill all required fields");
       setUploading(false);
       return;
     }
+
     try {
       let imageUrl = "";
       if (formData.image) {
-        const storageRef = ref(
-          storage,
-          `inventory/${userId}/${formData.image.name}`
-        );
-        await uploadBytes(storageRef, formData.image);
-        imageUrl = await getDownloadURL(storageRef);
+        const imageRef = ref(storage, `inventory/${userId}/${Date.now()}_${formData.image.name}`);
+        await uploadBytes(imageRef, formData.image);
+        imageUrl = await getDownloadURL(imageRef);
       }
 
       const productRef = doc(collection(db, "businesses", userId, "products"));
       await setDoc(productRef, {
-        ...formData,
-        imageUrl,
+        productName: formData.productName,
+        sku: formData.sku,
+        brand: formData.brand,
+        category: formData.category,
+        quantity: formData.quantity,
+        costPrice: formData.costPrice,
+        sellingPrice: formData.sellingPrice,
+        unit: formData.unit,
+        description: formData.description,
+        imageUrl, // ✅ Only storing URL
         id: productRef.id,
         createdAt: serverTimestamp(),
         addedBy: userId,
@@ -80,6 +88,7 @@ const ManualEntryForm = () => {
         description: "",
         image: null,
       });
+      setPreviewUrl(null);
     } catch (error) {
       console.error("Error adding product:", error);
       toast.error("❌ Failed to add product. Please try again.");
@@ -91,7 +100,10 @@ const ManualEntryForm = () => {
   return (
     <div className="bg-white rounded p-4 mt-4 shadow">
       <h2 className="text-lg font-semibold mb-4">Add Inventory Manually</h2>
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <form
+        onSubmit={handleSubmit}
+        className="grid grid-cols-1 gap-4 md:grid-cols-2"
+      >
         <input
           type="text"
           name="productName"
@@ -168,13 +180,22 @@ const ManualEntryForm = () => {
           onChange={handleChange}
           className="border p-2 rounded col-span-2"
         />
-        <input
-          type="file"
-          name="image"
-          accept="image/*"
-          onChange={handleChange}
-          className="col-span-2"
-        />
+        <div className="col-span-2">
+          <input
+            type="file"
+            name="image"
+            accept="image/*"
+            onChange={handleChange}
+            className="mb-2"
+          />
+          {previewUrl && (
+            <img
+              src={previewUrl}
+              alt="Product preview"
+              className="h-24 w-24 object-cover rounded border"
+            />
+          )}
+        </div>
         <button
           type="submit"
           disabled={uploading}
@@ -183,7 +204,6 @@ const ManualEntryForm = () => {
           {uploading ? "Uploading..." : "Add Product"}
         </button>
       </form>
-      {/* Toast handles success messages */}
     </div>
   );
 };

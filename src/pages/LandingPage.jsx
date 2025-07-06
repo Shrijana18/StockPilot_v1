@@ -14,7 +14,9 @@ const LandingPage = () => {
     <div className="bg-white text-gray-900">
       {/* Navbar */}
       <header className="flex justify-between items-center p-6 shadow-md">
-        <h1 className="text-2xl font-bold text-green-700">BusinessPilot</h1>
+        <div className="flex items-center">
+          <img src="/assets/flyp-logo.png" alt="FLYP Logo" className="h-28 w-auto drop-shadow-md" />
+        </div>
         <nav className="hidden md:flex gap-6">
           <Link to="#features" className="hover:text-green-600">Features</Link>
           <Link to="#pricing" className="hover:text-green-600">Pricing</Link>
@@ -60,7 +62,7 @@ const LandingPage = () => {
               <li><strong>Retailers:</strong> Get real-time product info, simple billing, and customer insights.</li>
             </ul>
             <p className="mt-2">
-              <span className="font-semibold text-green-600">BusinessPilot</span> lets every role collaborate and automate, making the entire supply chain seamless and efficient.
+              <span className="font-semibold text-green-600">FLYP</span> lets every role collaborate and automate, making the entire supply chain seamless and efficient.
             </p>
           </div>
           <Link to="/auth?type=register">
@@ -137,8 +139,8 @@ const LandingPage = () => {
 
       {/* Footer */}
       <footer id="contact" className="bg-gray-900 text-white p-6 mt-10 text-center text-sm">
-        <p>© {new Date().getFullYear()} BusinessPilot — All Rights Reserved.</p>
-        <p className="mt-1">Contact: support@businesspilot.in</p>
+        <p>© {new Date().getFullYear()} FLYP — All Rights Reserved.</p>
+        <p className="mt-1">Contact: support@flypnow.com</p>
       </footer>
     </div>
   );
