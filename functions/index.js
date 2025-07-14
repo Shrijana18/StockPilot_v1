@@ -1,20 +1,23 @@
-const functions = require("firebase-functions");
-const cors = require("cors")({ origin: true });
+const { onRequest } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const admin = require("firebase-admin");
 const vision = require("@google-cloud/vision");
+const cors = require("cors")({ origin: true });
+const { Configuration, OpenAIApi } = require("openai");
+
+admin.initializeApp();
 
 const client = new vision.ImageAnnotatorClient();
 
-exports.ocrFromImage = functions.https.onRequest((req, res) => {
+exports.ocrFromImage = onRequest({ region: "asia-south1", memory: "1GiB" }, (req, res) => {
   cors(req, res, async () => {
     try {
-      const { base64 } = req.body;
-      if (!base64) {
-        return res.status(400).json({ error: "Missing 'base64' in request body." });
+      const { imageBase64 } = req.body;
+      if (!imageBase64) {
+        return res.status(400).json({ error: "Missing imageBase64 in request body." });
       }
 
-      const [result] = await client.textDetection({
-        image: { content: base64 },
-      });
+      const [result] = await client.textDetection({ image: { content: imageBase64 } });
       const detections = result.textAnnotations;
 
       if (!detections || detections.length === 0) {
@@ -22,27 +25,157 @@ exports.ocrFromImage = functions.https.onRequest((req, res) => {
       }
 
       const rawText = detections[0].description;
-      const lines = rawText.split("\n").map(line => line.trim()).filter(line => line);
+      const lines = rawText.trim().split("\n").filter(line => line);
+      const products = lines.map(line => {
+        const match = line.match(/^(.*?)(\d+)\s*(pcs|ltr|kg|gm|ml)?\s*(₹?\d+)?$/i);
+        if (!match) {
+          return {
+            productName: line,
+            quantity: "",
+            unit: "",
+            costPrice: "",
+            sellingPrice: "",
+            sku: "",
+            brand: "",
+            category: "",
+            description: "",
+            imageUrl: ""
+          };
+        }
 
-      const products = lines.map((line) => {
-        const words = line.split(" ");
-        const qtyMatch = line.match(/\d+\s*(pcs|ltr|kg|g|ml|box|m|pack|k|rs)/i) || [];
-
-        return {
-          productName: words.slice(0, -1).join(" ") || "",
-          quantity: qtyMatch[0] || "",
-          unit: "",
-          brand: "",
-          costPrice: "",
-          sellingPrice: "",
-          description: line,
-        };
+       return {
+  productName: (match[1] && match[1].trim()) || "",
+  quantity: match[2] || "",
+  unit: match[3] || "",
+  costPrice: (match[4] && match[4].replace("₹", "")) || "",
+  sellingPrice: "",
+  sku: "",
+  brand: "",
+  category: "",
+  description: "",
+  imageUrl: ""
+};
       });
 
-      res.status(200).json({ products });
-    } catch (err) {
-      console.error("OCR error:", err);
-      res.status(500).json({ error: "OCR failed" });
+      return res.status(200).json({ products });
+    } catch (error) {
+      console.error("OCR Error:", error);
+      return res.status(500).json({ error: "OCR processing failed" });
     }
   });
 });
+
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY
+});
+const openai = new OpenAIApi(configuration);
+
+exports.generateAssistantReply = onDocumentCreated(
+  {
+    document: "assistantQueries/{docId}",
+    region: "asia-south1",
+    memory: "1GiB",
+    cpu: 1
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const data = snap.data();
+    const prompt = data && data.prompt;
+    if (!prompt) return;
+
+    try {
+      const db = admin.firestore();
+
+      let inventoryContext = "";
+      if (data.distributorId) {
+        const inventorySnapshot = await db
+          .collection("businesses")
+          .doc(data.distributorId)
+          .collection("products")
+          .get();
+
+        const inventoryItems = inventorySnapshot.docs.map((doc) => {
+          const item = doc.data();
+          const name = item.name || "Unnamed Item";
+          const price = item.sellingPrice ? `₹${item.sellingPrice}` : "Price not listed";
+          const status = item.quantity > 0 ? "In Stock" : "Sold Out";
+          return `- ${name}: ${price} (${status})`;
+        });
+
+        inventoryContext = inventoryItems.length > 0
+          ? `Distributor Inventory:\n${inventoryItems.join("\n")}`
+          : "Distributor has no inventory listed.";
+      }
+
+      const completion = await openai.createChatCompletion({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: `You are a helpful assistant for a distributor business. Your job is to answer retailer queries based on available inventory. Format your reply in a polite, professional, and human tone. Use emojis where helpful. Here's the distributor's inventory:\n\n${inventoryContext}`
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ]
+      });
+
+      const reply = completion.data.choices[0].message.content;
+
+      if (data.userId && data.distributorId) {
+        const reverseChatRef = db
+          .collection("businesses")
+          .doc(data.distributorId)
+          .collection("connectedRetailers")
+          .doc(data.userId)
+          .collection("assistantChats");
+
+        await reverseChatRef.add({
+          message: reply,
+          sender: "assistant",
+          timestamp: admin.firestore.Timestamp.now()
+        });
+
+        // Also write to the retailer's side so both sides receive the reply.
+        const mirrorChatRef = db
+          .collection("businesses")
+          .doc(data.userId)
+          .collection("connectedDistributors")
+          .doc(data.distributorId)
+          .collection("assistantChats");
+
+        await mirrorChatRef.add({
+          message: reply,
+          sender: "assistant",
+          timestamp: admin.firestore.Timestamp.now()
+        });
+      }
+
+      // The following block is now redundant since the above handles both sides.
+      // if (data.userId) {
+      //   const distributorId = data.distributorId || "N/A";
+      //   const chatRef = db
+      //     .collection("businesses")
+      //     .doc(data.userId)
+      //     .collection("connectedDistributors")
+      //     .doc(distributorId)
+      //     .collection("assistantChats");
+      //
+      //   await chatRef.add({
+      //     message: reply,
+      //     sender: "assistant",
+      //     timestamp: admin.firestore.Timestamp.now()
+      //   });
+      // }
+
+      await snap.ref.update({
+        reply,
+        replyTimestamp: new Date()
+      });
+    } catch (error) {
+      console.error("OpenAI Reply Error:", error);
+    }
+  });

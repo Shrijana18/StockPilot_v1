@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 
 const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
@@ -7,7 +6,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
   const handleAddItem = () => {
     setCartItems([
       ...cartItems,
-      { name: "", sku: "", quantity: 1, price: 0, discount: 0 },
+      { id: "manual", name: "", sku: "", quantity: 1, price: 0, discount: 0 },
     ]);
   };
 
@@ -38,6 +37,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
         (product) => !cartItems.some((item) => item.sku === product.sku)
       )
       .map((product) => ({
+        id: product.id, // Add this line to link with Firestore
         name: product.productName || "",
         sku: product.sku || "",
         quantity: 1,
@@ -52,6 +52,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
 
   useEffect(() => {
     // Notify parent of cart update after cartItems is set
+    console.log("Updated Cart Items:", cartItems);
     if (onUpdateCart && cartItems.length > 0) {
       onUpdateCart(cartItems);
     }

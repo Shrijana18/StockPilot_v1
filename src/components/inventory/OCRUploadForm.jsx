@@ -1,3 +1,4 @@
+// Ensure environment variable is used for OCR endpoint
 import React, { useState } from "react";
 import { storage, db } from "../../firebase/firebaseConfig";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -51,15 +52,16 @@ const OCRUploadForm = ({ userId }) => {
           reader.onerror = (error) => reject(error);
         });
 
-      const base64 = await toBase64(imageFile);
+     const base64 = await toBase64(imageFile);
 
-      const response = await fetch("https://us-central1-stockpilotv1.cloudfunctions.net/ocrFromImage", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ base64 }),
-      });
+     const OCR_FUNCTION_URL = import.meta.env.VITE_REACT_APP_OCR_FUNCTION_URL;
+     const response = await fetch(OCR_FUNCTION_URL, {
+       method: "POST",
+       headers: {
+         "Content-Type": "application/json",
+       },
+       body: JSON.stringify({ imageBase64: base64 }),
+     });
 
       const result = await response.json();
 

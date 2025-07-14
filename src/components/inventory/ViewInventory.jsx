@@ -1,6 +1,6 @@
 import { getStorage, ref, getDownloadURL } from "firebase/storage";
 import React, { useEffect, useState } from "react";
-import { getFirestore, collection, getDocs } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 // Removed useAuth because we will pass userId as prop
 
 const ViewInventory = ({ userId }) => {
@@ -9,6 +9,9 @@ const ViewInventory = ({ userId }) => {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
+  const [editingCell, setEditingCell] = useState({ rowId: null, field: null });
+  const [editedValue, setEditedValue] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const db = getFirestore();
 
   // Prevent rendering if userId is not available
@@ -19,52 +22,47 @@ const ViewInventory = ({ userId }) => {
   useEffect(() => {
     if (!userId) return;
     console.log("Current user UID:", userId);
-    const fetchProducts = async () => {
-      try {
-        const productRef = collection(db, "businesses", userId, "products");
-        const snapshot = await getDocs(productRef);
-        const storage = getStorage();
-        const productList = await Promise.all(
-          snapshot.docs.map(async (doc) => {
-            const data = doc.data();
-            let imageUrl = "";
-            try {
-              if (data.imageUrl) {
-                imageUrl = data.imageUrl;
-              } else if (data.imagePath) {
-                try {
-                  const imageRef = ref(storage, data.imagePath);
-                  imageUrl = await getDownloadURL(imageRef);
-                } catch (err) {
-                  console.warn("Image fetch error for path:", data.imagePath, err.message);
-                }
-              }
-            } catch (err) {
-              console.warn("Image fetch error:", err.message);
+    const productRef = collection(db, "businesses", userId, "products");
+    const unsubscribe = onSnapshot(productRef, async (snapshot) => {
+      const storage = getStorage();
+      const productList = await Promise.all(
+        snapshot.docs.map(async (doc) => {
+          const data = doc.data();
+          let imageUrl = "";
+          try {
+            if (data.imageUrl) {
+              imageUrl = data.imageUrl;
+            } else if (data.imagePath) {
+              const imageRef = ref(storage, data.imagePath);
+              imageUrl = await getDownloadURL(imageRef);
             }
-            return { id: doc.id, ...data, imageUrl, imagePath: data.imagePath || "" };
-          })
-        );
-        console.log("Fetched products:", productList);
-        setProducts(productList);
-        setFiltered(productList);
-      } catch (err) {
-        console.error("Error fetching inventory:", err);
-      }
-    };
-    fetchProducts();
+          } catch (err) {
+            console.warn("Image fetch error for:", data.imagePath || "unknown", err.message);
+          }
+          return { id: doc.id, ...data, imageUrl, imagePath: data.imagePath || "" };
+        })
+      );
+      setProducts(productList);
+      setFiltered(productList);
+    });
+
+    return () => unsubscribe(); // cleanup on unmount
   }, [userId]);
 
   useEffect(() => {
     const s = search.toLowerCase();
-    const result = products.filter(p =>
-      p.productName?.toLowerCase().includes(s) ||
-      p.sku?.toLowerCase().includes(s) ||
-      p.brand?.toLowerCase().includes(s) ||
-      p.category?.toLowerCase().includes(s)
-    );
+    const result = products.filter(p => {
+      const matchesSearch =
+        p.productName?.toLowerCase().includes(s) ||
+        p.sku?.toLowerCase().includes(s) ||
+        p.brand?.toLowerCase().includes(s) ||
+        p.category?.toLowerCase().includes(s);
+      const matchesStatus =
+        !statusFilter || getStatus(p.quantity) === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
     setFiltered(result);
-  }, [search, products]);
+  }, [search, products, statusFilter]);
 
   useEffect(() => {
     if (!sortKey) {
@@ -81,6 +79,24 @@ const ViewInventory = ({ userId }) => {
       return sorted;
     });
   }, [sortKey, sortOrder]);
+
+  const startEdit = (rowId, field, currentValue) => {
+    setEditingCell({ rowId, field });
+    setEditedValue(currentValue);
+  };
+
+  const saveEdit = async (rowId, field, value) => {
+    try {
+      const productRef = collection(db, "businesses", userId, "products");
+      const productDoc = doc(productRef, rowId);
+      await updateDoc(productDoc, { [field]: value });
+    } catch (err) {
+      console.error("Error updating inventory field:", err);
+    } finally {
+      setEditingCell({ rowId: null, field: null });
+      setEditedValue("");
+    }
+  };
 
   const getStatus = (qty) => {
     const q = parseInt(qty);
@@ -116,6 +132,15 @@ const ViewInventory = ({ userId }) => {
             <option value="asc">Asc</option>
             <option value="desc">Desc</option>
           </select>
+          <select
+            className="border px-3 py-2 rounded"
+            onChange={(e) => setStatusFilter(e.target.value)}
+            value={statusFilter}
+          >
+            <option value="">All Status</option>
+            <option value="In Stock">In Stock</option>
+            <option value="Low">Low</option>
+          </select>
         </div>
       </div>
 
@@ -145,14 +170,115 @@ const ViewInventory = ({ userId }) => {
                     className="h-10 w-10 rounded object-cover"
                   />
                 </td>
-                <td className="p-2">{p.productName}</td>
-                <td className="p-2">{p.sku}</td>
-                <td className="p-2">{p.brand}</td>
-                <td className="p-2">{p.category}</td>
-                <td className="p-2">{p.quantity}</td>
-                <td className="p-2">{p.unit}</td>
-                <td className="p-2">₹{p.costPrice}</td>
-                <td className="p-2">₹{p.sellingPrice}</td>
+                <td className="p-2" onClick={() => startEdit(p.id, "productName", p.productName)}>
+                  {editingCell.rowId === p.id && editingCell.field === "productName" ? (
+                    <input
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "productName", editedValue)}
+                      autoFocus
+                    />
+                  ) : (
+                    p.productName
+                  )}
+                </td>
+                <td className="p-2" onClick={() => startEdit(p.id, "sku", p.sku)}>
+                  {editingCell.rowId === p.id && editingCell.field === "sku" ? (
+                    <input
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "sku", editedValue)}
+                      autoFocus
+                    />
+                  ) : (
+                    p.sku
+                  )}
+                </td>
+                <td className="p-2" onClick={() => startEdit(p.id, "brand", p.brand)}>
+                  {editingCell.rowId === p.id && editingCell.field === "brand" ? (
+                    <input
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "brand", editedValue)}
+                      autoFocus
+                    />
+                  ) : (
+                    p.brand
+                  )}
+                </td>
+                <td className="p-2" onClick={() => startEdit(p.id, "category", p.category)}>
+                  {editingCell.rowId === p.id && editingCell.field === "category" ? (
+                    <input
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "category", editedValue)}
+                      autoFocus
+                    />
+                  ) : (
+                    p.category
+                  )}
+                </td>
+                <td className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
+                  {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
+                    <input
+                      type="number"
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
+                      autoFocus
+                    />
+                  ) : (
+                    p.quantity
+                  )}
+                </td>
+                <td className="p-2" onClick={() => startEdit(p.id, "unit", p.unit)}>
+                  {editingCell.rowId === p.id && editingCell.field === "unit" ? (
+                    <input
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "unit", editedValue)}
+                      autoFocus
+                    />
+                  ) : (
+                    p.unit
+                  )}
+                </td>
+                <td className="p-2" onClick={() => startEdit(p.id, "costPrice", p.costPrice)}>
+                  {editingCell.rowId === p.id && editingCell.field === "costPrice" ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "costPrice", Number(editedValue))}
+                      autoFocus
+                    />
+                  ) : (
+                    <>₹{p.costPrice}</>
+                  )}
+                </td>
+                <td className="p-2" onClick={() => startEdit(p.id, "sellingPrice", p.sellingPrice)}>
+                  {editingCell.rowId === p.id && editingCell.field === "sellingPrice" ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full border px-1"
+                      value={editedValue}
+                      onChange={(e) => setEditedValue(e.target.value)}
+                      onBlur={() => saveEdit(p.id, "sellingPrice", Number(editedValue))}
+                      autoFocus
+                    />
+                  ) : (
+                    <>₹{p.sellingPrice}</>
+                  )}
+                </td>
                 <td className="p-2">
                   <span
                     className={`px-2 py-1 rounded text-white text-xs ${

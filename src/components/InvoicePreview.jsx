@@ -3,7 +3,7 @@ import React from "react";
 const InvoicePreview = ({ invoice, onClose }) => {
   if (!invoice) return null;
 
-  const { customerInfo, items, total, subtotal, gst, createdAt, settings } = invoice;
+  const { customer, cartItems, totalAmount, issuedAt, settings, paymentMode } = invoice;
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex justify-end">
@@ -13,14 +13,14 @@ const InvoicePreview = ({ invoice, onClose }) => {
           <button onClick={onClose} className="text-red-500 font-bold text-lg">✕</button>
         </div>
 
-        <p className="text-sm text-gray-500 mb-2">Date: {new Date(createdAt).toLocaleString()}</p>
+        <p className="text-sm text-gray-500 mb-2">Date: {new Date(issuedAt).toLocaleString()}</p>
 
         <div className="mb-4">
           <h3 className="font-semibold">Customer Info</h3>
-          <p>Name: {customerInfo?.name}</p>
-          <p>Email: {customerInfo?.email}</p>
-          <p>Phone: {customerInfo?.phone}</p>
-          <p>Address: {customerInfo?.address}</p>
+          <p>Name: {customer?.name}</p>
+          <p>Email: {customer?.email}</p>
+          <p>Phone: {customer?.phone}</p>
+          <p>Address: {customer?.address}</p>
         </div>
 
         <div className="mb-4">
@@ -35,12 +35,14 @@ const InvoicePreview = ({ invoice, onClose }) => {
               </tr>
             </thead>
             <tbody>
-              {items?.map((item, idx) => (
+              {cartItems?.map((item, idx) => (
                 <tr key={idx}>
                   <td className="p-2 border">{item.name}</td>
                   <td className="p-2 border">{item.quantity}</td>
-                  <td className="p-2 border">₹{item.unitPrice}</td>
-                  <td className="p-2 border">₹{item.subtotal}</td>
+                  <td className="p-2 border">₹{item.price}</td>
+                  <td className="p-2 border">
+                    ₹{(item.quantity * item.price * (1 - (item.discount || 0) / 100)).toFixed(2)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -48,9 +50,8 @@ const InvoicePreview = ({ invoice, onClose }) => {
         </div>
 
         <div className="text-sm border-t pt-4">
-          <p>Subtotal: ₹{subtotal}</p>
-          <p>GST: ₹{gst}</p>
-          <p className="font-bold">Total: ₹{total}</p>
+          <p className="font-bold">Total: ₹{totalAmount}</p>
+          <p>Payment Mode: {settings?.paymentMode}</p>
         </div>
 
         <div className="mt-4">

@@ -1,6 +1,7 @@
 import React from "react";
+import moment from "moment";
 import { db, auth } from "../../firebase/firebaseConfig";
-import { collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { collection, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 const FLYPLogo = "/assets/flyp-logo.png";
 
 const InvoicePreview = ({
@@ -12,6 +13,7 @@ const InvoicePreview = ({
   issuedAt,
   userInfo,
   onCancel,
+  onConfirm,
 }) => {
   const [retailerData, setRetailerData] = React.useState(null);
 
@@ -76,7 +78,26 @@ const InvoicePreview = ({
 
       await addDoc(collection(db, "businesses", user.uid, "finalizedInvoices"), invoiceData);
 
+      // Deduct inventory stock for each item
+      const batchUpdatePromises = cartItems.map(async (item) => {
+        const productRef = doc(db, "businesses", user.uid, "products", item.id);
+        const productSnap = await getDoc(productRef);
+        if (productSnap.exists()) {
+          const existingQty = parseFloat(productSnap.data().quantity || 0);
+          const updatedQty = existingQty - parseFloat(item.quantity);
+          if (!isNaN(updatedQty)) {
+            await updateDoc(productRef, {
+              quantity: updatedQty < 0 ? 0 : updatedQty,
+            });
+          }
+        }
+      });
+      await Promise.all(batchUpdatePromises);
+
       alert("Invoice published successfully!");
+      if (onConfirm) {
+        await onConfirm();
+      }
       onCancel();
     } catch (error) {
       console.error("Error publishing invoice:", error);
@@ -114,8 +135,8 @@ const InvoicePreview = ({
           <p><strong>GSTIN:</strong> {retailerData?.gstin || "N/A"}</p>
           <p><strong>PAN:</strong> {retailerData?.pan || "N/A"}</p>
           <p><strong>Invoice ID:</strong> FLYP-{issuedAt ? new Date(issuedAt).getTime() : Date.now()}</p>
-          <p><strong>Invoice Issued On:</strong> {issuedAt ? new Date(issuedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "N/A"}</p>
-          <p><strong>Current Issue Date &amp; Time:</strong> {new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</p>
+          <p><strong>Invoice Issued On:</strong> {issuedAt ? moment(issuedAt).local().format("DD MMM YYYY, hh:mm A") : "N/A"}</p>
+          <p><strong>Current Issue Date &amp; Time:</strong> {moment().local().format("DD MMM YYYY, hh:mm A")}</p>
         </div>
       </div>
 

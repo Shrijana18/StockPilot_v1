@@ -3,6 +3,17 @@ import Billing from "../pages/Billing";
 import ManualEntryForm from "../components/inventory/ManualEntryForm";
 import OCRUploadForm from "../components/inventory/OCRUploadForm";
 import ViewInventory from "../components/inventory/ViewInventory";
+import BarChartRevenue from "../components/charts/BarChartRevenue";
+import PieChartTopProducts from "../components/charts/PieChartTopProducts";
+import LineChartSales from "../components/charts/LineChartSales";
+import HomeSnapshot from "../components/dashboard/HomeSnapshot";
+import Distributor from "../components/distributor/Distributor";
+import RetailerConnectedDistributors from "../components/retailer/RetailerConnectedDistributors";
+import ConnectedDistributorPanel from "../components/distributor/ConnectedDistributorPanel";
+import SearchDistributor from "../components/distributor/SearchDistributor";
+import ViewSentRequests from "../components/distributor/ViewSentRequests";
+import DistributorPanel from "../components/retailer/DistributorPanel";
+import { startOfMonth, endOfMonth, startOfWeek, endOfWeek } from 'date-fns';
 import { FaUser, FaSignOutAlt, FaHome, FaBoxes, FaFileInvoice, FaChartLine, FaUsers, FaUserPlus, FaBuilding } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import { signOut } from "firebase/auth";
@@ -13,9 +24,30 @@ import { useNavigate } from "react-router-dom";
 
 const RetailerDashboard = () => {
   const [activeTab, setActiveTab] = useState('home');
+  const [selectedDistributor, setSelectedDistributor] = useState(null);
   const [userData, setUserData] = useState(null);
   const [inventoryTab, setInventoryTab] = useState('add');
   const [addMethod, setAddMethod] = useState('manual');
+  const [selectedFilter, setSelectedFilter] = useState('all');
+  const [filterDates, setFilterDates] = useState({ start: null, end: null });
+  const [distributorTab, setDistributorTab] = useState('search');
+
+  useEffect(() => {
+    const now = new Date();
+    if (selectedFilter === 'month') {
+      setFilterDates({
+        start: startOfMonth(now),
+        end: endOfMonth(now)
+      });
+    } else if (selectedFilter === 'week') {
+      setFilterDates({
+        start: startOfWeek(now, { weekStartsOn: 1 }),
+        end: endOfWeek(now, { weekStartsOn: 1 })
+      });
+    } else {
+      setFilterDates({ start: null, end: null });
+    }
+  }, [selectedFilter]);
 
   const navigate = useNavigate();
   useEffect(() => {
@@ -116,28 +148,42 @@ const RetailerDashboard = () => {
           className="flex-1 p-6 overflow-y-auto"
         >
           {activeTab === 'home' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white p-4 rounded shadow">
-                <h3 className="text-lg font-semibold mb-2">Revenue by Payment Mode</h3>
-                <div className="h-64">
-                  {/* Insert <BarChart> here using Recharts */}
-                  <p>📊 Bar Chart Placeholder (Cash, UPI, Card)</p>
-                </div>
+            <div>
+              <div className="flex items-center gap-4 mb-4">
+                <label htmlFor="filter" className="font-medium">Filter by:</label>
+                <select
+                  id="filter"
+                  value={selectedFilter}
+                  onChange={(e) => setSelectedFilter(e.target.value)}
+                  className="border px-3 py-1 rounded"
+                >
+                  <option value="today">Today</option>
+                  <option value="all">All Time</option>
+                  <option value="month">This Month</option>
+                  <option value="week">This Week</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+
+                {(selectedFilter === 'custom') && (
+                  <>
+                    <input
+                      type="date"
+                      onChange={(e) =>
+                        setFilterDates((prev) => ({ ...prev, start: new Date(e.target.value) }))
+                      }
+                      className="border px-2 py-1 rounded"
+                    />
+                    <input
+                      type="date"
+                      onChange={(e) =>
+                        setFilterDates((prev) => ({ ...prev, end: new Date(e.target.value) }))
+                      }
+                      className="border px-2 py-1 rounded"
+                    />
+                  </>
+                )}
               </div>
-              <div className="bg-white p-4 rounded shadow">
-                <h3 className="text-lg font-semibold mb-2">Top Selling Products</h3>
-                <div className="h-64">
-                  {/* Insert <PieChart> here using Recharts */}
-                  <p>🥧 Pie Chart Placeholder (Product distribution)</p>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded shadow md:col-span-2">
-                <h3 className="text-lg font-semibold mb-2">Sales Over Time</h3>
-                <div className="h-64">
-                  {/* Insert <LineChart> here using Recharts */}
-                  <p>📈 Line Chart Placeholder (Daily Sales)</p>
-                </div>
-              </div>
+              <HomeSnapshot filterDates={filterDates} />
             </div>
           )}
           {activeTab === 'billing' && <Billing />}
@@ -226,7 +272,49 @@ const RetailerDashboard = () => {
     </div>
   )}
           {activeTab === 'analytics' && <div>📈 Business Analytics: Insights & Reports.</div>}
-          {activeTab === 'distributors' && <div>🤝 Distributor Connection: Send or receive requests.</div>}
+          {activeTab === 'distributors' && (
+            <div>
+              <div className="flex gap-4 mb-4">
+                <button
+                  onClick={() => setDistributorTab('search')}
+                  className={`px-4 py-2 rounded ${
+                    distributorTab === 'search' ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                  }`}
+                >
+                  🔍 Search Distributor
+                </button>
+                <button
+                  onClick={() => setDistributorTab('sent')}
+                  className={`px-4 py-2 rounded ${
+                    distributorTab === 'sent' ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                  }`}
+                >
+                  📤 Sent Requests
+                </button>
+                <button
+                  onClick={() => setDistributorTab('connected')}
+                  className={`px-4 py-2 rounded ${
+                    distributorTab === 'connected' ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                  }`}
+                >
+                  🤝 View Distributors
+                </button>
+              </div>
+
+              {distributorTab === 'search' && <SearchDistributor />}
+              {distributorTab === 'sent' && <ViewSentRequests />}
+              {distributorTab === 'connected' && (
+                selectedDistributor ? (
+                  <ConnectedDistributorPanel
+                    distributor={selectedDistributor}
+                    onBack={() => setSelectedDistributor(null)}
+                  />
+                ) : (
+                  <RetailerConnectedDistributors onSelectDistributor={setSelectedDistributor} />
+                )
+              )}
+            </div>
+          )}
           {activeTab === 'customers' && <div>👥 Customer Analysis: Engagement metrics.</div>}
           {activeTab === 'employees' && <div>👨‍💼 Manage Employees: Add or track staff.</div>}
         </motion.div>

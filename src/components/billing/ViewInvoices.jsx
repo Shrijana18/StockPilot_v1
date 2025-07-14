@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
+import moment from "moment";
 
 const ViewInvoices = () => {
   const [invoices, setInvoices] = useState([]);
@@ -17,7 +18,9 @@ const ViewInvoices = () => {
       try {
         const ref = collection(db, `businesses/${userId}/finalizedInvoices`);
         const snap = await getDocs(ref);
-        const data = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const data = snap.docs
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         setInvoices(data);
         setFiltered(data);
       } catch (err) {
@@ -55,7 +58,9 @@ const ViewInvoices = () => {
             <p>Email: {inv.customer?.email}</p>
             <p>Type: {inv.invoiceType}</p>
             <p>Total: ₹{inv.total}</p>
-            <p className="text-sm text-gray-400 mt-2">Date: {inv.date}</p>
+            <p className="text-sm text-gray-400 mt-2">
+              Date: {inv.createdAt ? moment(inv.createdAt).local().format("DD MMM YYYY, hh:mm A") : "N/A"}
+            </p>
           </div>
         ))}
       </div>

@@ -1,12 +1,46 @@
-
-
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase/firebaseConfig";
 import { useNavigate } from "react-router-dom";
+import { getFirestore, collection, query, where, getDocs } from "firebase/firestore";
+
+import RetailerRequests from "./distributor/RetailerRequests";
+import DistributorInventory from "./distributor/DistributorInventory.jsx";
+import DispatchTracker from "./distributor/DispatchTracker";
+import DistributorAnalytics from "./distributor/DistributorAnalytics";
+import ManageRetailers from "./distributor/ManageRetailers";
 
 const DistributorDashboard = () => {
   const navigate = useNavigate();
+
+  const [retailerRequestsCount, setRetailerRequestsCount] = useState(0);
+  const [inventoryCount, setInventoryCount] = useState(0);
+  const [shipmentsCount, setShipmentsCount] = useState(0);
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const db = getFirestore();
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const businessRef = collection(db, "businesses", user.uid, "retailerRequests");
+      const inventoryRef = collection(db, "businesses", user.uid, "products");
+      const shipmentsRef = collection(db, "businesses", user.uid, "dispatches");
+
+      const [reqSnap, invSnap, shipSnap] = await Promise.all([
+        getDocs(businessRef),
+        getDocs(inventoryRef),
+        getDocs(shipmentsRef),
+      ]);
+
+      setRetailerRequestsCount(reqSnap.size);
+      setInventoryCount(invSnap.size);
+      setShipmentsCount(shipSnap.size);
+    };
+
+    fetchDashboardData();
+  }, []);
 
   const handleSignOut = async () => {
     await signOut(auth);
@@ -20,12 +54,12 @@ const DistributorDashboard = () => {
         <div>
           <h2 className="text-2xl font-bold mb-6">Distributor Panel</h2>
           <nav className="space-y-4">
-            <button className="w-full text-left hover:text-blue-300">Dashboard</button>
-            <button className="w-full text-left hover:text-blue-300">Retailer Requests</button>
-            <button className="w-full text-left hover:text-blue-300">Inventory</button>
-            <button className="w-full text-left hover:text-blue-300">Dispatch Tracker</button>
-            <button className="w-full text-left hover:text-blue-300">Analytics</button>
-            <button className="w-full text-left hover:text-blue-300">Manage Retailers</button>
+            <button onClick={() => setActiveTab("dashboard")} className="w-full text-left hover:text-blue-300">Dashboard</button>
+            <button onClick={() => setActiveTab("retailerRequests")} className="w-full text-left hover:text-blue-300">Retailer Requests</button>
+            <button onClick={() => setActiveTab("inventory")} className="w-full text-left hover:text-blue-300">Inventory</button>
+            <button onClick={() => setActiveTab("dispatch")} className="w-full text-left hover:text-blue-300">Dispatch Tracker</button>
+            <button onClick={() => setActiveTab("analytics")} className="w-full text-left hover:text-blue-300">Analytics</button>
+            <button onClick={() => setActiveTab("manageRetailers")} className="w-full text-left hover:text-blue-300">Manage Retailers</button>
           </nav>
         </div>
         <button
@@ -43,27 +77,37 @@ const DistributorDashboard = () => {
           <p className="text-sm text-gray-600">Here's your supply chain control center.</p>
         </header>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <div className="bg-white p-4 rounded shadow">
-            <h3 className="text-lg font-semibold">Pending Retailer Requests</h3>
-            <p className="text-2xl text-blue-600 mt-2">12</p>
-          </div>
-          <div className="bg-white p-4 rounded shadow">
-            <h3 className="text-lg font-semibold">Total Inventory Items</h3>
-            <p className="text-2xl text-green-600 mt-2">230</p>
-          </div>
-          <div className="bg-white p-4 rounded shadow">
-            <h3 className="text-lg font-semibold">Shipments in Progress</h3>
-            <p className="text-2xl text-yellow-600 mt-2">5</p>
-          </div>
-        </section>
+        {activeTab === "dashboard" && (
+          <>
+            <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="bg-white p-4 rounded shadow">
+                <h3 className="text-lg font-semibold">Pending Retailer Requests</h3>
+                <p className="text-2xl text-blue-600 mt-2">{retailerRequestsCount}</p>
+              </div>
+              <div className="bg-white p-4 rounded shadow">
+                <h3 className="text-lg font-semibold">Total Inventory Items</h3>
+                <p className="text-2xl text-green-600 mt-2">{inventoryCount}</p>
+              </div>
+              <div className="bg-white p-4 rounded shadow">
+                <h3 className="text-lg font-semibold">Shipments in Progress</h3>
+                <p className="text-2xl text-yellow-600 mt-2">{shipmentsCount}</p>
+              </div>
+            </section>
 
-        <div className="mt-10">
-          <h2 className="text-2xl font-semibold mb-4">Live Updates</h2>
-          <div className="bg-white p-6 rounded shadow text-gray-700">
-            Real-time analytics and updates will appear here.
-          </div>
-        </div>
+            <div className="mt-10">
+              <h2 className="text-2xl font-semibold mb-4">Live Updates</h2>
+              <div className="bg-white p-6 rounded shadow text-gray-700">
+                Real-time analytics and updates will appear here.
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === "retailerRequests" && <RetailerRequests db={db} auth={auth} />}
+        {activeTab === "inventory" && <DistributorInventory db={db} auth={auth} />}
+        {activeTab === "dispatch" && <DispatchTracker db={db} auth={auth} />}
+        {activeTab === "analytics" && <DistributorAnalytics db={db} auth={auth} />}
+        {activeTab === "manageRetailers" && <ManageRetailers db={db} auth={auth} />}
       </main>
     </div>
   );

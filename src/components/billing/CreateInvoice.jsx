@@ -1,3 +1,4 @@
+import moment from "moment";
 import React, { useState, useEffect } from "react";
 import CustomerForm from "./CustomerForm";
 import BillingCart from "./BillingCart";
@@ -5,7 +6,31 @@ import InvoiceSettings from "./InvoiceSettings";
 import ProductSearch from "./ProductSearch";
 import InvoicePreview from "./InvoicePreview";
 import { auth, db } from "../../firebase/firebaseConfig";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+
+const updateInventoryStock = async (userId, cartItems) => {
+  for (const item of cartItems) {
+    try {
+      console.log("Updating stock for:", item.name, "ID:", item.id, "Qty:", item.quantity);
+      const productRef = doc(db, "businesses", userId, "products", item.id);
+      const productSnap = await getDoc(productRef);
+      if (productSnap.exists()) {
+        const currentStock = parseFloat(productSnap.data().quantity) || 0;
+        const newStock = currentStock - item.quantity;
+        const finalStock = newStock < 0 ? 0 : newStock;
+
+        await updateDoc(productRef, {
+          quantity: finalStock,
+        });
+        console.log("Stock updated to:", finalStock);
+      } else {
+        console.warn("Product not found for ID:", item.id);
+      }
+    } catch (error) {
+      console.error("Error updating stock for product ID:", item.id, error.message);
+    }
+  }
+};
 
 const CreateInvoice = () => {
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "" });
@@ -43,7 +68,7 @@ const CreateInvoice = () => {
     setCustomer(updated);
   };
 
-  const handleSubmitInvoice = () => {
+  const handleSubmitInvoice = async () => {
     if (!userInfo) {
       alert("User not authenticated or user info missing.");
       return;
@@ -52,9 +77,43 @@ const CreateInvoice = () => {
       alert("Cart is empty. Please add products to generate invoice.");
       return;
     }
-    const issuedAt = new Date().toISOString();
+    const issuedAt = moment().format('YYYY-MM-DDTHH:mm:ss.SSSZ');
     const newInvoiceId = "INV-" + Math.random().toString(36).substr(2, 9).toUpperCase();
     setInvoiceId(newInvoiceId);
+
+    const invoiceData = {
+      customer,
+      cartItems,
+      settings,
+      paymentMode: settings.paymentMode,
+      invoiceType: settings.invoiceType,
+      issuedAt,
+      invoiceId: newInvoiceId,
+      totalAmount: cartItems.reduce((total, item) => {
+        const itemTotal = item.quantity * item.price;
+        const discount = item.discount || 0;
+        return total + itemTotal - (itemTotal * discount / 100);
+      }, 0),
+      paymentBreakdown: {
+        cash: settings.paymentMode === "Cash" ? 1 : 0,
+        upi: settings.paymentMode === "UPI" ? 1 : 0,
+        card: settings.paymentMode === "Card" ? 1 : 0
+      }
+    };
+    console.log("Invoice Data for preview:", invoiceData);
+
+    try {
+      const invoiceRef = doc(db, "businesses", userInfo.uid, "finalizedInvoices", newInvoiceId);
+      await setDoc(invoiceRef, {
+        ...invoiceData,
+        createdAt: issuedAt
+      });
+      console.log("Invoice saved to Firestore:", newInvoiceId);
+    } catch (error) {
+      console.error("Error saving invoice:", error.message);
+      alert("Failed to save invoice. Please try again.");
+    }
+
     setShowPreview({ visible: true, issuedAt });
   };
 
@@ -73,6 +132,10 @@ const CreateInvoice = () => {
         issuedAt={showPreview.issuedAt}
         invoiceId={invoiceId}
         onCancel={handleCancelPreview}
+        onConfirm={async () => {
+          await updateInventoryStock(userInfo.uid, cartItems);
+          setShowPreview({ visible: false, issuedAt: null });
+        }}
         taxRates={{
           gst: settings.gstRate,
           cgst: settings.cgstRate,
