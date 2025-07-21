@@ -9,6 +9,7 @@ import Inventory from './pages/Inventory.jsx';
 import Billing from './pages/Billing.jsx';
 import AllInvoices from './pages/AllInvoices.jsx';
 import AuthPage from './pages/AuthPage.jsx';
+import EmployeeLogin from './components/employee/EmployeeLogin.jsx';
 
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute.jsx';
@@ -25,6 +26,7 @@ const App = () => {
         {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/auth/*" element={<AuthPage />} />
+        <Route path="/employee-login" element={<EmployeeLogin />} />
 
         {/* Protected Routes */}
         <Route
