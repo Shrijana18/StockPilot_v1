@@ -3,19 +3,27 @@ import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
 import { toast } from 'react-toastify';
 
+const cleanFlypId = flypId?.trim?.().toUpperCase?.();
+const cleanPhone = phone?.trim?.();
+const cleanPassword = password?.trim?.();
+
 const EmployeeLogin = () => {
   const [flypId, setFlypId] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
-    if (!flypId || !phone || !password) {
+    const cleanFlypId = flypId.trim().toUpperCase();
+    const cleanPhone = phone.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanFlypId || !cleanPhone || !cleanPassword) {
       toast.error("Please fill in all fields");
       return;
     }
 
     try {
-      const employeeRef = doc(db, 'employeeIndex', flypId);
+      const employeeRef = doc(db, 'employeeIndex', cleanFlypId);
       const snap = await getDoc(employeeRef);
 
       if (!snap.exists()) {
@@ -24,7 +32,7 @@ const EmployeeLogin = () => {
       }
 
       const data = snap.data();
-      if (data.phone !== phone || data.password !== password) {
+      if (data.phone !== cleanPhone || data.password !== cleanPassword) {
         toast.error('Incorrect phone or password');
         return;
       }
@@ -32,7 +40,7 @@ const EmployeeLogin = () => {
       localStorage.setItem('employeeRole', data.role);
       localStorage.setItem('retailerId', data.retailerId);
 
-      await updateDoc(doc(db, 'businesses', data.retailerId, 'employees', flypId), {
+      await updateDoc(doc(db, 'businesses', data.retailerId, 'employees', cleanFlypId), {
         online: true,
         lastSeen: serverTimestamp()
       });
@@ -40,7 +48,7 @@ const EmployeeLogin = () => {
       toast.success(`Welcome ${data.role}`);
       window.location.href = '/employee-dashboard';
     } catch (error) {
-      console.error('Login error', error);
+      console.error('Login error', error.message);
       toast.error('Login failed');
     }
   };

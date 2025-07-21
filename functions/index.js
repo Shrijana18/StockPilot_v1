@@ -219,3 +219,50 @@ exports.generateAssistantReply = onDocumentCreated(
       console.error("OpenAI Reply Error:", error);
     }
   });
+
+exports.employeeLogin = onCall({ region: "asia-south1" }, async (request) => {
+  const { flypId, phone, password } = request.data;
+
+  if (!flypId || !phone || !password) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing fields');
+  }
+
+  const db = admin.firestore();
+  let employeeDoc = null;
+  let employeeData = null;
+  let retailerId = null;
+
+  const businessesSnapshot = await db.collection("businesses").get();
+
+  for (const businessDoc of businessesSnapshot.docs) {
+    const employeesRef = businessDoc.ref.collection("employees");
+    const employeeSnapshot = await employeesRef
+      .where("flypId", "==", flypId)
+      .where("phone", "==", phone)
+      .limit(1)
+      .get();
+
+    if (!employeeSnapshot.empty) {
+      employeeDoc = employeeSnapshot.docs[0];
+      employeeData = employeeDoc.data();
+      retailerId = businessDoc.id;
+      break;
+    }
+  }
+
+  if (!employeeData) {
+    throw new functions.https.HttpsError('not-found', 'Employee not found');
+  }
+
+  if (employeeData.password !== password) {
+    throw new functions.https.HttpsError('unauthenticated', 'Incorrect password');
+  }
+
+  return {
+    success: true,
+    employeeId: employeeData.uid,
+    name: employeeData.name,
+    role: employeeData.role,
+    retailerId,
+  };
+});
