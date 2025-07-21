@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import Billing from "../pages/Billing";
+import RetailerOrderHistory from "../components/retailer/orders/RetailerOrderHistory";
 import ManualEntryForm from "../components/inventory/ManualEntryForm";
 import OCRUploadForm from "../components/inventory/OCRUploadForm";
 import ViewInventory from "../components/inventory/ViewInventory";
@@ -7,8 +8,10 @@ import BarChartRevenue from "../components/charts/BarChartRevenue";
 import PieChartTopProducts from "../components/charts/PieChartTopProducts";
 import LineChartSales from "../components/charts/LineChartSales";
 import HomeSnapshot from "../components/dashboard/HomeSnapshot";
+import BusinessAnalytics from "../components/dashboard/businessAnalytics/BusinessAnalytics";
 import Distributor from "../components/distributor/Distributor";
 import RetailerConnectedDistributors from "../components/retailer/RetailerConnectedDistributors";
+import ManageEmployee from "../components/employee/ManageEmployee";
 import ConnectedDistributorPanel from "../components/distributor/ConnectedDistributorPanel";
 import SearchDistributor from "../components/distributor/SearchDistributor";
 import ViewSentRequests from "../components/distributor/ViewSentRequests";
@@ -84,6 +87,7 @@ const RetailerDashboard = () => {
     { id: 'inventory', label: 'Inventory', icon: <FaBoxes /> },
     { id: 'analytics', label: 'Business Analytics', icon: <FaChartLine /> },
     { id: 'distributors', label: 'Distributor Connection', icon: <FaBuilding /> },
+    { id: 'orderHistory', label: 'Order History', icon: <FaFileInvoice /> },
     { id: 'customers', label: 'Customer Analysis', icon: <FaUsers /> },
     { id: 'employees', label: 'Manage Employee', icon: <FaUserPlus /> },
   ];
@@ -187,6 +191,7 @@ const RetailerDashboard = () => {
             </div>
           )}
           {activeTab === 'billing' && <Billing />}
+          {activeTab === 'orderHistory' && <RetailerOrderHistory />}
           {activeTab === 'inventory' && (
     <div>
       <div className="flex gap-4 mb-6 border-b pb-2">
@@ -271,7 +276,7 @@ const RetailerDashboard = () => {
       {inventoryTab === 'lowstock' && <div>🚨 Low Stock Alert Component Placeholder</div>}
     </div>
   )}
-          {activeTab === 'analytics' && <div>📈 Business Analytics: Insights & Reports.</div>}
+          {activeTab === 'analytics' && <BusinessAnalytics />}
           {activeTab === 'distributors' && (
             <div>
               <div className="flex gap-4 mb-4">
@@ -316,7 +321,7 @@ const RetailerDashboard = () => {
             </div>
           )}
           {activeTab === 'customers' && <div>👥 Customer Analysis: Engagement metrics.</div>}
-          {activeTab === 'employees' && <div>👨‍💼 Manage Employees: Add or track staff.</div>}
+          {activeTab === 'employees' && <ManageEmployee />}
         </motion.div>
       </div>
     </div>

@@ -11,7 +11,8 @@ import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 const updateInventoryStock = async (userId, cartItems) => {
   for (const item of cartItems) {
     try {
-      console.log("Updating stock for:", item.name, "ID:", item.id, "Qty:", item.quantity);
+      // Log brand and category for debugging
+      console.log("Updating stock for:", item.name, "ID:", item.id, "Qty:", item.quantity, "Brand:", item.brand, "Category:", item.category);
       const productRef = doc(db, "businesses", userId, "products", item.id);
       const productSnap = await getDoc(productRef);
       if (productSnap.exists()) {
@@ -49,6 +50,7 @@ const CreateInvoice = () => {
   const [showPreview, setShowPreview] = useState({ visible: false, issuedAt: null });
   const [userInfo, setUserInfo] = useState(null);
   const [invoiceId, setInvoiceId] = useState("");
+  const [invoiceData, setInvoiceData] = useState(null);
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -81,7 +83,7 @@ const CreateInvoice = () => {
     const newInvoiceId = "INV-" + Math.random().toString(36).substr(2, 9).toUpperCase();
     setInvoiceId(newInvoiceId);
 
-    const invoiceData = {
+    const newInvoiceData = {
       customer,
       cartItems,
       settings,
@@ -100,20 +102,7 @@ const CreateInvoice = () => {
         card: settings.paymentMode === "Card" ? 1 : 0
       }
     };
-    console.log("Invoice Data for preview:", invoiceData);
-
-    try {
-      const invoiceRef = doc(db, "businesses", userInfo.uid, "finalizedInvoices", newInvoiceId);
-      await setDoc(invoiceRef, {
-        ...invoiceData,
-        createdAt: issuedAt
-      });
-      console.log("Invoice saved to Firestore:", newInvoiceId);
-    } catch (error) {
-      console.error("Error saving invoice:", error.message);
-      alert("Failed to save invoice. Please try again.");
-    }
-
+    setInvoiceData(newInvoiceData);
     setShowPreview({ visible: true, issuedAt });
   };
 
@@ -121,7 +110,7 @@ const CreateInvoice = () => {
     setShowPreview({ visible: false, issuedAt: null });
   };
 
-  if (showPreview.visible && userInfo) {
+  if (showPreview.visible && userInfo && invoiceData) {
     return (
       <InvoicePreview
         customer={customer}
@@ -133,7 +122,19 @@ const CreateInvoice = () => {
         invoiceId={invoiceId}
         onCancel={handleCancelPreview}
         onConfirm={async () => {
-          await updateInventoryStock(userInfo.uid, cartItems);
+          try {
+            const invoiceRef = doc(db, "businesses", userInfo.uid, "finalizedInvoices", invoiceId);
+            await setDoc(invoiceRef, {
+              ...invoiceData,
+              createdAt: invoiceData.issuedAt
+            });
+            console.log("Invoice saved to Firestore:", invoiceId);
+            await updateInventoryStock(userInfo.uid, cartItems);
+          } catch (error) {
+            console.error("Error saving invoice:", error.message);
+            alert("Failed to save invoice. Please try again.");
+            return;
+          }
           setShowPreview({ visible: false, issuedAt: null });
         }}
         taxRates={{
@@ -167,8 +168,21 @@ const CreateInvoice = () => {
         <h2 className="text-lg font-semibold mb-2">Add Product</h2>
         <ProductSearch
           onSelect={(product) => {
-            if (!selectedProducts.find(p => p.id === product.id)) {
-              setSelectedProducts([...selectedProducts, product]);
+            const alreadyExists = selectedProducts.find(p => p.id === product.id);
+            if (!alreadyExists) {
+              const newSelected = [...selectedProducts, product];
+              setSelectedProducts(newSelected);
+              setCartItems(prev => [...prev, {
+                id: product.id,
+                name: product.name,
+                sku: product.sku || "",
+                brand: product.brand || "",
+                category: product.category || "",
+                quantity: 1,
+                price: parseFloat(product.sellingPrice || 0),
+                discount: 0,
+                unit: product.unit || ""
+              }]);
             }
           }}
         />

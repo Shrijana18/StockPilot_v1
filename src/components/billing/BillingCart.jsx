@@ -6,7 +6,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
   const handleAddItem = () => {
     setCartItems([
       ...cartItems,
-      { id: "manual", name: "", sku: "", quantity: 1, price: 0, discount: 0 },
+      { id: "manual", name: "", sku: "", brand: "", category: "", unit: "", quantity: 1, price: 0, discount: 0 },
     ]);
   };
 
@@ -40,6 +40,9 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
         id: product.id, // Add this line to link with Firestore
         name: product.productName || "",
         sku: product.sku || "",
+        brand: product.brand || "",
+        category: product.category || "",
+        unit: product.unit || "",
         quantity: 1,
         price: product.sellingPrice || 0,
         discount: 0,
@@ -73,6 +76,9 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
             <tr>
               <th className="p-2">Product Name</th>
               <th className="p-2">SKU</th>
+              <th className="p-2">Brand</th>
+              <th className="p-2">Category</th>
+              <th className="p-2">Unit</th>
               <th className="p-2">Qty</th>
               <th className="p-2">Price</th>
               <th className="p-2">Discount (%)</th>
@@ -96,6 +102,30 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
                     type="text"
                     value={item.sku || ""}
                     onChange={(e) => handleChange(index, "sku", e.target.value)}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    type="text"
+                    value={item.brand || ""}
+                    onChange={(e) => handleChange(index, "brand", e.target.value)}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    type="text"
+                    value={item.category || ""}
+                    onChange={(e) => handleChange(index, "category", e.target.value)}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    type="text"
+                    value={item.unit || ""}
+                    onChange={(e) => handleChange(index, "unit", e.target.value)}
                     className="w-full border px-2 py-1 rounded"
                   />
                 </td>

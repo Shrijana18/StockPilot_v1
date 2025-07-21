@@ -66,9 +66,11 @@ const ProductSearch = ({ onSelect }) => {
               <div className="flex flex-col">
                 <span className="font-medium">{product.productName}</span>
                 <span className="text-sm text-gray-500">
-                  {product.sku || product.brand || product.category}
+                  SKU: {product.sku || "N/A"} | Brand: {product.brand || "N/A"} | Category: {product.category || "N/A"}
                 </span>
-                <span className="text-xs text-green-600">Stock: {product.quantity}</span>
+                <span className="text-sm text-gray-600">Selling Price: ₹{product.sellingPrice || "0.00"}</span>
+                <span className="text-xs text-gray-500">Unit: {product.unit || "N/A"}</span>
+                <span className="text-xs text-green-600">In Stock: {product.quantity}</span>
               </div>
             </li>
           ))}

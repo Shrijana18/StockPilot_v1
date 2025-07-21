@@ -1,4 +1,5 @@
-const { onRequest } = require("firebase-functions/v2/https");
+const functions = require("firebase-functions");
+const { onRequest, onCall } = require("firebase-functions/v2/https");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const vision = require("@google-cloud/vision");
@@ -63,6 +64,45 @@ exports.ocrFromImage = onRequest({ region: "asia-south1", memory: "1GiB" }, (req
       return res.status(500).json({ error: "OCR processing failed" });
     }
   });
+});
+
+exports.createEmployee = onCall({ region: "asia-south1" }, async (request) => {
+  const { name, email, password, role, phone, flypId } = request.data;
+  const context = request.auth;
+
+  if (!context || !context.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'User not authenticated');
+  }
+
+  const retailerId = context.uid;
+
+  try {
+    const userRecord = await admin.auth().createUser({
+      email,
+      password,
+      displayName: name,
+    });
+
+    await admin.firestore()
+      .collection("businesses")
+      .doc(retailerId)
+      .collection("employees")
+      .doc(userRecord.uid)
+      .set({
+        uid: userRecord.uid,
+        name,
+        email,
+        role,
+        phone: phone || "",
+        flypId: flypId || "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+    return { success: true, uid: userRecord.uid };
+  } catch (error) {
+    console.error("CreateEmployee Error:", error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
 });
 
 const configuration = new Configuration({

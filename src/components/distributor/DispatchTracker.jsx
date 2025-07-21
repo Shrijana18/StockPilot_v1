@@ -1,6 +1,7 @@
 import { useState } from "react";
 import OrderRequests from "./orders/OrderRequests";
 import PendingOrders from "./orders/PendingOrders";
+import TrackOrders from "./orders/TrackOrders";
 
 
 const DispatchTracker = () => {
@@ -33,7 +34,7 @@ const DispatchTracker = () => {
           }`}
           onClick={() => setActiveTab("completed")}
         >
-          Completed Orders
+          Track Orders
         </button>
       </div>
 
@@ -44,7 +45,7 @@ const DispatchTracker = () => {
         <PendingOrders />
       )}
       {activeTab === "completed" && (
-        <p className="text-gray-600">Showing all completed orders...</p>
+        <TrackOrders />
       )}
     </div>
   );

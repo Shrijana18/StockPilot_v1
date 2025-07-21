@@ -158,6 +158,7 @@ const ViewInventory = ({ userId }) => {
               <th className="p-2">Cost</th>
               <th className="p-2">Sell</th>
               <th className="p-2">Status</th>
+              <th className="p-2">Source</th>
             </tr>
           </thead>
           <tbody>
@@ -288,11 +289,18 @@ const ViewInventory = ({ userId }) => {
                     {getStatus(p.quantity)}
                   </span>
                 </td>
+                <td className="p-2">
+                  {p.sourceOrderId ? (
+                    <span className="px-2 py-1 rounded text-xs bg-blue-500 text-white">From Order</span>
+                  ) : (
+                    ''
+                  )}
+                </td>
               </tr>
             ))}
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan="10" className="text-center p-4 text-gray-500">
+                <td colSpan="11" className="text-center p-4 text-gray-500">
                   {products.length === 0 ? "No products found." : "Loading inventory..."}
                 </td>
               </tr>

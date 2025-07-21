@@ -2,13 +2,14 @@ import React, { useEffect, useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase/firebaseConfig";
 import { useNavigate } from "react-router-dom";
-import { getFirestore, collection, query, where, getDocs } from "firebase/firestore";
+import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 
 import RetailerRequests from "./distributor/RetailerRequests";
 import DistributorInventory from "./distributor/DistributorInventory.jsx";
 import DispatchTracker from "./distributor/DispatchTracker";
 import DistributorAnalytics from "./distributor/DistributorAnalytics";
 import ManageRetailers from "./distributor/ManageRetailers";
+import DistributorHome from "./distributor/DistributorHome";
 
 const DistributorDashboard = () => {
   const navigate = useNavigate();
@@ -17,12 +18,19 @@ const DistributorDashboard = () => {
   const [inventoryCount, setInventoryCount] = useState(0);
   const [shipmentsCount, setShipmentsCount] = useState(0);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [userData, setUserData] = useState(null);
   const db = getFirestore();
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       const user = auth.currentUser;
       if (!user) return;
+
+      const businessDocRef = doc(db, "businesses", user.uid);
+      const businessDocSnap = await getDoc(businessDocRef);
+      if (businessDocSnap.exists()) {
+        setUserData(businessDocSnap.data());
+      }
 
       const businessRef = collection(db, "businesses", user.uid, "retailerRequests");
       const inventoryRef = collection(db, "businesses", user.uid, "products");
@@ -52,14 +60,68 @@ const DistributorDashboard = () => {
       {/* Sidebar */}
       <aside className="w-64 bg-blue-900 text-white shadow-lg p-5 flex flex-col justify-between">
         <div>
-          <h2 className="text-2xl font-bold mb-6">Distributor Panel</h2>
-          <nav className="space-y-4">
-            <button onClick={() => setActiveTab("dashboard")} className="w-full text-left hover:text-blue-300">Dashboard</button>
-            <button onClick={() => setActiveTab("retailerRequests")} className="w-full text-left hover:text-blue-300">Retailer Requests</button>
-            <button onClick={() => setActiveTab("inventory")} className="w-full text-left hover:text-blue-300">Inventory</button>
-            <button onClick={() => setActiveTab("dispatch")} className="w-full text-left hover:text-blue-300">Dispatch Tracker</button>
-            <button onClick={() => setActiveTab("analytics")} className="w-full text-left hover:text-blue-300">Analytics</button>
-            <button onClick={() => setActiveTab("manageRetailers")} className="w-full text-left hover:text-blue-300">Manage Retailers</button>
+          <h2 className="text-3xl font-extrabold tracking-wide text-white mb-6">FLYP</h2>
+          <nav className="space-y-4 mt-20">
+            <button
+              onClick={() => setActiveTab("dashboard")}
+              className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
+                activeTab === "dashboard"
+                  ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
+                  : "text-white hover:bg-blue-800 hover:shadow"
+              }`}
+            >
+              🏠 Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab("retailerRequests")}
+              className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
+                activeTab === "retailerRequests"
+                  ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
+                  : "text-white hover:bg-blue-800 hover:shadow"
+              }`}
+            >
+              📥 Retailer Requests
+            </button>
+            <button
+              onClick={() => setActiveTab("inventory")}
+              className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
+                activeTab === "inventory"
+                  ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
+                  : "text-white hover:bg-blue-800 hover:shadow"
+              }`}
+            >
+              📦 Inventory
+            </button>
+            <button
+              onClick={() => setActiveTab("dispatch")}
+              className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
+                activeTab === "dispatch"
+                  ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
+                  : "text-white hover:bg-blue-800 hover:shadow"
+              }`}
+            >
+              🚚 Dispatch Tracker
+            </button>
+            <button
+              onClick={() => setActiveTab("analytics")}
+              className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
+                activeTab === "analytics"
+                  ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
+                  : "text-white hover:bg-blue-800 hover:shadow"
+              }`}
+            >
+              📊 Analytics
+            </button>
+            <button
+              onClick={() => setActiveTab("manageRetailers")}
+              className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
+                activeTab === "manageRetailers"
+                  ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
+                  : "text-white hover:bg-blue-800 hover:shadow"
+              }`}
+            >
+              👥 Manage Retailers
+            </button>
           </nav>
         </div>
         <button
@@ -70,45 +132,29 @@ const DistributorDashboard = () => {
         </button>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-6">
-          <h1 className="text-3xl font-semibold">Welcome Distributor!</h1>
-          <p className="text-sm text-gray-600">Here's your supply chain control center.</p>
+      {/* Content Area */}
+      <div className="flex-1 p-8 overflow-y-auto flex flex-col">
+        <header className="sticky top-0 z-10 bg-white px-6 py-3 shadow flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-800">Distributor Dashboard</h1>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold text-gray-700">{userData?.businessName || "Distributor"}</p>
+            <p className="text-sm text-gray-500">{auth.currentUser?.email}</p>
+            <p className="text-xs text-gray-400">ID: {auth.currentUser?.uid}</p>
+          </div>
         </header>
 
-        {activeTab === "dashboard" && (
-          <>
-            <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div className="bg-white p-4 rounded shadow">
-                <h3 className="text-lg font-semibold">Pending Retailer Requests</h3>
-                <p className="text-2xl text-blue-600 mt-2">{retailerRequestsCount}</p>
-              </div>
-              <div className="bg-white p-4 rounded shadow">
-                <h3 className="text-lg font-semibold">Total Inventory Items</h3>
-                <p className="text-2xl text-green-600 mt-2">{inventoryCount}</p>
-              </div>
-              <div className="bg-white p-4 rounded shadow">
-                <h3 className="text-lg font-semibold">Shipments in Progress</h3>
-                <p className="text-2xl text-yellow-600 mt-2">{shipmentsCount}</p>
-              </div>
-            </section>
-
-            <div className="mt-10">
-              <h2 className="text-2xl font-semibold mb-4">Live Updates</h2>
-              <div className="bg-white p-6 rounded shadow text-gray-700">
-                Real-time analytics and updates will appear here.
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeTab === "retailerRequests" && <RetailerRequests db={db} auth={auth} />}
-        {activeTab === "inventory" && <DistributorInventory db={db} auth={auth} />}
-        {activeTab === "dispatch" && <DispatchTracker db={db} auth={auth} />}
-        {activeTab === "analytics" && <DistributorAnalytics db={db} auth={auth} />}
-        {activeTab === "manageRetailers" && <ManageRetailers db={db} auth={auth} />}
-      </main>
+        {/* Main Content */}
+        <main className="flex-1">
+          {activeTab === "dashboard" && <DistributorHome />}
+          {activeTab === "retailerRequests" && <RetailerRequests db={db} auth={auth} />}
+          {activeTab === "inventory" && <DistributorInventory db={db} auth={auth} />}
+          {activeTab === "dispatch" && <DispatchTracker db={db} auth={auth} />}
+          {activeTab === "analytics" && <DistributorAnalytics db={db} auth={auth} />}
+          {activeTab === "manageRetailers" && <ManageRetailers db={db} auth={auth} />}
+        </main>
+      </div>
     </div>
   );
 };

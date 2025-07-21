@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { db, auth } from '../../firebase/firebaseConfig';
-import { collection, doc, setDoc, serverTimestamp, addDoc, onSnapshot, query } from 'firebase/firestore';
+import { collection, doc, setDoc, serverTimestamp, addDoc, onSnapshot, query, getDoc } from 'firebase/firestore';
 
 const RetailerOrderRequestForm = ({ distributorId }) => {
-  const [items, setItems] = useState([{ productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '' }]);
+  const [items, setItems] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   const [distributorInventory, setDistributorInventory] = useState([]);
@@ -31,15 +31,21 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
     setItems(updated);
 
     if (field === 'productName') {
+      const lower = value.toLowerCase();
       const filtered = distributorInventory.filter(prod =>
-        prod.productName?.toLowerCase().includes(value.toLowerCase())
+        prod.productName?.toLowerCase().includes(lower) ||
+        prod.sku?.toLowerCase().includes(lower) ||
+        prod.brand?.toLowerCase().includes(lower) ||
+        prod.category?.toLowerCase().includes(lower) ||
+        prod.unit?.toLowerCase().includes(lower) ||
+        (prod.sellingPrice + '').includes(lower)
       );
       setFilteredSuggestions(filtered);
     }
   };
 
   const addItemRow = () => {
-    setItems([...items, { productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '' }]);
+    setItems([...items, { productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '', unitPrice: '' }]);
   };
 
   const handleSubmit = async () => {
@@ -54,6 +60,12 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
         return sum + qty * price;
       }, 0);
 
+      const distributorSnap = await getDoc(doc(db, 'businesses', distributorId));
+      const distributorData = distributorSnap.exists() ? distributorSnap.data() : {};
+
+      const distributorPhone = distributorData.phone || '';
+      const distributorEmail = distributorData.email || '';
+
       const distributorRef = collection(db, `businesses/${distributorId}/orderRequests`);
       const docRef = await addDoc(distributorRef, {
         retailerId: currentUser.uid,
@@ -64,11 +76,34 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
         creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
         splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
         status: 'Requested',
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
+        distributorName: distributorData.businessName || distributorData.ownerName || '',
+        distributorCity: distributorData.city || '',
+        distributorState: distributorData.state || '',
+        distributorPhone,
+        distributorEmail,
+      });
+
+      const retailerRef = doc(db, `businesses/${currentUser.uid}/sentOrders/${docRef.id}`);
+      await setDoc(retailerRef, {
+        retailerId: currentUser.uid,
+        distributorId: distributorId,
+        items,
+        totalAmount,
+        paymentMode,
+        creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
+        splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
+        status: 'Requested',
+        timestamp: serverTimestamp(),
+        distributorName: distributorData.businessName || distributorData.ownerName || '',
+        distributorCity: distributorData.city || '',
+        distributorState: distributorData.state || '',
+        distributorPhone,
+        distributorEmail,
       });
 
       toast.success('Order request sent successfully!');
-      setItems([{ productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '' }]);
+      setItems([{ productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '', unitPrice: '' }]);
     } catch (err) {
       console.error('Error sending order:', err);
       alert('Failed to send order request.');
@@ -80,6 +115,72 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
   return (
     <div className="p-4 border rounded shadow-md bg-white">
       <h2 className="text-lg font-semibold mb-4">Send Order Request</h2>
+
+      {/* Universal Product Search Bar */}
+      <div className="mb-4 relative">
+        <input
+          type="text"
+          placeholder="🔍 Search product by name, SKU, brand, etc."
+          className="w-full px-4 py-2 border rounded shadow-sm"
+          onChange={(e) => {
+            const query = e.target.value.toLowerCase();
+            if (query.trim() === "") {
+              setFilteredSuggestions([]);
+              return;
+            }
+            const filtered = distributorInventory.filter(prod =>
+              prod.productName?.toLowerCase().includes(query) ||
+              prod.sku?.toLowerCase().includes(query) ||
+              prod.brand?.toLowerCase().includes(query) ||
+              prod.category?.toLowerCase().includes(query) ||
+              (prod.sellingPrice + '').includes(query)
+            );
+            setFilteredSuggestions(filtered);
+          }}
+        />
+        {filteredSuggestions.length > 0 && (
+          <ul className="bg-white border rounded mt-1 max-h-40 overflow-y-auto text-sm absolute left-0 right-0 z-20">
+            {filteredSuggestions.map((sug) => (
+              <li
+                key={sug.id}
+                className="px-3 py-2 hover:bg-blue-100 cursor-pointer border-b"
+                onClick={() => {
+                  const alreadyAdded = items.some(existing => existing.sku === sug.sku);
+                  if (alreadyAdded) {
+                    toast.warning('Item already added to cart.');
+                    return;
+                  }
+                  setItems([...items, {
+                    productName: sug.productName,
+                    sku: sug.sku,
+                    brand: sug.brand,
+                    category: sug.category,
+                    quantity: '',
+                    unit: sug.unit || '',
+                    description: '',
+                    notes: '',
+                    unitPrice: sug.sellingPrice || '',
+                    available: sug.quantity,
+                    distributorProductId: sug.id
+                  }]);
+                  setFilteredSuggestions([]);
+                }}
+              >
+                <div className="font-semibold">{sug.productName}</div>
+                <div className="text-xs text-gray-600 flex flex-wrap gap-2">
+                  <span>Brand: {sug.brand || '—'}</span>
+                  <span>SKU: {sug.sku || '—'}</span>
+                  <span>Unit: {sug.unit || '—'}</span>
+                  <span>Price: ₹{sug.sellingPrice || '—'}</span>
+                  <span className={`font-semibold ${sug.quantity === 0 ? 'text-red-600' : sug.quantity <= 10 ? 'text-yellow-600' : 'text-green-600'}`}>
+                    In Stock: {sug.quantity}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="mb-4">
         <label className="font-medium mr-2">Payment Mode:</label>
@@ -130,66 +231,31 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             <input
               type="text"
               placeholder="Product Name"
-              className="border px-3 py-2 rounded w-full"
+              className="border px-3 py-2 rounded w-full bg-gray-100 cursor-not-allowed"
               value={item.productName}
-              onChange={(e) => handleItemChange(index, 'productName', e.target.value)}
+              disabled
             />
-            {index === items.length - 1 && filteredSuggestions.length > 0 && (
-              <ul className="bg-white border rounded mt-1 max-h-32 overflow-y-auto text-sm absolute left-0 right-0 z-10">
-                {filteredSuggestions.map((sug) => {
-                  return (
-                    <li
-                      key={sug.id}
-                      className="px-3 py-2 hover:bg-blue-100 cursor-pointer border-b"
-                      onClick={() => {
-                        const updated = [...items];
-                        updated[index] = {
-                          ...updated[index],
-                          productName: sug.productName,
-                          sku: sug.sku,
-                          brand: sug.brand,
-                          category: sug.category,
-                          unit: sug.unit,
-                          available: sug.quantity,
-                          distributorProductId: sug.id,
-                        };
-                        setItems(updated);
-                        setFilteredSuggestions([]);
-                      }}
-                    >
-                      <div className="font-semibold text-sm">{sug.productName}</div>
-                      <div className="text-xs text-gray-600">
-                        Brand: {sug.brand || '—'} | SKU: {sug.sku || '—'} | Unit: {sug.unit || '—'} | 
-                        <span className={`ml-1 ${sug.quantity === 0 ? 'text-red-600' : sug.quantity < 10 ? 'text-yellow-600' : 'text-green-600'}`}>
-                          In Stock: {sug.quantity}
-                        </span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
           </div>
           <input
             type="text"
             placeholder="SKU"
-            className="border px-3 py-2 rounded"
+            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
             value={item.sku}
-            onChange={(e) => handleItemChange(index, 'sku', e.target.value)}
+            disabled
           />
           <input
             type="text"
             placeholder="Brand"
-            className="border px-3 py-2 rounded"
+            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
             value={item.brand}
-            onChange={(e) => handleItemChange(index, 'brand', e.target.value)}
+            disabled
           />
           <input
             type="text"
             placeholder="Category"
-            className="border px-3 py-2 rounded"
+            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
             value={item.category}
-            onChange={(e) => handleItemChange(index, 'category', e.target.value)}
+            disabled
           />
           <input
             type="number"
@@ -201,9 +267,16 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           <input
             type="text"
             placeholder="Unit (e.g., kg)"
-            className="border px-3 py-2 rounded"
+            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
             value={item.unit}
-            onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
+            disabled
+          />
+          <input
+            type="number"
+            placeholder="Price (₹)"
+            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
+            value={item.unitPrice}
+            disabled
           />
           <input
             type="text"
@@ -240,6 +313,10 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
       >
         + Add Item
       </button>
+
+      <div className="text-right font-semibold text-lg mb-3">
+        Total: ₹{items.reduce((acc, item) => acc + (parseFloat(item.unitPrice || 0) * parseFloat(item.quantity || 0)), 0).toFixed(2)}
+      </div>
 
       <button
         onClick={handleSubmit}

@@ -1,36 +1,43 @@
 import React, { useEffect, useState } from 'react';
 import { db, auth } from '../../firebase/firebaseConfig';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import KpiCards from './KpiCards';
 import RecentInvoices from './RecentInvoices';
 import LowStockAlertWidget from './LowStockAlertWidget';
 
-const HomeSnapshot = ({ filterDates }) => {
+const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
   const [invoiceData, setInvoiceData] = useState([]);
   const [userId, setUserId] = useState(null);
-  const [filterType, setFilterType] = useState('All'); // 'All', 'Today', 'ThisMonth', 'ThisYear'
+  const [filterType, setFilterType] = useState(selectedFilterType || 'All');
   const [filteredInvoices, setFilteredInvoices] = useState([]);
 
   useEffect(() => {
-    const fetchInvoices = async () => {
-      try {
-        const user = auth.currentUser;
-        if (!user) return;
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
         setUserId(user.uid);
         const q = collection(db, 'businesses', user.uid, 'finalizedInvoices');
-        const querySnapshot = await getDocs(q);
-        const data = [];
-        querySnapshot.forEach((doc) => {
-          data.push({ ...doc.data(), id: doc.id });
-        });
-        setInvoiceData(data);
-        setFilteredInvoices(applyDateFilter(data, filterType, filterDates));
-      } catch (err) {
-        console.error('Error fetching invoices:', err);
-      }
-    };
 
-    fetchInvoices();
+        const unsubscribeSnapshot = onSnapshot(
+          q,
+          (querySnapshot) => {
+            const data = [];
+            querySnapshot.forEach((doc) => {
+              data.push({ ...doc.data(), id: doc.id });
+            });
+            setInvoiceData(data);
+            setFilteredInvoices(applyDateFilter(data, selectedFilterType || 'All', filterDates));
+          },
+          (error) => {
+            console.error('Error in snapshot listener:', error);
+          }
+        );
+
+        return () => unsubscribeSnapshot();
+      }
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
   const applyDateFilter = (data, type, dateRange = {}) => {
@@ -38,7 +45,12 @@ const HomeSnapshot = ({ filterDates }) => {
     const { start, end } = dateRange;
 
     return data.filter(inv => {
-      const date = inv.createdAt ? new Date(inv.createdAt) : null;
+      const date = inv.issuedAt
+        ? typeof inv.issuedAt.toDate === 'function'
+          ? inv.issuedAt.toDate()
+          : new Date(inv.issuedAt)
+        : null;
+
       if (!date) return false;
 
       if (start && end) {
@@ -46,20 +58,32 @@ const HomeSnapshot = ({ filterDates }) => {
       }
 
       if (type === 'Today') {
-        return date.toDateString() === now.toDateString();
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+        return date >= startOfDay && date <= endOfDay;
       } else if (type === 'ThisWeek') {
         const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - now.getDay()); // Sunday
+        const day = startOfWeek.getDay();
+        const diffToMonday = day === 0 ? 6 : day - 1;
+        startOfWeek.setDate(startOfWeek.getDate() - diffToMonday);
         startOfWeek.setHours(0, 0, 0, 0);
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         endOfWeek.setHours(23, 59, 59, 999);
         return date >= startOfWeek && date <= endOfWeek;
       } else if (type === 'ThisMonth') {
-        return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        endOfMonth.setHours(23, 59, 59, 999);
+        return date >= startOfMonth && date <= endOfMonth;
       } else if (type === 'ThisYear') {
-        return date.getFullYear() === now.getFullYear();
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        return date >= startOfYear && date <= endOfYear;
       }
+
       return true;
     });
   };
@@ -68,30 +92,21 @@ const HomeSnapshot = ({ filterDates }) => {
     setFilteredInvoices(applyDateFilter(invoiceData, filterType, filterDates));
   }, [filterType, filterDates, invoiceData]);
 
-  // Compute totalRevenue and paymentStats for passing to KpiCards
-  const totalRevenue = filteredInvoices.reduce((acc, inv) => acc + (parseFloat(inv.totalAmount || 0)), 0);
+  useEffect(() => {
+    setFilterType(selectedFilterType || 'All');
+  }, [selectedFilterType]);
+
+  const totalRevenue = filteredInvoices.reduce((acc, inv) => acc + parseFloat(inv.totalAmount || inv.total || 0), 0);
   const paymentStats = filteredInvoices.reduce((acc, inv) => {
     const mode = inv.paymentMode || 'Unknown';
-    acc[mode] = (acc[mode] || 0) + parseFloat(inv.totalAmount || 0);
+    acc[mode] = (acc[mode] || 0) + parseFloat(inv.totalAmount || inv.total || 0);
     return acc;
   }, {});
 
+  console.log('Filtered invoices:', filteredInvoices);
+
   return (
     <div className="p-4 space-y-6">
-      <div className="flex justify-end mb-2">
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="border px-3 py-1 rounded-md shadow text-sm"
-          aria-label="Select date filter"
-        >
-          <option value="All">All Time</option>
-          <option value="Today">Today</option>
-          <option value="ThisWeek">This Week</option>
-          <option value="ThisMonth">This Month</option>
-          <option value="Custom">Custom</option>
-        </select>
-      </div>
       <div className="text-xs text-gray-500 mb-1">
         {filterType === 'All' && !filterDates?.start ? 'Showing all time data' : `Filtered by: ${filterType}`}
         {filterDates?.start && filterDates?.end && (
@@ -108,8 +123,6 @@ const HomeSnapshot = ({ filterDates }) => {
         <LowStockAlertWidget userId={userId} />
         <RecentInvoices invoiceData={[...filteredInvoices].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} />
       </div>
-
-      {/* Daily Snapshot Visualization Placeholder - To be implemented */}
     </div>
   );
 };

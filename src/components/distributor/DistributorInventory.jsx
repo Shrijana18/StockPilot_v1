@@ -7,7 +7,7 @@ import ViewInventory from "./inventory/ViewInventory";
 
 const DistributorInventory = () => {
   const [inventory, setInventory] = useState([]);
-  const [selectedTab, setSelectedTab] = useState("view");
+  const [selectedTab, setSelectedTab] = useState("add");
   const distributorId = auth.currentUser?.uid;
 
   useEffect(() => {
@@ -25,8 +25,6 @@ const DistributorInventory = () => {
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-2">Welcome Distributor!</h2>
-      <p className="text-sm text-gray-600 mb-6">Here's your supply chain control center.</p>
 
       <div className="flex space-x-4 mb-4">
         {["add", "view", "group", "lowstock"].map((tab) => (
