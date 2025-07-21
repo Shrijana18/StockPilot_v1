@@ -3,10 +3,6 @@ import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
 import { toast } from 'react-toastify';
 
-const cleanFlypId = flypId?.trim?.().toUpperCase?.();
-const cleanPhone = phone?.trim?.();
-const cleanPassword = password?.trim?.();
-
 const EmployeeLogin = () => {
   const [flypId, setFlypId] = useState('');
   const [phone, setPhone] = useState('');
