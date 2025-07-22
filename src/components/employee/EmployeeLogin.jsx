@@ -3,7 +3,7 @@ import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
 import { toast } from 'react-toastify';
 import { auth } from '../../firebase/firebaseConfig';
-import { signOut } from 'firebase/auth';
+import { signOut, signInWithEmailAndPassword } from 'firebase/auth';
 
 const EmployeeLogin = () => {
   const [flypId, setFlypId] = useState('');
@@ -48,6 +48,9 @@ const EmployeeLogin = () => {
         toast.error('Incorrect phone or password');
         return;
       }
+
+      // Step 3: Sign in employee using Firebase Auth with stored email
+      await signInWithEmailAndPassword(auth, data.email, cleanPassword);
 
       localStorage.setItem('employeeRole', data.role);
       localStorage.setItem('retailerId', retailerId);
