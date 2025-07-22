@@ -85,7 +85,13 @@ const OCRUploadForm = ({ distributorId }) => {
       }
 
       try {
-        const response = await fetch("https://asia-south1-stockpilotv1.cloudfunctions.net/ocrFromImage", {
+        const OCR_ENDPOINT =
+          import.meta.env.VITE_DISTRIBUTOR_OCR_URL ||
+          (import.meta.env.MODE === "development"
+            ? "http://localhost:5001/stockpilotv1/asia-south1/ocrFromImage"
+            : "https://asia-south1-stockpilotv1.cloudfunctions.net/ocrFromImage");
+
+        const response = await fetch(OCR_ENDPOINT, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageBase64: fileBase64 })

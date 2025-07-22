@@ -1,12 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
 import { toast } from 'react-toastify';
+import { auth } from '../../firebase/firebaseConfig';
+import { signOut } from 'firebase/auth';
 
 const EmployeeLogin = () => {
   const [flypId, setFlypId] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    signOut(auth);
+  }, []);
 
   const handleLogin = async () => {
     const cleanFlypId = flypId.trim().toUpperCase();
@@ -19,11 +25,21 @@ const EmployeeLogin = () => {
     }
 
     try {
-      const employeeRef = doc(db, 'employeeIndex', cleanFlypId);
-      const snap = await getDoc(employeeRef);
-
-      if (!snap.exists()) {
+      // Step 1: Find employee UID from flypId index
+      const flypRef = doc(db, 'employeeIndex', cleanFlypId);
+      const flypSnap = await getDoc(flypRef);
+      if (!flypSnap.exists()) {
         toast.error('Invalid FLYP ID');
+        return;
+      }
+      const flypData = flypSnap.data();
+      const { uid, retailerId } = flypData;
+
+      // Step 2: Fetch actual employee record using UID
+      const employeeRef = doc(db, 'businesses', retailerId, 'employees', uid);
+      const snap = await getDoc(employeeRef);
+      if (!snap.exists()) {
+        toast.error('Employee not linked to this business');
         return;
       }
 
@@ -34,9 +50,10 @@ const EmployeeLogin = () => {
       }
 
       localStorage.setItem('employeeRole', data.role);
-      localStorage.setItem('retailerId', data.retailerId);
+      localStorage.setItem('retailerId', retailerId);
+      localStorage.setItem('employeeUID', uid);
 
-      await updateDoc(doc(db, 'businesses', data.retailerId, 'employees', cleanFlypId), {
+      await updateDoc(employeeRef, {
         online: true,
         lastSeen: serverTimestamp()
       });
