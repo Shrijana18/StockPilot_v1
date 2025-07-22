@@ -55,6 +55,13 @@ const AddEmployeeForm = () => {
         if (!result.data.success) {
           throw new Error(result.data.message || 'Failed to create employee');
         }
+
+        // ✅ Write to employeeIndex collection for login mapping
+        await setDoc(doc(db, 'employeeIndex', flypId), {
+          uid: result.data.uid,
+          retailerId: currentUser.uid,
+          email: email,
+        });
       } catch (funcErr) {
         console.error('Callable function error:', funcErr);
         toast.error(funcErr.message || 'Failed to create employee via function');
