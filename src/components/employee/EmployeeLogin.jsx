@@ -43,6 +43,7 @@ const EmployeeLogin = () => {
 
       // Step 3: Fetch actual employee record using signed-in UID
       const employeeRef = doc(db, 'businesses', retailerId, 'employees', signedInUid);
+      console.log("📡 Fetching employee doc from path:", `businesses/${retailerId}/employees/${signedInUid}`);
       const snap = await getDoc(employeeRef);
       if (!snap.exists()) {
         toast.error('Employee not linked to this business');
