@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
 import { toast } from 'react-toastify';
@@ -10,9 +10,6 @@ const EmployeeLogin = () => {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
 
-  useEffect(() => {
-    signOut(auth);
-  }, []);
 
   const handleLogin = async () => {
     const cleanFlypId = flypId.trim().toUpperCase();
@@ -25,7 +22,7 @@ const EmployeeLogin = () => {
     }
 
     try {
-      // Step 1: Find employee UID from flypId index
+      // Step 1: Find employee UID and email from flypId index
       const flypRef = doc(db, 'employeeIndex', cleanFlypId);
       const flypSnap = await getDoc(flypRef);
       if (!flypSnap.exists()) {
@@ -33,10 +30,19 @@ const EmployeeLogin = () => {
         return;
       }
       const flypData = flypSnap.data();
-      const { uid, retailerId } = flypData;
+      const { uid, retailerId, email } = flypData;
 
-      // Step 2: Fetch actual employee record using UID
-      const employeeRef = doc(db, 'businesses', retailerId, 'employees', uid);
+      console.log("🧭 Resolved flypId:", cleanFlypId);
+      console.log("👉 Resolved UID from index:", uid);
+      console.log("🏪 Retailer ID:", retailerId);
+
+      // Step 2: Sign in the employee using Firebase Auth
+      const userCred = await signInWithEmailAndPassword(auth, email, cleanPassword);
+      const signedInUid = userCred.user.uid;
+      console.log("✅ Signed in Firebase UID:", signedInUid);
+
+      // Step 3: Fetch actual employee record using signed-in UID
+      const employeeRef = doc(db, 'businesses', retailerId, 'employees', signedInUid);
       const snap = await getDoc(employeeRef);
       if (!snap.exists()) {
         toast.error('Employee not linked to this business');
@@ -44,17 +50,14 @@ const EmployeeLogin = () => {
       }
 
       const data = snap.data();
-      if (data.phone !== cleanPhone || data.password !== cleanPassword) {
-        toast.error('Incorrect phone or password');
+      if (data.phone !== cleanPhone) {
+        toast.error('Incorrect phone');
         return;
       }
 
-      // Step 3: Sign in employee using Firebase Auth with stored email
-      await signInWithEmailAndPassword(auth, data.email, cleanPassword);
-
       localStorage.setItem('employeeRole', data.role);
       localStorage.setItem('retailerId', retailerId);
-      localStorage.setItem('employeeUID', uid);
+      localStorage.setItem('employeeUID', signedInUid);
 
       await updateDoc(employeeRef, {
         online: true,
