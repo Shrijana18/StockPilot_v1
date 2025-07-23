@@ -114,7 +114,15 @@ const InvoicePreview = ({
         </div>
 
         <h2 className="text-center font-extrabold text-2xl mb-6 uppercase tracking-widest font-bold">
-          {invoiceType || "TAX"} INVOICE
+          {invoiceType === 'retail'
+            ? 'RETAIL INVOICE'
+            : invoiceType === 'tax'
+            ? 'TAX INVOICE'
+            : invoiceType === 'quote'
+            ? 'QUOTATION'
+            : invoiceType === 'estimation'
+            ? 'ESTIMATION'
+            : 'TAX INVOICE'}
         </h2>
 
         {/* Products */}
@@ -179,7 +187,7 @@ const InvoicePreview = ({
           )}
           <p className="mt-2 font-bold text-xl">Total: ₹{total.toFixed(2)}</p>
           <p className="text-sm text-gray-500 mt-1">
-            Payment Mode: {paymentMode} | Invoice Type: {invoiceType}
+            Payment Mode: {paymentMode || "N/A"} | Invoice Type: {invoiceType?.charAt(0).toUpperCase() + invoiceType?.slice(1) || "N/A"}
           </p>
         </div>
 

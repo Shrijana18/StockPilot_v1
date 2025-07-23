@@ -83,6 +83,19 @@ const CreateInvoice = () => {
     const newInvoiceId = "INV-" + Math.random().toString(36).substr(2, 9).toUpperCase();
     setInvoiceId(newInvoiceId);
 
+    const subtotal = cartItems.reduce((total, item) => {
+      const itemTotal = item.quantity * item.price;
+      const discount = item.discount || 0;
+      return total + itemTotal - (itemTotal * discount / 100);
+    }, 0);
+
+    const gstAmount = settings.includeGST ? subtotal * (settings.gstRate / 100) : 0;
+    const cgstAmount = settings.includeCGST ? subtotal * (settings.cgstRate / 100) : 0;
+    const sgstAmount = settings.includeCGST ? subtotal * (settings.cgstRate / 100) : 0;
+    const igstAmount = settings.includeIGST ? subtotal * (settings.igstRate / 100) : 0;
+
+    const totalAmount = parseFloat((subtotal + gstAmount + cgstAmount + sgstAmount + igstAmount).toFixed(2));
+
     const newInvoiceData = {
       customer,
       cartItems,
@@ -91,11 +104,7 @@ const CreateInvoice = () => {
       invoiceType: settings.invoiceType,
       issuedAt,
       invoiceId: newInvoiceId,
-      totalAmount: cartItems.reduce((total, item) => {
-        const itemTotal = item.quantity * item.price;
-        const discount = item.discount || 0;
-        return total + itemTotal - (itemTotal * discount / 100);
-      }, 0),
+      totalAmount,
       paymentBreakdown: {
         cash: settings.paymentMode === "Cash" ? 1 : 0,
         upi: settings.paymentMode === "UPI" ? 1 : 0,

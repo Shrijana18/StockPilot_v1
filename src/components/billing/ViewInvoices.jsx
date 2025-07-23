@@ -100,7 +100,7 @@ const ViewInvoices = () => {
               }))}
               settings={selectedInvoice.settings}
               invoiceType={selectedInvoice.invoiceType}
-              total={selectedInvoice.totalAmount || selectedInvoice.total}
+              paymentMode={selectedInvoice.paymentMode}
               issuedAt={selectedInvoice.createdAt}
               userInfo={{ businessName: selectedInvoice.userInfo?.businessName }}
               onCancel={() => setSelectedInvoice(null)}

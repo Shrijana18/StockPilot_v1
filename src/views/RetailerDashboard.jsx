@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import Billing from "../pages/Billing";
 import RetailerOrderHistory from "../components/retailer/orders/RetailerOrderHistory";
+import CustomerAnalysis from "../components/customeranalytics/CustomerAnalysis";
 import ManualEntryForm from "../components/inventory/ManualEntryForm";
 import OCRUploadForm from "../components/inventory/OCRUploadForm";
 import ViewInventory from "../components/inventory/ViewInventory";
@@ -320,7 +321,7 @@ const RetailerDashboard = () => {
               )}
             </div>
           )}
-          {activeTab === 'customers' && <div>👥 Customer Analysis: Engagement metrics.</div>}
+          {activeTab === 'customers' && <CustomerAnalysis />}
           {activeTab === 'employees' && <ManageEmployee />}
         </motion.div>
       </div>

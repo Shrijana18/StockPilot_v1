@@ -62,6 +62,21 @@ const AddEmployeeForm = () => {
           retailerId: currentUser.uid,
           email: email,
         });
+
+        // ✅ Also add employee under the business' Firestore path for login lookups
+        await setDoc(
+          doc(db, `businesses/${currentUser.uid}/employees/${result.data.uid}`),
+          {
+            name,
+            email,
+            phone,
+            role,
+            createdAt: new Date(),
+            flypId,
+            uid: result.data.uid,
+            status: 'active',
+          }
+        );
       } catch (funcErr) {
         console.error('Callable function error:', funcErr);
         toast.error(funcErr.message || 'Failed to create employee via function');
