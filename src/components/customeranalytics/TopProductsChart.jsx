@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
@@ -27,12 +25,19 @@ const TopProductsChart = () => {
       const snap = await getDocs(ref);
 
       const productMap = {};
+      const customerProductMap = {};
 
       snap.docs.forEach(doc => {
         const data = doc.data();
+        const customer = data.customer || {};
+        const custKey = customer.custId || customer.phone || customer.email || customer.name;
         (data.cartItems || []).forEach(item => {
           const name = item.name || "Unnamed";
-          productMap[name] = (productMap[name] || 0) + item.quantity;
+          const key = `${custKey}-${name}`;
+          if (!customerProductMap[key]) {
+            customerProductMap[key] = item.quantity;
+            productMap[name] = (productMap[name] || 0) + item.quantity;
+          }
         });
       });
 

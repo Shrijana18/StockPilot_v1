@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
@@ -27,6 +25,7 @@ const HourlyVisitChart = () => {
       const snap = await getDocs(ref);
 
       const counts = new Array(24).fill(0);
+      const uniqueVisits = new Set();
 
       snap.docs.forEach(doc => {
         const data = doc.data();
@@ -35,7 +34,14 @@ const HourlyVisitChart = () => {
 
         const date = new Date(timestamp);
         const hour = date.getHours();
-        counts[hour]++;
+
+        const customer = data.customer || {};
+        const key = customer.custId || customer.phone || customer.email || customer.name;
+        const uniqueKey = `${key}-${hour}`;
+        if (!uniqueVisits.has(uniqueKey)) {
+          uniqueVisits.add(uniqueKey);
+          counts[hour]++;
+        }
       });
 
       setHourlyData(counts);

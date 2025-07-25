@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
@@ -20,10 +18,11 @@ const CustomerLoyaltyTags = () => {
       snap.docs.forEach(doc => {
         const inv = doc.data();
         const c = inv.customer || {};
-        const key = c.phone || c.email || c.name;
+        const key = c.custId || c.phone || c.email || c.name;
 
         if (!grouped[key]) {
           grouped[key] = {
+            custId: c.custId,
             name: c.name,
             phone: c.phone,
             visits: 0,

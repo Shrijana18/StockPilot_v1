@@ -20,10 +20,12 @@ const TopLoyalCustomersTable = () => {
 
       invoices.forEach(inv => {
         const c = inv.customer || {};
-        const key = c.phone || c.email || c.name;
+        // Prioritize custId for grouping to prevent duplicate customer tracking
+        const key = c.custId || c.phone || c.email || c.name;
 
         if (!grouped[key]) {
           grouped[key] = {
+            custId: c.custId,
             name: c.name,
             phone: c.phone,
             totalSpend: 0,

@@ -1,5 +1,3 @@
-
-
 import React from "react";
 
 const InvoiceSettings = ({ settings, onChange }) => {
@@ -84,6 +82,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
             onChange={handleChange}
             className="border px-3 py-2 rounded"
           >
+            <option value="">Select Invoice Type</option>
             <option value="retail">Retail</option>
             <option value="tax">Tax</option>
             <option value="quote">Quote</option>

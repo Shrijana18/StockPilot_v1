@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import InvoicePreview from "./InvoicePreview";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc as docRef, getDoc } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 import moment from "moment";
 
@@ -18,12 +18,24 @@ const ViewInvoices = () => {
       try {
         const ref = collection(db, `businesses/${userId}/finalizedInvoices`);
         const snap = await getDocs(ref);
-        const data = snap.docs
-          .map((doc) => {
+        const data = await Promise.all(
+          snap.docs.map(async (doc) => {
             const d = doc.data();
+            let customer = d.customer || {};
+            if (d.custId) {
+              try {
+                const custSnap = await getDoc(docRef(db, "businesses", userId, "customers", d.custId));
+                if (custSnap.exists()) {
+                  customer = { ...customer, ...custSnap.data() };
+                }
+              } catch (e) {
+                console.warn("Customer lookup failed:", e);
+              }
+            }
             return {
               id: doc.id,
               ...d,
+              customer,
               createdAt:
                 d.createdAt instanceof Date
                   ? d.createdAt
@@ -32,10 +44,12 @@ const ViewInvoices = () => {
               total: d.totalAmount ?? d.total ?? 0,
             };
           })
+        );
+        const filteredData = data
           .filter(inv => inv.createdAt)
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        setInvoices(data);
-        setFiltered(data);
+        setInvoices(filteredData);
+        setFiltered(filteredData);
       } catch (err) {
         console.error("Error loading invoices:", err);
       }

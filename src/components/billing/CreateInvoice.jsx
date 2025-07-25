@@ -83,6 +83,26 @@ const CreateInvoice = () => {
     const newInvoiceId = "INV-" + Math.random().toString(36).substr(2, 9).toUpperCase();
     setInvoiceId(newInvoiceId);
 
+    // --- Customer Firestore Save/Update Logic ---
+    try {
+      if (customer && customer.custId) {
+        const customerRef = doc(db, "businesses", userInfo.uid, "customers", customer.custId);
+        const customerSnap = await getDoc(customerRef);
+        if (customerSnap.exists()) {
+          // Merge new fields if missing before updating
+          const existingData = customerSnap.data();
+          const mergedCustomer = { ...existingData, ...customer, updatedAt: issuedAt };
+          await updateDoc(customerRef, mergedCustomer);
+        } else {
+          await setDoc(customerRef, { ...customer, createdAt: issuedAt });
+        }
+      }
+    } catch (err) {
+      console.error("Error saving/updating customer:", err);
+      alert("Failed to save customer info. Please try again.");
+      return;
+    }
+
     const subtotal = cartItems.reduce((total, item) => {
       const itemTotal = item.quantity * item.price;
       const discount = item.discount || 0;
@@ -98,6 +118,7 @@ const CreateInvoice = () => {
 
     const newInvoiceData = {
       customer,
+      custId: customer && customer.custId ? customer.custId : undefined,
       cartItems,
       settings,
       paymentMode: settings.paymentMode,
@@ -169,7 +190,9 @@ const CreateInvoice = () => {
       {/* Customer Info */}
       <div className="bg-white p-4 rounded shadow">
         <h2 className="text-lg font-semibold mb-2">Customer Information</h2>
-        <CustomerForm customer={customer} onChange={handleCustomerChange} />
+        {userInfo && (
+          <CustomerForm customer={customer} onChange={handleCustomerChange} userId={userInfo.uid} />
+        )}
       </div>
 
       {/* Product Search */}

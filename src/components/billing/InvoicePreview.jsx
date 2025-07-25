@@ -187,7 +187,7 @@ const InvoicePreview = ({
           )}
           <p className="mt-2 font-bold text-xl">Total: ₹{total.toFixed(2)}</p>
           <p className="text-sm text-gray-500 mt-1">
-            Payment Mode: {paymentMode || "N/A"} | Invoice Type: {invoiceType?.charAt(0).toUpperCase() + invoiceType?.slice(1) || "N/A"}
+            Payment Mode: {paymentMode || "N/A"} | Invoice Type: {invoiceType && invoiceType.length > 0 ? invoiceType.charAt(0).toUpperCase() + invoiceType.slice(1) : "N/A"}
           </p>
         </div>
 

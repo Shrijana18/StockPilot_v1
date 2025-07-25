@@ -7,17 +7,17 @@ import CustomerInsights from "../../components/customeranalytics/CustomerInsight
 import CustomerLoyaltyTags from "./CustomerLoyaltyTags";
 import TopProductsChart from "./TopProductsChart";
 
-const CustomerAnalysis = () => {
+const CustomerAnalysis = ({ custId }) => {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">👥 Customer Analysis</h1>
-      <CustomerRetentionCard />
-      <TopLoyalCustomersTable />
-      <CustomerProductsTable />
-      <HourlyVisitChart />
-      <TopProductsChart />
-      <CustomerInsights />
-      <CustomerLoyaltyTags />
+      <CustomerRetentionCard custId={custId} />
+      <TopLoyalCustomersTable custId={custId} />
+      <CustomerProductsTable custId={custId} />
+      <HourlyVisitChart custId={custId} />
+      <TopProductsChart custId={custId} />
+      <CustomerInsights custId={custId} />
+      <CustomerLoyaltyTags custId={custId} />
     </div>
   );
 };

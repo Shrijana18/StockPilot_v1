@@ -19,10 +19,12 @@ const CustomerInsights = () => {
 
       invoices.forEach(inv => {
         const c = inv.customer || {};
-        const key = c.phone || c.email || c.name;
+        // Use custId for grouping if present, fallback to phone/email/name
+        const key = c.custId || c.phone || c.email || c.name;
 
         if (!grouped[key]) {
           grouped[key] = {
+            custId: c.custId,
             name: c.name,
             phone: c.phone,
             email: c.email,

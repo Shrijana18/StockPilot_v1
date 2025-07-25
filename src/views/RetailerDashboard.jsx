@@ -72,6 +72,8 @@ const RetailerDashboard = () => {
     });
     return () => unsubscribe();
   }, []);
+
+
   const handleSignOut = () => {
     signOut(auth)
       .then(() => {
