@@ -7,7 +7,7 @@ import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "fi
 import RetailerRequests from "./distributor/RetailerRequests";
 import DistributorInventory from "./distributor/DistributorInventory.jsx";
 import DispatchTracker from "./distributor/DispatchTracker";
-import DistributorAnalytics from "./distributor/DistributorAnalytics";
+import DistributorAnalytics from "./distributor/analytics/DistributorAnalytics";
 import ManageRetailers from "./distributor/ManageRetailers";
 import DistributorHome from "./distributor/DistributorHome";
 
@@ -151,7 +151,9 @@ const DistributorDashboard = () => {
           {activeTab === "retailerRequests" && <RetailerRequests db={db} auth={auth} />}
           {activeTab === "inventory" && <DistributorInventory db={db} auth={auth} />}
           {activeTab === "dispatch" && <DispatchTracker db={db} auth={auth} />}
-          {activeTab === "analytics" && <DistributorAnalytics db={db} auth={auth} />}
+          {activeTab === "analytics" && auth?.currentUser && (
+            <DistributorAnalytics distributorId={auth.currentUser.uid} />
+          )}
           {activeTab === "manageRetailers" && <ManageRetailers db={db} auth={auth} />}
         </main>
       </div>
