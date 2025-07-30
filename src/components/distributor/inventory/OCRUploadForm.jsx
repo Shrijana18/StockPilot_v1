@@ -87,9 +87,7 @@ const OCRUploadForm = ({ distributorId }) => {
       try {
         const OCR_ENDPOINT =
           import.meta.env.VITE_DISTRIBUTOR_OCR_URL ||
-          (import.meta.env.MODE === "development"
-            ? "http://localhost:5001/stockpilotv1/asia-south1/ocrFromImage"
-            : "https://asia-south1-stockpilotv1.cloudfunctions.net/ocrFromImage");
+          "https://asia-south1-stockpilotv1.cloudfunctions.net/ocrFromImage";
 
         const response = await fetch(OCR_ENDPOINT, {
           method: "POST",
@@ -98,9 +96,10 @@ const OCRUploadForm = ({ distributorId }) => {
         });
 
         const data = await response.json();
-        if (data.rawText) {
-          const cleanedText = cleanLines(data.rawText).join("\n");
-          data.products = parseCleanedText(cleanedText); // assuming parseCleanedText is your existing parser logic
+        const ocrText = data?.text?.[0]?.description || "";
+        if (ocrText) {
+          const cleanedText = cleanLines(ocrText).join("\n");
+          data.products = parseCleanedText(cleanedText);
         }
 
         if (Array.isArray(data.products)) {

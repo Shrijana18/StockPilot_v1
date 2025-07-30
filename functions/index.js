@@ -1,17 +1,24 @@
-const functions = require("firebase-functions");
-const { onRequest, onCall } = require("firebase-functions/v2/https");
+const { onCall, onRequest } = require("firebase-functions/v2/https");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { HttpsError } = require("firebase-functions/v2/https");
+const express = require("express");
+const app = express();
+app.use(express.json());
 const admin = require("firebase-admin");
 const vision = require("@google-cloud/vision");
-const cors = require("cors")({ origin: true });
-const { Configuration, OpenAIApi } = require("openai");
+const cors = require("cors");
+const corsHandler = cors({ origin: true });
 
 admin.initializeApp();
 
 const client = new vision.ImageAnnotatorClient();
 
-exports.ocrFromImage = onRequest({ region: "asia-south1", memory: "1GiB" }, (req, res) => {
-  cors(req, res, async () => {
+const { setGlobalOptions } = require("firebase-functions/v2");
+
+setGlobalOptions({ region: "asia-south1", memory: "1GB", timeoutSeconds: 60 });
+
+exports.ocrFromImage = onRequest(async (req, res) => {
+  corsHandler(req, res, async () => {
     try {
       const { imageBase64 } = req.body;
       if (!imageBase64) {
@@ -26,52 +33,60 @@ exports.ocrFromImage = onRequest({ region: "asia-south1", memory: "1GiB" }, (req
       }
 
       const rawText = detections[0].description;
-      const lines = rawText.trim().split("\n").filter(line => line);
-      const products = lines.map(line => {
-        const match = line.match(/^(.*?)(\d+)\s*(pcs|ltr|kg|gm|ml)?\s*(₹?\d+)?$/i);
-        if (!match) {
-          return {
-            productName: line,
-            quantity: "",
-            unit: "",
-            costPrice: "",
-            sellingPrice: "",
-            sku: "",
-            brand: "",
-            category: "",
-            description: "",
-            imageUrl: ""
-          };
+      const lines = rawText
+        .split("\n")
+        .map(line => line.trim().replace(/[•₹]/g, "").replace(/[-=]/g, " "))
+        .filter(line => line && line.length > 2);
+
+      const productRegex = /^(.+?)\s+(\d+)\s*(pcs|kg|ltr|g|ml|litres|packs|boxes)?\s*(₹?\d+)?$/i;
+
+      const parsedProducts = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const match = line.match(productRegex);
+
+        if (match) {
+          const name = match[1].replace(/\s{2,}/g, " ").trim();
+          const quantity = parseInt(match[2]);
+          const unit = (match[3] || 'pcs').toLowerCase();
+          const price = match[4] ? parseInt(match[4].replace(/[₹]/g, '')) : null;
+
+          parsedProducts.push({ name, quantity, unit, price });
+        } 
+        // Handle multi-line fallback
+        else if (
+          i + 1 < lines.length &&
+          /^\d+\s*(pcs|kg|ltr|g|ml|litres|packs|boxes)?\s*(₹?\d+)?$/i.test(lines[i + 1])
+        ) {
+          const name = line.replace(/\s{2,}/g, " ").trim();
+          const qtyLine = lines[i + 1].trim();
+          const qtyMatch = qtyLine.match(/^(\d+)\s*(pcs|kg|ltr|g|ml|litres|packs|boxes)?\s*(₹?\d+)?$/i);
+          if (qtyMatch) {
+            const quantity = parseInt(qtyMatch[1]);
+            const unit = (qtyMatch[2] || 'pcs').toLowerCase();
+            const price = qtyMatch[3] ? parseInt(qtyMatch[3].replace(/[₹]/g, '')) : null;
+
+            parsedProducts.push({ name, quantity, unit, price });
+            i++; // skip next line
+          }
         }
+      }
 
-       return {
-  productName: (match[1] && match[1].trim()) || "",
-  quantity: match[2] || "",
-  unit: match[3] || "",
-  costPrice: (match[4] && match[4].replace("₹", "")) || "",
-  sellingPrice: "",
-  sku: "",
-  brand: "",
-  category: "",
-  description: "",
-  imageUrl: ""
-};
-      });
-
-      return res.status(200).json({ products });
+      return res.status(200).json({ products: parsedProducts });
     } catch (error) {
       console.error("OCR Error:", error);
-      return res.status(500).json({ error: "OCR processing failed" });
+      res.status(500).json({ error: "OCR processing failed." });
     }
   });
 });
 
-exports.createEmployee = onCall({ region: "asia-south1" }, async (request) => {
+exports.createEmployee = onCall(async (request) => {
   const { name, email, password, role, phone, flypId } = request.data;
   const context = request.auth;
 
   if (!context || !context.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'User not authenticated');
+    throw new HttpsError("unauthenticated", "User not authenticated");
   }
 
   const retailerId = context.uid;
@@ -101,130 +116,37 @@ exports.createEmployee = onCall({ region: "asia-south1" }, async (request) => {
     return { success: true, uid: userRecord.uid };
   } catch (error) {
     console.error("CreateEmployee Error:", error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new HttpsError("internal", error.message);
   }
 });
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY
+exports.generateAssistantReply = onDocumentCreated("assistantQueries/{docId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+
+  const data = snap.data();
+  const prompt = data && data.prompt;
+  if (!prompt) return;
+
+  try {
+    const reply = "Assistant reply generation has been migrated to Gemini. Please update logic accordingly.";
+
+    await event.data.ref.update({
+      reply,
+      replyTimestamp: new Date()
+    });
+  } catch (error) {
+    console.error("OpenAI Reply Error:", error);
+  }
 });
-const openai = new OpenAIApi(configuration);
 
-exports.generateAssistantReply = onDocumentCreated(
-  {
-    document: "assistantQueries/{docId}",
-    region: "asia-south1",
-    memory: "1GiB",
-    cpu: 1
-  },
-  async (event) => {
-    const snap = event.data;
-    if (!snap) return;
+const axios = require("axios");
 
-    const data = snap.data();
-    const prompt = data && data.prompt;
-    if (!prompt) return;
-
-    try {
-      const db = admin.firestore();
-
-      let inventoryContext = "";
-      if (data.distributorId) {
-        const inventorySnapshot = await db
-          .collection("businesses")
-          .doc(data.distributorId)
-          .collection("products")
-          .get();
-
-        const inventoryItems = inventorySnapshot.docs.map((doc) => {
-          const item = doc.data();
-          const name = item.name || "Unnamed Item";
-          const price = item.sellingPrice ? `₹${item.sellingPrice}` : "Price not listed";
-          const status = item.quantity > 0 ? "In Stock" : "Sold Out";
-          return `- ${name}: ${price} (${status})`;
-        });
-
-        inventoryContext = inventoryItems.length > 0
-          ? `Distributor Inventory:\n${inventoryItems.join("\n")}`
-          : "Distributor has no inventory listed.";
-      }
-
-      const completion = await openai.createChatCompletion({
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content: `You are a helpful assistant for a distributor business. Your job is to answer retailer queries based on available inventory. Format your reply in a polite, professional, and human tone. Use emojis where helpful. Here's the distributor's inventory:\n\n${inventoryContext}`
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ]
-      });
-
-      const reply = completion.data.choices[0].message.content;
-
-      if (data.userId && data.distributorId) {
-        const reverseChatRef = db
-          .collection("businesses")
-          .doc(data.distributorId)
-          .collection("connectedRetailers")
-          .doc(data.userId)
-          .collection("assistantChats");
-
-        await reverseChatRef.add({
-          message: reply,
-          sender: "assistant",
-          timestamp: admin.firestore.Timestamp.now()
-        });
-
-        // Also write to the retailer's side so both sides receive the reply.
-        const mirrorChatRef = db
-          .collection("businesses")
-          .doc(data.userId)
-          .collection("connectedDistributors")
-          .doc(data.distributorId)
-          .collection("assistantChats");
-
-        await mirrorChatRef.add({
-          message: reply,
-          sender: "assistant",
-          timestamp: admin.firestore.Timestamp.now()
-        });
-      }
-
-      // The following block is now redundant since the above handles both sides.
-      // if (data.userId) {
-      //   const distributorId = data.distributorId || "N/A";
-      //   const chatRef = db
-      //     .collection("businesses")
-      //     .doc(data.userId)
-      //     .collection("connectedDistributors")
-      //     .doc(distributorId)
-      //     .collection("assistantChats");
-      //
-      //   await chatRef.add({
-      //     message: reply,
-      //     sender: "assistant",
-      //     timestamp: admin.firestore.Timestamp.now()
-      //   });
-      // }
-
-      await snap.ref.update({
-        reply,
-        replyTimestamp: new Date()
-      });
-    } catch (error) {
-      console.error("OpenAI Reply Error:", error);
-    }
-  });
-
-exports.employeeLogin = onCall({ region: "asia-south1" }, async (request) => {
+exports.employeeLogin = onCall(async (request) => {
   const { flypId, phone, password } = request.data;
 
   if (!flypId || !phone || !password) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing fields');
+    throw new HttpsError("invalid-argument", "Missing fields");
   }
 
   const db = admin.firestore();
@@ -251,11 +173,11 @@ exports.employeeLogin = onCall({ region: "asia-south1" }, async (request) => {
   }
 
   if (!employeeData) {
-    throw new functions.https.HttpsError('not-found', 'Employee not found');
+    throw new HttpsError("not-found", "Employee not found");
   }
 
   if (employeeData.password !== password) {
-    throw new functions.https.HttpsError('unauthenticated', 'Incorrect password');
+    throw new HttpsError("unauthenticated", "Incorrect password");
   }
 
   return {
@@ -265,4 +187,112 @@ exports.employeeLogin = onCall({ region: "asia-south1" }, async (request) => {
     role: employeeData.role,
     retailerId,
   };
+});
+// AI Inventory generation from a single brand (region: us-central1)
+exports.generateInventoryByBrand = onRequest({ region: "us-central1" }, (req, res) => {
+  corsHandler(req, res, async () => {
+    try {
+      const { prompt } = req.body;
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Missing or invalid prompt" });
+      }
+
+      const userPrompt = prompt;
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent`;
+
+      const payload = {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }],
+          },
+        ],
+      };
+
+      let response;
+      try {
+        response = await axios.post(endpoint, payload, {
+          headers: {
+            "Content-Type": "application/json"
+          },
+          params: {
+            key: "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE"
+          }
+        });
+      } catch (apiError) {
+        console.error("Gemini API Request Failed:", apiError.message);
+        return res.status(500).json({ error: "Gemini API Request Failed", details: apiError.message });
+      }
+
+      let rawText = "";
+      try {
+        const candidates = response.data && response.data.candidates;
+        console.log("Gemini candidates:", JSON.stringify(candidates, null, 2));
+        if (candidates && Array.isArray(candidates)) {
+          for (const c of candidates) {
+            const part = (c && c.content && c.content.parts && c.content.parts[0] && c.content.parts[0].text)
+              ? c.content.parts[0].text.trim()
+              : "";
+            if (part && part.includes("| Product Name")) {
+              rawText = part;
+              break;
+            }
+          }
+        }
+
+        if (!rawText) {
+          console.warn("Gemini raw candidates:", JSON.stringify(response.data, null, 2));
+          console.error("Gemini response did not contain a valid table");
+          return res.status(500).json({ error: "No valid inventory table found", rawResponse: response.data });
+        }
+
+        console.log("Gemini rawText:", rawText);
+      } catch (e) {
+        console.error("Error extracting Gemini response text", e);
+        return res.status(500).json({ error: "Error extracting Gemini response" });
+      }
+
+      const tableStartIndex = rawText.indexOf("| Product Name");
+      const table = tableStartIndex !== -1 ? rawText.slice(tableStartIndex).trim() : "";
+      const lines = table
+        .split("\n")
+        .filter(line =>
+          line.includes("|") &&
+          !/^[-|]+$/.test(line) &&
+          !(line.toLowerCase().startsWith("| product name"))
+        );
+
+      const inventoryList = lines.map(line => {
+        const parts = line
+          .replace(/^\|/, "")           // remove leading |
+          .replace(/\|$/, "")           // remove trailing |
+          .split("|")
+          .map(p => p.trim().replace(/\*.*?\*/g, ""));
+
+        if (parts.some(p => p.includes("*"))) return null; // skip corrupted rows
+
+        // Table columns: | Product Name | Brand | Category | SKU | Price (INR) | Unit |
+        return {
+          productName: parts[0] || "",
+          brand: parts[1] || "",
+          category: parts[2] || "General",
+          sku: parts[3] || "",
+          price: /^\d+$/.test(parts[4]) ? parts[4] : "50",
+          unit: parts[5] || "pcs",
+          imageUrl: "",
+        };
+      }).filter(item => item && item.productName && item.sku);
+
+      if (inventoryList.length === 0) {
+        return res.status(200).json({ inventory: [], message: "No clean rows parsed" });
+      }
+
+      return res.status(200).json({ inventory: inventoryList });
+    } catch (error) {
+      console.error("generateInventoryByBrand Error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
 });

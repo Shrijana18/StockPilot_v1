@@ -54,11 +54,7 @@ const OCRUploadForm = ({ userId }) => {
 
      const base64 = await toBase64(imageFile);
 
-     const OCR_FUNCTION_URL =
-       import.meta.env.VITE_REACT_APP_OCR_FUNCTION_URL ||
-       (import.meta.env.MODE === "development"
-         ? "http://localhost:5001/stockpilotv1/us-central1/ocrScan"
-         : "https://us-central1-stockpilotv1.cloudfunctions.net/ocrScan");
+     const OCR_FUNCTION_URL = "https://asia-south1-stockpilotv1.cloudfunctions.net/ocrFromImage";
      const response = await fetch(OCR_FUNCTION_URL, {
        method: "POST",
        headers: {
@@ -80,7 +76,13 @@ const OCRUploadForm = ({ userId }) => {
       }
 
       const enriched = parsedProducts.map((product) => ({
-        ...product,
+        productName: product.name || "",
+        brand: product.brand || "",
+        quantity: product.quantity || "",
+        unit: product.unit || "",
+        costPrice: product.price || "",
+        sellingPrice: "",
+        description: "",
         imageURL: previewURL,
       }));
 

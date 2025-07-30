@@ -4,6 +4,7 @@ import RetailerOrderHistory from "../components/retailer/orders/RetailerOrderHis
 import CustomerAnalysis from "../components/customeranalytics/CustomerAnalysis";
 import ManualEntryForm from "../components/inventory/ManualEntryForm";
 import OCRUploadForm from "../components/inventory/OCRUploadForm";
+import AddInventoryAI from "../components/inventory/AddInventoryAI";
 import ViewInventory from "../components/inventory/ViewInventory";
 import BarChartRevenue from "../components/charts/BarChartRevenue";
 import PieChartTopProducts from "../components/charts/PieChartTopProducts";
@@ -263,12 +264,14 @@ const RetailerDashboard = () => {
           </div>
           <div className="mt-4">
             {addMethod === 'manual' && userData?.userId && (
-  <ManualEntryForm userId={userData.userId} />
-)}
-{addMethod === 'ocr' && userData?.userId && (
-  <OCRUploadForm userId={userData.userId} />
-)}
-            {addMethod === 'ai' && <div>🤖 AI Generation Component Placeholder</div>}
+              <ManualEntryForm userId={userData.userId} />
+            )}
+            {addMethod === 'ocr' && userData?.userId && (
+              <OCRUploadForm userId={userData.userId} />
+            )}
+            {addMethod === 'ai' && userData?.userId && (
+              <AddInventoryAI userId={userData.userId} />
+            )}
           </div>
         </div>
       )}
