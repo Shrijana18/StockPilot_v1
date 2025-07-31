@@ -16,6 +16,12 @@ const AdvancedBrandInputForm = ({ onGenerate }) => {
   const generatePrompt = () => {
     return `
 You are an inventory assistant. Return ONLY a markdown table of ${quantity} products.
+Start the response with the following header row exactly:
+
+| Product Name | Brand | Category | SKU | Price (INR) | Unit |
+
+Each product must follow this format and ensure the **Unit** column includes both quantity and container type (e.g., "100ml Bottle", "250g Jar", "50ml Tube").
+Do not include any text above or below the table.
 
 Brand: ${brandName}
 Category: ${category}
@@ -23,12 +29,6 @@ Known Types: ${productTypes}
 SKU Pattern: ${skuHint}
 Region Context: ${regionNote}
 Additional Notes: ${description}
-
-Strict Format:
-Please ensure the **Unit** column includes both quantity and container type (e.g., "100ml Bottle", "250g Jar", "50ml Tube").
-
-| Product Name | Brand | Category | SKU | Price (INR) | Unit |
-|--------------|-------|----------|-----|-------------|------|
 `.trim();
   };
 

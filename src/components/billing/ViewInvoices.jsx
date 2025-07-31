@@ -116,10 +116,44 @@ const ViewInvoices = () => {
               invoiceType={selectedInvoice.invoiceType}
               paymentMode={selectedInvoice.paymentMode}
               issuedAt={selectedInvoice.createdAt}
-              userInfo={{ businessName: selectedInvoice.userInfo?.businessName }}
+              userInfo={{
+                businessName: selectedInvoice.userInfo?.businessName,
+                gstNumber: selectedInvoice.userInfo?.gstNumber || selectedInvoice.gstNumber || "N/A"
+              }}
               onCancel={() => setSelectedInvoice(null)}
               viewOnly={true}
             />
+          {/* Action Buttons */}
+          <div className="mt-4 p-4 bg-white rounded shadow text-sm">
+            <p className="mb-2">
+              Here is your receipt from <strong>{selectedInvoice.userInfo?.businessName}</strong>, located at{" "}
+              <strong>{selectedInvoice.userInfo?.address || "N/A"}</strong>.<br />
+              Total: <strong>₹{Number(selectedInvoice.totalAmount || 0).toFixed(2)}</strong><br />
+              Issued on:{" "}
+              <strong>
+                {selectedInvoice.createdAt ? moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A") : "N/A"}
+              </strong>
+            </p>
+            <div className="flex gap-3">
+              <a
+                href={`https://wa.me/91${selectedInvoice.customer?.phone}?text=Here%20is%20your%20invoice%20from%20${encodeURIComponent(selectedInvoice.userInfo?.businessName || "FLYP")}%20-%20Total%3A%20₹${Number(selectedInvoice.totalAmount || 0).toFixed(2)}%20on%20${encodeURIComponent(moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A"))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded inline-block"
+              >
+                Send via WhatsApp
+              </a>
+              <a
+                href={`mailto:${selectedInvoice.customer?.email}?subject=Invoice from ${selectedInvoice.userInfo?.businessName}&body=Here is your invoice totaling ₹${selectedInvoice.totalAmount || 0} issued on ${moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A")}.`}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+              >
+                Send via Email
+              </a>
+            </div>
+            <p className="mt-2 text-xs text-gray-500 italic">
+              Powered by FLYP — smart business invoicing
+            </p>
+          </div>
           </div>
         </div>
       )}

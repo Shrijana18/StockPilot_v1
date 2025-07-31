@@ -21,20 +21,22 @@ const CustomerForm = ({ customer, onChange, userId }) => {
 
   const fetchCustomerSuggestions = async (name) => {
     if (!userId || !name) return;
-    const q = query(
-      collection(db, "businesses", userId, "customers"),
-      where("name", ">=", name),
-      where("name", "<=", name + "\uf8ff")
-    );
+    const q = collection(db, "businesses", userId, "customers");
     const querySnapshot = await getDocs(q);
-    const uniqueByName = {};
+    const filtered = [];
+    const lowerName = name.toLowerCase();
+
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      if (!uniqueByName[data.name]) {
-        uniqueByName[data.name] = { id: doc.id, ...data };
+      if (
+        (data.name && data.name.toLowerCase().includes(lowerName)) ||
+        (data.phone && data.phone.includes(name))
+      ) {
+        filtered.push({ id: doc.id, ...data });
       }
     });
-    const results = Object.values(uniqueByName);
+
+    const results = filtered; // keep duplicates
     setSuggestions(results);
     setIsSuggestionVisible(true);
   };
@@ -78,7 +80,7 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             id="name"
             type="text"
             name="name"
-            value={customer?.name || ''}
+            value={customer?.name || ""}
             onChange={handleChange}
             placeholder="Enter customer name"
             className="border p-2 rounded"
@@ -89,17 +91,25 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             }}
           />
           {isSuggestionVisible && suggestions.length > 0 && (
-            <ul className="border rounded bg-white shadow max-h-40 overflow-y-auto z-10 absolute mt-1 w-full">
-              {suggestions.map((cust) => (
-                <li
-                  key={cust.custId || cust.id}
-                  onClick={() => handleSelectSuggestion(cust)}
-                  className="p-2 hover:bg-gray-100 cursor-pointer"
-                >
-                  {cust.name} ({cust.phone || "No Phone"}) – {cust.custId}
-                </li>
-              ))}
-            </ul>
+            <div className="mb-2 border p-2 bg-gray-50 rounded">
+              <div className="font-medium mb-1">Select Customer</div>
+              <ul className="border rounded bg-white shadow max-h-40 overflow-y-auto z-10 w-full">
+                {suggestions.map((cust) => (
+                  <li
+                    key={cust.custId || cust.id}
+                    onClick={() => handleSelectSuggestion(cust)}
+                    className="p-2 hover:bg-gray-100 cursor-pointer border-b flex flex-col"
+                  >
+                    <div className="font-semibold text-base">
+                      👤 {cust.name} <span className="text-xs text-gray-500">• {cust.custId}</span>
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      📞 {cust.phone || "No Phone"} &nbsp;&nbsp; 📍 {cust.address || "No Address"}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </label>
         <label className="flex flex-col" htmlFor="phone">

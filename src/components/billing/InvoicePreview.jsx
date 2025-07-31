@@ -62,9 +62,7 @@ const InvoicePreview = ({
     html2pdf().from(element).save(`Invoice-FLYP-${issuedAt ? new Date(issuedAt).getTime() : Date.now()}.pdf`);
   };
 
-  const handlePublishWithWhatsApp = async () => {
-    if (onConfirm) await onConfirm();
-
+  const handleWhatsAppShare = async () => {
     const phone = customer.phone?.replace(/\D/g, "");
     if (phone) {
       const message = encodeURIComponent(
@@ -105,7 +103,7 @@ const InvoicePreview = ({
             <p><strong>Phone:</strong> {retailerData?.phone}</p>
             <p><strong>Email:</strong> {retailerData?.email}</p>
             <p><strong>Address:</strong> {retailerData?.address}</p>
-            <p><strong>GSTIN:</strong> {retailerData?.gstin || "N/A"}</p>
+            <p><strong>GSTIN:</strong> {retailerData?.gstNumber || "N/A"}</p>
             <p><strong>PAN:</strong> {retailerData?.pan || "N/A"}</p>
             <p><strong>Invoice ID:</strong> FLYP-{issuedAt ? new Date(issuedAt).getTime() : Date.now()}</p>
             <p><strong>Invoice Issued On:</strong> {issuedAt ? moment(issuedAt).local().format("DD MMM YYYY, hh:mm A") : "N/A"}</p>
@@ -203,7 +201,7 @@ const InvoicePreview = ({
 
           <button
             className="mt-6 px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-            onClick={handlePublishWithWhatsApp}
+            onClick={onConfirm}
           >
             Publish Invoice
           </button>

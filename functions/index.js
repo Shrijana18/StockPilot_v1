@@ -1,3 +1,4 @@
+require("dotenv").config();
 const { onCall, onRequest } = require("firebase-functions/v2/https");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { HttpsError } = require("firebase-functions/v2/https");
@@ -200,30 +201,39 @@ exports.generateInventoryByBrand = onRequest({ region: "us-central1" }, (req, re
 
       const userPrompt = prompt;
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent`;
 
       const payload = {
         contents: [
           {
-            role: "user",
             parts: [{ text: userPrompt }],
           },
         ],
       };
 
+      const loadedKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.slice(0, 10) : "undefined";
+      console.log("🔥 GEMINI KEY LOADED:", loadedKey);
+
       let response;
-      try {
-        response = await axios.post(endpoint, payload, {
-          headers: {
-            "Content-Type": "application/json"
-          },
-          params: {
-            key: "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE"
+      let retries = 2;
+      while (retries > 0) {
+        try {
+          response = await axios.post(endpoint, payload, {
+            headers: { "Content-Type": "application/json" },
+            params: { key: process.env.GEMINI_API_KEY },
+            timeout: 15000
+          });
+          break; // success
+        } catch (apiError) {
+          if (apiError.response && apiError.response.status === 503 && retries > 1) {
+            console.warn("503 error, retrying...");
+            retries--;
+            await new Promise(r => setTimeout(r, 1000)); // wait 1 sec
+          } else {
+            console.error("Gemini API Request Failed:", apiError.message);
+            return res.status(500).json({ error: "Gemini API Request Failed", details: apiError.message });
           }
-        });
-      } catch (apiError) {
-        console.error("Gemini API Request Failed:", apiError.message);
-        return res.status(500).json({ error: "Gemini API Request Failed", details: apiError.message });
+        }
       }
 
       let rawText = "";
@@ -293,6 +303,90 @@ exports.generateInventoryByBrand = onRequest({ region: "us-central1" }, (req, re
     } catch (error) {
       console.error("generateInventoryByBrand Error:", error);
       return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+});
+// Parse Invoice File via OCR + Gemini
+exports.parseInvoiceFile = onRequest({ region: "us-central1" }, async (req, res) => {
+  corsHandler(req, res, async () => {
+    try {
+      const { fileUrl } = req.body;
+      if (!fileUrl || typeof fileUrl !== "string") {
+        return res.status(400).json({ error: "Missing or invalid fileUrl" });
+      }
+
+      // Download image as buffer
+      const imageResponse = await axios.get(fileUrl, { responseType: "arraybuffer" });
+      const imageBase64 = Buffer.from(imageResponse.data, "binary").toString("base64");
+
+      // OCR using Google Vision
+      const [result] = await client.textDetection({ image: { content: imageBase64 } });
+      const detections = result.textAnnotations;
+      if (!detections || detections.length === 0) {
+        return res.status(200).json({ message: "No text found", structuredInvoice: {} });
+      }
+
+      const rawText = detections[0].description;
+
+      const geminiPrompt = `
+You are an invoice extraction AI. Output only a strict JSON object. No markdown, no extra commentary. Use this format:
+
+{
+  "customerName": "...",
+  "customerPhone": "...",
+  "invoiceDate": "...",
+  "productList": [
+    {
+      "name": "...",
+      "quantity": ...,
+      "unit": "...",
+      "price": ...
+    }
+  ],
+  "subtotal": ...,
+  "tax": ...,
+  "total": ...
+}
+
+Raw OCR Text:
+"""
+${rawText}
+"""`;
+
+      const response = await axios.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent",
+        {
+          contents: [{ parts: [{ text: geminiPrompt }] }],
+        },
+        {
+          headers: { "Content-Type": "application/json" },
+          params: { key: process.env.GEMINI_API_KEY },
+        }
+      );
+
+      let reply = "";
+      const candidates = response.data && response.data.candidates;
+      if (candidates && candidates.length > 0 && candidates[0].content && candidates[0].content.parts.length > 0) {
+        reply = candidates[0].content.parts[0].text.trim();
+        if (reply.startsWith("```")) {
+          reply = reply.replace(/```(json|txt)?/gi, "").replace(/```/g, "").trim();
+        }
+        console.log("🧾 Cleaned Gemini reply:\n", reply);
+      }
+
+      // Try to parse reply to JSON
+      let structuredInvoice = {};
+      try {
+        structuredInvoice = JSON.parse(reply);
+      } catch (e) {
+        console.warn("❌ Failed to parse Gemini response:", reply);
+        structuredInvoice = { error: true, rawText, rawReply: reply };
+      }
+
+      return res.status(200).json({ structuredInvoice });
+    } catch (error) {
+      console.error("parseInvoiceFile Error:", error.message);
+      return res.status(500).json({ error: "Internal server error", details: error.message });
     }
   });
 });

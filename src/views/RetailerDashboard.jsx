@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import Billing from "../pages/Billing";
+import ProfileSettings from "../components/profile/ProfileSettings";
 import RetailerOrderHistory from "../components/retailer/orders/RetailerOrderHistory";
 import CustomerAnalysis from "../components/customeranalytics/CustomerAnalysis";
 import ManualEntryForm from "../components/inventory/ManualEntryForm";
@@ -62,7 +63,11 @@ const RetailerDashboard = () => {
           const userRef = doc(db, "businesses", user.uid);
           const docSnap = await getDoc(userRef);
           if (docSnap.exists()) {
-            setUserData({ ...docSnap.data(), userId: user.uid });
+            setUserData({
+              ...docSnap.data(),
+              userId: user.uid,
+              flypId: docSnap.data().flypId || user.uid
+            });
           }
         } else {
           console.warn("User not authenticated yet.");
@@ -94,6 +99,7 @@ const RetailerDashboard = () => {
     { id: 'orderHistory', label: 'Order History', icon: <FaFileInvoice /> },
     { id: 'customers', label: 'Customer Analysis', icon: <FaUsers /> },
     { id: 'employees', label: 'Manage Employee', icon: <FaUserPlus /> },
+    { id: 'profile', label: 'Profile Settings', icon: <FaUser /> },
   ];
 
   return (
@@ -132,10 +138,16 @@ const RetailerDashboard = () => {
           <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="font-medium">{userData?.businessName || 'Business Name'}</p>
-              <p className="text-sm text-gray-500">{userData?.ownerName || 'Owner'} | ID: {userData?.userId || 'UserID'}</p>
+              <p className="text-sm text-gray-500">
+                {userData?.ownerName || 'Owner'} | ID: {userData?.flypId || userData?.userId || 'UserID'}
+              </p>
             </div>
             <div className="w-10 h-10 bg-gray-300 rounded-full overflow-hidden">
-              {/* Placeholder for user image */}
+              {userData?.logoUrl ? (
+                <img src={userData.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gray-300" />
+              )}
             </div>
             <button
               onClick={handleSignOut}
@@ -328,6 +340,7 @@ const RetailerDashboard = () => {
           )}
           {activeTab === 'customers' && <CustomerAnalysis />}
           {activeTab === 'employees' && <ManageEmployee />}
+          {activeTab === 'profile' && <ProfileSettings />}
         </motion.div>
       </div>
     </div>
