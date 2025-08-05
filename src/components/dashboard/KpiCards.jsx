@@ -1,19 +1,43 @@
 import React from 'react';
 
 const KpiCards = ({ invoiceData }) => {
-  const totalInvoices = invoiceData.length;
-  const totalRevenue = invoiceData.reduce((sum, inv) => sum + (inv.totalAmount || inv.total || 0), 0);
+  const filteredInvoices = invoiceData.filter(inv => {
+    const mode = inv.paymentMode?.toLowerCase();
+    if (mode === 'credit') return inv.isPaid === true;
+    return true; // include all other payment modes regardless of isPaid
+  });
+  const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + (inv.totalAmount || inv.total || 0), 0);
+  const totalInvoices = filteredInvoices.length;
   const avgOrderValue = totalInvoices > 0 ? (totalRevenue / totalInvoices).toFixed(2) : 0;
 
   const paymentStats = invoiceData.reduce((acc, inv) => {
-    const method = (inv.paymentMode || 'Unknown').toLowerCase();
+    const mode = (inv.paymentMode || '').toLowerCase();
     const amount = inv.totalAmount || inv.total || 0;
-    acc[method] = (acc[method] || 0) + amount;
+
+    // Only include credit if paid
+    if (mode === 'credit' && inv.isPaid !== true) return acc;
+
+    if (mode === 'split') {
+      const split = inv.splitPayment || {};
+      acc['cash'] = (acc['cash'] || 0) + (parseFloat(split.cash) || 0);
+      acc['card'] = (acc['card'] || 0) + (parseFloat(split.card) || 0);
+      acc['upi'] = (acc['upi'] || 0) + (parseFloat(split.upi) || 0);
+    } else if (mode === 'credit') {
+      const paidVia = (inv.paidVia || '').toLowerCase();
+      acc[paidVia] = (acc[paidVia] || 0) + amount;
+    } else {
+      if (['cash', 'card', 'upi'].includes(mode)) {
+        acc[mode] = (acc[mode] || 0) + amount;
+      } else {
+        acc['unknown'] = (acc['unknown'] || 0) + amount;
+      }
+    }
+
     return acc;
   }, {});
 
   // Count unique customers (by email or name)
-  const uniqueCustomers = new Set(invoiceData.map(inv => inv.customer?.email || inv.customer?.name || '')).size;
+  const uniqueCustomers = new Set(filteredInvoices.map(inv => inv.customer?.email || inv.customer?.name || '')).size;
 
   const kpis = [
     { label: 'Total Revenue', value: `₹${totalRevenue.toLocaleString()}`, icon: '💰' },

@@ -36,14 +36,16 @@ const LowStockAlertWidget = ({ userId }) => {
       {lowStockItems.length === 0 ? (
         <p className="text-sm text-gray-500">All items are sufficiently stocked.</p>
       ) : (
-        <ul className="space-y-2 text-sm">
-          {lowStockItems.map((item) => (
-            <li key={item.id} className="flex justify-between border-b pb-1">
-              <span>{item.productName}</span>
-              <span className="text-red-500 font-semibold">{item.quantity}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="max-h-[300px] overflow-y-auto pr-1">
+          <ul className="space-y-2 text-sm">
+            {lowStockItems.map((item) => (
+              <li key={item.id} className="flex justify-between border-b pb-1">
+                <span>{item.productName}</span>
+                <span className="text-red-500 font-semibold">{item.quantity}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

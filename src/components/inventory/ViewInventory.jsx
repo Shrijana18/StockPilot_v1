@@ -1,11 +1,14 @@
 import { getStorage, ref, getDownloadURL, uploadBytes, getBlob } from "firebase/storage";
 import React from "react";
 import { useState, useEffect } from "react";
-import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
 import fetchGoogleImages from "../../utils/fetchGoogleImages";
+import { logInventoryChange } from "../../utils/logInventoryChange";
+import { collection as fsCollection, query, orderBy, onSnapshot as fsOnSnapshot } from "firebase/firestore";
+import { db, auth } from "../../firebase/firebaseConfig";
 // Removed useAuth because we will pass userId as prop
+import EditProductModal from "./EditProductModal";
 
-// Delete Confirmation Modal Component
 const DeleteConfirmationModal = ({
   product,
   confirmationText,
@@ -56,6 +59,9 @@ const DeleteConfirmationModal = ({
 import { toast } from "react-toastify";
 
 const ViewInventory = ({ userId }) => {
+  // Edit modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState(null);
   const [products, setProducts] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [search, setSearch] = useState("");
@@ -87,6 +93,10 @@ const ViewInventory = ({ userId }) => {
   const [aiSearchQuery, setAiSearchQuery] = useState("");
   const [aiSearchResults, setAiSearchResults] = useState([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // Recently Modified tab state
+  const [inventoryLogs, setInventoryLogs] = useState([]);
+  const [selectedTab, setSelectedTab] = useState("view");
 
   // For compatibility with handleSelectUnsplashImage
   // We'll store the selected Unsplash image URL in imagePreviewUrl, and imageUploadFile remains null
@@ -156,6 +166,19 @@ const ViewInventory = ({ userId }) => {
     return () => unsubscribe(); // cleanup on unmount
   }, [userId]);
 
+  // Fetch inventoryLogs for Recently Modified tab
+  useEffect(() => {
+    if (!auth.currentUser?.uid) return;
+    const q = query(
+      fsCollection(db, `businesses/${auth.currentUser.uid}/inventoryLogs`),
+      orderBy("modifiedAt", "desc")
+    );
+    const unsubscribe = fsOnSnapshot(q, (snapshot) => {
+      setInventoryLogs(snapshot.docs.map(doc => doc.data()));
+    });
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     const s = search.toLowerCase();
     const result = products.filter(p => {
@@ -196,9 +219,27 @@ const ViewInventory = ({ userId }) => {
 
   const saveEdit = async (rowId, field, value) => {
     try {
-      const productRef = collection(db, "businesses", userId, "products");
-      const productDoc = doc(productRef, rowId);
-      await updateDoc(productDoc, { [field]: value });
+      const productRef = doc(db, "businesses", userId, "products", rowId);
+
+      // Get original data
+      const originalSnap = await getDoc(productRef);
+      const originalData = originalSnap.exists() ? originalSnap.data() : {};
+
+      await updateDoc(productRef, { [field]: value });
+
+      // Call logInventoryChange with proper Firestore field names for productName, brand, category
+      await logInventoryChange({
+        userId,
+        productId: rowId,
+        sku: originalData.sku || "N/A",
+        productName: originalData.productName || "N/A",
+        brand: originalData.brand || "N/A",
+        category: originalData.category || "N/A",
+        previousData: originalData,
+        updatedData: { ...originalData, [field]: value },
+        action: "updated",
+        source: "inline-edit",
+      });
     } catch (err) {
       console.error("Error updating inventory field:", err);
     } finally {
@@ -421,22 +462,45 @@ const ViewInventory = ({ userId }) => {
         </div>
       </div>
 
-      <div className="flex justify-end mb-4">
+      {/* Tab Navigation */}
+      <div className="flex mb-2">
         <button
-          className={`px-4 py-1 mr-2 rounded ${viewMode === "list" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
-          onClick={() => setViewMode("list")}
+          onClick={() => setSelectedTab("view")}
+          className={`px-4 py-2 rounded-t-md ${
+            selectedTab === "view" ? "bg-white font-semibold" : "bg-gray-200"
+          }`}
         >
-          List View
+          Inventory
         </button>
         <button
-          className={`px-4 py-1 rounded ${viewMode === "grid" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
-          onClick={() => setViewMode("grid")}
+          onClick={() => setSelectedTab("recent")}
+          className={`px-4 py-2 rounded-t-md ${
+            selectedTab === "recent" ? "bg-white font-semibold" : "bg-gray-200"
+          }`}
         >
-          Grid View
+          Recently Modified
         </button>
       </div>
 
-      {viewMode === "list" ? (
+      {/* Inventory Tab Content */}
+      {selectedTab === "view" && (
+        <>
+          <div className="flex justify-end mb-4">
+            <button
+              className={`px-4 py-1 mr-2 rounded ${viewMode === "list" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+              onClick={() => setViewMode("list")}
+            >
+              List View
+            </button>
+            <button
+              className={`px-4 py-1 rounded ${viewMode === "grid" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+              onClick={() => setViewMode("grid")}
+            >
+              Grid View
+            </button>
+          </div>
+
+          {viewMode === "list" ? (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm border rounded shadow-sm">
             <thead className="bg-gray-100 text-left">
@@ -453,6 +517,7 @@ const ViewInventory = ({ userId }) => {
                 <th className="p-2">Status</th>
                 <th className="p-2">Source</th>
                 <th className="p-2">Delete</th>
+                <th className="p-2">Edit</th>
               </tr>
             </thead>
             <tbody>
@@ -471,7 +536,10 @@ const ViewInventory = ({ userId }) => {
                       />
                     </div>
                   </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "productName", p.productName)}>
+                  <td
+                    className="p-2 max-w-[180px] break-words whitespace-normal"
+                    onClick={() => startEdit(p.id, 'productName', p.productName)}
+                  >
                     {editingCell.rowId === p.id && editingCell.field === "productName" ? (
                       <input
                         className="w-full border px-1"
@@ -484,7 +552,10 @@ const ViewInventory = ({ userId }) => {
                       p.productName
                     )}
                   </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "sku", p.sku)}>
+                  <td
+                    className="p-2 max-w-[180px] break-words whitespace-normal"
+                    onClick={() => startEdit(p.id, 'sku', p.sku)}
+                  >
                     {editingCell.rowId === p.id && editingCell.field === "sku" ? (
                       <input
                         className="w-full border px-1"
@@ -497,7 +568,10 @@ const ViewInventory = ({ userId }) => {
                       p.sku
                     )}
                   </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "brand", p.brand)}>
+                  <td
+                    className="p-2 max-w-[180px] break-words whitespace-normal"
+                    onClick={() => startEdit(p.id, 'brand', p.brand)}
+                  >
                     {editingCell.rowId === p.id && editingCell.field === "brand" ? (
                       <input
                         className="w-full border px-1"
@@ -510,7 +584,10 @@ const ViewInventory = ({ userId }) => {
                       p.brand
                     )}
                   </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "category", p.category)}>
+                  <td
+                    className="p-2 max-w-[180px] break-words whitespace-normal"
+                    onClick={() => startEdit(p.id, 'category', p.category)}
+                  >
                     {editingCell.rowId === p.id && editingCell.field === "category" ? (
                       <input
                         className="w-full border px-1"
@@ -537,7 +614,10 @@ const ViewInventory = ({ userId }) => {
                       p.quantity
                     )}
                   </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "unit", p.unit)}>
+                  <td
+                    className="p-2 max-w-[180px] break-words whitespace-normal"
+                    onClick={() => startEdit(p.id, 'unit', p.unit)}
+                  >
                     {editingCell.rowId === p.id && editingCell.field === "unit" ? (
                       <input
                         className="w-full border px-1"
@@ -580,7 +660,7 @@ const ViewInventory = ({ userId }) => {
                       <>₹{p.sellingPrice}</>
                     )}
                   </td>
-                  <td className="p-2">
+                  <td className="p-2 min-w-[80px] text-center">
                     <span
                       className={`px-2 py-1 rounded text-white text-xs ${
                         getStatus(p.quantity) === "Low" ? "bg-red-500" : "bg-green-500"
@@ -589,9 +669,11 @@ const ViewInventory = ({ userId }) => {
                       {getStatus(p.quantity)}
                     </span>
                   </td>
-                  <td className="p-2">
+                  <td className="p-2 min-w-[100px] max-w-[120px] text-center">
                     {p.sourceOrderId ? (
-                      <span className="px-2 py-1 rounded text-xs bg-blue-500 text-white">From Order</span>
+                      <span className="inline-block px-2 py-1 rounded text-xs bg-blue-500 text-white break-words whitespace-normal leading-snug">
+                        From Order
+                      </span>
                     ) : (
                       ''
                     )}
@@ -606,11 +688,22 @@ const ViewInventory = ({ userId }) => {
                       🗑️
                     </button>
                   </td>
+                  <td className="p-2">
+                    <button
+                      onClick={() => {
+                        setSelectedProductId(p.id);
+                        setIsModalOpen(true);
+                      }}
+                      className="text-sm text-blue-600 underline"
+                    >
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan="12" className="text-center p-4 text-gray-500">
+                  <td colSpan="13" className="text-center p-4 text-gray-500">
                     {products.length === 0 ? "No products found." : "Loading inventory..."}
                   </td>
                 </tr>
@@ -618,48 +711,90 @@ const ViewInventory = ({ userId }) => {
             </tbody>
           </table>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {filtered.map((item) => (
-            <div key={item.id} className="bg-white p-4 rounded shadow flex flex-col">
-              <div className="flex justify-center mb-2">
-                <button
-                  className="focus:outline-none"
-                  style={{ width: "100%" }}
-                  onClick={() => handleImageClick(item)}
-                  title="Click to upload image"
-                >
-                  <img
-                    src={item.imageUrl || "/placeholder.png"}
-                    alt={item.productName}
-                    className="w-full h-32 object-contain rounded border border-gray-200"
-                  />
-                </button>
-              </div>
-              <h3 className="font-semibold mb-1">{item.productName}</h3>
-              <p className="text-sm text-gray-600 mb-1">{item.brand} | {item.category}</p>
-              <p className="text-sm mb-1">Qty: {item.quantity} | ₹{item.sellingPrice}</p>
-              <div className="flex items-center gap-2 mt-auto">
-                <span
-                  className={`px-2 py-1 text-xs rounded font-semibold ${
-                    (item.status || getStatus(item.quantity)) === 'In Stock'
-                      ? 'bg-green-500 text-white'
-                      : 'bg-red-500 text-white'
-                  }`}
-                >
-                  {item.status || getStatus(item.quantity)}
-                </span>
-                {/* Delete button triggers modal */}
-                <button
-                  className="ml-auto text-red-600 hover:text-red-800 px-2"
-                  title="Delete Item"
-                  onClick={() => handleDelete(item)}
-                >
-                  🗑️
-                </button>
-              </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {filtered.map((item) => (
+                <div key={item.id} className="bg-white p-4 rounded shadow flex flex-col">
+                  <div className="flex justify-center mb-2">
+                    <button
+                      className="focus:outline-none"
+                      style={{ width: "100%" }}
+                      onClick={() => handleImageClick(item)}
+                      title="Click to upload image"
+                    >
+                      <img
+                        src={item.imageUrl || "/placeholder.png"}
+                        alt={item.productName}
+                        className="w-full h-32 object-contain rounded border border-gray-200"
+                      />
+                    </button>
+                  </div>
+                  <h3 className="font-semibold mb-1">{item.productName}</h3>
+                  <p className="text-sm text-gray-600 mb-1">{item.brand} | {item.category}</p>
+                  <p className="text-sm mb-1">
+                    Qty: {item.quantity} | ₹{item.sellingPrice}
+                  </p>
+                  <p className="text-xs text-gray-600 mb-1">
+                    SKU: {item.sku || "N/A"} | Unit: {item.unit || "N/A"}
+                  </p>
+                  <div className="flex items-center gap-2 mt-auto">
+                    <span
+                      className={`px-2 py-1 text-xs rounded font-semibold ${
+                        (item.status || getStatus(item.quantity)) === 'In Stock'
+                          ? 'bg-green-500 text-white'
+                          : 'bg-red-500 text-white'
+                      }`}
+                    >
+                      {item.status || getStatus(item.quantity)}
+                    </span>
+                    {/* Delete button triggers modal */}
+                    <button
+                      className="ml-auto text-red-600 hover:text-red-800 px-2"
+                      title="Delete Item"
+                      onClick={() => handleDelete(item)}
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+        </>
+      )}
+
+      {/* Recently Modified Tab Content */}
+      {selectedTab === "recent" && (
+        <div className="p-4">
+          <h2 className="text-lg font-semibold mb-3">Recent Inventory Modifications</h2>
+          {inventoryLogs.length === 0 ? (
+            <p className="text-gray-500">No recent modifications found.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {inventoryLogs.map((mod, index) => (
+                <div key={index} className="bg-white shadow rounded-md p-4 text-sm">
+                  <div className="font-semibold text-gray-700 mb-1">SKU: {mod.sku}</div>
+                  <div>Product: {mod.productName || 'N/A'}</div>
+                  <div>Brand: {mod.brand || 'N/A'}</div>
+                  <div>Category: {mod.category || 'N/A'}</div>
+                  <div className="mt-2 text-gray-600">
+                    <span className="font-medium">Action:</span> {mod.action}<br />
+                    <span className="font-medium">Source:</span> {mod.source}<br />
+                    <span className="font-medium">Modified By:</span> {mod.modifiedBy || "Unknown"}<br />
+                    <span className="font-medium">Time:</span> {mod.modifiedAt?.toDate?.().toLocaleString?.() || "N/A"}<br />
+                    <span className="font-medium">Changes:</span>
+                    <ul className="list-disc list-inside">
+                      {Object.entries(mod.changes || {}).map(([key, change]) => (
+                        <li key={key}>
+                          {key}: {change.from ?? "N/A"} → {change.to ?? "N/A"}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* Delete Modal */}

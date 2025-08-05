@@ -4,6 +4,7 @@ import { storage, db } from "../../firebase/firebaseConfig";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { addDoc, collection } from "firebase/firestore";
 import { toast } from "react-toastify";
+import { logInventoryChange } from "../../utils/logInventoryChange";
 
 const OCRUploadForm = ({ userId }) => {
   const [imageFile, setImageFile] = useState(null);
@@ -111,13 +112,31 @@ const OCRUploadForm = ({ userId }) => {
     }
 
     try {
-      const batch = products.map((p) =>
-        addDoc(collection(db, "businesses", userId, "products"), {
+      for (const p of products) {
+        const docRef = await addDoc(collection(db, "businesses", userId, "products"), {
           ...p,
           createdAt: new Date(),
-        })
-      );
-      await Promise.all(batch);
+        });
+        await logInventoryChange({
+          productId: docRef.id,
+          sku: p.sku || "",
+          previousData: {},
+          updatedData: {
+            productName: p.productName,
+            sku: p.sku || "",
+            brand: p.brand,
+            category: p.category,
+            quantity: p.quantity,
+            costPrice: p.costPrice,
+            sellingPrice: p.sellingPrice,
+            unit: p.unit,
+            description: p.description,
+            imageURL: p.imageURL,
+          },
+          action: "created",
+          source: "ocr",
+        });
+      }
       toast.success("Products saved to inventory.");
       setProducts([]);
       setImageFile(null);

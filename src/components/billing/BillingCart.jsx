@@ -1,7 +1,22 @@
 import React, { useState, useEffect } from "react";
 
-const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
+const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
   const [cartItems, setCartItems] = useState([]);
+
+  // Extract all tax-related values including SGST
+  const {
+    includeGST,
+    gstRate,
+    enableCGST,
+    enableSGST,
+    enableIGST,
+    includeCGST,
+    includeSGST,
+    includeIGST,
+    cgstRate,
+    sgstRate,
+    igstRate,
+  } = settings || {};
 
   const handleAddItem = () => {
     setCartItems([
@@ -31,6 +46,22 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
     return (discounted * item.quantity).toFixed(2);
   };
 
+  const subtotal = cartItems.reduce(
+    (sum, item) =>
+      sum +
+      (item.price - (item.price * item.discount) / 100) * item.quantity,
+    0
+  );
+
+  // GST, CGST, SGST, IGST calculation (Firestore-driven)
+  const gstAmount =
+    (includeGST && gstRate ? (subtotal * gstRate) / 100 : 0) +
+    (includeCGST && cgstRate ? (subtotal * cgstRate) / 100 : 0) +
+    (includeSGST && sgstRate ? (subtotal * sgstRate) / 100 : 0) +
+    (includeIGST && igstRate ? (subtotal * igstRate) / 100 : 0);
+
+  const finalTotal = subtotal + gstAmount;
+
   useEffect(() => {
     const newItems = selectedProducts
       .filter(
@@ -57,12 +88,23 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
     // Notify parent of cart update after cartItems is set
     console.log("Updated Cart Items:", cartItems);
     if (onUpdateCart && cartItems.length > 0) {
-      onUpdateCart(cartItems);
+      const taxBreakdown = {
+        gst: includeGST && gstRate ? (subtotal * gstRate) / 100 : 0,
+        cgst: includeCGST && cgstRate ? (subtotal * cgstRate) / 100 : 0,
+        sgst: includeSGST && sgstRate ? (subtotal * sgstRate) / 100 : 0,
+        igst: includeIGST && igstRate ? (subtotal * igstRate) / 100 : 0,
+      };
+
+      onUpdateCart(cartItems, {
+        subtotal,
+        taxBreakdown,
+        finalTotal
+      });
     }
   }, [cartItems]);
 
   return (
-    <div>
+    <div className="space-y-6 px-4 pt-4 md:px-6">
       <div className="space-y-4">
         <button
           onClick={handleAddItem}
@@ -71,135 +113,133 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart }) => {
           + Add Item
         </button>
 
-        <table className="min-w-full border border-gray-300 text-sm">
-          <thead className="bg-gray-100 text-left">
-            <tr>
-              <th className="p-2">Product Name</th>
-              <th className="p-2">SKU</th>
-              <th className="p-2">Brand</th>
-              <th className="p-2">Category</th>
-              <th className="p-2">Unit</th>
-              <th className="p-2">Qty</th>
-              <th className="p-2">Price</th>
-              <th className="p-2">Discount (%)</th>
-              <th className="p-2">Subtotal</th>
-              <th className="p-2">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cartItems.map((item, index) => (
-              <tr key={index} className="border-t">
-                <td className="p-2">
-                  <input
-                    type="text"
-                    value={item.name || ""}
-                    onChange={(e) => handleChange(index, "name", e.target.value)}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="text"
-                    value={item.sku || ""}
-                    onChange={(e) => handleChange(index, "sku", e.target.value)}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="text"
-                    value={item.brand || ""}
-                    onChange={(e) => handleChange(index, "brand", e.target.value)}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="text"
-                    value={item.category || ""}
-                    onChange={(e) => handleChange(index, "category", e.target.value)}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="text"
-                    value={item.unit || ""}
-                    onChange={(e) => handleChange(index, "unit", e.target.value)}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="number"
-                    value={item.quantity || 0}
-                    onChange={(e) => handleChange(index, "quantity", e.target.value)}
-                    className="w-16 border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="number"
-                    value={item.price || 0}
-                    onChange={(e) => handleChange(index, "price", e.target.value)}
-                    className="w-20 border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="number"
-                    value={item.discount || 0}
-                    onChange={(e) => handleChange(index, "discount", e.target.value)}
-                    className="w-20 border px-2 py-1 rounded"
-                  />
-                </td>
-                <td className="p-2">{calculateSubtotal(item)}</td>
-                <td className="p-2">
-                  <button
-                    onClick={() => handleRemove(index)}
-                    className="text-red-600 hover:underline"
-                  >
-                    Remove
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full border border-gray-300 text-sm">
+            <thead className="bg-gray-100 text-left">
+              <tr>
+                <th className="p-2">Product Name</th>
+                <th className="p-2">SKU</th>
+                <th className="p-2">Brand</th>
+                <th className="p-2">Category</th>
+                <th className="p-2">Unit</th>
+                <th className="p-2">Qty</th>
+                <th className="p-2">Price</th>
+                <th className="p-2">Discount (%)</th>
+                <th className="p-2">Subtotal</th>
+                <th className="p-2">Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {cartItems.map((item, index) => (
+                <tr key={index} className="border-t">
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      value={item.name || ""}
+                      onChange={(e) => handleChange(index, "name", e.target.value)}
+                      className="w-full border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      value={item.sku || ""}
+                      onChange={(e) => handleChange(index, "sku", e.target.value)}
+                      className="w-full border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      value={item.brand || ""}
+                      onChange={(e) => handleChange(index, "brand", e.target.value)}
+                      className="w-full border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      value={item.category || ""}
+                      onChange={(e) => handleChange(index, "category", e.target.value)}
+                      className="w-full border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      value={item.unit || ""}
+                      onChange={(e) => handleChange(index, "unit", e.target.value)}
+                      className="w-full border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="number"
+                      value={item.quantity || 0}
+                      onChange={(e) => handleChange(index, "quantity", e.target.value)}
+                      className="w-16 border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="number"
+                      value={item.price || 0}
+                      onChange={(e) => handleChange(index, "price", e.target.value)}
+                      className="w-20 border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="number"
+                      value={item.discount || 0}
+                      onChange={(e) => handleChange(index, "discount", e.target.value)}
+                      className="w-20 border px-2 py-1 rounded"
+                    />
+                  </td>
+                  <td className="p-2">{calculateSubtotal(item)}</td>
+                  <td className="p-2">
+                    <button
+                      onClick={() => handleRemove(index)}
+                      className="text-red-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       {/* Bill Summary */}
-      <div className="mt-4 text-right space-y-1">
+      <div className="mt-6 text-right space-y-2 border-t pt-4 text-sm md:text-base">
         <p>Total Items: {cartItems.length}</p>
-        <p>
-          Total Quantity:{" "}
-          {cartItems.reduce((sum, item) => sum + item.quantity, 0)}
-        </p>
+        <p>Total Quantity: {cartItems.reduce((sum, item) => sum + item.quantity, 0)}</p>
         <p>
           Total Before Discount: ₹
-          {cartItems
-            .reduce((sum, item) => sum + item.price * item.quantity, 0)
-            .toFixed(2)}
+          {cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
         </p>
         <p>
           Total Discount: ₹
-          {cartItems
-            .reduce(
-              (sum, item) =>
-                sum + (item.price * item.discount * item.quantity) / 100,
-              0
-            )
-            .toFixed(2)}
+          {cartItems.reduce(
+            (sum, item) => sum + (item.price * item.discount * item.quantity) / 100,
+            0
+          ).toFixed(2)}
         </p>
+        {includeGST && gstRate > 0 && (
+          <p>GST ({gstRate}%): ₹{((subtotal * gstRate) / 100).toFixed(2)}</p>
+        )}
+        {includeCGST && cgstRate > 0 && (
+          <p>CGST ({cgstRate}%): ₹{((subtotal * cgstRate) / 100).toFixed(2)}</p>
+        )}
+        {includeSGST && sgstRate > 0 && (
+          <p>SGST ({sgstRate}%): ₹{((subtotal * sgstRate) / 100).toFixed(2)}</p>
+        )}
+        {includeIGST && igstRate > 0 && (
+          <p>IGST ({igstRate}%): ₹{((subtotal * igstRate) / 100).toFixed(2)}</p>
+        )}
         <p className="font-semibold text-lg">
-          Final Total: ₹
-          {cartItems
-            .reduce(
-              (sum, item) =>
-                sum +
-                (item.price - (item.price * item.discount) / 100) * item.quantity,
-              0
-            )
-            .toFixed(2)}
+          Final Total: ₹{finalTotal.toFixed(2)}
         </p>
       </div>
     </div>

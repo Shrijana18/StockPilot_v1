@@ -13,14 +13,16 @@ import {
   Bar,
   Legend
 } from 'recharts';
-import { PieChart, Pie, Cell } from 'recharts';
-import { format } from 'date-fns';
+import { format, isToday, isThisWeek, isThisMonth, isThisYear, isWithinInterval, subMonths } from 'date-fns';
 import { useAnalyticsFilter } from "../../../context/AnalyticsFilterContext";
 
 const RevenueOverview = () => {
   const [allInvoices, setAllInvoices] = useState([]);
-  const { selectedProduct, selectedDate } = useAnalyticsFilter();
+  const { selectedProduct, selectedDate, setSelectedDate, setSelectedProduct } = useAnalyticsFilter();
   const [highlightedDate, setHighlightedDate] = useState(null);
+  const [selectedRange, setSelectedRange] = useState('all');
+  const [animationIndex, setAnimationIndex] = useState(null);
+  const [animatedData, setAnimatedData] = useState([]);
 
   useEffect(() => {
     const fetchRevenueData = async () => {
@@ -48,13 +50,33 @@ const RevenueOverview = () => {
     fetchRevenueData();
   }, []);
 
+  useEffect(() => {
+    setAnimationIndex(null);
+    setAnimatedData([]);
+  }, [selectedProduct, selectedDate]);
+
   const filteredInvoices = allInvoices.filter(inv => {
     let issuedAt;
     if (inv.issuedAt?.toDate) issuedAt = inv.issuedAt.toDate();
     else if (typeof inv.issuedAt === 'string') issuedAt = new Date(inv.issuedAt);
-    const dateMatch = selectedDate
-      ? issuedAt && !isNaN(issuedAt) && format(issuedAt, 'yyyy-MM-dd') === selectedDate
-      : true;
+
+    let dateMatch = true;
+    if (selectedDate) {
+      dateMatch = issuedAt && !isNaN(issuedAt) && format(issuedAt, 'yyyy-MM-dd') === selectedDate;
+    }
+
+    if (selectedRange === "today") {
+      dateMatch = isToday(issuedAt);
+    } else if (selectedRange === "week") {
+      dateMatch = isThisWeek(issuedAt, { weekStartsOn: 1 });
+    } else if (selectedRange === "month") {
+      dateMatch = isThisMonth(issuedAt);
+    } else if (selectedRange === "quarter") {
+      const start = subMonths(new Date(), 3);
+      dateMatch = isWithinInterval(issuedAt, { start, end: new Date() });
+    } else if (selectedRange === "year") {
+      dateMatch = isThisYear(issuedAt);
+    }
 
     const productMatch = selectedProduct
       ? Array.isArray(inv.cartItems) && inv.cartItems.some(item => item.sku === selectedProduct)
@@ -63,33 +85,50 @@ const RevenueOverview = () => {
     return dateMatch && productMatch;
   });
 
-  const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
-  const invoiceCount = filteredInvoices.length;
+  const totalRevenue = filteredInvoices.reduce((sum, inv) => {
+    if (inv.paymentMode === "credit" && !inv.isPaid) return sum;
+    return sum + parseFloat(inv.totalAmount || 0);
+  }, 0);
+  const invoiceCount = filteredInvoices.filter(inv =>
+    inv.paymentMode !== "credit" || (inv.paymentMode === "credit" && inv.isPaid)
+  ).length;
 
   const paymentModes = { cash: 0, upi: 0, card: 0 };
   const dateMap = {};
 
   filteredInvoices.forEach(inv => {
-    const amount = inv.totalAmount || 0;
+    if (inv.paymentMode === "credit" && !inv.isPaid) return;
+
+    const amt = parseFloat(inv.totalAmount || 0);
     const mode = inv.paymentMode?.toLowerCase();
-    if (mode && paymentModes[mode] !== undefined) {
-      paymentModes[mode] += amount;
+
+    if (mode === "split") {
+      const split = inv.splitPayment || {};
+      paymentModes.cash += parseFloat(split.cash || 0);
+      paymentModes.upi += parseFloat(split.upi || 0);
+      paymentModes.card += parseFloat(split.card || 0);
+    } else if (mode === "credit" && inv.isPaid) {
+      const via = inv.paidVia?.toLowerCase();
+      if (via === "cash") paymentModes.cash += amt;
+      else if (via === "upi") paymentModes.upi += amt;
+      else if (via === "card") paymentModes.card += amt;
+    } else if (["cash", "upi", "card"].includes(mode)) {
+      paymentModes[mode] += amt;
     }
 
-    // Support both Firebase Timestamp and ISO string for issuedAt
     let issuedAt;
     if (inv.issuedAt?.toDate) {
       issuedAt = inv.issuedAt.toDate();
-    } else if (typeof inv.issuedAt === 'string') {
+    } else if (typeof inv.issuedAt === "string") {
       issuedAt = new Date(inv.issuedAt);
     }
     if (!issuedAt || isNaN(issuedAt)) return;
 
-    const dateKey = format(issuedAt, 'yyyy-MM-dd');
+    const dateKey = format(issuedAt, "yyyy-MM-dd");
     if (!dateMap[dateKey]) {
       dateMap[dateKey] = 0;
     }
-    dateMap[dateKey] += amount;
+    dateMap[dateKey] += amt;
   });
 
   const revenueByDate = Object.entries(dateMap)
@@ -111,31 +150,18 @@ const RevenueOverview = () => {
     revenueByDate.push({ date: format(new Date(), 'yyyy-MM-dd'), revenue: 0 });
   }
 
-  const filteredForPie = selectedDate
-    ? allInvoices.filter(inv => {
-        let issuedAt;
-        if (inv.issuedAt?.toDate) issuedAt = inv.issuedAt.toDate();
-        else if (typeof inv.issuedAt === 'string') issuedAt = new Date(inv.issuedAt);
-        if (!issuedAt || isNaN(issuedAt)) return false;
-        return format(issuedAt, 'yyyy-MM-dd') === selectedDate;
-      })
-    : allInvoices;
-
-  const pieModes = { cash: 0, upi: 0, card: 0 };
-  filteredForPie.forEach(inv => {
-    const amount = inv.totalAmount || 0;
-    const mode = inv.paymentMode?.toLowerCase();
-    if (mode && pieModes[mode] !== undefined) {
-      pieModes[mode] += amount;
+  useEffect(() => {
+    if (animationIndex === null) return;
+    if (animationIndex < revenueByDate.length) {
+      const timer = setTimeout(() => {
+        setAnimatedData(revenueByDate.slice(0, animationIndex + 1));
+        setAnimationIndex(prev => prev + 1);
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setAnimationIndex(null);
     }
-  });
-
-  const totalByMode = Object.values(pieModes).reduce((sum, v) => sum + v, 0);
-  const pieData = Object.entries(pieModes).map(([mode, val]) => ({
-    name: mode.charAt(0).toUpperCase() + mode.slice(1),
-    value: val,
-    percent: totalByMode > 0 ? ((val / totalByMode) * 100).toFixed(1) : 0,
-  }));
+  }, [animationIndex, revenueByDate]);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -160,97 +186,118 @@ const RevenueOverview = () => {
   return (
     <div className="bg-white rounded-lg shadow-md p-5">
       <h2 className="text-xl font-semibold mb-4">Revenue Overview</h2>
-      <p><strong>Total Revenue:</strong> ₹{totalRevenue.toFixed(2)}</p>
-      <p><strong>Total Invoices:</strong> {invoiceCount}</p>
-      <div className="mt-3 mb-6">
-        <h3 className="font-medium">Revenue by Payment Mode:</h3>
-        <ul className="list-disc list-inside">
-          <li>Cash: ₹{paymentModes.cash.toFixed(2)}</li>
-          <li>UPI: ₹{paymentModes.upi.toFixed(2)}</li>
-          <li>Card: ₹{paymentModes.card.toFixed(2)}</li>
-        </ul>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-        <div style={{ overflowX: 'auto' }}>
-          <div style={{ width: `${Math.max(700, revenueByDate.length * 80)}px`, height: 300 }}>
-            <ResponsiveContainer>
-              <BarChart
-                data={revenueByDate}
-                onClick={({ activeLabel }) => {
-                  if (activeLabel) {
-                    setSelectedDate(activeLabel);
-                    setHighlightedDate(activeLabel);
-                  }
-                }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" label={{ value: 'Date', position: 'insideBottom', offset: -5 }} />
-                <YAxis label={{ value: 'Revenue', angle: -90, position: 'insideLeft' }} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend />
-                <Bar dataKey="revenue" fill="#4f46e5" radius={[4, 4, 0, 0]} />
-                <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                  label={({ index, x, y }) => {
-                    const item = revenueByDate[index];
-                    if (!item || item.date !== highlightedDate) return null;
-                    const sign = item.changeAmount >= 0 ? '+' : '';
-                    return (
-                      <text
-                        x={x}
-                        y={y - 10}
-                        fill={item.changeColor}
-                        fontSize={12}
-                        textAnchor="middle"
-                      >
-                        {`${sign}₹${item.changeAmount} (${sign}${item.changePercent}%)`}
-                      </text>
-                    );
-                  }}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+      <div className="flex flex-col md:flex-row justify-between gap-6">
+        <div>
+          <p><strong>Total Revenue:</strong> ₹{totalRevenue.toFixed(2)}</p>
+          <p><strong>Total Invoices:</strong> {invoiceCount}</p>
+          <p><strong>Today's Revenue:</strong> ₹{revenueByDate[revenueByDate.length - 1]?.revenue.toFixed(2)}</p>
+          <p><strong>Yesterday's Revenue:</strong> ₹{revenueByDate[revenueByDate.length - 2]?.revenue.toFixed(2)}</p>
+          <p>
+            <strong>Growth:</strong>{' '}
+            {(() => {
+              const today = revenueByDate[revenueByDate.length - 1]?.revenue || 0;
+              const yesterday = revenueByDate[revenueByDate.length - 2]?.revenue || 0;
+              const diff = today - yesterday;
+              const percent = yesterday === 0 ? 100 : ((diff / yesterday) * 100);
+              const sign = diff >= 0 ? '+' : '';
+              return `${sign}₹${diff.toFixed(2)} (${sign}${percent.toFixed(1)}%)`;
+            })()}
+          </p>
         </div>
 
-        <div className="bg-gray-50 p-4 rounded-lg shadow h-full">
-          <h3 className="font-semibold text-center mb-2">Revenue by Payment Mode</h3>
-          <p className="text-center text-sm mb-2">
-            Total Revenue: ₹{totalRevenue.toFixed(2)}
-          </p>
-          {selectedDate && (
-            <div className="text-center mb-2">
-              <button
-                onClick={() => setSelectedDate(null)}
-                className="text-blue-600 text-sm underline"
-              >
-                Reset to All Time View
-              </button>
-            </div>
-          )}
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie
-                data={pieData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                label={({ name, value, percent }) => `${name}: ₹${value} (${percent}%)`}
-                labelLine={false}
-                isAnimationActive={true}
-              >
-                <Cell fill="#fbbf24" />
-                <Cell fill="#34d399" />
-                <Cell fill="#818cf8" />
-              </Pie>
-            </PieChart>
+        <div className="md:w-1/2">
+          <h3 className="font-medium">Revenue by Payment Mode:</h3>
+          <ul className="list-disc list-inside">
+            <li>
+              Cash: ₹{paymentModes.cash.toFixed(2)} (
+              {((paymentModes.cash / totalRevenue) * 100).toFixed(1)}%)
+            </li>
+            <li>
+              UPI: ₹{paymentModes.upi.toFixed(2)} (
+              {((paymentModes.upi / totalRevenue) * 100).toFixed(1)}%)
+            </li>
+            <li>
+              Card: ₹{paymentModes.card.toFixed(2)} (
+              {((paymentModes.card / totalRevenue) * 100).toFixed(1)}%)
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mb-4 gap-4">
+        <button
+          onClick={() => {
+            setAnimatedData([]);
+            setAnimationIndex(0);
+          }}
+          className="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition"
+        >
+          ▶️ Play Animation
+        </button>
+
+        <div className="flex items-center gap-2">
+          <label className="font-medium">Sort by Time Period:</label>
+          <select
+            className="border px-2 py-1 rounded text-sm"
+            value={selectedRange}
+            onChange={(e) => {
+              setSelectedRange(e.target.value);
+              setAnimationIndex(null);
+              setAnimatedData([]);
+            }}
+          >
+            <option value="all">All Time</option>
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+            <option value="quarter">This Quarter</option>
+            <option value="year">This Year</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="w-full overflow-x-auto">
+        <div style={{ width: '100%', height: 300 }}>
+          <ResponsiveContainer>
+            <BarChart
+              data={animatedData.length > 0 ? animatedData : revenueByDate}
+              onClick={({ activeLabel }) => {
+                if (activeLabel) {
+                  setSelectedDate(activeLabel);
+                  setHighlightedDate(activeLabel);
+                }
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" label={{ value: 'Date', position: 'insideBottom', offset: -5 }} />
+              <YAxis label={{ value: 'Revenue', angle: -90, position: 'insideLeft' }} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend />
+              <Bar dataKey="revenue" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+              <Line
+                type="monotone"
+                dataKey="revenue"
+                stroke="#10b981"
+                strokeWidth={2}
+                dot={{ r: 4 }}
+                label={({ index, x, y }) => {
+                  const item = revenueByDate[index];
+                  if (!item || item.date !== highlightedDate) return null;
+                  const sign = item.changeAmount >= 0 ? '+' : '';
+                  return (
+                    <text
+                      x={x}
+                      y={y - 10}
+                      fill={item.changeColor}
+                      fontSize={12}
+                      textAnchor="middle"
+                    >
+                      {`${sign}₹${item.changeAmount} (${sign}${item.changePercent}%)`}
+                    </text>
+                  );
+                }}
+              />
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </div>

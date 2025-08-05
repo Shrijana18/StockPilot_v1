@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
@@ -36,16 +34,16 @@ const ProductSearch = ({ onSelect }) => {
   }, [searchTerm, allProducts]);
 
   return (
-    <div className="relative mb-4">
+    <div className="relative mb-6 px-4 md:px-0">
       <input
         type="text"
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
         placeholder="Search product by name, SKU, brand, category..."
-        className="border w-full px-4 py-2 rounded"
+        className="border w-full px-4 py-2 rounded-lg shadow-sm text-sm md:text-base"
       />
       {suggestions.length > 0 && (
-        <ul className="absolute bg-white border w-full mt-1 max-h-64 overflow-y-auto z-10">
+        <ul className="absolute bg-white border w-full mt-2 max-h-64 overflow-y-auto z-20 rounded-lg shadow-lg">
           {suggestions.map((product) => (
             <li
               key={product.id}
@@ -54,7 +52,7 @@ const ProductSearch = ({ onSelect }) => {
                 setSearchTerm("");
                 setSuggestions([]);
               }}
-              className="p-2 hover:bg-blue-100 cursor-pointer flex items-center gap-4 border-b"
+              className="p-3 hover:bg-blue-100 cursor-pointer flex items-center gap-4 border-b"
             >
               {product.imageUrl && (
                 <img

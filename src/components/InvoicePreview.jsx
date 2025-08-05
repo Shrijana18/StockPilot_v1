@@ -7,9 +7,9 @@ const InvoicePreview = ({ invoice, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex justify-end">
-      <div className="w-full sm:max-w-xl bg-white shadow-xl p-6 overflow-y-auto">
+      <div className="w-full sm:max-w-xl bg-white shadow-xl p-4 md:p-6 rounded-xl overflow-y-auto max-h-[90vh] space-y-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Invoice Preview</h2>
+          <h2 className="text-lg md:text-xl font-semibold">Invoice Preview</h2>
           <button onClick={onClose} className="text-red-500 font-bold text-lg">✕</button>
         </div>
 
@@ -25,28 +25,30 @@ const InvoicePreview = ({ invoice, onClose }) => {
 
         <div className="mb-4">
           <h3 className="font-semibold">Items</h3>
-          <table className="w-full text-sm border">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="text-left p-2 border">Product</th>
-                <th className="text-left p-2 border">Qty</th>
-                <th className="text-left p-2 border">Price</th>
-                <th className="text-left p-2 border">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cartItems?.map((item, idx) => (
-                <tr key={idx}>
-                  <td className="p-2 border">{item.name}</td>
-                  <td className="p-2 border">{item.quantity}</td>
-                  <td className="p-2 border">₹{item.price}</td>
-                  <td className="p-2 border">
-                    ₹{(item.quantity * item.price * (1 - (item.discount || 0) / 100)).toFixed(2)}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm border">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="text-left p-2 border">Product</th>
+                  <th className="text-left p-2 border">Qty</th>
+                  <th className="text-left p-2 border">Price</th>
+                  <th className="text-left p-2 border">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {cartItems?.map((item, idx) => (
+                  <tr key={idx}>
+                    <td className="p-2 border">{item.name}</td>
+                    <td className="p-2 border">{item.quantity}</td>
+                    <td className="p-2 border">₹{item.price}</td>
+                    <td className="p-2 border">
+                      ₹{(item.quantity * item.price * (1 - (item.discount || 0) / 100)).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="text-sm border-t pt-4">

@@ -37,6 +37,7 @@ const RetailerDashboard = () => {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [filterDates, setFilterDates] = useState({ start: null, end: null });
   const [distributorTab, setDistributorTab] = useState('search');
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
 
   useEffect(() => {
     const now = new Date();
@@ -103,9 +104,37 @@ const RetailerDashboard = () => {
   ];
 
   return (
-    <div className="flex h-screen bg-gray-100 text-gray-800">
+    <div className="flex min-h-screen bg-gray-100 text-gray-800">
+      {showMobileSidebar && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-40 md:hidden" onClick={() => setShowMobileSidebar(false)}>
+          <div
+            className="w-64 bg-white h-full shadow-lg p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-xl font-bold mb-4">FLYP</div>
+            {sidebarItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id);
+                  setShowMobileSidebar(false);
+                }}
+                className={`flex items-center gap-3 px-4 py-2 rounded-lg w-full text-left ${
+                  activeTab === item.id
+                    ? 'bg-blue-100 text-blue-600 font-semibold'
+                    : 'hover:bg-gray-100'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
-      <div className="w-64 bg-white shadow-md border-r border-gray-200">
+      <div className="hidden md:block w-64 bg-white shadow-md border-r border-gray-200 fixed top-0 bottom-0 left-0 z-40">
         <div className="p-5 text-xl font-bold border-b border-gray-200">
           FLYP
         </div>
@@ -128,11 +157,17 @@ const RetailerDashboard = () => {
       </div>
 
       {/* Main Panel */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col ml-64">
         {/* Top Bar */}
-        <div className="flex justify-between items-center bg-white px-6 py-4 border-b border-gray-200 shadow-sm">
+        <div className="sticky top-0 z-30 bg-white px-6 py-3 border-b border-gray-200 shadow-sm flex items-center justify-between">
+          <button
+            className="md:hidden text-2xl text-gray-600"
+            onClick={() => setShowMobileSidebar(true)}
+          >
+            ☰
+          </button>
           <div>
-            <h2 className="text-xl font-semibold">Retailer Dashboard</h2>
+            <h2 className="text-lg md:text-xl font-semibold">Retailer Dashboard</h2>
             <p className="text-sm text-gray-500">Logged in as: Retailer</p>
           </div>
           <div className="flex items-center gap-4">
@@ -165,11 +200,11 @@ const RetailerDashboard = () => {
           initial={{ opacity: 0, x: 40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4 }}
-          className="flex-1 p-6 overflow-y-auto"
+          className="flex-1 px-4 py-6 md:px-6 overflow-y-auto pt-4"
         >
           {activeTab === 'home' && (
             <div>
-              <div className="flex items-center gap-4 mb-4">
+              <div className="flex flex-wrap items-center gap-4 mb-4">
                 <label htmlFor="filter" className="font-medium">Filter by:</label>
                 <select
                   id="filter"
@@ -203,7 +238,9 @@ const RetailerDashboard = () => {
                   </>
                 )}
               </div>
-              <HomeSnapshot filterDates={filterDates} />
+              <div className="space-y-4 md:space-y-6">
+                <HomeSnapshot filterDates={filterDates} />
+              </div>
             </div>
           )}
           {activeTab === 'billing' && <Billing />}
@@ -248,7 +285,7 @@ const RetailerDashboard = () => {
       {inventoryTab === 'add' && (
         <div>
           <h3 className="text-lg font-semibold mb-4">Select Inventory Input Method</h3>
-          <div className="flex gap-4">
+          <div className="flex flex-col md:flex-row gap-4">
             <button
               onClick={() => setAddMethod('manual')}
               className={`px-3 py-2 border rounded ${

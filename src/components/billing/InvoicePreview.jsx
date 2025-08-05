@@ -32,7 +32,7 @@ const InvoicePreview = ({
   const calculateSubtotal = (item) =>
     item.quantity * item.price * (1 - item.discount / 100);
 
-  const subtotal = cartItems.reduce(
+  const subtotal = (cartItems || []).reduce(
     (sum, item) => sum + calculateSubtotal(item),
     0
   );
@@ -52,10 +52,10 @@ const InvoicePreview = ({
 
   const total =
     subtotal +
-    (settings.includeGST ? gstAmount : 0) +
-    (settings.includeCGST ? cgstAmount : 0) +
-    (settings.includeSGST ? sgstAmount : 0) +
-    (settings.includeIGST ? igstAmount : 0);
+    gstAmount +
+    cgstAmount +
+    sgstAmount +
+    igstAmount;
 
   const handleDownloadPDF = () => {
     const element = document.getElementById("invoice-content");
@@ -77,7 +77,7 @@ const InvoicePreview = ({
       <div className="text-right mb-2 max-w-4xl mx-auto mt-4">
         <button onClick={handleDownloadPDF} className="px-4 py-1 bg-gray-700 text-white rounded mr-2">Download PDF</button>
       </div>
-      <div id="invoice-content" className="bg-white p-6 rounded shadow-lg max-w-4xl mx-auto mt-6">
+      <div id="invoice-content" className="bg-white p-4 md:p-6 rounded-xl shadow-md max-w-4xl mx-auto mt-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] space-y-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Invoice Preview</h2>
           <button className="text-red-500 hover:underline" onClick={onCancel}>
@@ -128,36 +128,38 @@ const InvoicePreview = ({
           <h3 className="text-center font-bold text-lg mt-6 uppercase">
             Products
           </h3>
-          <table className="w-full text-sm border">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border px-2 py-1">Name</th>
-                <th className="border px-2 py-1">Brand</th>
-                <th className="border px-2 py-1">Category</th>
-                <th className="border px-2 py-1">Unit</th>
-                <th className="border px-2 py-1">Qty</th>
-                <th className="border px-2 py-1">Price</th>
-                <th className="border px-2 py-1">Discount (%)</th>
-                <th className="border px-2 py-1">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cartItems.map((item, idx) => (
-                <tr key={idx}>
-                  <td className="border px-2 py-1">{item.name}</td>
-                  <td className="border px-2 py-1">{item.brand || "-"}</td>
-                  <td className="border px-2 py-1">{item.category || "-"}</td>
-                  <td className="border px-2 py-1">{item.unit || "-"}</td>
-                  <td className="border px-2 py-1">{item.quantity}</td>
-                  <td className="border px-2 py-1">₹{item.price}</td>
-                  <td className="border px-2 py-1">{item.discount || 0}</td>
-                  <td className="border px-2 py-1">
-                    ₹{calculateSubtotal(item).toFixed(2)}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm border">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-2 py-1">Name</th>
+                  <th className="border px-2 py-1">Brand</th>
+                  <th className="border px-2 py-1">Category</th>
+                  <th className="border px-2 py-1">Unit</th>
+                  <th className="border px-2 py-1">Qty</th>
+                  <th className="border px-2 py-1">Price</th>
+                  <th className="border px-2 py-1">Discount (%)</th>
+                  <th className="border px-2 py-1">Subtotal</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {cartItems.map((item, idx) => (
+                  <tr key={idx}>
+                    <td className="border px-2 py-1">{item.name}</td>
+                    <td className="border px-2 py-1">{item.brand || "-"}</td>
+                    <td className="border px-2 py-1">{item.category || "-"}</td>
+                    <td className="border px-2 py-1">{item.unit || "-"}</td>
+                    <td className="border px-2 py-1">{item.quantity}</td>
+                    <td className="border px-2 py-1">₹{item.price}</td>
+                    <td className="border px-2 py-1">{item.discount || 0}</td>
+                    <td className="border px-2 py-1">
+                      ₹{calculateSubtotal(item).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Tax Summary */}
@@ -187,6 +189,24 @@ const InvoicePreview = ({
           <p className="text-sm text-gray-500 mt-1">
             Payment Mode: {paymentMode || "N/A"} | Invoice Type: {invoiceType && invoiceType.length > 0 ? invoiceType.charAt(0).toUpperCase() + invoiceType.slice(1) : "N/A"}
           </p>
+          {paymentMode === "credit" && (settings.creditDueDate || settings.dueDate) && (
+            <p className="text-sm text-red-600 mt-1">
+              Due Date: {moment(settings.creditDueDate || settings.dueDate).format("DD MMM YYYY")}
+            </p>
+          )}
+          {settings.isPaid && settings.paidOn && (
+            <p className="text-sm text-green-600 mt-1">
+              ✅ Paid on: {moment(settings.paidOn.toDate?.() || settings.paidOn).format("DD MMM YYYY")} via {settings.paidVia?.toUpperCase()}
+            </p>
+          )}
+          {paymentMode === "split" && (
+            <div className="text-sm text-gray-600 mt-1 space-y-1">
+              <p>Split Breakdown:</p>
+              <p>- ₹{settings.splitCash ?? 0} by Cash</p>
+              <p>- ₹{settings.splitUPI ?? 0} by UPI</p>
+              <p>- ₹{settings.splitCard ?? 0} by Card</p>
+            </div>
+          )}
         </div>
 
         <div className="text-center">

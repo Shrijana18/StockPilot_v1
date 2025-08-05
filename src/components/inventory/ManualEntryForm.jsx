@@ -5,6 +5,7 @@ import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useAuth, getCurrentUserId } from "../../context/AuthContext";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { logInventoryChange } from "../../utils/logInventoryChange";
 
 const ManualEntryForm = () => {
   const { currentUser } = useAuth();
@@ -72,6 +73,26 @@ const ManualEntryForm = () => {
         id: productRef.id,
         createdAt: serverTimestamp(),
         addedBy: userId,
+      });
+
+      await logInventoryChange({
+        productId: productRef.id,
+        sku: formData.sku,
+        previousData: {}, // since it's a new product
+        updatedData: {
+          productName: formData.productName,
+          sku: formData.sku,
+          brand: formData.brand,
+          category: formData.category,
+          quantity: formData.quantity,
+          costPrice: formData.costPrice,
+          sellingPrice: formData.sellingPrice,
+          unit: formData.unit,
+          description: formData.description,
+          imageUrl,
+        },
+        action: "created",
+        source: "manual",
       });
 
       toast.success("✅ Product added successfully!");

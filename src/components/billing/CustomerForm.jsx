@@ -72,9 +72,9 @@ const CustomerForm = ({ customer, onChange, userId }) => {
   };
 
   return (
-    <div className="bg-white p-4 rounded shadow mb-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <label className="flex flex-col relative" htmlFor="name">
+    <div className="bg-white p-4 md:p-6 rounded-xl shadow-md mb-6 space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        <label className="flex flex-col space-y-1 relative" htmlFor="name">
           <span className="mb-1 font-medium">Customer Name</span>
           <input
             id="name"
@@ -112,7 +112,7 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             </div>
           )}
         </label>
-        <label className="flex flex-col" htmlFor="phone">
+        <label className="flex flex-col space-y-1" htmlFor="phone">
           <span className="mb-1 font-medium">Phone Number</span>
           <input
             id="phone"
@@ -124,7 +124,7 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             className="border p-2 rounded"
           />
         </label>
-        <label className="flex flex-col" htmlFor="email">
+        <label className="flex flex-col space-y-1" htmlFor="email">
           <span className="mb-1 font-medium">Email Address</span>
           <input
             id="email"
@@ -136,7 +136,7 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             className="border p-2 rounded"
           />
         </label>
-        <label className="flex flex-col" htmlFor="address">
+        <label className="flex flex-col space-y-1" htmlFor="address">
           <span className="mb-1 font-medium">Customer Address</span>
           <input
             id="address"

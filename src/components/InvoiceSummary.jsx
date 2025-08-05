@@ -21,9 +21,9 @@ const InvoiceSummary = ({
   };
 
   return (
-    <div className="bg-white p-4 rounded shadow mb-4">
-      <h2 className="text-lg font-semibold mb-3">Invoice Summary</h2>
-      <div className="space-y-2 text-sm">
+    <div className="bg-white p-4 md:p-6 rounded-xl shadow-md mb-6 space-y-4">
+      <h2 className="text-base md:text-lg font-semibold mb-3">Invoice Summary</h2>
+      <div className="space-y-2 text-xs md:text-sm">
         <p>Subtotal: ₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
         {invoiceSettings.includeGST && (
           <p>GST (18%): ₹{gstAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
@@ -41,7 +41,7 @@ const InvoiceSummary = ({
         disabled={isGenerating || cart.length === 0}
         aria-label="Finalize and Save Invoice"
         title="Click to finalize the invoice and save it"
-        className={`mt-4 px-6 py-2 rounded text-white font-semibold ${
+        className={`mt-4 w-full sm:w-auto px-6 py-3 rounded-lg text-white font-semibold ${
           isGenerating || cart.length === 0
             ? "bg-gray-400 cursor-not-allowed"
             : "bg-green-600 hover:bg-green-700"

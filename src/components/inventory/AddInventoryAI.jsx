@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { toast } from "react-toastify";
 import { app } from "../../firebase/firebaseConfig.js";
 import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { logInventoryChange } from "../../utils/logInventoryChange";
 
 import AdvancedBrandInputForm from "./AdvancedBrandInputForm";
 
@@ -70,10 +71,19 @@ const AddInventoryAI = ({ userId }) => {
 
     try {
       for (const item of inventoryList) {
-        await addDoc(collection(db, "businesses", userId, "products"), {
+        const docRef = await addDoc(collection(db, "businesses", userId, "products"), {
           ...item,
           source: "ai",
           createdAt: serverTimestamp(),
+        });
+
+        await logInventoryChange({
+          productId: docRef.id,
+          sku: item.sku,
+          previousData: {},
+          updatedData: item,
+          action: "created",
+          source: "ai",
         });
       }
 

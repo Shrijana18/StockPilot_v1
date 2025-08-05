@@ -50,28 +50,28 @@ const AllInvoices = () => {
   const closePreview = () => setSelectedInvoice(null);
 
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-semibold mb-4">All Invoices</h2>
+    <div className="px-4 py-6 md:px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] space-y-6">
+      <h2 className="text-lg md:text-xl font-semibold mb-4">All Invoices</h2>
 
-      <div className="flex flex-col md:flex-row gap-4 mb-4">
+      <div className="flex flex-wrap gap-4 mb-4">
         <input
           type="text"
           placeholder="Search by customer name/email"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="border border-gray-300 p-2 rounded w-full md:w-1/3"
+          className="border border-gray-300 p-2 rounded w-full sm:max-w-xs text-sm"
         />
         <input
           type="date"
           value={dateRange.from}
           onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
-          className="border border-gray-300 p-2 rounded w-full md:w-1/6"
+          className="border border-gray-300 p-2 rounded w-full sm:max-w-xs text-sm"
         />
         <input
           type="date"
           value={dateRange.to}
           onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
-          className="border border-gray-300 p-2 rounded w-full md:w-1/6"
+          className="border border-gray-300 p-2 rounded w-full sm:max-w-xs text-sm"
         />
       </div>
 

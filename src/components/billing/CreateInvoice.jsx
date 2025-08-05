@@ -51,6 +51,7 @@ const CreateInvoice = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [invoiceId, setInvoiceId] = useState("");
   const [invoiceData, setInvoiceData] = useState(null);
+  const [splitPayment, setSplitPayment] = useState({ cash: 0, upi: 0, card: 0 });
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -65,6 +66,7 @@ const CreateInvoice = () => {
     };
     fetchUserInfo();
   }, []);
+
 
   const handleCustomerChange = (updated) => {
     setCustomer(updated);
@@ -111,27 +113,56 @@ const CreateInvoice = () => {
 
     const gstAmount = settings.includeGST ? subtotal * (settings.gstRate / 100) : 0;
     const cgstAmount = settings.includeCGST ? subtotal * (settings.cgstRate / 100) : 0;
-    const sgstAmount = settings.includeCGST ? subtotal * (settings.cgstRate / 100) : 0;
+    const sgstAmount = settings.includeSGST ? subtotal * (settings.sgstRate / 100) : 0;
     const igstAmount = settings.includeIGST ? subtotal * (settings.igstRate / 100) : 0;
 
     const totalAmount = parseFloat((subtotal + gstAmount + cgstAmount + sgstAmount + igstAmount).toFixed(2));
 
+    if (settings.paymentMode === "Split") {
+      const totalSplit = splitPayment.cash + splitPayment.upi + splitPayment.card;
+      if (totalSplit !== totalAmount) {
+        alert(`Split payment does not match invoice total. Total: ₹${totalAmount}, Split: ₹${totalSplit}`);
+        return;
+      }
+    }
+
+    let isPaid = false;
+    let paidOn = null;
+    let creditDueDate = null;
+
+    if (settings.paymentMode?.toLowerCase() === "credit") {
+      creditDueDate = settings.creditDueDate || moment().add(7, 'days').format('YYYY-MM-DD');
+    } else {
+      isPaid = true;
+      paidOn = issuedAt;
+    }
+
+    // Prevent duplicate split fields from settings
+    const cleanedSettings = { ...settings };
+    delete cleanedSettings.splitCash;
+    delete cleanedSettings.splitUPI;
+    delete cleanedSettings.splitCard;
+    delete cleanedSettings.splitPayment;
+
+    const syncedSplitPayment = settings.splitPayment || splitPayment;
+
+    console.log("💰 SplitPayment Before Save:", syncedSplitPayment);
     const newInvoiceData = {
       customer,
       custId: customer && customer.custId ? customer.custId : undefined,
       cartItems,
-      settings,
+      settings: cleanedSettings,
       paymentMode: settings.paymentMode,
       invoiceType: settings.invoiceType,
       issuedAt,
       invoiceId: newInvoiceId,
       totalAmount,
-      paymentBreakdown: {
-        cash: settings.paymentMode === "Cash" ? 1 : 0,
-        upi: settings.paymentMode === "UPI" ? 1 : 0,
-        card: settings.paymentMode === "Card" ? 1 : 0
-      }
+      splitPayment: syncedSplitPayment,
+      creditDueDate,
+      isPaid,
+      paidOn
     };
+    console.log("📦 Invoice Data to Save:", newInvoiceData);
     setInvoiceData(newInvoiceData);
     setShowPreview({ visible: true, issuedAt });
   };
@@ -156,7 +187,10 @@ const CreateInvoice = () => {
             const invoiceRef = doc(db, "businesses", userInfo.uid, "finalizedInvoices", invoiceId);
             await setDoc(invoiceRef, {
               ...invoiceData,
-              createdAt: invoiceData.issuedAt
+              createdAt: invoiceData.issuedAt,
+              isPaid: invoiceData.isPaid,
+              paidOn: invoiceData.paidOn,
+              creditDueDate: invoiceData.creditDueDate
             });
             console.log("Invoice saved to Firestore:", invoiceId);
             await updateInventoryStock(userInfo.uid, cartItems);
@@ -186,7 +220,7 @@ const CreateInvoice = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)]">
       {/* Customer Info */}
       <div className="bg-white p-4 rounded shadow">
         <h2 className="text-lg font-semibold mb-2">Customer Information</h2>
@@ -223,6 +257,65 @@ const CreateInvoice = () => {
       {/* Invoice Settings */}
       <div className="bg-white p-4 rounded shadow">
         <InvoiceSettings settings={settings} onChange={setSettings} />
+        {settings.paymentMode === "Split" && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cash Amount</label>
+              <input
+                type="number"
+                value={splitPayment.cash}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  console.log("💰 Cash Split Updated:", val);
+                  setSplitPayment((prev) => ({ ...prev, cash: val }));
+                }}
+                className="w-full border rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">UPI Amount</label>
+              <input
+                type="number"
+                value={splitPayment.upi}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  console.log("💰 UPI Split Updated:", val);
+                  setSplitPayment((prev) => ({ ...prev, upi: val }));
+                }}
+                className="w-full border rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Card Amount</label>
+              <input
+                type="number"
+                value={splitPayment.card}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  console.log("💰 Card Split Updated:", val);
+                  setSplitPayment((prev) => ({ ...prev, card: val }));
+                }}
+                className="w-full border rounded px-3 py-2"
+              />
+            </div>
+          </div>
+        )}
+        {settings.paymentMode === "Credit" && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Credit Due Date (Default: 7 days from today)</label>
+            <input
+              type="date"
+              className="w-full border rounded px-3 py-2"
+              value={settings.creditDueDate || ""}
+              onChange={(e) => {
+                setSettings((prev) => ({
+                  ...prev,
+                  creditDueDate: e.target.value
+                }));
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Cart */}
@@ -232,14 +325,24 @@ const CreateInvoice = () => {
           selectedProducts={selectedProducts}
           cartItems={cartItems}
           onUpdateCart={setCartItems}
+          settings={settings}
         />
       </div>
 
       {/* Submit Button */}
-      <div className="text-right">
+      <div className="hidden md:flex justify-end">
         <button
           onClick={handleSubmitInvoice}
           className="bg-blue-600 text-white px-6 py-2 rounded shadow"
+        >
+          Create Bill
+        </button>
+      </div>
+      {/* Mobile Floating Button */}
+      <div className="fixed bottom-4 inset-x-4 z-50 md:hidden">
+        <button
+          onClick={handleSubmitInvoice}
+          className="w-full bg-blue-600 text-white py-3 rounded-xl shadow-lg text-lg font-semibold"
         >
           Create Bill
         </button>

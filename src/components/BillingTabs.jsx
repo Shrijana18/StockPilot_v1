@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import GenerateInvoice from "./billing/GenerateInvoice";
+import GenerateInvoice from "./billing/CreateInvoice";
 import AllInvoices from "./AllInvoices";
 
 const BillingTabs = () => {
@@ -13,8 +13,8 @@ const BillingTabs = () => {
   };
 
   return (
-    <div className="px-4">
-      <div className="flex gap-4 mb-4">
+    <div className="px-4 py-6 md:px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] space-y-6">
+      <div className="flex gap-2 flex-wrap md:flex-nowrap mb-4">
         <button
           className={`py-2 px-4 rounded ${activeTab === "generate" ? "bg-blue-600 text-white shadow-md" : "bg-gray-100"}`}
           onClick={() => setActiveTab("generate")}
