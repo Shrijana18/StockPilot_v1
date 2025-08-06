@@ -3,6 +3,7 @@ import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, onSnapshot } from "firebase/firestore";
 import AddInventoryOptions from "./inventory/AddInventoryOptions";
 import ViewInventory from "./inventory/ViewInventory";
+import { motion } from "framer-motion";
 // import { auth, db } from "../../firebase";
 
 const DistributorInventory = () => {
@@ -24,13 +25,18 @@ const DistributorInventory = () => {
   }, []);
 
   return (
-    <div className="p-6">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+      className="p-6"
+    >
 
       <div className="flex space-x-4 mb-4">
         {["add", "view", "group", "lowstock"].map((tab) => (
           <button
             key={tab}
-            className={`px-4 py-2 rounded shadow-sm ${
+            className={`px-4 py-2 rounded shadow-sm transition duration-200 ease-in-out transform hover:scale-105 ${
               selectedTab === tab
                 ? "bg-blue-600 text-white ring-2 ring-offset-2 ring-blue-400"
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -63,7 +69,7 @@ const DistributorInventory = () => {
       {["group", "lowstock"].includes(selectedTab) && (
         <div className="text-gray-500 italic mt-4">This tab is under construction.</div>
       )}
-    </div>
+    </motion.div>
   );
 };
 

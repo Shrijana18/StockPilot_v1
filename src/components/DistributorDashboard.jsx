@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase/firebaseConfig";
 import { useNavigate } from "react-router-dom";
@@ -56,7 +57,7 @@ const DistributorDashboard = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 font-sans">
+    <div className="flex h-screen overflow-hidden bg-gray-100 font-sans">
       {/* Sidebar */}
       <aside className="w-64 bg-blue-900 text-white shadow-lg p-5 flex flex-col justify-between">
         <div>
@@ -133,7 +134,7 @@ const DistributorDashboard = () => {
       </aside>
 
       {/* Content Area */}
-      <div className="flex-1 p-8 overflow-y-auto flex flex-col">
+      <div className="flex-1 overflow-y-auto transition-all duration-300 ease-in-out flex flex-col">
         <header className="sticky top-0 z-10 bg-white px-6 py-3 shadow flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold text-gray-800">Distributor Dashboard</h1>
@@ -146,15 +147,75 @@ const DistributorDashboard = () => {
         </header>
 
         {/* Main Content */}
-        <main className="flex-1">
-          {activeTab === "dashboard" && <DistributorHome />}
-          {activeTab === "retailerRequests" && <RetailerRequests db={db} auth={auth} />}
-          {activeTab === "inventory" && <DistributorInventory db={db} auth={auth} />}
-          {activeTab === "dispatch" && <DispatchTracker db={db} auth={auth} />}
-          {activeTab === "analytics" && auth?.currentUser && (
-            <DistributorAnalytics distributorId={auth.currentUser.uid} />
-          )}
-          {activeTab === "manageRetailers" && <ManageRetailers db={db} auth={auth} />}
+        <main className="flex-1 relative">
+          <AnimatePresence mode="wait">
+            {activeTab === "dashboard" && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <DistributorHome />
+              </motion.div>
+            )}
+            {activeTab === "retailerRequests" && (
+              <motion.div
+                key="retailerRequests"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <RetailerRequests db={db} auth={auth} />
+              </motion.div>
+            )}
+            {activeTab === "inventory" && (
+              <motion.div
+                key="inventory"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <DistributorInventory db={db} auth={auth} />
+              </motion.div>
+            )}
+            {activeTab === "dispatch" && (
+              <motion.div
+                key="dispatch"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <DispatchTracker db={db} auth={auth} />
+              </motion.div>
+            )}
+            {activeTab === "analytics" && auth?.currentUser && (
+              <motion.div
+                key="analytics"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <DistributorAnalytics distributorId={auth.currentUser.uid} />
+              </motion.div>
+            )}
+            {activeTab === "manageRetailers" && (
+              <motion.div
+                key="manageRetailers"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <ManageRetailers db={db} auth={auth} />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import OrderRequests from "./orders/OrderRequests";
 import PendingOrders from "./orders/PendingOrders";
 import TrackOrders from "./orders/TrackOrders";
@@ -8,7 +9,7 @@ const DispatchTracker = () => {
   const [activeTab, setActiveTab] = useState("requests");
 
   return (
-    <div>
+    <div className="p-6 bg-white rounded-lg shadow-md">
       <h2 className="text-2xl font-semibold mb-4">Dispatch Tracker</h2>
 
       <div className="flex space-x-4 mb-6">
@@ -38,15 +39,41 @@ const DispatchTracker = () => {
         </button>
       </div>
 
-      {activeTab === "requests" && (
-        <OrderRequests />
-      )}
-      {activeTab === "pending" && (
-        <PendingOrders />
-      )}
-      {activeTab === "completed" && (
-        <TrackOrders />
-      )}
+      <AnimatePresence mode="wait">
+        {activeTab === "requests" && (
+          <motion.div
+            key="requests"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <OrderRequests />
+          </motion.div>
+        )}
+        {activeTab === "pending" && (
+          <motion.div
+            key="pending"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <PendingOrders />
+          </motion.div>
+        )}
+        {activeTab === "completed" && (
+          <motion.div
+            key="completed"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <TrackOrders />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

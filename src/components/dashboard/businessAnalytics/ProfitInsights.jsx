@@ -2,12 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import Select from "react-select";
 
 const ProfitInsights = () => {
   const [loading, setLoading] = useState(true);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalProfit, setTotalProfit] = useState(0);
   const [topProducts, setTopProducts] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [selectedBrand, setSelectedBrand] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [highestMargin, setHighestMargin] = useState(null);
@@ -22,6 +25,9 @@ const ProfitInsights = () => {
     profit: "list"
   });
   const [productLimit, setProductLimit] = useState(5);
+
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   useEffect(() => {
     const fetchData = async () => {
@@ -38,8 +44,8 @@ const ProfitInsights = () => {
         productMap[doc.id] = doc.data();
       });
 
-      const brands = [...new Set(Object.values(productMap).map(p => p.brand))];
-      const categories = [...new Set(Object.values(productMap).map(p => p.category))];
+      const brandsArr = [...new Set(Object.values(productMap).map(p => p.brand).filter(Boolean))];
+      const categoriesArr = [...new Set(Object.values(productMap).map(p => p.category).filter(Boolean))];
 
       let revenue = 0;
       let profit = 0;
@@ -48,6 +54,9 @@ const ProfitInsights = () => {
       invoiceSnap.forEach(doc => {
         const data = doc.data();
         if (data.paymentMode === 'credit' && data.isPaid !== true) return;
+
+        if ((startDate && new Date(data.createdAt) < new Date(startDate)) ||
+            (endDate && new Date(data.createdAt) > new Date(endDate))) return;
 
         const invoiceRevenue = Number(data.totalAmount) || 0;
         revenue += invoiceRevenue;
@@ -86,8 +95,7 @@ const ProfitInsights = () => {
 
       const sorted = Object.values(profitMap)
         .map(p => ({ ...p, margin: p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0 }))
-        .sort((a, b) => b.profit - a.profit)
-        .slice(0, 5);
+        .sort((a, b) => b.profit - a.profit);
 
       const highestMargin = sorted.reduce((a, b) => (a.margin > b.margin ? a : b));
       const mostRevenue = sorted.reduce((a, b) => (a.revenue > b.revenue ? a : b));
@@ -103,46 +111,77 @@ const ProfitInsights = () => {
       setMostRevenue(mostRevenue);
       setHighMarginLowRevenue(highMarginLowRevenue);
       setTotalTopPercent(totalTopPercent);
+      setBrands(brandsArr);
+      setCategories(categoriesArr);
       setLoading(false);
     };
 
     fetchData();
-  }, []);
+  }, [startDate, endDate]);
 
   if (loading) return <div className="p-5">Loading Profit Insights...</div>;
 
   return (
     <div className="bg-white p-6 rounded-lg shadow">
-      <h2 className="text-xl font-bold mb-4">Profit Insights</h2>
+      <h2 className="text-2xl font-bold text-gray-800 mb-6">📈 Profit Insights</h2>
 
-      <div className="flex gap-4 mb-4">
-        <select value={selectedBrand} onChange={(e) => setSelectedBrand(e.target.value)} className="border p-1 rounded">
-          <option>All</option>
-          {[...new Set(topProducts.map(p => p.brand))].map(b => <option key={b}>{b}</option>)}
-        </select>
-        <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="border p-1 rounded">
-          <option>All</option>
-          {[...new Set(topProducts.map(p => p.category))].map(c => <option key={c}>{c}</option>)}
-        </select>
+      <div className="flex flex-wrap gap-4 mb-6 items-center">
+        <div>
+          <label className="block text-sm font-medium mb-1">Top N Products</label>
+          <input
+            type="number"
+            min={1}
+            value={productLimit}
+            onChange={(e) => setProductLimit(Number(e.target.value))}
+            className="border rounded px-2 py-1 w-24"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Filter by Brand</label>
+          <Select
+            options={[{ label: "All Brands", value: "All" }, ...brands.map(b => ({ label: b, value: b }))]}
+            value={{ label: selectedBrand, value: selectedBrand }}
+            onChange={(option) => setSelectedBrand(option.value)}
+            className="min-w-[180px]"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Filter by Category</label>
+          <Select
+            options={[{ label: "All Categories", value: "All" }, ...categories.map(c => ({ label: c, value: c }))]}
+            value={{ label: selectedCategory, value: selectedCategory }}
+            onChange={(option) => setSelectedCategory(option.value)}
+            className="min-w-[180px]"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">From</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="border rounded px-2 py-1"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">To</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="border rounded px-2 py-1"
+          />
+        </div>
       </div>
 
-      <div className="flex gap-2 mb-4 items-center">
-        <label className="text-sm font-medium">Products to show:</label>
-        <input
-          type="number"
-          min={1}
-          value={productLimit}
-          onChange={(e) => setProductLimit(Number(e.target.value))}
-          className="border rounded px-2 py-1 w-20"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="flex flex-col gap-6">
         {[
           { key: 'margin', title: '🔝 Highest Margin Products', data: [...topProducts].sort((a, b) => b.margin - a.margin) },
-          { key: 'revenue', title: '💰 Most Revenue Products', data: [...topProducts].sort((a, b) => b.revenue - a.revenue) },
-          { key: 'lowMargin', title: '📉 High Margin, Low Revenue', data: [...topProducts].filter(p => p.margin > 30).sort((a, b) => a.revenue - b.revenue) },
-          { key: 'profit', title: '📊 Top Profit Contributors', data: [...topProducts].sort((a, b) => b.profit - a.profit) }
+          { key: 'revenue', title: '💰 Most Revenue Products', data: [...topProducts].sort((a, b) => b.revenue - a.revenue) }
         ].map(section => (
           <div key={section.key} className="bg-white shadow rounded p-4">
             <div className="flex justify-between items-center mb-2">
@@ -155,13 +194,20 @@ const ProfitInsights = () => {
               </button>
             </div>
             {viewMode[section.key] === "list" ? (
-              <ul className="list-disc list-inside text-sm">
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                 {section.data.slice(0, productLimit).map((item, i) => (
-                  <li key={i}>
-                    {item.name} | Profit: ₹{item.profit.toFixed(2)} | Margin: {item.margin.toFixed(1)}%
-                  </li>
+                  <div key={i} className="flex justify-between items-center border-b pb-2">
+                    <div>
+                      <p className="font-medium text-gray-800">{item.name}</p>
+                      <p className="text-xs text-gray-500">Revenue: ₹{item.revenue?.toFixed(2)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-green-600">Profit: ₹{item.profit?.toFixed(2)}</p>
+                      <p className="text-xs text-gray-600">Margin: {item.margin?.toFixed(1)}%</p>
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={section.data.slice(0, productLimit)}>
@@ -174,25 +220,6 @@ const ProfitInsights = () => {
             )}
           </div>
         ))}
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-6">
-        <div className="bg-green-50 border-l-4 border-green-400 p-4 rounded">
-          <p className="font-semibold">🔝 Highest Margin Product</p>
-          <p className="text-sm text-gray-700">{highestMargin?.name} ({highestMargin?.margin.toFixed(1)}%)</p>
-        </div>
-        <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
-          <p className="font-semibold">💰 Most Revenue Product</p>
-          <p className="text-sm text-gray-700">{mostRevenue?.name} (₹{mostRevenue?.revenue.toFixed(2)})</p>
-        </div>
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
-          <p className="font-semibold">📉 High Margin, Low Revenue</p>
-          <p className="text-sm text-gray-700">{highMarginLowRevenue?.name} (₹{highMarginLowRevenue?.revenue.toFixed(2)})</p>
-        </div>
-        <div className="bg-purple-50 border-l-4 border-purple-400 p-4 rounded">
-          <p className="font-semibold">📊 Top 3 = {totalTopPercent.toFixed(1)}%</p>
-          <p className="text-sm text-gray-700">of Total Profit</p>
-        </div>
       </div>
 
       <p><strong>Total Revenue:</strong> ₹{totalRevenue.toFixed(2)}</p>

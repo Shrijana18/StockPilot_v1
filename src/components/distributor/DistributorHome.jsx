@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, getDocs } from "firebase/firestore";
+import { motion } from "framer-motion";
 
 const DistributorHome = () => {
   const [stats, setStats] = useState({
@@ -65,59 +66,96 @@ const DistributorHome = () => {
   }, []);
 
   return (
-    <div className="p-6 space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+      className="p-6 space-y-6"
+    >
       <h2 className="text-3xl font-bold">📦 Distributor Business Snapshot</h2>
 
       {/* Top KPI Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="bg-white shadow-md rounded-lg p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="bg-white shadow-md rounded-lg p-4"
+        >
           <p className="text-gray-500 text-sm">Total Orders</p>
           <p className="text-2xl font-bold">{stats.totalOrders}</p>
-        </div>
-        <div className="bg-white shadow-md rounded-lg p-4">
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+          className="bg-white shadow-md rounded-lg p-4"
+        >
           <p className="text-gray-500 text-sm">Pending Orders</p>
           <p className="text-2xl font-bold text-yellow-600">{stats.pendingOrders}</p>
-        </div>
-        <div className="bg-white shadow-md rounded-lg p-4">
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
+          className="bg-white shadow-md rounded-lg p-4"
+        >
           <p className="text-gray-500 text-sm">Completed Orders</p>
           <p className="text-2xl font-bold text-green-600">{stats.completedOrders}</p>
-        </div>
-        <div className="bg-white shadow-md rounded-lg p-4">
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.4 }}
+          className="bg-white shadow-md rounded-lg p-4"
+        >
           <p className="text-gray-500 text-sm">Total Revenue</p>
           <p className="text-2xl font-bold text-blue-600">₹{stats.totalRevenue.toFixed(2)}</p>
-        </div>
-        <div className="bg-white shadow-md rounded-lg p-4">
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.5 }}
+          className="bg-white shadow-md rounded-lg p-4"
+        >
           <p className="text-gray-500 text-sm">Inventory Items</p>
           <p className="text-2xl font-bold">{stats.inventoryCount}</p>
-        </div>
-        <div className="bg-white shadow-md rounded-lg p-4">
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.6 }}
+          className="bg-white shadow-md rounded-lg p-4"
+        >
           <p className="text-gray-500 text-sm">Low Stock Alerts</p>
           <p className="text-2xl font-bold text-red-600">{stats.lowStockCount}</p>
-        </div>
+        </motion.div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
         <div className="bg-white shadow-md rounded-lg p-4">
           <h3 className="font-semibold text-lg mb-2">📊 Order Trends</h3>
-          <div className="h-40 bg-gray-100 rounded flex items-center justify-center text-gray-400">
-            Chart Placeholder
+          <div className="h-40 bg-gray-100 rounded animate-pulse flex items-center justify-center text-gray-400">
+            Loading chart...
           </div>
         </div>
         <div className="bg-white shadow-md rounded-lg p-4">
           <h3 className="font-semibold text-lg mb-2">💸 Revenue Insights</h3>
-          <div className="h-40 bg-gray-100 rounded flex items-center justify-center text-gray-400">
-            Revenue Chart Placeholder
+          <div className="h-40 bg-gray-100 rounded animate-pulse flex items-center justify-center text-gray-400">
+            Loading chart...
           </div>
         </div>
       </div>
 
-      <div className="bg-white shadow-md rounded-lg p-4 mt-6">
-        <h3 className="font-semibold text-lg mb-2">📅 Today’s Collection Schedule</h3>
+      <div className="bg-white shadow-md rounded-lg p-4 mt-6 hover:shadow-lg transition duration-300">
+        <h3 className="font-semibold text-lg mb-2 flex items-center gap-2">
+          📅 Today’s Collection Schedule
+        </h3>
         <p className="text-sm text-gray-600">
           Data will list retailers with dues today (future enhancement)
         </p>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

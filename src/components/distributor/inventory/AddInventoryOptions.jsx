@@ -47,7 +47,7 @@ const AddInventoryOptions = ({ userId }) => {
         <div>
           {selectedOption === "manual" && <ManualEntryForm />}
           {selectedOption === "ocr" && <OCRUploadForm distributorId={userId} />}
-          {selectedOption === "ai" && <AIInventoryForm />}
+          {selectedOption === "ai" && <AIInventoryForm userId={userId} />}
         </div>
       </div>
     </div>

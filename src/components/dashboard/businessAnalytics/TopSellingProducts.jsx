@@ -20,8 +20,8 @@ const TopSellingProducts = () => {
   const { selectedProduct, selectedDate } = useAnalyticsFilter();
   const [viewMode, setViewMode] = useState('chart');
   const [topN, setTopN] = useState(5);
-  const [selectedBrands, setSelectedBrands] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedBrands, setSelectedBrands] = useState(["All"]);
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const [allTimeItemsSold, setAllTimeItemsSold] = useState(0);
   const [playAnimation, setPlayAnimation] = useState(false);
   const [timeRange, setTimeRange] = useState({ label: 'All Time', value: 'all' });
@@ -124,13 +124,15 @@ const TopSellingProducts = () => {
           });
         });
 
-        // Filter by brand if selected
+        // Filter by brand if selected (skip if "All" is selected)
         let filteredProducts = Object.values(productSalesMap);
-        if (selectedBrands.length > 0) {
-          filteredProducts = filteredProducts.filter(p => selectedBrands.includes(p.brand));
+        if (!(selectedBrands.includes("All"))) {
+          if (selectedBrands.length > 0) {
+            filteredProducts = filteredProducts.filter(p => selectedBrands.includes(p.brand));
+          }
         }
-        // Filter by category if selected
-        if (selectedCategory) {
+        // Filter by category if selected (skip if "All" or empty)
+        if (selectedCategory && selectedCategory !== "All") {
           filteredProducts = filteredProducts.filter(p => p.category === selectedCategory);
         }
 
@@ -202,9 +204,19 @@ const TopSellingProducts = () => {
           <label className="block text-sm font-medium mb-1">Filter by Brand:</label>
           <Select
             isMulti
-            options={allBrands.map(b => ({ label: b, value: b }))}
-            value={selectedBrands.map(b => ({ label: b, value: b }))}
-            onChange={(selected) => setSelectedBrands(selected.map(option => option.value))}
+            options={[{ label: "All Brands", value: "All" }, ...allBrands.map(b => ({ label: b, value: b }))]}
+            value={
+              selectedBrands.includes("All")
+                ? [{ label: "All Brands", value: "All" }]
+                : selectedBrands.map(b => ({ label: b, value: b }))
+            }
+            onChange={(selected) => {
+              if (selected.some(opt => opt.value === "All")) {
+                setSelectedBrands(["All"]);
+              } else {
+                setSelectedBrands(selected.map(option => option.value));
+              }
+            }}
             placeholder="Select brands..."
             className="min-w-[180px] text-sm"
           />
@@ -212,10 +224,13 @@ const TopSellingProducts = () => {
         <div>
           <label className="block text-sm font-medium mb-1">Filter by Category:</label>
           <Select
-            options={allCategories.map(c => ({ label: c, value: c }))}
-            value={selectedCategory ? { label: selectedCategory, value: selectedCategory } : null}
-            onChange={(selected) => setSelectedCategory(selected ? selected.value : '')}
-            isClearable
+            options={[{ label: "All Categories", value: "All" }, ...allCategories.map(c => ({ label: c, value: c }))]}
+            value={
+              selectedCategory && selectedCategory !== "All"
+                ? { label: selectedCategory, value: selectedCategory }
+                : { label: "All Categories", value: "All" }
+            }
+            onChange={(selected) => setSelectedCategory(selected ? selected.value : "All")}
             placeholder="Select category..."
             className="min-w-[180px] text-sm"
           />
