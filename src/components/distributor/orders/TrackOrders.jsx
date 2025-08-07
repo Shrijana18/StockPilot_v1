@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -30,32 +30,36 @@ const TrackOrders = () => {
   };
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) return;
 
-    const q = query(
-      collection(db, 'businesses', user.uid, 'orderRequests'),
-      where('status', 'in', ['Shipped', 'Delivered'])
-    );
+      const q = query(
+        collection(db, 'businesses', user.uid, 'orderRequests'),
+        where('status', 'in', ['Shipped', 'Delivered'])
+      );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const orderData = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .sort((a, b) => {
-          const aDelivered = a.status === 'Delivered';
-          const bDelivered = b.status === 'Delivered';
+      const unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+        const orderData = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .sort((a, b) => {
+            const aDelivered = a.status === 'Delivered';
+            const bDelivered = b.status === 'Delivered';
 
-          if (aDelivered !== bDelivered) {
-            return aDelivered ? 1 : -1; // Undelivered comes first
-          }
+            if (aDelivered !== bDelivered) {
+              return aDelivered ? 1 : -1;
+            }
 
-          // If both are delivered or both undelivered, sort by createdAt descending
-          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-        });
-      setOrders(orderData);
+            return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+          });
+        setOrders(orderData);
+      });
+
+      // Cleanup Firestore subscription on unmount
+      return () => unsubscribeFirestore();
     });
 
-    return () => unsubscribe();
+    // Cleanup Auth listener on unmount
+    return () => unsubscribeAuth();
   }, []);
 
   const markAsDelivered = async (orderId) => {
@@ -251,14 +255,14 @@ const TrackOrders = () => {
                             <td className="border px-2 py-1">{item.brand || '—'}</td>
                             <td className="border px-2 py-1">{item.sku || '—'}</td>
                             <td className="border px-2 py-1 text-center">{item.quantity}</td>
-                            <td className="border px-2 py-1 text-right">₹{Number(item.price).toFixed(2)}</td>
-                            <td className="border px-2 py-1 text-right">₹{(item.quantity * Number(item.price)).toFixed(2)}</td>
+                            <td className="border px-2 py-1 text-right">₹{Number(item.price || 0).toFixed(2)}</td>
+                            <td className="border px-2 py-1 text-right">₹{(Number(item.quantity || 0) * Number(item.price || 0)).toFixed(2)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                     <div className="text-right font-semibold mt-2">
-                      Total: ₹{order.items?.reduce((acc, item) => acc + (item.quantity * Number(item.price)), 0).toFixed(2)}
+                      Total: ₹{order.items?.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.price || 0)), 0).toFixed(2)}
                     </div>
                   </div>
                 </div>
