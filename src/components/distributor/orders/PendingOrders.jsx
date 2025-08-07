@@ -285,8 +285,8 @@ const PendingOrders = () => {
                       </div>
                       <div>{item.unit || 'N/A'}</div>
                       <div></div>
-                      <div>₹{item.price?.toFixed(2) || '0.00'}</div>
-                      <div>₹{(item.quantity * item.price)?.toFixed(2) || '0.00'}</div>
+                      <div>₹{(Number(item.price) || 0).toFixed(2)}</div>
+                      <div>₹{(item.quantity * Number(item.price)).toFixed(2)}</div>
                     </>
                   )}
                 </div>

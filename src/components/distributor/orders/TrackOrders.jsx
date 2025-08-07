@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const TrackOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -66,17 +68,31 @@ const TrackOrders = () => {
     if (!orderData || !orderData.retailerId) return;
 
     const retailerOrderRef = doc(db, 'businesses', orderData.retailerId, 'sentOrders', orderId);
-    
-    const updatePayload = {
+
+    const now = new Date();
+    let updatePayload = {
       status: 'Delivered',
-      deliveredAt: new Date().toISOString(),
+      deliveredAt: now.toISOString(),
       statusTimestamps: {
         deliveredAt: serverTimestamp()
       }
     };
 
+    // Handle Credit Cycle logic
+    if (orderData.paymentMethod === 'Credit Cycle' && orderData.creditDays) {
+      const dueDate = new Date(now);
+      dueDate.setDate(dueDate.getDate() + Number(orderData.creditDays));
+      updatePayload.creditDueDate = dueDate.toISOString();
+      updatePayload.isPaid = false;
+    }
+
     await updateDoc(distributorOrderRef, updatePayload);
     await updateDoc(retailerOrderRef, updatePayload);
+    toast.success("📦 Order marked as Delivered!", {
+      position: "top-right",
+      autoClose: 3000,
+      icon: "🚚"
+    });
   };
 
   const filteredOrders = orders.filter(order => {
@@ -103,6 +119,7 @@ const TrackOrders = () => {
 
   return (
     <div className="p-4">
+      <ToastContainer />
       <h2 className="text-xl font-semibold mb-4">Track Orders</h2>
       <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
         <input
@@ -234,25 +251,147 @@ const TrackOrders = () => {
                             <td className="border px-2 py-1">{item.brand || '—'}</td>
                             <td className="border px-2 py-1">{item.sku || '—'}</td>
                             <td className="border px-2 py-1 text-center">{item.quantity}</td>
-                            <td className="border px-2 py-1 text-right">₹{item.price?.toFixed(2) || '0.00'}</td>
-                            <td className="border px-2 py-1 text-right">₹{(item.quantity * item.price)?.toFixed(2) || '0.00'}</td>
+                            <td className="border px-2 py-1 text-right">₹{Number(item.price).toFixed(2)}</td>
+                            <td className="border px-2 py-1 text-right">₹{(item.quantity * Number(item.price)).toFixed(2)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                     <div className="text-right font-semibold mt-2">
-                      Total: ₹{order.items?.reduce((acc, item) => acc + (item.quantity * item.price), 0)?.toFixed(2)}
+                      Total: ₹{order.items?.reduce((acc, item) => acc + (item.quantity * Number(item.price)), 0).toFixed(2)}
                     </div>
                   </div>
                 </div>
 
                 {(order.status === 'Shipped' || order.status === 'Out for Delivery') && (
-                  <button
-                    onClick={() => markAsDelivered(order.id)}
-                    className="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                  >
-                    Mark as Delivered
-                  </button>
+                  <div className="mt-4 flex flex-col md:flex-row gap-2">
+                    {/* If COD and not paid, show only Confirm Payment Received (COD) button */}
+                    {order.paymentMethod === 'COD' && !order.isPaid ? (
+                      <button
+                        onClick={async () => {
+                          const user = auth.currentUser;
+                          if (!user) return;
+
+                          const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
+                          const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
+
+                          const paymentPayload = {
+                            isPaid: true,
+                            paymentStatus: 'Paid',
+                            paidAt: new Date().toISOString()
+                          };
+
+                          await updateDoc(distributorOrderRef, paymentPayload);
+                          await updateDoc(retailerOrderRef, paymentPayload);
+                          toast.success("💰 Payment received for COD order!", {
+                            position: "top-right",
+                            autoClose: 3000,
+                            icon: "✅"
+                          });
+                        }}
+                        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                      >
+                        Confirm Payment Received (COD)
+                      </button>
+                    ) : null}
+
+                    {/* Credit Cycle confirmation for Credit Cycle payment method and not yet paid */}
+                    {order.paymentMethod === 'Credit Cycle' && order.isPaid !== true && (
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium">Confirm Credit Cycle (in days):</label>
+                        <input
+                          type="number"
+                          min={1}
+                          defaultValue={order.creditDays || 15}
+                          onChange={(e) => order.confirmedCreditDays = e.target.value}
+                          className="border rounded px-2 py-1 w-32"
+                        />
+                        <button
+                          onClick={async () => {
+                            const user = auth.currentUser;
+                            if (!user || !order.confirmedCreditDays) return;
+
+                            const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
+                            const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
+
+                            const days = Number(order.confirmedCreditDays);
+                            const now = new Date();
+                            const creditDueDate = new Date(now.setDate(now.getDate() + days)).toISOString();
+
+                            const payload = {
+                              creditDays: days,
+                              creditDueDate,
+                              isPaid: false
+                            };
+
+                            await updateDoc(distributorOrderRef, payload);
+                            await updateDoc(retailerOrderRef, payload);
+                            toast.success("✅ Credit cycle confirmed!", {
+                              position: "top-right",
+                              autoClose: 3000,
+                              icon: "📅"
+                            });
+                          }}
+                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                        >
+                          Confirm Credit Days
+                        </button>
+                        {/* Show the credit due date if present */}
+                        {order.creditDueDate && (
+                          <p className="text-sm text-gray-700">
+                            Credit Due Date: <strong>{new Date(order.creditDueDate).toLocaleDateString()}</strong>
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Show Mark as Paid button for unpaid Credit Cycle orders with a creditDueDate */}
+                    {(order.status === 'Shipped' || order.status === 'Delivered') &&
+                      order.paymentMethod === 'Credit Cycle' &&
+                      order.isPaid !== true &&
+                      order.creditDueDate && (
+                      <button
+                        onClick={async () => {
+                          const user = auth.currentUser;
+                          if (!user) return;
+
+                          const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
+                          const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
+
+                          const paymentPayload = {
+                            isPaid: true,
+                            paymentStatus: 'Paid',
+                            paidAt: new Date().toISOString()
+                          };
+
+                          await updateDoc(distributorOrderRef, paymentPayload);
+                          await updateDoc(retailerOrderRef, paymentPayload);
+
+                          toast.success("💰 Credit payment marked as received!", {
+                            position: "top-right",
+                            autoClose: 3000,
+                            icon: "✅"
+                          });
+                        }}
+                        className="bg-green-700 text-white px-4 py-2 rounded hover:bg-green-800 mt-2"
+                      >
+                        Mark Credit as Paid
+                      </button>
+                    )}
+
+                    {/* Otherwise, show Mark as Delivered only if paid or (Credit Cycle with creditDueDate) */}
+                    {(order.paymentMethod !== 'Credit Cycle' ||
+                      (order.paymentMethod === 'Credit Cycle' && order.creditDueDate)) && (
+                        (order.isPaid === true || (order.paymentMethod === 'Credit Cycle' && order.creditDueDate)) && (
+                          <button
+                            onClick={() => markAsDelivered(order.id)}
+                            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                          >
+                            Mark as Delivered
+                          </button>
+                        )
+                      )}
+                  </div>
                 )}
               </div>
             )}
