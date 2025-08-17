@@ -275,6 +275,9 @@ const OrderStatusTab = () => {
                   }`}>
                     {order.status}
                   </span>
+                  {order.status === 'Rejected' && order.rejectionNote && (
+                    <div className="text-xs text-red-500 mt-1">Reason: {order.rejectionNote}</div>
+                  )}
                 </td>
                 <td className="p-2 border">₹{order.totalAmount || 0}</td>
                 <td className="p-2 border">{order.timestamp?.toDate?.().toLocaleString() || '-'}</td>
@@ -285,6 +288,11 @@ const OrderStatusTab = () => {
                     <div className="text-sm mb-2 text-gray-700">
                       <strong>Order Note:</strong> {order.note || '—'}<br />
                       <strong>Payment Mode:</strong> {order.paymentMode || '—'}<br />
+                      {order.status === 'Rejected' && order.rejectionNote && (
+                        <>
+                          <strong>Rejection Reason:</strong> {order.rejectionNote}<br />
+                        </>
+                      )}
                       <strong>Items:</strong><br />
                       <strong>Distributor Info:</strong> {order.distributorCity || 'N/A'}, {order.distributorState || 'N/A'}<br />
                       <strong>Phone:</strong> {order.distributorPhone || '—'}<br />

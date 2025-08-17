@@ -1,6 +1,6 @@
 require("dotenv").config();
 const { onCall, onRequest } = require("firebase-functions/v2/https");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { HttpsError } = require("firebase-functions/v2/https");
 const express = require("express");
 const app = express();
@@ -11,6 +11,20 @@ const cors = require("cors");
 const corsHandler = cors({ origin: true });
 
 admin.initializeApp();
+
+// ---------- Helper mappers for safe string payloads ----------
+const s = (v) => (v == null ? "" : String(v));
+const toProfilePayload = (uid, data) => ({
+  retailerId: uid,
+  retailerName: s(data.ownerName || data.businessName),
+  retailerEmail: s(data.email),
+  retailerPhone: s(data.phone),
+  city: s(data.city || data.address),
+  businessName: s(data.businessName),
+  gstNumber: s(data.gstNumber),
+  logoUrl: s(data.logoUrl),
+  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+});
 
 const client = new vision.ImageAnnotatorClient();
 
@@ -389,4 +403,146 @@ ${rawText}
       return res.status(500).json({ error: "Internal server error", details: error.message });
     }
   });
+});
+
+// ---------- Profile → Connected Distributors fan-out (server-side, idempotent) ----------
+const PROFILE_FIELDS_TO_WATCH = [
+  "ownerName","businessName","email","phone","city","address","gstNumber","logoUrl"
+];
+
+exports.syncRetailerProfileToDistributors = onDocumentUpdated("businesses/{retailerUid}", async (event) => {
+  const retailerUid = event.params.retailerUid;
+  const before = event.data.before.data() || {};
+  const after = event.data.after.data() || {};
+
+  // Exit early if no relevant field changed
+  const changed = PROFILE_FIELDS_TO_WATCH.some(
+    (k) => (before[k] || "") !== (after[k] || "")
+  );
+  if (!changed) return;
+
+  const db = admin.firestore();
+
+  // Read accepted connections owned by this retailer
+  const connsSnap = await db
+    .collection("businesses")
+    .doc(retailerUid)
+    .collection("connectedDistributors")
+    .where("status", "==", "accepted")
+    .get();
+
+  if (connsSnap.empty) return;
+
+  const payload = toProfilePayload(retailerUid, after);
+
+  // Batch in safe chunks under 500
+  const refs = connsSnap.docs.map((d) =>
+    db.doc(`businesses/${d.id}/connectedRetailers/${retailerUid}`)
+  );
+
+  for (let i = 0; i < refs.length; i += 450) {
+    const batch = db.batch();
+    refs.slice(i, i + 450).forEach((ref) => {
+      batch.set(ref, payload, { merge: true });
+    });
+    await batch.commit();
+  }
+
+  // --- NEW: Update all connectedRetailers/{retailerUid} in all distributors ---
+  try {
+    const connectedRetailersSnapshots = await db
+      .collectionGroup('connectedRetailers')
+      .where('retailerId', '==', retailerUid)
+      .get();
+
+    const updatedData = {
+      retailerName: after.ownerName || after.businessName || '',
+      retailerEmail: after.email || '',
+      retailerPhone: after.phone || '',
+      businessName: after.businessName || '',
+      gstNumber: after.gstNumber || '',
+      logoUrl: after.logoUrl || '',
+      city: after.city || after.address || '',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await Promise.all(
+      connectedRetailersSnapshots.docs.map(doc =>
+        doc.ref.update(updatedData)
+      )
+    );
+  } catch (err) {
+    console.error("Error updating all connectedRetailers with latest retailer info:", err);
+  }
+});
+
+// ---------- Callable: Manual resync for legacy/backfill ----------
+exports.resyncRetailerProfile = onCall(async (request) => {
+  const context = request.auth;
+  if (!context || !context.uid) {
+    throw new HttpsError("unauthenticated", "Login required");
+  }
+  const uid = context.uid;
+  const db = admin.firestore();
+
+  // Load current profile
+  const profileSnap = await db.doc(`businesses/${uid}`).get();
+  if (!profileSnap.exists) {
+    throw new HttpsError("not-found", "Profile document not found");
+  }
+
+  const payload = toProfilePayload(uid, profileSnap.data());
+
+  // Load accepted distributor connections
+  const connsSnap = await db
+    .collection("businesses")
+    .doc(uid)
+    .collection("connectedDistributors")
+    .where("status", "==", "accepted")
+    .get();
+
+  if (connsSnap.empty) return { updated: 0 };
+
+  const refs = connsSnap.docs.map((d) =>
+    db.doc(`businesses/${d.id}/connectedRetailers/${uid}`)
+  );
+
+  let updated = 0;
+  for (let i = 0; i < refs.length; i += 450) {
+    const batch = db.batch();
+    refs.slice(i, i + 450).forEach((ref) => {
+      batch.set(ref, payload, { merge: true });
+      updated++;
+    });
+    await batch.commit();
+  }
+
+  // --- NEW: Update all connectedRetailers/{retailerUid} in all distributors ---
+  try {
+    const connectedRetailersSnapshots = await db
+      .collectionGroup('connectedRetailers')
+      .where('retailerId', '==', uid)
+      .get();
+
+    const updatedData = {
+      retailerName: payload.retailerName || '',
+      retailerEmail: payload.retailerEmail || '',
+      retailerPhone: payload.retailerPhone || '',
+      businessName: payload.businessName || '',
+      gstNumber: payload.gstNumber || '',
+      logoUrl: payload.logoUrl || '',
+      city: payload.city || '',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await Promise.all(
+      connectedRetailersSnapshots.docs.map(doc =>
+        doc.ref.update(updatedData)
+      )
+    );
+  } catch (err) {
+    console.error("Error updating all connectedRetailers with latest retailer info:", err);
+  }
+
+  return { updated };
 });

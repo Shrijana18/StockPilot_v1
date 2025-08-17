@@ -113,28 +113,43 @@ const TrackOrderTab = () => {
                     {order.timestamp?.toDate().toLocaleString() || "N/A"}
                   </td>
                   <td className="border px-3 py-2">{order.items?.length || 0}</td>
-                  <td className="border px-3 py-2 font-medium">{order.status}</td>
+                  <td className="border px-3 py-2 font-medium">
+                    {order.status}
+                    {order.status === "Rejected" && order.rejectionNote && (
+                      <div className="text-xs text-red-500 mt-1">Reason: {order.rejectionNote}</div>
+                    )}
+                  </td>
                   <td className="border px-3 py-2">{order.eta || "Not specified"}</td>
                   <td className="border px-3 py-2">
-                    <div className="flex gap-1 text-xs">
-                      {progressSteps.map((step, idx) => {
-                        const currentIndex = progressSteps.indexOf(order.status);
-                        return (
-                          <React.Fragment key={idx}>
-                            <span className={
-                              currentIndex === idx
-                                ? 'text-blue-600 font-semibold'
-                                : currentIndex > idx
-                                ? 'text-green-600 font-semibold'
-                                : 'text-gray-400'
-                            }>
-                              {step}
-                            </span>
-                            {idx !== progressSteps.length - 1 && <span>→</span>}
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
+                    {order.status === "Rejected" ? (
+                      <div className="flex gap-1 text-xs">
+                        <span className="text-green-600 font-semibold">Requested</span>
+                        <span>→</span>
+                        <span className="text-red-600 font-semibold">Rejected</span>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1 text-xs">
+                        {progressSteps.map((step, idx) => {
+                          const currentIndex = progressSteps.indexOf(order.status);
+                          return (
+                            <React.Fragment key={idx}>
+                              <span
+                                className={
+                                  currentIndex === idx
+                                    ? 'text-blue-600 font-semibold'
+                                    : currentIndex > idx
+                                    ? 'text-green-600 font-semibold'
+                                    : 'text-gray-400'
+                                }
+                              >
+                                {step}
+                              </span>
+                              {idx !== progressSteps.length - 1 && <span>→</span>}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    )}
                   </td>
                 </tr>
                 {expandedOrderId === order.id && (

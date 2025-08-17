@@ -16,8 +16,32 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
+
+// --- App Check temporarily disabled ---
+// Phone OTP is stabilised using Firebase Auth's built-in Invisible v2 reCAPTCHA.
+// If you want to re-enable App Check later, set VITE_ENABLE_APPCHECK="true" and
+// provide VITE_RECAPTCHA_V3_SITE_KEY in your .env file.
+if (typeof window !== 'undefined' && import.meta?.env?.VITE_ENABLE_APPCHECK === 'true') {
+  (async () => {
+    try {
+      const { initializeAppCheck, ReCaptchaV3Provider } = await import('firebase/app-check');
+      const siteKey = import.meta?.env?.VITE_RECAPTCHA_V3_SITE_KEY;
+      if (!siteKey) {
+        console.warn('[AppCheck] VITE_RECAPTCHA_V3_SITE_KEY missing; skipping App Check init.');
+        return;
+      }
+      initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(siteKey),
+        isTokenAutoRefreshEnabled: true,
+      });
+      console.info('[AppCheck] Initialized with reCAPTCHA v3');
+    } catch (e) {
+      console.warn('App Check init skipped:', e?.message || e);
+    }
+  })();
+}
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app, "asia-south1");
-

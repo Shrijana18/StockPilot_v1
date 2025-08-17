@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
 import { useNavigate } from 'react-router-dom';
@@ -50,6 +51,21 @@ const Login = () => {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!formData.email) {
+      alert("Please enter your email first.");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, formData.email);
+      alert("Password reset email sent. Please check your inbox.");
+    } catch (error) {
+      console.error("Reset error:", error.message);
+      setError("Failed to send reset email. Check your email and try again.");
+    }
+  };
+
   return (
     <div className="p-8 bg-slate-900 text-white rounded-2xl shadow-xl w-full max-w-xl border border-slate-700">
       <h2 className="text-2xl font-bold mb-6 text-center">Welcome Back</h2>
@@ -75,6 +91,13 @@ const Login = () => {
           required
           className="w-full px-4 py-2 rounded bg-slate-800 text-white border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+
+        <p
+          onClick={handleForgotPassword}
+          className="text-sm text-blue-400 text-right cursor-pointer hover:underline"
+        >
+          Forgot Password?
+        </p>
 
         <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 transition-all duration-300 text-white py-2 px-4 rounded-lg mt-2">Sign In</button>
       </form>

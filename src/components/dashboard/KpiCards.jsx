@@ -73,7 +73,15 @@ const KpiCards = ({ invoiceData }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
       {kpis.map((kpi, index) => (
-        <div key={index} className="bg-white rounded shadow p-4 flex items-center space-x-4 border">
+        <div
+          key={index}
+          className="bg-white rounded-lg p-4 flex items-center space-x-4 border border-transparent hover:shadow-lg transition-all duration-200"
+          style={{
+            borderImage: 'linear-gradient(90deg, #06b6d4, #ec4899) 1',
+            borderWidth: '1px',
+            borderStyle: 'solid'
+          }}
+        >
           <div className="text-3xl" title={kpi.label}>{kpi.icon}</div>
           <div>
             <div className="text-sm text-gray-500">{kpi.label}</div>

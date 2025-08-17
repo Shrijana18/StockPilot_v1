@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db, auth } from '../../firebase/firebaseConfig';
 
 const SendRequestModal = ({ distributor, onClose }) => {
@@ -17,9 +17,17 @@ const SendRequestModal = ({ distributor, onClose }) => {
     const retailerId = currentUser.uid;
     const distId = distributor.id;
 
+    const retailerDoc = await getDoc(doc(db, "businesses", retailerId));
+    const retailerData = retailerDoc.exists() ? retailerDoc.data() : {};
+
     const requestPayload = {
       retailerId,
       retailerName: currentUser.displayName || 'Retailer',
+      businessName: retailerData.businessName || '',
+      ownerName: retailerData.ownerName || '',
+      email: retailerData.email || '',
+      phone: retailerData.phone || '',
+      city: retailerData.city || '',
       message: message || '',
       sentAt: serverTimestamp(),
       status: 'pending',
@@ -30,7 +38,7 @@ const SendRequestModal = ({ distributor, onClose }) => {
 
     try {
       // Save to distributor's connectionRequests
-      await setDoc(doc(db, `businesses/${distId}/connectionRequests/${retailerId}`), requestPayload);
+      await setDoc(doc(db, `businesses/${distId}/connectionRequests/${retailerId}`), requestPayload, { merge: true });
 
       // Save to retailer's sentRequests (mirrored)
       await setDoc(doc(db, `businesses/${retailerId}/sentRequests/${distId}`), {
@@ -40,7 +48,7 @@ const SendRequestModal = ({ distributor, onClose }) => {
         message: message || '',
         sentAt: serverTimestamp(),
         status: 'pending',
-      });
+      }, { merge: true });
 
       alert('✅ Connection request sent!');
       onClose();

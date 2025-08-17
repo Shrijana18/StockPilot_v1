@@ -3,12 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BusinessPilot</title>
-    <script type="module" crossorigin src="./assets/index-D7toESz5.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DQ9ylVRt.css">
+    <title>FLYP</title>
+    <!-- DEV CSP: allows Firebase Phone Auth (reCAPTCHA) + App Check + Vite tooling -->
+    <meta http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://www.google.com https://apis.google.com;
+        worker-src 'self' https://www.gstatic.com https://www.google.com;
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data: https:;
+        frame-src https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/ https://www.google.com;
+        connect-src 'self'
+          https://identitytoolkit.googleapis.com
+          https://securetoken.googleapis.com
+          https://content-firebaseappcheck.googleapis.com
+          https://firebaseinstallations.googleapis.com
+          https://firestore.googleapis.com
+          https://firebasestorage.googleapis.com
+          https://www.google.com https://www.gstatic.com;
+      ">
+    <!--
+      NOTE:
+      Do NOT include any manual reCAPTCHA script here.
+      Firebase Auth injects the correct reCAPTCHA (v2 Invisible) script when using RecaptchaVerifier.
+      Manual inclusion (v3 or enterprise) can cause auth/invalid-app-credential or "already been rendered" errors.
+    -->
+    <script type="module" crossorigin src="./assets/index-Cs2762Gf.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CpekBQhu.css">
   </head>
   <body class="bg-white text-gray-900">
     <div id="root"></div>
+    <!-- For local development, enable App Check debug token in main.jsx:
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    -->
    
   </body>
 </html>

@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "stockpilotv1"
+    "default": "stockpilotv1",
+    "production": "stockpilotv1"
   },
   "targets": {},
   "etags": {}

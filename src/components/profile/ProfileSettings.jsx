@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAuth } from "firebase/auth";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 import { db, storage } from "../../firebase/firebaseConfig";
 import { toast } from "react-toastify";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 const ProfileSettings = () => {
   const badgeMap = {
@@ -53,6 +54,7 @@ const ProfileSettings = () => {
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   const auth = getAuth();
   const user = auth.currentUser;
@@ -87,7 +89,8 @@ const ProfileSettings = () => {
   };
 
   const handleSave = async () => {
-    if (!user) return;
+    if (!user || isSaving) return;
+    setIsSaving(true);
     try {
       let updatedData = { ...formData, name: formData.ownerName };
 
@@ -103,10 +106,26 @@ const ProfileSettings = () => {
 
       const userRef = doc(db, "businesses", user.uid);
       await updateDoc(userRef, updatedData);
+
+      // ✅ Show success immediately after Firestore save
       toast.success("Profile updated successfully!");
+
+      // Fire-and-forget resync (don’t block the toast/UI)
+      try {
+        const functions = getFunctions(undefined, "asia-south1");
+        const resync = httpsCallable(functions, "resyncRetailerProfile");
+        // Intentionally not awaiting to avoid blocking the UI/toast
+        resync().catch((e) =>
+          console.warn("[ProfileSync] background resync failed:", e)
+        );
+      } catch (syncErr) {
+        console.warn("[ProfileSync] init failed:", syncErr);
+      }
     } catch (err) {
       console.error("Update failed", err);
       toast.error("Failed to update profile.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -202,9 +221,10 @@ const ProfileSettings = () => {
               <div className="mt-6 text-right">
                 <button
                   onClick={handleSave}
-                  className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 transition"
+                  disabled={isSaving}
+                  className={`bg-indigo-600 text-white px-5 py-2 rounded transition ${isSaving ? 'opacity-60 cursor-not-allowed' : 'hover:bg-indigo-700'}`}
                 >
-                  💾 Save Changes
+                  {isSaving ? 'Saving…' : '💾 Save Changes'}
                 </button>
               </div>
             </div>
@@ -263,9 +283,10 @@ const ProfileSettings = () => {
               <div className="mt-6 text-right">
                 <button
                   onClick={handleSave}
-                  className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 transition"
+                  disabled={isSaving}
+                  className={`bg-indigo-600 text-white px-5 py-2 rounded transition ${isSaving ? 'opacity-60 cursor-not-allowed' : 'hover:bg-indigo-700'}`}
                 >
-                  💾 Save Changes
+                  {isSaving ? 'Saving…' : '💾 Save Changes'}
                 </button>
               </div>
             </div>
@@ -300,8 +321,12 @@ const ProfileSettings = () => {
                     </p>
                   )}
                   <div className="mt-6 text-right">
-                    <button onClick={handleSave} className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 transition">
-                      💾 Save Changes
+                    <button
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className={`bg-indigo-600 text-white px-5 py-2 rounded transition ${isSaving ? 'opacity-60 cursor-not-allowed' : 'hover:bg-indigo-700'}`}
+                    >
+                      {isSaving ? 'Saving…' : '💾 Save Changes'}
                     </button>
                   </div>
                 </div>

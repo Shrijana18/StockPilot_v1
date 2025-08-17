@@ -1,11 +1,11 @@
-
-
 {
   "functions": {
     "source": "functions",
     "runtime": "nodejs20",
     "v2": true,
-    "regions": ["asia-south1"],
+    "regions": [
+      "asia-south1"
+    ],
     "ignore": [
       "node_modules",
       ".git",
@@ -15,6 +15,20 @@
     ],
     "predeploy": [
       "npm --prefix \"$RESOURCE_DIR\" run lint"
+    ]
+  },
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
     ]
   }
 }

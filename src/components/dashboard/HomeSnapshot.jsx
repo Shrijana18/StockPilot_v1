@@ -196,7 +196,7 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
   }, 0);
 
   return (
-    <div className="p-4 space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
       <div className="text-xs text-gray-500 mb-1">
         {filterType === 'All' && !filterDates?.start ? 'Showing all time data' : `Filtered by: ${filterType}`}
         {filterDates?.start && filterDates?.end && (
@@ -204,6 +204,36 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
         )}
       </div>
       <h2 className="text-lg font-semibold">📊 Home Snapshot: Today’s KPIs</h2>
+      {/* Summary header card (light theme, subtle gradient ring) */}
+      <div className="relative rounded-2xl">
+        <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/20 to-fuchsia-500/20 pointer-events-none" />
+        <div className="relative rounded-[14px] bg-white">
+          <div className="px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-sm text-slate-500">Business</div>
+              <div className="text-lg font-semibold text-slate-900">{businessInfo.name}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm">
+                <span className="text-slate-500">Revenue</span>
+                <span className="font-semibold text-slate-900">₹{Math.round(totalRevenue).toLocaleString('en-IN')}</span>
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm">
+                <span className="text-emerald-600">Due Today</span>
+                <span className="font-semibold text-slate-900">₹{Math.round(dueTodayAmount).toLocaleString('en-IN')}</span>
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm">
+                <span className="text-amber-600">Due Tomorrow</span>
+                <span className="font-semibold text-slate-900">₹{Math.round(dueTomorrowAmount).toLocaleString('en-IN')}</span>
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm">
+                <span className="text-rose-600">Pending Credits</span>
+                <span className="font-semibold text-slate-900">{creditInvoices?.filter(i => i.isPaid === false).length || 0}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
       <KpiCards
         invoiceData={filteredInvoices}
         totalRevenue={totalRevenue}
@@ -214,16 +244,33 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
         totalDueCount={creditInvoices?.filter(i => i.isPaid === false).length || 0}
       />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <LowStockAlertWidget userId={userId} />
-        <RecentInvoices invoiceData={[...filteredInvoices].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} />
-        <CreditDueList
-          creditInvoices={creditInvoices}
-          dueToday={dueTodayInvoices}
-          dueTomorrow={dueTomorrowInvoices}
-          totalDue={totalDueAmount}
-          businessName={businessInfo.name}
-          businessAddress={businessInfo.address}
-        />
+        <div className="relative rounded-2xl h-full">
+          <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
+          <div className="relative rounded-[14px] bg-white p-4 h-full">
+            <LowStockAlertWidget userId={userId} />
+          </div>
+        </div>
+
+        <div className="relative rounded-2xl h-full">
+          <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
+          <div className="relative rounded-[14px] bg-white p-4 h-full">
+            <RecentInvoices invoiceData={[...filteredInvoices].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} />
+          </div>
+        </div>
+
+        <div className="relative rounded-2xl h-full">
+          <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
+          <div className="relative rounded-[14px] bg-white p-4 h-full">
+            <CreditDueList
+              creditInvoices={creditInvoices}
+              dueToday={dueTodayInvoices}
+              dueTomorrow={dueTomorrowInvoices}
+              totalDue={totalDueAmount}
+              businessName={businessInfo.name}
+              businessAddress={businessInfo.address}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

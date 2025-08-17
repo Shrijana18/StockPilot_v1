@@ -19,6 +19,58 @@ const DistributorDashboard = () => {
   const [inventoryCount, setInventoryCount] = useState(0);
   const [shipmentsCount, setShipmentsCount] = useState(0);
   const [activeTab, setActiveTab] = useState("dashboard");
+
+  // --- Deep link support: sync sidebar with ?tab= in the hash ---
+  const idToUrlTab = {
+    dashboard: 'dashboard',
+    retailerRequests: 'retailer-requests',
+    inventory: 'inventory',
+    dispatch: 'track-orders', // important: our DispatchTracker page is track-orders in URL
+    analytics: 'analytics',
+    manageRetailers: 'manage-retailers',
+  };
+  const urlTabToId = {
+    'dashboard': 'dashboard',
+    'retailer-requests': 'retailerRequests',
+    'inventory': 'inventory',
+    'track-orders': 'dispatch',
+    'analytics': 'analytics',
+    'manage-retailers': 'manageRetailers',
+  };
+
+  // Read ?tab= from the URL hash on mount and whenever the hash changes
+  useEffect(() => {
+    const applyFromHash = () => {
+      const hash = window.location.hash || '';
+      const qIndex = hash.indexOf('?');
+      if (qIndex === -1) return;
+      const params = new URLSearchParams(hash.substring(qIndex + 1));
+      const tab = (params.get('tab') || '').toLowerCase();
+      if (urlTabToId[tab]) {
+        setActiveTab(urlTabToId[tab]);
+      }
+    };
+    applyFromHash();
+    window.addEventListener('hashchange', applyFromHash);
+    return () => window.removeEventListener('hashchange', applyFromHash);
+  }, []);
+
+  // When clicking sidebar buttons, update state and write ?tab= into the hash
+  const setTabAndHash = (id) => {
+    setActiveTab(id);
+    try {
+      const hash = window.location.hash || '#/distributor-dashboard';
+      const [path, query = ''] = hash.split('?');
+      const params = new URLSearchParams(query);
+      const urlTab = idToUrlTab[id] || 'dashboard';
+      params.set('tab', urlTab);
+      // If leaving Dispatch (track-orders), drop any `sub` param to avoid stale sub-tabs
+      if (urlTab !== 'track-orders') params.delete('sub');
+      const newHash = `${path}?${params.toString()}`;
+      if (newHash !== hash) window.history.replaceState(null, '', newHash);
+    } catch {}
+  };
+
   const [userData, setUserData] = useState(null);
   const db = getFirestore();
 
@@ -64,7 +116,7 @@ const DistributorDashboard = () => {
           <h2 className="text-3xl font-extrabold tracking-wide text-white mb-6">FLYP</h2>
           <nav className="space-y-4 mt-20">
             <button
-              onClick={() => setActiveTab("dashboard")}
+              onClick={() => setTabAndHash("dashboard")}
               className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
                 activeTab === "dashboard"
                   ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
@@ -74,7 +126,7 @@ const DistributorDashboard = () => {
               🏠 Dashboard
             </button>
             <button
-              onClick={() => setActiveTab("retailerRequests")}
+              onClick={() => setTabAndHash("retailerRequests")}
               className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
                 activeTab === "retailerRequests"
                   ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
@@ -84,7 +136,7 @@ const DistributorDashboard = () => {
               📥 Retailer Requests
             </button>
             <button
-              onClick={() => setActiveTab("inventory")}
+              onClick={() => setTabAndHash("inventory")}
               className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
                 activeTab === "inventory"
                   ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
@@ -94,7 +146,7 @@ const DistributorDashboard = () => {
               📦 Inventory
             </button>
             <button
-              onClick={() => setActiveTab("dispatch")}
+              onClick={() => setTabAndHash("dispatch")}
               className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
                 activeTab === "dispatch"
                   ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
@@ -104,7 +156,7 @@ const DistributorDashboard = () => {
               🚚 Dispatch Tracker
             </button>
             <button
-              onClick={() => setActiveTab("analytics")}
+              onClick={() => setTabAndHash("analytics")}
               className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
                 activeTab === "analytics"
                   ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"
@@ -114,7 +166,7 @@ const DistributorDashboard = () => {
               📊 Analytics
             </button>
             <button
-              onClick={() => setActiveTab("manageRetailers")}
+              onClick={() => setTabAndHash("manageRetailers")}
               className={`w-full text-left px-3 py-2 rounded font-medium transition duration-200 ${
                 activeTab === "manageRetailers"
                   ? "bg-white text-blue-900 shadow ring-2 ring-blue-400"

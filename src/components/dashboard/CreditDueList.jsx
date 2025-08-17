@@ -12,7 +12,7 @@ const parseDate = (dateStr) => {
   return isNaN(date.getTime()) ? null : date;
 };
 
-const CreditDueList = ({ creditInvoices = [], dueToday = [], dueTomorrow = [], totalDue = 0, businessName = "Your Business", businessAddress = "" }) => {
+const CreditDueList = ({ creditInvoices = [], dueToday = [], dueTomorrow = [], totalDue = 0, businessName = "Your Business", businessAddress = "", layout = "vertical" }) => {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -164,29 +164,125 @@ ${businessAddress ? businessAddress + '\n' : ''}_Powered by FLYP_`;
     allInvoices.forEach(inv => handleSendReminder(inv));
   };
 
-  return (
-    <div className="bg-white shadow-md p-4 rounded-lg">
-      <h3 className="text-lg font-semibold mb-1">📅 Credit Dues</h3>
-      <div className="text-sm text-gray-600 mb-3">
-        <p>🟣 Total Due Pending: ₹{creditInvoices.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)} from {creditInvoices.length} invoice(s)</p>
-        <p>🟡 Due Today: ₹{dueToday.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)} from {dueToday.length} invoice(s)</p>
-        <p>🔵 Due Tomorrow: ₹{dueTomorrow.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)} from {dueTomorrow.length} invoice(s)</p>
-      </div>
-      {hasDues && (
-        <div className="mb-3">
+  // Prepare arrays for horizontal layout
+  const overdueItems = grouped['Overdue'];
+  const dueTodayItems = grouped['Due Today'];
+  const dueTomorrowItems = grouped['Due Tomorrow'];
+  const upcomingItems = grouped['Upcoming'];
+
+  const renderHorizontalItem = (inv, type) => {
+    const dueDateStr = inv.creditDueDate || inv.settings?.creditDueDate;
+    const due = parseDate(dueDateStr);
+    const amount = parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0).toFixed(2);
+    let bgClass = '';
+    if (type === 'Overdue') bgClass = 'bg-red-50';
+    else if (type === 'Due Today') bgClass = 'bg-emerald-50';
+    else if (type === 'Due Tomorrow') bgClass = 'bg-amber-50';
+    else bgClass = 'bg-gray-50';
+
+    return (
+      <div key={inv.invoiceId || inv.id} className={`${bgClass} rounded p-2 flex flex-col gap-1`}>
+        <div className="font-semibold text-xs">{inv.invoiceId || inv.id}</div>
+        <div className="text-xs text-gray-600">{due ? due.toLocaleDateString() : 'Invalid Date'}</div>
+        <div className="text-xs font-semibold">₹{amount}</div>
+        {!inv.isPaid && (
           <button
-            onClick={handleSendAllReminders}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm"
+            onClick={() => handleSendReminder(inv)}
+            className="bg-green-500 text-white text-xs px-2 py-1 rounded"
           >
-            Send All Reminders
+            Send Reminder
           </button>
+        )}
+      </div>
+    );
+  };
+
+  if (layout === "horizontal") {
+    return (
+      <div className="bg-white rounded-lg shadow p-4 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold">📅 Credit Dues</h3>
+          {hasDues && (
+            <button
+              onClick={handleSendAllReminders}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-fuchsia-500 text-white px-3 py-2 rounded-lg text-sm shadow hover:opacity-95 active:opacity-90"
+            >
+              ✉️ Send All Reminders
+            </button>
+          )}
         </div>
-      )}
-      <div className="overflow-x-auto max-h-[300px] overflow-y-auto pr-1">
-        {renderSection('Overdue', grouped['Overdue'], 'bg-red-100')}
-        {renderSection('Due Today', grouped['Due Today'], 'bg-yellow-100')}
-        {renderSection('Due Tomorrow', grouped['Due Tomorrow'], 'bg-blue-50')}
-        {renderSection('Upcoming', grouped['Upcoming'])}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <h4 className="font-semibold text-sm text-gray-700 mb-2">Overdue</h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {overdueItems.length > 0 ? overdueItems.map(inv => renderHorizontalItem(inv, 'Overdue')) : <div className="text-xs text-gray-500">No items</div>}
+            </div>
+          </div>
+          <div>
+            <h4 className="font-semibold text-sm text-gray-700 mb-2">Due Today</h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {dueTodayItems.length > 0 ? dueTodayItems.map(inv => renderHorizontalItem(inv, 'Due Today')) : <div className="text-xs text-gray-500">No items</div>}
+            </div>
+          </div>
+          <div>
+            <h4 className="font-semibold text-sm text-gray-700 mb-2">Due Tomorrow</h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {dueTomorrowItems.length > 0 ? dueTomorrowItems.map(inv => renderHorizontalItem(inv, 'Due Tomorrow')) : <div className="text-xs text-gray-500">No items</div>}
+            </div>
+          </div>
+          <div>
+            <h4 className="font-semibold text-sm text-gray-700 mb-2">Upcoming</h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {upcomingItems.length > 0 ? upcomingItems.map(inv => renderHorizontalItem(inv, 'Upcoming')) : <div className="text-xs text-gray-500">No items</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative rounded-2xl">
+      <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/20 to-fuchsia-500/20 pointer-events-none" />
+      <div className="relative rounded-[14px] bg-white p-4 md:p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">📅 Credit Dues</h3>
+          {hasDues && (
+            <button
+              onClick={handleSendAllReminders}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-fuchsia-500 text-white px-3 py-2 rounded-lg text-sm shadow hover:opacity-95 active:opacity-90"
+            >
+              ✉️ Send All Reminders
+            </button>
+          )}
+        </div>
+
+        {/* Totals as chips */}
+        <div className="flex flex-wrap gap-2 text-sm mb-4">
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+            <span className="text-slate-500">Total Due Pending</span>
+            <span className="font-semibold text-slate-900">₹{creditInvoices.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)}</span>
+            <span className="text-slate-500">/{creditInvoices.length} invoice(s)</span>
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
+            <span className="text-emerald-700">Due Today</span>
+            <span className="font-semibold text-slate-900">₹{dueToday.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)}</span>
+            <span className="text-slate-500">/{dueToday.length}</span>
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
+            <span className="text-amber-700">Due Tomorrow</span>
+            <span className="font-semibold text-slate-900">₹{dueTomorrow.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)}</span>
+            <span className="text-slate-500">/{dueTomorrow.length}</span>
+          </span>
+        </div>
+
+        {/* Lists */}
+        <div className="overflow-x-auto max-h-[300px] overflow-y-auto pr-1">
+          {renderSection('Overdue', grouped['Overdue'], 'bg-red-50')}
+          {renderSection('Due Today', grouped['Due Today'], 'bg-emerald-50')}
+          {renderSection('Due Tomorrow', grouped['Due Tomorrow'], 'bg-amber-50')}
+          {renderSection('Upcoming', grouped['Upcoming'])}
+        </div>
       </div>
     </div>
   );
