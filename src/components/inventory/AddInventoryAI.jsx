@@ -184,42 +184,42 @@ const AddInventoryAI = ({ userId }) => {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h2 className="text-2xl font-bold mb-4">AI-Based Inventory Generator</h2>
+    <div className="p-6 max-w-6xl mx-auto text-white">
+      <h2 className="text-2xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">AI-Based Inventory Generator</h2>
 
       <AdvancedBrandInputForm onGenerate={handlePromptInventoryGeneration} />
 
       {inventoryList.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="min-w-full border mt-6 text-sm">
+          <table className="min-w-full mt-6 text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden">
             <thead>
-              <tr className="bg-gray-100">
-                <th className="px-3 py-2 border">Name</th>
-                <th className="px-3 py-2 border">Brand</th>
-                <th className="px-3 py-2 border">Category</th>
-                <th className="px-3 py-2 border">SKU</th>
-                <th className="px-3 py-2 border">Unit</th>
-                <th className="px-3 py-2 border">Qty</th>
-                <th className="px-3 py-2 border">Cost</th>
-                <th className="px-3 py-2 border">Price</th>
-                <th className="px-3 py-2 border">Action</th>
+              <tr className="bg-white/10 text-white/80">
+                <th className="px-3 py-2 border-b border-white/10">Name</th>
+                <th className="px-3 py-2 border-b border-white/10">Brand</th>
+                <th className="px-3 py-2 border-b border-white/10">Category</th>
+                <th className="px-3 py-2 border-b border-white/10">SKU</th>
+                <th className="px-3 py-2 border-b border-white/10">Unit</th>
+                <th className="px-3 py-2 border-b border-white/10">Qty</th>
+                <th className="px-3 py-2 border-b border-white/10">Cost</th>
+                <th className="px-3 py-2 border-b border-white/10">Price</th>
+                <th className="px-3 py-2 border-b border-white/10">Action</th>
               </tr>
             </thead>
             <tbody>
               {inventoryList.map((item, idx) => (
-                <tr key={idx}>
+                <tr key={idx} className="hover:bg-white/5 border-t border-white/10">
                   <td className="border px-2 py-1">
                     <input
                       value={item.productName ?? "(productName)"}
                       onChange={(e) => handleFieldChange(idx, "productName", e.target.value)}
-                      className="w-full border rounded px-1 py-0.5"
+                      className="w-full rounded px-2 py-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                     />
                   </td>
                   <td className="border px-2 py-1">
                     <input
                       value={item.brand ?? "(brand)"}
                       onChange={(e) => handleFieldChange(idx, "brand", e.target.value)}
-                      className="w-full border rounded px-1 py-0.5"
+                      className="w-full rounded px-2 py-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                     />
                   </td>
                   {["category", "sku", "unit", "quantity", "costPrice", "sellingPrice"].map((field) => (
@@ -227,13 +227,13 @@ const AddInventoryAI = ({ userId }) => {
                       <input
                         value={item[field] ?? `(${field})`}
                         onChange={(e) => handleFieldChange(idx, field, e.target.value)}
-                        className="w-full border rounded px-1 py-0.5"
+                        className="w-full rounded px-2 py-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                       />
                     </td>
                   ))}
                   <td className="px-2 py-1 border text-center">
                     <button
-                      className="text-red-600 font-bold"
+                      className="text-rose-300 hover:text-rose-200 font-bold"
                       onClick={() => {
                         const updated = [...inventoryList];
                         updated.splice(idx, 1);
@@ -250,14 +250,14 @@ const AddInventoryAI = ({ userId }) => {
           <div className="mt-4 flex gap-4">
             <button
               onClick={handleAddToInventory}
-              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+              className="px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
             >
               ➕ Add to Inventory
             </button>
 
             <button
               onClick={() => setInventoryList([])}
-              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+              className="px-4 py-2 rounded-xl border border-white/20 bg-white/10 text-white hover:bg-white/15"
             >
               Clear All
             </button>

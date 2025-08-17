@@ -17,17 +17,17 @@ const DeleteConfirmationModal = ({
   onConfirm
 }) => (
   <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center">
-    <div className="bg-white rounded shadow-lg p-6 w-[90%] md:w-[400px]">
-      <h2 className="text-lg font-semibold mb-2 text-red-600">Delete Product?</h2>
+    <div className="rounded p-6 w-[90%] md:w-[400px] bg-white/10 backdrop-blur-2xl border border-white/10 shadow-[0_12px_50px_rgba(0,0,0,0.45)]">
+      <h2 className="text-lg font-semibold mb-2 text-rose-300">Delete Product?</h2>
       <p className="mb-4">
         Are you sure you want to delete <strong>{product?.productName || "this product"}</strong> (SKU: <strong>{product?.sku || "N/A"}</strong>)?
       </p>
-      <p className="mb-2 text-sm text-gray-600">
+      <p className="mb-2 text-sm text-white/70">
         Type <code className="bg-gray-100 px-1 rounded border">delete</code> to confirm.
       </p>
       <input
         type="text"
-        className="w-full border rounded px-3 py-1 mb-4"
+        className="w-full rounded px-3 py-2 mb-4 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         placeholder='Type "delete" to confirm'
         value={confirmationText}
         onChange={onChange}
@@ -35,17 +35,17 @@ const DeleteConfirmationModal = ({
       <div className="flex justify-end gap-3">
         <button
           onClick={onCancel}
-          className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+          className="px-4 py-2 rounded border border-white/20 bg-white/10 text-white hover:bg-white/15"
         >
           Cancel
         </button>
         <button
           onClick={onConfirm}
           disabled={confirmationText.trim().toLowerCase() !== "delete"}
-          className={`px-4 py-2 rounded text-white ${
+          className={`px-4 py-2 rounded text-slate-900 ${
             confirmationText.trim().toLowerCase() === "delete"
-              ? "bg-red-600 hover:bg-red-700"
-              : "bg-gray-400 cursor-not-allowed"
+              ? "bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+              : "bg-white/20 text-white/70 cursor-not-allowed"
           }`}
         >
           Delete
@@ -360,7 +360,7 @@ const ViewInventory = ({ userId }) => {
   };
 
   return (
-    <div className="p-4">
+    <div className="p-4 text-white">
       <div className="flex flex-col md:flex-row justify-between items-center gap-3 mb-4">
         <div className="flex items-center w-full md:w-1/3">
           <input
@@ -368,18 +368,18 @@ const ViewInventory = ({ userId }) => {
             placeholder="Search by name, brand, SKU..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border px-4 py-2 rounded w-full"
+            className="px-4 py-2 rounded-xl w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
           <button
             onClick={() => setShowImageModalAI(true)}
-            className="ml-2 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded"
+            className="ml-2 py-2 px-4 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
           >
             Search with AI
           </button>
         </div>
         <div className="flex items-center gap-2">
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             onChange={(e) => setSortKey(e.target.value)}
             value={sortKey}
           >
@@ -389,7 +389,7 @@ const ViewInventory = ({ userId }) => {
             <option value="sellingPrice">Selling Price</option>
           </select>
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             onChange={(e) => setSortOrder(e.target.value)}
             value={sortOrder}
           >
@@ -397,7 +397,7 @@ const ViewInventory = ({ userId }) => {
             <option value="desc">Desc</option>
           </select>
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             onChange={(e) => setStatusFilter(e.target.value)}
             value={statusFilter}
           >
@@ -407,7 +407,7 @@ const ViewInventory = ({ userId }) => {
           </select>
           <div className="relative">
             <button
-              className="border px-3 py-2 rounded min-w-[120px] text-left bg-white"
+              className="px-3 py-2 rounded min-w-[120px] text-left bg-white/10 border border-white/20"
               type="button"
               onClick={() => setShowBrandDropdown((prev) => !prev)}
             >
@@ -419,12 +419,12 @@ const ViewInventory = ({ userId }) => {
               <span className="ml-1">&#9660;</span>
             </button>
             {showBrandDropdown && (
-              <div className="absolute left-0 mt-1 bg-white border rounded shadow z-20 p-2 min-w-[140px] max-h-56 overflow-y-auto">
+              <div className="absolute left-0 mt-1 z-[1000] p-2 min-w-[180px] max-h-56 overflow-y-auto rounded-xl border border-white/10 bg-[#0B0F14]/70 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
                 {availableBrands.length === 0 && (
                   <div className="text-xs text-gray-500 px-2 py-1">No brands</div>
                 )}
                 {availableBrands.map((brand, idx) => (
-                  <label key={idx} className="block px-2 py-1 cursor-pointer hover:bg-gray-100">
+                  <label key={idx} className="block px-2 py-1 cursor-pointer hover:bg-white/10">
                     <input
                       type="checkbox"
                       checked={brandFilter.includes(brand)}
@@ -442,14 +442,14 @@ const ViewInventory = ({ userId }) => {
                 ))}
                 <div className="flex justify-between mt-2">
                   <button
-                    className="text-xs text-blue-500 underline"
+                    className="text-xs text-emerald-300 underline"
                     type="button"
                     onClick={() => setBrandFilter([])}
                   >
                     Clear All
                   </button>
                   <button
-                    className="text-xs text-gray-600 underline"
+                    className="text-xs text-white/70 underline"
                     type="button"
                     onClick={() => setShowBrandDropdown(false)}
                   >
@@ -466,16 +466,20 @@ const ViewInventory = ({ userId }) => {
       <div className="flex mb-2">
         <button
           onClick={() => setSelectedTab("view")}
-          className={`px-4 py-2 rounded-t-md ${
-            selectedTab === "view" ? "bg-white font-semibold" : "bg-gray-200"
+          className={`px-4 py-2 rounded-t-md transition ${
+            selectedTab === "view"
+              ? "bg-emerald-500 text-slate-900 font-semibold"
+              : "bg-white/10 text-white hover:bg-white/15"
           }`}
         >
           Inventory
         </button>
         <button
           onClick={() => setSelectedTab("recent")}
-          className={`px-4 py-2 rounded-t-md ${
-            selectedTab === "recent" ? "bg-white font-semibold" : "bg-gray-200"
+          className={`px-4 py-2 rounded-t-md transition ${
+            selectedTab === "recent"
+              ? "bg-emerald-500 text-slate-900 font-semibold"
+              : "bg-white/10 text-white hover:bg-white/15"
           }`}
         >
           Recently Modified
@@ -487,13 +491,13 @@ const ViewInventory = ({ userId }) => {
         <>
           <div className="flex justify-end mb-4">
             <button
-              className={`px-4 py-1 mr-2 rounded ${viewMode === "list" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+              className={`px-4 py-1 mr-2 rounded transition ${viewMode === "list" ? "bg-emerald-500 text-slate-900" : "bg-white/10 text-white hover:bg-white/15"}`}
               onClick={() => setViewMode("list")}
             >
               List View
             </button>
             <button
-              className={`px-4 py-1 rounded ${viewMode === "grid" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+              className={`px-4 py-1 rounded transition ${viewMode === "grid" ? "bg-emerald-500 text-slate-900" : "bg-white/10 text-white hover:bg-white/15"}`}
               onClick={() => setViewMode("grid")}
             >
               Grid View
@@ -502,27 +506,27 @@ const ViewInventory = ({ userId }) => {
 
           {viewMode === "list" ? (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border rounded shadow-sm">
-            <thead className="bg-gray-100 text-left">
+          <table className="min-w-full text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden">
+            <thead className="bg-white/10 text-left">
               <tr>
-                <th className="p-2">Image</th>
-                <th className="p-2">Product</th>
-                <th className="p-2">SKU</th>
-                <th className="p-2">Brand</th>
-                <th className="p-2">Category</th>
-                <th className="p-2">Qty</th>
-                <th className="p-2">Unit</th>
-                <th className="p-2">Cost</th>
-                <th className="p-2">Sell</th>
-                <th className="p-2">Status</th>
-                <th className="p-2">Source</th>
-                <th className="p-2">Delete</th>
-                <th className="p-2">Edit</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Image</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Product</th>
+                <th className="p-2 text-white/80 border-b border-white/10">SKU</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Brand</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Category</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Qty</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Unit</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Cost</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Sell</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Status</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Source</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Delete</th>
+                <th className="p-2 text-white/80 border-b border-white/10">Edit</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((p) => (
-                <tr key={p.id} className="border-t">
+                <tr key={p.id} className="border-t border-white/10 hover:bg-white/5">
                   <td className="p-2">
                     <div
                       className="inline-block cursor-pointer"
@@ -532,7 +536,7 @@ const ViewInventory = ({ userId }) => {
                       <img
                         src={p.imageUrl || "/placeholder.png"}
                         alt="product"
-                        className="h-10 w-10 rounded object-cover border border-gray-200"
+                        className="h-10 w-10 rounded object-cover border border-white/20 ring-1 ring-white/10"
                       />
                     </div>
                   </td>
@@ -542,7 +546,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "productName" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "productName", editedValue)}
@@ -558,7 +562,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "sku" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "sku", editedValue)}
@@ -574,7 +578,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "brand" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "brand", editedValue)}
@@ -590,7 +594,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "category" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "category", editedValue)}
@@ -604,7 +608,7 @@ const ViewInventory = ({ userId }) => {
                     {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
                       <input
                         type="number"
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
@@ -620,7 +624,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "unit" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "unit", editedValue)}
@@ -635,7 +639,7 @@ const ViewInventory = ({ userId }) => {
                       <input
                         type="number"
                         step="0.01"
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "costPrice", Number(editedValue))}
@@ -650,7 +654,7 @@ const ViewInventory = ({ userId }) => {
                       <input
                         type="number"
                         step="0.01"
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "sellingPrice", Number(editedValue))}
@@ -662,9 +666,7 @@ const ViewInventory = ({ userId }) => {
                   </td>
                   <td className="p-2 min-w-[80px] text-center">
                     <span
-                      className={`px-2 py-1 rounded text-white text-xs ${
-                        getStatus(p.quantity) === "Low" ? "bg-red-500" : "bg-green-500"
-                      }`}
+                      className={`px-2 py-1 rounded text-xs ${getStatus(p.quantity) === "Low" ? "bg-rose-500 text-white" : "bg-emerald-500 text-slate-900"}`}
                     >
                       {getStatus(p.quantity)}
                     </span>
@@ -681,7 +683,7 @@ const ViewInventory = ({ userId }) => {
                   <td className="p-2">
                     <button
                       onClick={() => handleDelete(p)}
-                      className="text-red-600 hover:text-red-800"
+                      className="text-rose-300 hover:text-rose-200"
                       title="Delete Item"
                     >
                       {/* Instead of icon, open confirmation modal */}
@@ -694,7 +696,7 @@ const ViewInventory = ({ userId }) => {
                         setSelectedProductId(p.id);
                         setIsModalOpen(true);
                       }}
-                      className="text-sm text-blue-600 underline"
+                      className="text-sm text-emerald-300 underline"
                     >
                       Edit
                     </button>
@@ -703,7 +705,7 @@ const ViewInventory = ({ userId }) => {
               ))}
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan="13" className="text-center p-4 text-gray-500">
+                  <td colSpan="13" className="text-center p-4 text-white/70">
                     {products.length === 0 ? "No products found." : "Loading inventory..."}
                   </td>
                 </tr>
@@ -714,7 +716,7 @@ const ViewInventory = ({ userId }) => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filtered.map((item) => (
-                <div key={item.id} className="bg-white p-4 rounded shadow flex flex-col">
+                <div key={item.id} className="p-4 rounded-xl flex flex-col bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
                   <div className="flex justify-center mb-2">
                     <button
                       className="focus:outline-none"
@@ -725,31 +727,27 @@ const ViewInventory = ({ userId }) => {
                       <img
                         src={item.imageUrl || "/placeholder.png"}
                         alt={item.productName}
-                        className="w-full h-32 object-contain rounded border border-gray-200"
+                        className="w-full h-32 object-contain rounded border border-white/20 ring-1 ring-white/10"
                       />
                     </button>
                   </div>
                   <h3 className="font-semibold mb-1">{item.productName}</h3>
-                  <p className="text-sm text-gray-600 mb-1">{item.brand} | {item.category}</p>
+                  <p className="text-sm text-white/70 mb-1">{item.brand} | {item.category}</p>
                   <p className="text-sm mb-1">
                     Qty: {item.quantity} | ₹{item.sellingPrice}
                   </p>
-                  <p className="text-xs text-gray-600 mb-1">
+                  <p className="text-xs text-white/60 mb-1">
                     SKU: {item.sku || "N/A"} | Unit: {item.unit || "N/A"}
                   </p>
                   <div className="flex items-center gap-2 mt-auto">
                     <span
-                      className={`px-2 py-1 text-xs rounded font-semibold ${
-                        (item.status || getStatus(item.quantity)) === 'In Stock'
-                          ? 'bg-green-500 text-white'
-                          : 'bg-red-500 text-white'
-                      }`}
+                      className={`px-2 py-1 text-xs rounded font-semibold ${(item.status || getStatus(item.quantity)) === 'In Stock' ? 'bg-emerald-500 text-slate-900' : 'bg-rose-500 text-white'}`}
                     >
                       {item.status || getStatus(item.quantity)}
                     </span>
                     {/* Delete button triggers modal */}
                     <button
-                      className="ml-auto text-red-600 hover:text-red-800 px-2"
+                      className="ml-auto text-rose-300 hover:text-rose-200 px-2"
                       title="Delete Item"
                       onClick={() => handleDelete(item)}
                     >
@@ -766,18 +764,18 @@ const ViewInventory = ({ userId }) => {
       {/* Recently Modified Tab Content */}
       {selectedTab === "recent" && (
         <div className="p-4">
-          <h2 className="text-lg font-semibold mb-3">Recent Inventory Modifications</h2>
+          <h2 className="text-lg font-semibold mb-3 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Recent Inventory Modifications</h2>
           {inventoryLogs.length === 0 ? (
-            <p className="text-gray-500">No recent modifications found.</p>
+            <p className="text-white/70">No recent modifications found.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {inventoryLogs.map((mod, index) => (
-                <div key={index} className="bg-white shadow rounded-md p-4 text-sm">
-                  <div className="font-semibold text-gray-700 mb-1">SKU: {mod.sku}</div>
+                <div key={index} className="p-4 text-sm rounded-md bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+                  <div className="font-semibold text-white mb-1">SKU: {mod.sku}</div>
                   <div>Product: {mod.productName || 'N/A'}</div>
                   <div>Brand: {mod.brand || 'N/A'}</div>
                   <div>Category: {mod.category || 'N/A'}</div>
-                  <div className="mt-2 text-gray-600">
+                  <div className="mt-2 text-white/70">
                     <span className="font-medium">Action:</span> {mod.action}<br />
                     <span className="font-medium">Source:</span> {mod.source}<br />
                     <span className="font-medium">Modified By:</span> {mod.modifiedBy || "Unknown"}<br />
@@ -831,10 +829,10 @@ const ViewInventory = ({ userId }) => {
       {/* AI Image Search Modal */}
       {showImageModalAI && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded shadow-lg w-11/12 max-w-2xl relative">
+          <div className="p-6 rounded w-11/12 max-w-2xl relative bg-white/10 backdrop-blur-2xl border border-white/10 shadow-[0_12px_50px_rgba(0,0,0,0.45)] text-white">
             <button
               onClick={() => setShowImageModalAI(false)}
-              className="absolute top-2 right-2 text-gray-500 hover:text-red-600"
+              className="absolute top-2 right-2 text-white/70 hover:text-rose-300"
             >
               ✕
             </button>
@@ -843,13 +841,13 @@ const ViewInventory = ({ userId }) => {
               <input
                 type="text"
                 placeholder="Enter product description..."
-                className="flex-grow border border-gray-300 px-4 py-2 rounded"
+                className="flex-grow px-4 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                 value={aiSearchQuery}
                 onChange={(e) => setAiSearchQuery(e.target.value)}
               />
               <button
                 onClick={handleAISearch}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                className="px-4 py-2 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
               >
                 {isAiLoading ? "Searching..." : "Search"}
               </button>
@@ -860,7 +858,7 @@ const ViewInventory = ({ userId }) => {
                   key={index}
                   src={url}
                   alt="AI result"
-                  className="w-full h-28 object-cover rounded cursor-pointer border hover:border-blue-500"
+                  className="w-full h-28 object-cover rounded cursor-pointer border border-white/20 hover:border-emerald-300/50 ring-1 ring-white/10"
                   onClick={() => {
                     navigator.clipboard.writeText(url);
                     alert("Image URL copied to clipboard!");
@@ -917,22 +915,22 @@ const UploadProductImageModal = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center">
-      <div className="bg-white rounded shadow-lg p-6 w-[95%] max-w-md">
-        <h2 className="text-lg font-semibold mb-3">Upload Product Image</h2>
-        <p className="mb-2 text-gray-700">
+      <div className="p-6 rounded w-11/12 max-w-2xl relative bg-white/10 backdrop-blur-2xl border border-white/10 shadow-[0_12px_50px_rgba(0,0,0,0.45)] text-white">
+        <h2 className="text-lg font-semibold mb-3 text-white">Upload Product Image</h2>
+        <p className="mb-2 text-white/70">
           {imageTargetProduct?.productName || "Product"}
         </p>
         {/* Toggle UI for Unsplash/Google */}
         <div className="flex gap-2 mb-2">
           <button
             onClick={() => setImageSource("unsplash")}
-            className={`px-3 py-1 rounded ${imageSource === "unsplash" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+            className={`px-3 py-1 rounded transition ${imageSource === "unsplash" ? "bg-emerald-500 text-slate-900" : "bg-white/10 text-white hover:bg-white/15"}`}
           >
             Unsplash
           </button>
           <button
             onClick={() => setImageSource("google")}
-            className={`px-3 py-1 rounded ${imageSource === "google" ? "bg-green-600 text-white" : "bg-gray-200"}`}
+            className={`px-3 py-1 rounded transition ${imageSource === "google" ? "bg-emerald-500 text-slate-900" : "bg-white/10 text-white hover:bg-white/15"}`}
           >
             Google
           </button>
@@ -944,10 +942,10 @@ const UploadProductImageModal = ({
             placeholder={`Search image with ${imageSource === "unsplash" ? "Unsplash" : "Google"}...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="border px-2 py-1 rounded w-full"
+            className="px-2 py-1 rounded w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
           <button
-            className="bg-blue-600 text-white px-4 py-1 rounded"
+            className="px-4 py-1 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
             onClick={handleImageSearch}
             type="button"
             disabled={loading}
@@ -962,7 +960,7 @@ const UploadProductImageModal = ({
               key={index}
               src={imgUrl}
               alt="AI result"
-              className="w-24 h-24 object-cover border rounded cursor-pointer hover:scale-105 transition-all"
+              className="w-24 h-24 object-cover rounded cursor-pointer hover:scale-105 transition-all border border-white/20 ring-1 ring-white/10"
               onClick={() => {
                 setImageUploadFile(null);
                 setImageUploadError("");
@@ -977,7 +975,7 @@ const UploadProductImageModal = ({
           type="file"
           accept="image/*"
           onChange={handleImageFileChange}
-          className="mb-3"
+          className="mb-3 p-2 rounded bg-white/10 border border-white/20 text-white file:bg-white/10 file:border-0 file:px-3 file:py-1 file:mr-3 file:rounded cursor-pointer"
           disabled={imageUploadLoading}
         />
         {/* Preview area */}
@@ -986,18 +984,18 @@ const UploadProductImageModal = ({
             <img
               src={imagePreviewUrl}
               alt="Preview"
-              className="max-h-40 max-w-full rounded border"
+              className="max-h-40 max-w-full rounded border border-white/20 ring-1 ring-white/10"
               style={{ objectFit: "contain" }}
             />
           </div>
         )}
         {imageUploadFile && (
           <div className="mb-2">
-            <span className="text-xs text-gray-500">{imageUploadFile.name}</span>
+            <span className="text-xs text-white/60">{imageUploadFile.name}</span>
           </div>
         )}
         {imageUploadError && (
-          <div className="mb-2 text-red-600 text-sm">{imageUploadError}</div>
+          <div className="mb-2 text-rose-300 text-sm">{imageUploadError}</div>
         )}
         <div className="flex justify-end gap-3">
           <button
@@ -1010,17 +1008,17 @@ const UploadProductImageModal = ({
               setSearchTerm("");
               setImageResults([]);
             }}
-            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+            className="px-4 py-2 rounded border border-white/20 bg-white/10 text-white hover:bg-white/15"
             disabled={imageUploadLoading}
           >
             Cancel
           </button>
           <button
             onClick={handleImageUpload}
-            className={`px-4 py-2 rounded text-white ${
+            className={`px-4 py-2 rounded-xl font-medium ${
               (imageUploadFile || imagePreviewUrl) && !imageUploadLoading
-                ? "bg-blue-600 hover:bg-blue-700"
-                : "bg-gray-400 cursor-not-allowed"
+                ? 'text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]'
+                : 'bg-white/20 text-white/70 cursor-not-allowed'
             }`}
             disabled={!(imageUploadFile || imagePreviewUrl) || imageUploadLoading}
           >

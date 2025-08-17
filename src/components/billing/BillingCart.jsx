@@ -104,40 +104,40 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
   }, [cartItems]);
 
   return (
-    <div className="space-y-6 px-4 pt-4 md:px-6">
+    <div className="space-y-6 px-4 pt-4 md:px-6 text-white">
       <div className="space-y-4">
         <button
           onClick={handleAddItem}
-          className="bg-green-600 text-white px-4 py-2 rounded shadow"
+          className="px-4 py-2 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
         >
           + Add Item
         </button>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full border border-gray-300 text-sm">
-            <thead className="bg-gray-100 text-left">
+          <table className="min-w-full text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden">
+            <thead className="text-left bg-white/10">
               <tr>
-                <th className="p-2">Product Name</th>
-                <th className="p-2">SKU</th>
-                <th className="p-2">Brand</th>
-                <th className="p-2">Category</th>
-                <th className="p-2">Unit</th>
-                <th className="p-2">Qty</th>
-                <th className="p-2">Price</th>
-                <th className="p-2">Discount (%)</th>
-                <th className="p-2">Subtotal</th>
-                <th className="p-2">Action</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Product Name</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">SKU</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Brand</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Category</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Unit</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Qty</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Price</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Discount (%)</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Subtotal</th>
+                <th className="p-2 md:p-3 text-xs md:text-sm font-semibold text-white/80 border-b border-white/10">Action</th>
               </tr>
             </thead>
             <tbody>
               {cartItems.map((item, index) => (
-                <tr key={index} className="border-t">
+                <tr key={index} className="border-t border-white/10 hover:bg-white/5">
                   <td className="p-2">
                     <input
                       type="text"
                       value={item.name || ""}
                       onChange={(e) => handleChange(index, "name", e.target.value)}
-                      className="w-full border px-2 py-1 rounded"
+                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
                   <td className="p-2">
@@ -145,7 +145,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
                       type="text"
                       value={item.sku || ""}
                       onChange={(e) => handleChange(index, "sku", e.target.value)}
-                      className="w-full border px-2 py-1 rounded"
+                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
                   <td className="p-2">
@@ -153,7 +153,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
                       type="text"
                       value={item.brand || ""}
                       onChange={(e) => handleChange(index, "brand", e.target.value)}
-                      className="w-full border px-2 py-1 rounded"
+                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
                   <td className="p-2">
@@ -161,7 +161,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
                       type="text"
                       value={item.category || ""}
                       onChange={(e) => handleChange(index, "category", e.target.value)}
-                      className="w-full border px-2 py-1 rounded"
+                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
                   <td className="p-2">
@@ -169,7 +169,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
                       type="text"
                       value={item.unit || ""}
                       onChange={(e) => handleChange(index, "unit", e.target.value)}
-                      className="w-full border px-2 py-1 rounded"
+                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
                   <td className="p-2">
@@ -177,7 +177,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
                       type="number"
                       value={item.quantity || 0}
                       onChange={(e) => handleChange(index, "quantity", e.target.value)}
-                      className="w-16 border px-2 py-1 rounded"
+                      className="w-16 px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
                   <td className="p-2">
@@ -185,7 +185,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
                       type="number"
                       value={item.price || 0}
                       onChange={(e) => handleChange(index, "price", e.target.value)}
-                      className="w-20 border px-2 py-1 rounded"
+                      className="w-20 px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
                   <td className="p-2">
@@ -193,14 +193,14 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
                       type="number"
                       value={item.discount || 0}
                       onChange={(e) => handleChange(index, "discount", e.target.value)}
-                      className="w-20 border px-2 py-1 rounded"
+                      className="w-20 px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </td>
-                  <td className="p-2">{calculateSubtotal(item)}</td>
+                  <td className="p-2 md:p-3 text-white/90">{calculateSubtotal(item)}</td>
                   <td className="p-2">
                     <button
                       onClick={() => handleRemove(index)}
-                      className="text-red-600 hover:underline"
+                      className="text-rose-300 hover:text-rose-200 underline"
                     >
                       Remove
                     </button>
@@ -212,7 +212,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
         </div>
       </div>
       {/* Bill Summary */}
-      <div className="mt-6 text-right space-y-2 border-t pt-4 text-sm md:text-base">
+      <div className="mt-6 text-right space-y-2 text-sm md:text-base bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-4 md:p-6">
         <p>Total Items: {cartItems.length}</p>
         <p>Total Quantity: {cartItems.reduce((sum, item) => sum + item.quantity, 0)}</p>
         <p>

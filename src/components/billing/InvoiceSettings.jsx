@@ -16,8 +16,8 @@ const InvoiceSettings = ({ settings, onChange }) => {
   };
 
   return (
-    <div className="bg-white p-4 md:p-6 rounded-xl shadow-md space-y-6 mb-6">
-      <h2 className="text-lg font-semibold mb-2">Invoice Settings</h2>
+    <div className="p-4 md:p-6 rounded-xl space-y-6 mb-6 bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
+      <h2 className="text-lg font-semibold mb-2 text-white">Invoice Settings</h2>
 
       <div className="flex flex-wrap gap-4">
         <label className="flex items-center gap-2">
@@ -26,6 +26,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
             name="includeGST"
             checked={settings.includeGST}
             onChange={handleChange}
+            className="accent-emerald-400"
           />
           Include GST
           {settings.includeGST && (
@@ -34,7 +35,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
               name="gstRate"
               value={settings.gstRate || ""}
               onChange={handleChange}
-              className="border px-2 py-1 rounded w-20"
+              className="px-2 py-1 rounded w-20 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               placeholder="% GST"
             />
           )}
@@ -45,6 +46,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
             name="includeCGST"
             checked={settings.includeCGST}
             onChange={handleChange}
+            className="accent-emerald-400"
           />
           Include CGST
           {settings.includeCGST && (
@@ -53,7 +55,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
               name="cgstRate"
               value={settings.cgstRate || ""}
               onChange={handleChange}
-              className="border px-2 py-1 rounded w-20"
+              className="px-2 py-1 rounded w-20 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               placeholder="% CGST"
             />
           )}
@@ -64,6 +66,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
             name="includeSGST"
             checked={settings.includeSGST}
             onChange={handleChange}
+            className="accent-emerald-400"
           />
           Include SGST
           {settings.includeSGST && (
@@ -72,7 +75,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
               name="sgstRate"
               value={settings.sgstRate || ""}
               onChange={handleChange}
-              className="border px-2 py-1 rounded w-20"
+              className="px-2 py-1 rounded w-20 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               placeholder="% SGST"
             />
           )}
@@ -83,6 +86,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
             name="includeIGST"
             checked={settings.includeIGST}
             onChange={handleChange}
+            className="accent-emerald-400"
           />
           Include IGST
           {settings.includeIGST && (
@@ -91,7 +95,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
               name="igstRate"
               value={settings.igstRate || ""}
               onChange={handleChange}
-              className="border px-2 py-1 rounded w-20"
+              className="px-2 py-1 rounded w-20 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               placeholder="% IGST"
             />
           )}
@@ -100,12 +104,12 @@ const InvoiceSettings = ({ settings, onChange }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <label className="flex flex-col">
-          <span className="mb-1 font-medium">Invoice Type</span>
+          <span className="mb-1 font-medium text-white/80">Invoice Type</span>
           <select
             name="invoiceType"
             value={settings.invoiceType}
             onChange={handleChange}
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           >
             <option value="">Select Invoice Type</option>
             <option value="retail">Retail</option>
@@ -116,12 +120,12 @@ const InvoiceSettings = ({ settings, onChange }) => {
         </label>
 
         <label className="flex flex-col">
-          <span className="mb-1 font-medium">Payment Mode</span>
+          <span className="mb-1 font-medium text-white/80">Payment Mode</span>
           <select
             name="paymentMode"
             value={settings.paymentMode}
             onChange={handleChange}
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           >
             <option value="">Select Payment Mode</option>
             <option value="cash">Cash</option>
@@ -136,7 +140,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
         {settings.paymentMode === "split" && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
             <label className="flex flex-col space-y-1">
-              <span className="mb-1 font-medium">Cash Amount</span>
+              <span className="mb-1 font-medium text-white/80">Cash Amount</span>
               <input
                 type="number"
                 name="splitCash"
@@ -150,12 +154,12 @@ const InvoiceSettings = ({ settings, onChange }) => {
                     },
                   })
                 }
-                className="border px-3 py-2 rounded"
+                className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                 placeholder="₹"
               />
             </label>
             <label className="flex flex-col space-y-1">
-              <span className="mb-1 font-medium">UPI Amount</span>
+              <span className="mb-1 font-medium text-white/80">UPI Amount</span>
               <input
                 type="number"
                 name="splitUPI"
@@ -169,12 +173,12 @@ const InvoiceSettings = ({ settings, onChange }) => {
                     },
                   })
                 }
-                className="border px-3 py-2 rounded"
+                className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                 placeholder="₹"
               />
             </label>
             <label className="flex flex-col space-y-1">
-              <span className="mb-1 font-medium">Card Amount</span>
+              <span className="mb-1 font-medium text-white/80">Card Amount</span>
               <input
                 type="number"
                 name="splitCard"
@@ -188,7 +192,7 @@ const InvoiceSettings = ({ settings, onChange }) => {
                     },
                   })
                 }
-                className="border px-3 py-2 rounded"
+                className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                 placeholder="₹"
               />
             </label>
@@ -198,23 +202,23 @@ const InvoiceSettings = ({ settings, onChange }) => {
         {settings.paymentMode === "credit" && (
           <div className="grid grid-cols-2 gap-4 mt-2">
             <label className="flex flex-col space-y-1">
-              <span className="mb-1 font-medium">Credit Due Date</span>
+              <span className="mb-1 font-medium text-white/80">Credit Due Date</span>
               <input
                 type="date"
                 name="creditDueDate"
                 value={settings.creditDueDate || ""}
                 onChange={handleChange}
-                className="border px-3 py-2 rounded"
+                className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               />
             </label>
             <label className="flex flex-col space-y-1">
-              <span className="mb-1 font-medium">Credit Note</span>
+              <span className="mb-1 font-medium text-white/80">Credit Note</span>
               <input
                 type="text"
                 name="creditNote"
                 value={settings.creditNote || ""}
                 onChange={handleChange}
-                className="border px-3 py-2 rounded"
+                className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                 placeholder="Optional note or reference"
               />
             </label>
@@ -224,23 +228,23 @@ const InvoiceSettings = ({ settings, onChange }) => {
         {settings.paymentMode === "advance" && (
           <div className="grid grid-cols-2 gap-4 mt-2">
             <label className="flex flex-col space-y-1">
-              <span className="mb-1 font-medium">Advance Paid</span>
+              <span className="mb-1 font-medium text-white/80">Advance Paid</span>
               <input
                 type="number"
                 name="advancePaid"
                 value={settings.advancePaid || ""}
                 onChange={handleChange}
-                className="border px-3 py-2 rounded"
+                className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               />
             </label>
             <label className="flex flex-col space-y-1">
-              <span className="mb-1 font-medium">Expected Payment Completion Date</span>
+              <span className="mb-1 font-medium text-white/80">Expected Payment Completion Date</span>
               <input
                 type="date"
                 name="advanceDueDate"
                 value={settings.advanceDueDate || ""}
                 onChange={handleChange}
-                className="border px-3 py-2 rounded"
+                className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               />
             </label>
           </div>

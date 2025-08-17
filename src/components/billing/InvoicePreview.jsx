@@ -75,20 +75,20 @@ const InvoicePreview = ({
   return (
     <>
       <div className="text-right mb-2 max-w-4xl mx-auto mt-4">
-        <button onClick={handleDownloadPDF} className="px-4 py-1 bg-gray-700 text-white rounded mr-2">Download PDF</button>
+        <button onClick={handleDownloadPDF} className="px-4 py-1 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] mr-2">Download PDF</button>
       </div>
-      <div id="invoice-content" className="bg-white p-4 md:p-6 rounded-xl shadow-md max-w-4xl mx-auto mt-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] space-y-6">
+      <div id="invoice-content" className="p-4 md:p-6 rounded-xl max-w-4xl mx-auto mt-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] space-y-6 text-white bg-white/10 backdrop-blur-2xl border border-white/10 shadow-[0_12px_50px_rgba(0,0,0,0.45)]">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Invoice Preview</h2>
-          <button className="text-red-500 hover:underline" onClick={onCancel}>
+          <h2 className="text-xl font-bold text-white">Invoice Preview</h2>
+          <button className="text-rose-300 hover:text-rose-200 underline" onClick={onCancel}>
             Cancel
           </button>
         </div>
 
-        <div className="flex justify-between mb-6 border-b pb-4">
+        <div className="flex justify-between mb-6 border-b border-white/10 pb-4">
           {/* Customer Info */}
-          <div className="w-1/2 pr-6 border-r border-gray-300">
-            <h3 className="font-semibold text-lg mb-2 border-b pb-1">Customer Information</h3>
+          <div className="w-1/2 pr-6 border-r border-white/10">
+            <h3 className="font-semibold text-lg mb-2 border-b border-white/10 pb-1 text-white">Customer Information</h3>
             <p><strong>Name:</strong> {customer.name}</p>
             <p><strong>Phone:</strong> {customer.phone}</p>
             <p><strong>Email:</strong> {customer.email}</p>
@@ -97,7 +97,7 @@ const InvoicePreview = ({
 
           {/* Business Info */}
           <div className="w-1/2 pl-6 text-right">
-            <h3 className="font-semibold text-lg mb-2 border-b pb-1">Retailer Information</h3>
+            <h3 className="font-semibold text-lg mb-2 border-b border-white/10 pb-1 text-white">Retailer Information</h3>
             <p><strong>Business Name:</strong> {retailerData?.businessName || "Retailer"}</p>
             <p><strong>Owner:</strong> {retailerData?.ownerName}</p>
             <p><strong>Phone:</strong> {retailerData?.phone}</p>
@@ -111,7 +111,7 @@ const InvoicePreview = ({
           </div>
         </div>
 
-        <h2 className="text-center font-extrabold text-2xl mb-6 uppercase tracking-widest font-bold">
+        <h2 className="text-center font-extrabold text-2xl mb-6 uppercase tracking-widest font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">
           {invoiceType === 'retail'
             ? 'RETAIL INVOICE'
             : invoiceType === 'tax'
@@ -129,30 +129,30 @@ const InvoicePreview = ({
             Products
           </h3>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm border">
-              <thead className="bg-gray-100">
+            <table className="min-w-full text-sm border border-white/10 bg-white/5 rounded-xl overflow-hidden">
+              <thead className="bg-white/10">
                 <tr>
-                  <th className="border px-2 py-1">Name</th>
-                  <th className="border px-2 py-1">Brand</th>
-                  <th className="border px-2 py-1">Category</th>
-                  <th className="border px-2 py-1">Unit</th>
-                  <th className="border px-2 py-1">Qty</th>
-                  <th className="border px-2 py-1">Price</th>
-                  <th className="border px-2 py-1">Discount (%)</th>
-                  <th className="border px-2 py-1">Subtotal</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Name</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Brand</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Category</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Unit</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Qty</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Price</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Discount (%)</th>
+                  <th className="px-2 py-1 md:px-3 md:py-2 text-white/80 border-b border-white/10">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
                 {cartItems.map((item, idx) => (
-                  <tr key={idx}>
-                    <td className="border px-2 py-1">{item.name}</td>
-                    <td className="border px-2 py-1">{item.brand || "-"}</td>
-                    <td className="border px-2 py-1">{item.category || "-"}</td>
-                    <td className="border px-2 py-1">{item.unit || "-"}</td>
-                    <td className="border px-2 py-1">{item.quantity}</td>
-                    <td className="border px-2 py-1">₹{item.price}</td>
-                    <td className="border px-2 py-1">{item.discount || 0}</td>
-                    <td className="border px-2 py-1">
+                  <tr key={idx} className="hover:bg-white/5">
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">{item.name}</td>
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">{item.brand || "-"}</td>
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">{item.category || "-"}</td>
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">{item.unit || "-"}</td>
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">{item.quantity}</td>
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">₹{item.price}</td>
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">{item.discount || 0}</td>
+                    <td className="px-2 py-1 md:px-3 md:py-2 border-t border-white/10">
                       ₹{calculateSubtotal(item).toFixed(2)}
                     </td>
                   </tr>
@@ -164,7 +164,7 @@ const InvoicePreview = ({
 
         {/* Tax Summary */}
         <div className="mb-4 text-right">
-          <h3 className="font-semibold text-lg mb-2">Tax Summary</h3>
+          <h3 className="font-semibold text-lg mb-2 text-white">Tax Summary</h3>
           {settings.includeGST && (
             <p className="flex justify-end gap-4">
               <span className="w-24 text-left">GST ({settings.gstRate || 0}%):</span> ₹{gstAmount.toFixed(2)}
@@ -186,21 +186,21 @@ const InvoicePreview = ({
             </p>
           )}
           <p className="mt-2 font-bold text-xl">Total: ₹{total.toFixed(2)}</p>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-white/70 mt-1">
             Payment Mode: {paymentMode || "N/A"} | Invoice Type: {invoiceType && invoiceType.length > 0 ? invoiceType.charAt(0).toUpperCase() + invoiceType.slice(1) : "N/A"}
           </p>
           {paymentMode === "credit" && (settings.creditDueDate || settings.dueDate) && (
-            <p className="text-sm text-red-600 mt-1">
+            <p className="text-sm text-rose-300 mt-1">
               Due Date: {moment(settings.creditDueDate || settings.dueDate).format("DD MMM YYYY")}
             </p>
           )}
           {settings.isPaid && settings.paidOn && (
-            <p className="text-sm text-green-600 mt-1">
+            <p className="text-sm text-emerald-300 mt-1">
               ✅ Paid on: {moment(settings.paidOn.toDate?.() || settings.paidOn).format("DD MMM YYYY")} via {settings.paidVia?.toUpperCase()}
             </p>
           )}
           {paymentMode === "split" && (
-            <div className="text-sm text-gray-600 mt-1 space-y-1">
+            <div className="text-sm text-white/70 mt-1 space-y-1">
               <p>Split Breakdown:</p>
               <p>- ₹{settings.splitCash ?? 0} by Cash</p>
               <p>- ₹{settings.splitUPI ?? 0} by UPI</p>
@@ -214,13 +214,13 @@ const InvoicePreview = ({
             <div className="text-left">
               <img src={FLYPLogo} alt="FLYP Logo" className="w-24 opacity-70" />
             </div>
-            <div className="text-right text-sm text-gray-500 italic">
+            <div className="text-right text-sm text-white/70 italic">
               Thank you for your business!
             </div>
           </div>
 
           <button
-            className="mt-6 px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+            className="mt-6 px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
             onClick={onConfirm}
           >
             Publish Invoice

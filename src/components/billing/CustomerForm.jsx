@@ -72,10 +72,10 @@ const CustomerForm = ({ customer, onChange, userId }) => {
   };
 
   return (
-    <div className="bg-white p-4 md:p-6 rounded-xl shadow-md mb-6 space-y-4">
+    <div className="p-4 md:p-6 rounded-xl mb-6 space-y-4 bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <label className="flex flex-col space-y-1 relative" htmlFor="name">
-          <span className="mb-1 font-medium">Customer Name</span>
+          <span className="mb-1 font-medium text-white/80">Customer Name</span>
           <input
             id="name"
             type="text"
@@ -83,7 +83,7 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             value={customer?.name || ""}
             onChange={handleChange}
             placeholder="Enter customer name"
-            className="border p-2 rounded"
+            className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             autoComplete="off"
             onBlur={() => setTimeout(() => setIsSuggestionVisible(false), 150)}
             onFocus={() => {
@@ -91,19 +91,19 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             }}
           />
           {isSuggestionVisible && suggestions.length > 0 && (
-            <div className="mb-2 border p-2 bg-gray-50 rounded">
+            <div className="mb-2 p-2 rounded bg-white/5 backdrop-blur-xl border border-white/10">
               <div className="font-medium mb-1">Select Customer</div>
-              <ul className="border rounded bg-white shadow max-h-40 overflow-y-auto z-10 w-full">
+              <ul className="border border-white/10 rounded bg-[#0B0F14]/70 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.35)] max-h-40 overflow-y-auto z-10 w-full">
                 {suggestions.map((cust) => (
                   <li
                     key={cust.custId || cust.id}
                     onClick={() => handleSelectSuggestion(cust)}
-                    className="p-2 hover:bg-gray-100 cursor-pointer border-b flex flex-col"
+                    className="p-2 hover:bg-white/10 cursor-pointer border-b border-white/10 flex flex-col"
                   >
                     <div className="font-semibold text-base">
-                      👤 {cust.name} <span className="text-xs text-gray-500">• {cust.custId}</span>
+                      👤 {cust.name} <span className="text-xs text-white/60">• {cust.custId}</span>
                     </div>
-                    <div className="text-sm text-gray-600 mt-1">
+                    <div className="text-sm text-white/70 mt-1">
                       📞 {cust.phone || "No Phone"} &nbsp;&nbsp; 📍 {cust.address || "No Address"}
                     </div>
                   </li>
@@ -113,7 +113,7 @@ const CustomerForm = ({ customer, onChange, userId }) => {
           )}
         </label>
         <label className="flex flex-col space-y-1" htmlFor="phone">
-          <span className="mb-1 font-medium">Phone Number</span>
+          <span className="mb-1 font-medium text-white/80">Phone Number</span>
           <input
             id="phone"
             type="tel"
@@ -121,11 +121,11 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             value={customer?.phone || ''}
             onChange={handleChange}
             placeholder="Enter phone number"
-            className="border p-2 rounded"
+            className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
         </label>
         <label className="flex flex-col space-y-1" htmlFor="email">
-          <span className="mb-1 font-medium">Email Address</span>
+          <span className="mb-1 font-medium text-white/80">Email Address</span>
           <input
             id="email"
             type="email"
@@ -133,11 +133,11 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             value={customer?.email || ''}
             onChange={handleChange}
             placeholder="Enter email address"
-            className="border p-2 rounded"
+            className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
         </label>
         <label className="flex flex-col space-y-1" htmlFor="address">
-          <span className="mb-1 font-medium">Customer Address</span>
+          <span className="mb-1 font-medium text-white/80">Customer Address</span>
           <input
             id="address"
             type="text"
@@ -145,7 +145,7 @@ const CustomerForm = ({ customer, onChange, userId }) => {
             value={customer?.address || ''}
             onChange={handleChange}
             placeholder="Enter customer address"
-            className="border p-2 rounded"
+            className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
         </label>
       </div>

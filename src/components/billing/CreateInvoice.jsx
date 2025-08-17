@@ -220,18 +220,18 @@ const CreateInvoice = () => {
   }
 
   return (
-    <div className="space-y-6 px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)]">
+    <div className="space-y-6 px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)] text-white">
       {/* Customer Info */}
-      <div className="bg-white p-4 rounded shadow">
-        <h2 className="text-lg font-semibold mb-2">Customer Information</h2>
+      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+        <h2 className="text-lg font-semibold mb-2 text-white">Customer Information</h2>
         {userInfo && (
           <CustomerForm customer={customer} onChange={handleCustomerChange} userId={userInfo.uid} />
         )}
       </div>
 
       {/* Product Search */}
-      <div className="bg-white p-4 rounded shadow">
-        <h2 className="text-lg font-semibold mb-2">Add Product</h2>
+      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+        <h2 className="text-lg font-semibold mb-2 text-white">Add Product</h2>
         <ProductSearch
           onSelect={(product) => {
             const alreadyExists = selectedProducts.find(p => p.id === product.id);
@@ -255,12 +255,12 @@ const CreateInvoice = () => {
       </div>
 
       {/* Invoice Settings */}
-      <div className="bg-white p-4 rounded shadow">
+      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
         <InvoiceSettings settings={settings} onChange={setSettings} />
         {settings.paymentMode === "Split" && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Cash Amount</label>
+              <label className="block text-sm font-medium text-white/80 mb-1">Cash Amount</label>
               <input
                 type="number"
                 value={splitPayment.cash}
@@ -269,11 +269,11 @@ const CreateInvoice = () => {
                   console.log("💰 Cash Split Updated:", val);
                   setSplitPayment((prev) => ({ ...prev, cash: val }));
                 }}
-                className="w-full border rounded px-3 py-2"
+                className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">UPI Amount</label>
+              <label className="block text-sm font-medium text-white/80 mb-1">UPI Amount</label>
               <input
                 type="number"
                 value={splitPayment.upi}
@@ -282,11 +282,11 @@ const CreateInvoice = () => {
                   console.log("💰 UPI Split Updated:", val);
                   setSplitPayment((prev) => ({ ...prev, upi: val }));
                 }}
-                className="w-full border rounded px-3 py-2"
+                className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Card Amount</label>
+              <label className="block text-sm font-medium text-white/80 mb-1">Card Amount</label>
               <input
                 type="number"
                 value={splitPayment.card}
@@ -295,17 +295,17 @@ const CreateInvoice = () => {
                   console.log("💰 Card Split Updated:", val);
                   setSplitPayment((prev) => ({ ...prev, card: val }));
                 }}
-                className="w-full border rounded px-3 py-2"
+                className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               />
             </div>
           </div>
         )}
         {settings.paymentMode === "Credit" && (
           <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Credit Due Date (Default: 7 days from today)</label>
+            <label className="block text-sm font-medium text-white/80 mb-1">Credit Due Date (Default: 7 days from today)</label>
             <input
               type="date"
-              className="w-full border rounded px-3 py-2"
+              className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               value={settings.creditDueDate || ""}
               onChange={(e) => {
                 setSettings((prev) => ({
@@ -319,8 +319,8 @@ const CreateInvoice = () => {
       </div>
 
       {/* Cart */}
-      <div className="bg-white p-4 rounded shadow">
-        <h2 className="text-lg font-semibold mb-2">Product Cart</h2>
+      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+        <h2 className="text-lg font-semibold mb-2 text-white">Product Cart</h2>
         <BillingCart
           selectedProducts={selectedProducts}
           cartItems={cartItems}
@@ -333,7 +333,7 @@ const CreateInvoice = () => {
       <div className="hidden md:flex justify-end">
         <button
           onClick={handleSubmitInvoice}
-          className="bg-blue-600 text-white px-6 py-2 rounded shadow"
+          className="px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
         >
           Create Bill
         </button>
@@ -342,7 +342,7 @@ const CreateInvoice = () => {
       <div className="fixed bottom-4 inset-x-4 z-50 md:hidden">
         <button
           onClick={handleSubmitInvoice}
-          className="w-full bg-blue-600 text-white py-3 rounded-xl shadow-lg text-lg font-semibold"
+          className="w-full text-slate-900 py-3 rounded-xl shadow-lg text-lg font-semibold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
         >
           Create Bill
         </button>

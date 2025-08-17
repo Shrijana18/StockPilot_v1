@@ -10,7 +10,7 @@ const AddInventoryOptions = () => {
     if (selectedForm === "manual") {
       return (
         <form
-          className="space-y-4 mt-6 bg-white p-6 rounded shadow"
+          className="space-y-4 mt-6 p-6 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]"
           onSubmit={async (e) => {
             e.preventDefault();
             const auth = getAuth();
@@ -47,21 +47,21 @@ const AddInventoryOptions = () => {
           }}
           id="add-product-form"
         >
-          <input type="text" name="productName" placeholder="Product Name" className="w-full border p-2 rounded" required />
-          <input type="text" name="sku" placeholder="SKU" className="w-full border p-2 rounded" />
-          <input type="text" name="brand" placeholder="Brand" className="w-full border p-2 rounded" />
-          <input type="text" name="category" placeholder="Category" className="w-full border p-2 rounded" />
-          <input type="number" name="quantity" placeholder="Quantity" className="w-full border p-2 rounded" required />
-          <input type="text" name="unit" placeholder="Unit (e.g. pcs, box)" className="w-full border p-2 rounded" />
-          <input type="number" name="costPrice" placeholder="Cost Price" className="w-full border p-2 rounded" />
-          <input type="number" name="sellingPrice" placeholder="Selling Price" className="w-full border p-2 rounded" />
-          <textarea name="description" placeholder="Description" className="w-full border p-2 rounded" />
+          <input type="text" name="productName" placeholder="Product Name" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" required />
+          <input type="text" name="sku" placeholder="SKU" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+          <input type="text" name="brand" placeholder="Brand" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+          <input type="text" name="category" placeholder="Category" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+          <input type="number" name="quantity" placeholder="Quantity" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" required />
+          <input type="text" name="unit" placeholder="Unit (e.g. pcs, box)" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+          <input type="number" name="costPrice" placeholder="Cost Price" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+          <input type="number" name="sellingPrice" placeholder="Selling Price" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+          <textarea name="description" placeholder="Description" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
 
-          <input type="file" name="productImage" accept="image/*" className="w-full border p-2 rounded" />
+          <input type="file" name="productImage" accept="image/*" className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
 
           <div className="flex justify-between mt-4">
-            <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">Submit</button>
-            <button type="button" onClick={() => setSelectedForm(null)} className="bg-red-500 text-white px-4 py-2 rounded">Cancel</button>
+            <button type="submit" className="px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]">Submit</button>
+            <button type="button" onClick={() => setSelectedForm(null)} className="px-4 py-2 rounded-xl border border-white/20 bg-white/10 text-white hover:bg-white/15">Cancel</button>
           </div>
         </form>
       );
@@ -69,13 +69,13 @@ const AddInventoryOptions = () => {
 
     if (selectedForm === "ocr") {
       return (
-        <div className="mt-6 text-gray-500">OCR form coming soon.</div>
+        <div className="mt-6 text-white/70">OCR form coming soon.</div>
       );
     }
 
     if (selectedForm === "ai") {
       return (
-        <div className="mt-6 text-gray-500">AI auto-generation coming soon.</div>
+        <div className="mt-6 text-white/70">AI auto-generation coming soon.</div>
       );
     }
 
@@ -83,12 +83,27 @@ const AddInventoryOptions = () => {
   };
 
   return (
-    <div className="mt-6">
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">Select Inventory Input Method</h2>
+    <div className="mt-6 text-white">
+      <h2 className="text-lg font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Select Inventory Input Method</h2>
       <div className="flex gap-4">
-        <button onClick={() => setSelectedForm("manual")} className="bg-blue-600 text-white px-4 py-2 rounded">Manual Entry</button>
-        <button onClick={() => setSelectedForm("ocr")} className="bg-yellow-600 text-white px-4 py-2 rounded">OCR Upload</button>
-        <button onClick={() => setSelectedForm("ai")} className="bg-purple-600 text-white px-4 py-2 rounded">AI Generate</button>
+        <button
+          onClick={() => setSelectedForm("manual")}
+          className={`px-4 py-2 rounded-xl transition ${selectedForm === "manual" ? "bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]" : "bg-white/10 text-white hover:bg-white/15 border border-white/15"}`}
+        >
+          Manual Entry
+        </button>
+        <button
+          onClick={() => setSelectedForm("ocr")}
+          className={`px-4 py-2 rounded-xl transition ${selectedForm === "ocr" ? "bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]" : "bg-white/10 text-white hover:bg-white/15 border border-white/15"}`}
+        >
+          OCR Upload
+        </button>
+        <button
+          onClick={() => setSelectedForm("ai")}
+          className={`px-4 py-2 rounded-xl transition ${selectedForm === "ai" ? "bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]" : "bg-white/10 text-white hover:bg-white/15 border border-white/15"}`}
+        >
+          AI Generate
+        </button>
       </div>
 
       {renderForm()}

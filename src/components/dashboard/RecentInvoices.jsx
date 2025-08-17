@@ -7,8 +7,8 @@ const RecentInvoices = ({ invoiceData }) => {
     .slice(0, 5);
 
   return (
-    <div className="bg-white rounded shadow p-4 border">
-      <h3 className="text-md font-semibold mb-2">🧾 Recent Invoices</h3>
+    <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
+      <h3 className="text-md font-semibold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">🧾 Recent Invoices</h3>
       <div className="max-h-[300px] overflow-y-auto pr-1">
         <ul className="space-y-2">
           {recent.map((invoice, idx) => {
@@ -44,12 +44,12 @@ const RecentInvoices = ({ invoiceData }) => {
               }
             }
             return (
-              <li key={idx} className="border-b pb-2">
+              <li key={idx} className="border-b border-white/10 pb-2 hover:bg-white/5 rounded">
                 <div className="flex justify-between text-sm">
-                  <span className="font-medium">{invoice.customer?.name || 'Unknown Customer'}</span>
-                  <span className="text-gray-500">{moment(createdAtDate).local().format('DD MMM, hh:mm:ss A')}</span>
+                  <span className="font-medium text-white">{invoice.customer?.name || 'Unknown Customer'}</span>
+                  <span className="text-white/60">{moment(createdAtDate).local().format('DD MMM, hh:mm:ss A')}</span>
                 </div>
-                <div className="text-xs text-gray-600">
+                <div className="text-xs text-white/70">
                   ₹{invoice.totalAmount ?? invoice.total ?? 0} • {paymentLabel}
                 </div>
               </li>

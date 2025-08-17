@@ -21,11 +21,11 @@ const Inventory = () => {
         case "alerts":
           return <LowStockAlerts />;
         default:
-          return <div className="text-red-600">Invalid tab selected</div>;
+          return <div className="text-rose-300">Invalid tab selected</div>;
       }
     } catch (error) {
       return (
-        <div className="text-red-600">
+        <div className="text-rose-300">
           An error occurred while rendering the tab: {error.message}
         </div>
       );
@@ -33,15 +33,15 @@ const Inventory = () => {
   };
 
   const tabClasses = (tabName) =>
-    `px-4 py-2 rounded transition ${
+    `px-4 py-2 rounded-xl transition ${
       activeTab === tabName
-        ? "bg-blue-600 text-white shadow"
-        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+        ? 'bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]'
+        : 'bg-white/10 text-white hover:bg-white/15 border border-white/15'
     }`;
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold text-gray-700 mb-4">Inventory Management</h1>
+    <div className="p-4 text-white">
+      <h1 className="text-2xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Inventory Management</h1>
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-2 mb-6">
@@ -60,7 +60,7 @@ const Inventory = () => {
       </div>
 
       {/* Tab Content */}
-      <div className="bg-white rounded shadow p-4 min-h-[200px]">{renderTab()}</div>
+      <div className="p-4 min-h-[200px] rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">{renderTab()}</div>
     </div>
   );
 };

@@ -104,14 +104,19 @@ const RetailerDashboard = () => {
   ];
 
   return (
-    <div className="flex min-h-screen bg-gray-100 text-gray-800">
+    <div className="flex min-h-screen relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] text-white">
+      {/* Aurora backdrop */}
+      <div className="pointer-events-none absolute inset-0 opacity-40">
+        <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
+        <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
+      </div>
       {showMobileSidebar && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-40 md:hidden" onClick={() => setShowMobileSidebar(false)}>
           <div
-            className="w-64 bg-white h-full shadow-lg p-4"
+            className="w-64 h-full p-4 bg-white/10 backdrop-blur-2xl border border-white/15 shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-xl font-bold mb-4">FLYP</div>
+            <div className="text-xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
             {sidebarItems.map((item) => (
               <button
                 key={item.id}
@@ -119,10 +124,10 @@ const RetailerDashboard = () => {
                   setActiveTab(item.id);
                   setShowMobileSidebar(false);
                 }}
-                className={`flex items-center gap-3 px-4 py-2 rounded-lg w-full text-left ${
+                className={`flex items-center gap-3 px-4 py-2 rounded-lg w-full text-left transition ${
                   activeTab === item.id
-                    ? 'bg-blue-100 text-blue-600 font-semibold'
-                    : 'hover:bg-gray-100'
+                    ? 'bg-emerald-400/20 text-emerald-200 border border-emerald-300/30'
+                    : 'hover:bg-white/10'
                 }`}
               >
                 {item.icon}
@@ -134,19 +139,19 @@ const RetailerDashboard = () => {
       )}
 
       {/* Sidebar */}
-      <div className="hidden md:block w-64 bg-white shadow-md border-r border-gray-200 fixed top-0 bottom-0 left-0 z-40">
-        <div className="p-5 text-xl font-bold border-b border-gray-200">
-          FLYP
+      <div className="hidden md:block w-64 fixed top-0 bottom-0 left-0 z-40 bg-white/10 backdrop-blur-2xl border-r border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.45)]">
+        <div className="p-5 text-xl font-bold border-b border-white/10 bg-gradient-to-r from-white/5 to-transparent bg-clip-padding">
+          <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</span>
         </div>
         <nav className="flex flex-col p-4 gap-2">
           {sidebarItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex items-center gap-3 px-4 py-2 rounded-lg text-left ${
+              className={`flex items-center gap-3 px-4 py-2 rounded-lg text-left transition ${
                 activeTab === item.id
-                  ? 'bg-blue-100 text-blue-600 font-semibold'
-                  : 'hover:bg-gray-100'
+                  ? 'bg-emerald-400/20 text-emerald-200 border border-emerald-300/30'
+                  : 'hover:bg-white/10'
               }`}
             >
               {item.icon}
@@ -157,9 +162,9 @@ const RetailerDashboard = () => {
       </div>
 
       {/* Main Panel */}
-      <div className="flex-1 flex flex-col ml-64">
+      <div className="flex-1 flex flex-col ml-64 relative z-10">
         {/* Top Bar */}
-        <div className="sticky top-0 z-30 bg-white px-6 py-3 border-b border-gray-200 shadow-sm flex items-center justify-between">
+        <div className="sticky top-0 z-30 px-6 py-3 flex items-center justify-between bg-white/10 backdrop-blur-xl border-b border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.25)]">
           <button
             className="md:hidden text-2xl text-gray-600"
             onClick={() => setShowMobileSidebar(true)}
@@ -167,26 +172,26 @@ const RetailerDashboard = () => {
             ☰
           </button>
           <div>
-            <h2 className="text-lg md:text-xl font-semibold">Retailer Dashboard</h2>
-            <p className="text-sm text-gray-500">Logged in as: Retailer</p>
+            <h2 className="text-lg md:text-xl font-semibold text-white">Retailer Dashboard</h2>
+            <p className="text-sm text-white/70">Logged in as: Retailer</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <p className="font-medium">{userData?.businessName || 'Business Name'}</p>
-              <p className="text-sm text-gray-500">
+              <p className="font-medium text-white">{userData?.businessName || 'Business Name'}</p>
+              <p className="text-sm text-white/70">
                 {userData?.ownerName || 'Owner'} | ID: {userData?.flypId || userData?.userId || 'UserID'}
               </p>
             </div>
-            <div className="w-10 h-10 bg-gray-300 rounded-full overflow-hidden">
+            <div className="w-10 h-10 rounded-full overflow-hidden ring-1 ring-white/20 bg-white/10 backdrop-blur">
               {userData?.logoUrl ? (
                 <img src={userData.logoUrl} alt="Logo" className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full bg-gray-300" />
+                <div className="w-full h-full bg-white/10" />
               )}
             </div>
             <button
               onClick={handleSignOut}
-              className="text-red-500 hover:text-red-700 text-xl"
+              className="text-rose-300 hover:text-rose-200 text-xl"
               title="Sign Out"
             >
               <FaSignOutAlt />
@@ -200,7 +205,7 @@ const RetailerDashboard = () => {
           initial={{ opacity: 0, x: 40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4 }}
-          className="flex-1 px-4 py-6 md:px-6 overflow-y-auto pt-4"
+          className="flex-1 px-4 py-6 md:px-6 overflow-y-auto pt-4 text-white"
         >
           {activeTab === 'home' && (
             <div>
@@ -210,7 +215,7 @@ const RetailerDashboard = () => {
                   id="filter"
                   value={selectedFilter}
                   onChange={(e) => setSelectedFilter(e.target.value)}
-                  className="border px-3 py-1 rounded"
+                  className="px-3 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                 >
                   <option value="today">Today</option>
                   <option value="all">All Time</option>
@@ -226,14 +231,14 @@ const RetailerDashboard = () => {
                       onChange={(e) =>
                         setFilterDates((prev) => ({ ...prev, start: new Date(e.target.value) }))
                       }
-                      className="border px-2 py-1 rounded"
+                      className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                     <input
                       type="date"
                       onChange={(e) =>
                         setFilterDates((prev) => ({ ...prev, end: new Date(e.target.value) }))
                       }
-                      className="border px-2 py-1 rounded"
+                      className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                     />
                   </>
                 )}
@@ -246,116 +251,96 @@ const RetailerDashboard = () => {
           {activeTab === 'billing' && <Billing />}
           {activeTab === 'orderHistory' && <RetailerOrderHistory />}
           {activeTab === 'inventory' && (
-    <div>
-      <div className="flex gap-4 mb-6 border-b pb-2">
-        <button
-          onClick={() => setInventoryTab('add')}
-          className={`px-4 py-2 rounded ${
-            inventoryTab === 'add' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-          }`}
-        >
-          ➕ Add Inventory
-        </button>
-        <button
-          onClick={() => setInventoryTab('view')}
-          className={`px-4 py-2 rounded ${
-            inventoryTab === 'view' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-          }`}
-        >
-          📋 View Inventory
-        </button>
-        <button
-          onClick={() => setInventoryTab('group')}
-          className={`px-4 py-2 rounded ${
-            inventoryTab === 'group' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-          }`}
-        >
-          🧩 Group Items
-        </button>
-        <button
-          onClick={() => setInventoryTab('lowstock')}
-          className={`px-4 py-2 rounded ${
-            inventoryTab === 'lowstock' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-          }`}
-        >
-          🚨 Low Stock Alerts
-        </button>
-      </div>
+            <div>
+              <div className="flex gap-4 mb-6 border-b pb-2">
+                <button
+                  onClick={() => setInventoryTab('add')}
+                  className={`px-4 py-2 rounded transition ${inventoryTab === 'add' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                >
+                  ➕ Add Inventory
+                </button>
+                <button
+                  onClick={() => setInventoryTab('view')}
+                  className={`px-4 py-2 rounded transition ${inventoryTab === 'view' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                >
+                  📋 View Inventory
+                </button>
+                <button
+                  onClick={() => setInventoryTab('group')}
+                  className={`px-4 py-2 rounded transition ${inventoryTab === 'group' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                >
+                  🧩 Group Items
+                </button>
+                <button
+                  onClick={() => setInventoryTab('lowstock')}
+                  className={`px-4 py-2 rounded transition ${inventoryTab === 'lowstock' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                >
+                  🚨 Low Stock Alerts
+                </button>
+              </div>
 
-      {inventoryTab === 'add' && (
-        <div>
-          <h3 className="text-lg font-semibold mb-4">Select Inventory Input Method</h3>
-          <div className="flex flex-col md:flex-row gap-4">
-            <button
-              onClick={() => setAddMethod('manual')}
-              className={`px-3 py-2 border rounded ${
-                addMethod === 'manual' ? 'bg-green-100 border-green-500' : ''
-              }`}
-            >
-              📝 Manual Entry
-            </button>
-            <button
-              onClick={() => setAddMethod('ocr')}
-              className={`px-3 py-2 border rounded ${
-                addMethod === 'ocr' ? 'bg-green-100 border-green-500' : ''
-              }`}
-            >
-              🖼️ OCR Upload
-            </button>
-            <button
-              onClick={() => setAddMethod('ai')}
-              className={`px-3 py-2 border rounded ${
-                addMethod === 'ai' ? 'bg-green-100 border-green-500' : ''
-              }`}
-            >
-              🤖 AI-Based
-            </button>
-          </div>
-          <div className="mt-4">
-            {addMethod === 'manual' && userData?.userId && (
-              <ManualEntryForm userId={userData.userId} />
-            )}
-            {addMethod === 'ocr' && userData?.userId && (
-              <OCRUploadForm userId={userData.userId} />
-            )}
-            {addMethod === 'ai' && userData?.userId && (
-              <AddInventoryAI userId={userData.userId} />
-            )}
-          </div>
-        </div>
-      )}
-      {inventoryTab === 'view' && userData?.userId && (
-        <ViewInventory userId={userData.userId} />
-      )}
-      {inventoryTab === 'group' && <div>🧩 Group Items Component Placeholder</div>}
-      {inventoryTab === 'lowstock' && <div>🚨 Low Stock Alert Component Placeholder</div>}
-    </div>
-  )}
+              {inventoryTab === 'add' && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Select Inventory Input Method</h3>
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <button
+                      onClick={() => setAddMethod('manual')}
+                      className={`px-3 py-2 rounded border transition ${addMethod === 'manual' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15'}`}
+                    >
+                      📝 Manual Entry
+                    </button>
+                    <button
+                      onClick={() => setAddMethod('ocr')}
+                      className={`px-3 py-2 rounded border transition ${addMethod === 'ocr' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15'}`}
+                    >
+                      🖼️ OCR Upload
+                    </button>
+                    <button
+                      onClick={() => setAddMethod('ai')}
+                      className={`px-3 py-2 rounded border transition ${addMethod === 'ai' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15'}`}
+                    >
+                      🤖 AI-Based
+                    </button>
+                  </div>
+                  <div className="mt-4">
+                    {addMethod === 'manual' && userData?.userId && (
+                      <ManualEntryForm userId={userData.userId} />
+                    )}
+                    {addMethod === 'ocr' && userData?.userId && (
+                      <OCRUploadForm userId={userData.userId} />
+                    )}
+                    {addMethod === 'ai' && userData?.userId && (
+                      <AddInventoryAI userId={userData.userId} />
+                    )}
+                  </div>
+                </div>
+              )}
+              {inventoryTab === 'view' && userData?.userId && (
+                <ViewInventory userId={userData.userId} />
+              )}
+              {inventoryTab === 'group' && <div>🧩 Group Items Component Placeholder</div>}
+              {inventoryTab === 'lowstock' && <div>🚨 Low Stock Alert Component Placeholder</div>}
+            </div>
+          )}
           {activeTab === 'analytics' && <BusinessAnalytics />}
           {activeTab === 'distributors' && (
             <div>
               <div className="flex gap-4 mb-4">
                 <button
                   onClick={() => setDistributorTab('search')}
-                  className={`px-4 py-2 rounded ${
-                    distributorTab === 'search' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-                  }`}
+                  className={`px-4 py-2 rounded transition ${distributorTab === 'search' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                 >
                   🔍 Search Distributor
                 </button>
                 <button
                   onClick={() => setDistributorTab('sent')}
-                  className={`px-4 py-2 rounded ${
-                    distributorTab === 'sent' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-                  }`}
+                  className={`px-4 py-2 rounded transition ${distributorTab === 'sent' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                 >
                   📤 Sent Requests
                 </button>
                 <button
                   onClick={() => setDistributorTab('connected')}
-                  className={`px-4 py-2 rounded ${
-                    distributorTab === 'connected' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-                  }`}
+                  className={`px-4 py-2 rounded transition ${distributorTab === 'connected' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                 >
                   🤝 View Distributors
                 </button>

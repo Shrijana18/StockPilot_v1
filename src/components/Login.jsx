@@ -67,50 +67,89 @@ const Login = () => {
   };
 
   return (
-    <div className="p-8 bg-slate-900 text-white rounded-2xl shadow-xl w-full max-w-xl border border-slate-700">
-      <h2 className="text-2xl font-bold mb-6 text-center">Welcome Back</h2>
+    <div className="min-h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14]">
+      {/* Aurora / brand glow */}
+      <div className="pointer-events-none absolute inset-0 opacity-40">
+        <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
+        <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
+      </div>
 
-      {error && <div className="text-red-400 mb-3 text-sm">{error}</div>}
+      {/* Centered glass card */}
+      <div className="relative z-10 flex items-center justify-center px-6 py-14 sm:px-8">
+        <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]">
+          <div className="px-7 sm:px-8 pt-8 pb-6 text-center">
+            <div className="mx-auto mb-4 inline-flex items-center gap-2">
+              <span className="text-xl font-semibold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</span>
+              <span className="text-xs px-2 py-0.5 rounded-full border border-white/20 text-white/80">Sign In</span>
+            </div>
+            <h2 className="text-2xl font-bold text-white">Welcome back</h2>
+            <p className="mt-1 text-sm text-white/70">Continue to your dashboard</p>
+          </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <input
-          type="email"
-          name="email"
-          placeholder="Email"
-          value={formData.email}
-          onChange={handleChange}
-          required
-          className="w-full px-4 py-2 rounded bg-slate-800 text-white border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <input
-          type="password"
-          name="password"
-          placeholder="Password"
-          value={formData.password}
-          onChange={handleChange}
-          required
-          className="w-full px-4 py-2 rounded bg-slate-800 text-white border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+          {error && (
+            <div className="mx-7 sm:mx-8 mb-3 text-rose-300 text-sm bg-rose-900/30 border border-rose-500/30 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
 
-        <p
-          onClick={handleForgotPassword}
-          className="text-sm text-blue-400 text-right cursor-pointer hover:underline"
-        >
-          Forgot Password?
-        </p>
+          <form onSubmit={handleSubmit} className="px-7 sm:px-8 pb-8 space-y-4">
+            <div className="group">
+              <input
+                type="email"
+                name="email"
+                placeholder="Email address"
+                value={formData.email}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition"
+              />
+            </div>
 
-        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 transition-all duration-300 text-white py-2 px-4 rounded-lg mt-2">Sign In</button>
-      </form>
-      <div className="mt-6 text-right">
-        <button
-          onClick={async () => {
-            await signOut(auth);
-            navigate('/');
-          }}
-          className="text-sm text-red-400 hover:text-red-600 underline transition"
-        >
-          Sign Out
-        </button>
+            <div className="group">
+              <input
+                type="password"
+                name="password"
+                placeholder="Password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition"
+              />
+              <div className="mt-2 text-right">
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  className="text-xs text-emerald-300/90 hover:text-emerald-200 underline underline-offset-4"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
+            >
+              Sign In
+            </button>
+
+            <div className="pt-2 text-center text-xs text-white/70">
+              By continuing you agree to FLYP’s <span className="underline decoration-white/30">Terms</span> & <span className="underline decoration-white/30">Privacy</span>
+            </div>
+          </form>
+
+          <div className="px-7 sm:px-8 pb-6 text-right">
+            <button
+              onClick={async () => {
+                await signOut(auth);
+                navigate('/');
+              }}
+              className="text-xs text-red-300/90 hover:text-red-200 underline underline-offset-4 transition"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -119,8 +119,8 @@ const ManualEntryForm = () => {
   };
 
   return (
-    <div className="bg-white rounded p-4 mt-4 shadow">
-      <h2 className="text-lg font-semibold mb-4">Add Inventory Manually</h2>
+    <div className="p-4 mt-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
+      <h2 className="text-lg font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Add Inventory Manually</h2>
       <form
         onSubmit={handleSubmit}
         className="grid grid-cols-1 gap-4 md:grid-cols-2"
@@ -132,7 +132,7 @@ const ManualEntryForm = () => {
           value={formData.productName}
           onChange={handleChange}
           required
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <input
           type="text"
@@ -141,7 +141,7 @@ const ManualEntryForm = () => {
           value={formData.sku}
           onChange={handleChange}
           required
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <input
           type="text"
@@ -149,7 +149,7 @@ const ManualEntryForm = () => {
           placeholder="Brand"
           value={formData.brand}
           onChange={handleChange}
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <input
           type="text"
@@ -157,7 +157,7 @@ const ManualEntryForm = () => {
           placeholder="Category"
           value={formData.category}
           onChange={handleChange}
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <input
           type="number"
@@ -166,7 +166,7 @@ const ManualEntryForm = () => {
           value={formData.quantity}
           onChange={handleChange}
           required
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <input
           type="number"
@@ -175,7 +175,7 @@ const ManualEntryForm = () => {
           value={formData.costPrice}
           onChange={handleChange}
           required
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <input
           type="number"
@@ -184,7 +184,7 @@ const ManualEntryForm = () => {
           value={formData.sellingPrice}
           onChange={handleChange}
           required
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <input
           type="text"
@@ -192,14 +192,14 @@ const ManualEntryForm = () => {
           placeholder="Unit (e.g., box, piece)"
           value={formData.unit}
           onChange={handleChange}
-          className="border p-2 rounded"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
         <textarea
           name="description"
           placeholder="Description"
           value={formData.description}
           onChange={handleChange}
-          className="border p-2 rounded col-span-2"
+          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 col-span-2"
         />
         <div className="col-span-2">
           <input
@@ -207,20 +207,20 @@ const ManualEntryForm = () => {
             name="image"
             accept="image/*"
             onChange={handleChange}
-            className="mb-2"
+            className="mb-2 p-2 rounded bg-white/10 border border-white/20 text-white file:bg-white/10 file:border-0 file:px-3 file:py-1 file:mr-3 file:rounded cursor-pointer"
           />
           {previewUrl && (
             <img
               src={previewUrl}
               alt="Product preview"
-              className="h-24 w-24 object-cover rounded border"
+              className="h-24 w-24 object-cover rounded border border-white/20 ring-1 ring-white/10"
             />
           )}
         </div>
         <button
           type="submit"
           disabled={uploading}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 col-span-2"
+          className="px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] col-span-2 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {uploading ? "Uploading..." : "Add Product"}
         </button>

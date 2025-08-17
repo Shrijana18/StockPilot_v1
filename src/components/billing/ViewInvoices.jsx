@@ -80,8 +80,8 @@ const ViewInvoices = () => {
   }, [search, invoices, startDate, endDate]);
 
   return (
-    <div className="px-4 py-6 md:px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-      <h2 className="text-xl font-semibold mb-4">All Invoices</h2>
+    <div className="px-4 py-6 md:px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-white">
+      <h2 className="text-xl font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">All Invoices</h2>
 
       <div className="flex flex-col md:flex-row justify-between items-end mb-4 gap-4">
         <div className="flex-1">
@@ -90,16 +90,16 @@ const ViewInvoices = () => {
             placeholder="Search by customer or invoice type..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border px-4 py-2 w-full rounded"
+            className="px-4 py-2 w-full rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
         </div>
         <div className="w-64">
-          <label className="block text-sm mb-1">Invoice Date</label>
+          <label className="block text-sm mb-1 text-white/80">Invoice Date</label>
           <input
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="border px-3 py-2 rounded w-full"
+            className="px-3 py-2 rounded-xl w-full bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
         </div>
       </div>
@@ -107,13 +107,13 @@ const ViewInvoices = () => {
       <div className="space-y-4">
         {filtered.map((inv) => (
           <div className="relative" key={inv.id}>
-            <div className="border bg-white shadow rounded-xl px-4 py-4 flex flex-col md:flex-row justify-between items-start md:items-center text-sm space-y-2 md:space-y-0">
+            <div className="px-4 py-4 flex flex-col md:flex-row justify-between items-start md:items-center text-sm space-y-2 md:space-y-0 bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
               <div className="flex-1 mb-2 md:mb-0">
                 <p className="font-semibold">{inv.customer?.name || "Unnamed"}</p>
-                <p className="text-gray-600">
+                <p className="text-white/70">
                   {inv.customer?.address || "No Address"} | {inv.customer?.phone || "No Phone"}
                 </p>
-                <p className="text-gray-500">
+                <p className="text-white/60">
                   Items: {inv.cartItems?.length || 0} | Date: {inv.createdAt ? moment(inv.createdAt).local().format("DD MMM YYYY, hh:mm A") : "N/A"}
                 </p>
               </div>
@@ -133,7 +133,7 @@ const ViewInvoices = () => {
                 })()}
                 <p className="font-semibold text-lg">₹{Number(inv.totalAmount || inv.total || 0).toFixed(2)}</p>
                 <button
-                  className="mt-1 px-3 py-1 bg-blue-600 text-white rounded text-xs"
+                  className="mt-1 px-3 py-1 rounded-lg text-xs font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
                   onClick={() => setSelectedInvoice(inv)}
                 >
                   View
@@ -146,7 +146,7 @@ const ViewInvoices = () => {
       {/* Modal-style Invoice Preview */}
       {selectedInvoice && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-lg shadow-lg p-4 md:p-6 max-w-4xl w-full max-h-screen overflow-y-auto space-y-4">
+          <div className="rounded-lg shadow-lg p-4 md:p-6 max-w-4xl w-full max-h-screen overflow-y-auto space-y-4 text-white bg-white/10 backdrop-blur-2xl border border-white/10">
             <div className="invoice-preview-container">
               <InvoicePreview
                 customer={selectedInvoice.customer}
@@ -185,7 +185,7 @@ const ViewInvoices = () => {
               />
             </div>
           {/* Action Buttons */}
-          <div className="mt-4 p-4 bg-white rounded shadow text-sm">
+          <div className="mt-4 p-4 rounded text-sm bg-white/5 backdrop-blur-xl border border-white/10">
             <p className="mb-2">
               Here is your receipt from <strong>{selectedInvoice.userInfo?.businessName}</strong>, located at{" "}
               <strong>{selectedInvoice.userInfo?.address || "N/A"}</strong>.<br />
@@ -197,7 +197,7 @@ const ViewInvoices = () => {
             </p>
             {selectedInvoice.paymentMode === "credit" && !selectedInvoice.isPaid && (
               <button
-                className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded mb-4"
+                className="px-4 py-2 rounded-lg mb-4 font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
                 onClick={() => setShowMarkPaidModal(true)}
               >
                 Mark as Paid
@@ -208,12 +208,12 @@ const ViewInvoices = () => {
                 href={`https://wa.me/91${selectedInvoice.customer?.phone}?text=Here%20is%20your%20invoice%20from%20${encodeURIComponent(selectedInvoice.userInfo?.businessName || "FLYP")}%20-%20Total%3A%20₹${Number(selectedInvoice.totalAmount || 0).toFixed(2)}%20on%20${encodeURIComponent(moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A"))}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded inline-block"
+                className="px-4 py-2 rounded-lg inline-block font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
               >
                 Send via WhatsApp
               </a>
               <button
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+                className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
                 onClick={() => {
                   const element = document.querySelector(".invoice-preview-container"); // wrap your InvoicePreview in this class
                   if (!element) return alert("Invoice content not found.");
@@ -232,7 +232,7 @@ const ViewInvoices = () => {
                 Send via Email
               </button>
             </div>
-            <p className="mt-2 text-xs text-gray-500 italic">
+            <p className="mt-2 text-xs text-white/70 italic">
               Powered by FLYP — smart business invoicing
             </p>
           </div>
