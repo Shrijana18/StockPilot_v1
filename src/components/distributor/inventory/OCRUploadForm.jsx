@@ -187,46 +187,53 @@ const OCRUploadForm = ({ distributorId }) => {
   };
 
   return (
-    <div className="bg-white p-4 rounded shadow-md">
-      <label className="block mb-2 font-medium">Upload Inventory Image</label>
-      <input type="file" accept="image/*" onChange={handleImageChange} className="block border border-gray-300 rounded p-2" />
+    <div className="space-y-4">
+      <label className="block mb-1 text-sm font-medium text-white/80">Upload Inventory Image</label>
+      <input
+        type="file"
+        accept="image/*,application/pdf"
+        onChange={handleImageChange}
+        className="block w-full rounded-lg bg-slate-800/60 border border-white/10 text-white placeholder-white/50 p-2 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
+      />
       {imagePreview && (
-        <div className="mt-4">
-          <img src={imagePreview} alt="Preview" className="max-w-xs rounded shadow" />
+        <div className="mt-3">
+          <img src={imagePreview} alt="Preview" className="max-w-xs rounded-lg border border-white/10 shadow-lg" />
         </div>
       )}
       <button
         onClick={handleScan}
         disabled={!imageFile || loading}
-        className={`mt-4 px-4 py-2 rounded ${
-          loading || !imageFile ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-        } text-white transition duration-200`}
+        className={`mt-3 px-4 py-2 rounded-lg text-sm transition ${
+          loading || !imageFile
+            ? "bg-slate-700/60 text-white/60 cursor-not-allowed"
+            : "bg-emerald-500/90 hover:bg-emerald-500 text-white shadow-[0_6px_20px_rgba(16,185,129,.35)]"
+        }`}
       >
         {loading ? "Scanning..." : "Scan & Import"}
       </button>
 
       {products.length > 0 && (
         <>
-          <div className="border p-2 rounded mt-4">
-            <h3 className="font-semibold mb-2">Scanned Products</h3>
+          <div className="mt-5 rounded-xl border border-white/10 bg-slate-900/40 backdrop-blur-sm p-3">
+            <h3 className="font-semibold mb-2 text-white/90">Scanned Products</h3>
             <div className="overflow-x-auto mt-4">
-              <table className="min-w-full bg-white border rounded shadow">
+              <table className="min-w-full bg-transparent rounded">
                 <thead>
-                  <tr className="bg-gray-100 text-left text-sm">
-                    <th className="p-2 border">#</th>
-                    <th className="p-2 border">Product Name</th>
-                    <th className="p-2 border">Quantity</th>
-                    <th className="p-2 border">Unit</th>
-                    <th className="p-2 border">Cost Price</th>
-                    <th className="p-2 border">Selling Price</th>
-                    <th className="p-2 border">Action</th>
+                  <tr className="text-left text-xs bg-slate-800/60">
+                    <th className="p-2 border border-white/10 text-white/80">#</th>
+                    <th className="p-2 border border-white/10 text-white/80">Product Name</th>
+                    <th className="p-2 border border-white/10 text-white/80">Quantity</th>
+                    <th className="p-2 border border-white/10 text-white/80">Unit</th>
+                    <th className="p-2 border border-white/10 text-white/80">Cost Price</th>
+                    <th className="p-2 border border-white/10 text-white/80">Selling Price</th>
+                    <th className="p-2 border border-white/10 text-white/80">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {products.map((item, index) => (
                     <tr key={index} className="text-sm">
-                      <td className="p-2 border">{index + 1}</td>
-                      <td className="p-2 border">
+                      <td className="p-2 border border-white/10 text-white/90">{index + 1}</td>
+                      <td className="p-2 border border-white/10 text-white/90">
                         <input
                           type="text"
                           value={item.productName || ""}
@@ -235,10 +242,10 @@ const OCRUploadForm = ({ distributorId }) => {
                             newProducts[index].productName = e.target.value;
                             setProducts(newProducts);
                           }}
-                          className="w-full border rounded p-1"
+                          className="w-full rounded-md bg-slate-800/60 border border-white/10 text-white p-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400/30"
                         />
                       </td>
-                      <td className="p-2 border">
+                      <td className="p-2 border border-white/10 text-white/90">
                         <input
                           type="number"
                           value={item.quantity || ""}
@@ -247,10 +254,10 @@ const OCRUploadForm = ({ distributorId }) => {
                             newProducts[index].quantity = e.target.value;
                             setProducts(newProducts);
                           }}
-                          className="w-full border rounded p-1"
+                          className="w-full rounded-md bg-slate-800/60 border border-white/10 text-white p-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400/30"
                         />
                       </td>
-                      <td className="p-2 border">
+                      <td className="p-2 border border-white/10 text-white/90">
                         <input
                           type="text"
                           value={item.unit || ""}
@@ -259,10 +266,10 @@ const OCRUploadForm = ({ distributorId }) => {
                             newProducts[index].unit = e.target.value;
                             setProducts(newProducts);
                           }}
-                          className="w-full border rounded p-1"
+                          className="w-full rounded-md bg-slate-800/60 border border-white/10 text-white p-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400/30"
                         />
                       </td>
-                      <td className="p-2 border">
+                      <td className="p-2 border border-white/10 text-white/90">
                         <input
                           type="number"
                           value={item.costPrice || ""}
@@ -271,10 +278,10 @@ const OCRUploadForm = ({ distributorId }) => {
                             newProducts[index].costPrice = e.target.value;
                             setProducts(newProducts);
                           }}
-                          className="w-full border rounded p-1"
+                          className="w-full rounded-md bg-slate-800/60 border border-white/10 text-white p-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400/30"
                         />
                       </td>
-                      <td className="p-2 border">
+                      <td className="p-2 border border-white/10 text-white/90">
                         <input
                           type="number"
                           value={item.sellingPrice || ""}
@@ -283,16 +290,16 @@ const OCRUploadForm = ({ distributorId }) => {
                             newProducts[index].sellingPrice = e.target.value;
                             setProducts(newProducts);
                           }}
-                          className="w-full border rounded p-1"
+                          className="w-full rounded-md bg-slate-800/60 border border-white/10 text-white p-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400/30"
                         />
                       </td>
-                      <td className="p-2 border">
+                      <td className="p-2 border border-white/10 text-white/90">
                         <button
                           onClick={() => {
                             const newProducts = products.filter((_, i) => i !== index);
                             setProducts(newProducts);
                           }}
-                          className="text-red-600 hover:text-red-800"
+                          className="text-red-300 hover:text-red-400"
                         >
                           Delete
                         </button>
@@ -305,7 +312,7 @@ const OCRUploadForm = ({ distributorId }) => {
           </div>
           <button
             onClick={handleSaveAll}
-            className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded transition duration-200"
+            className="mt-4 px-4 py-2 rounded-lg bg-emerald-500/90 hover:bg-emerald-500 text-white shadow-[0_6px_20px_rgba(16,185,129,.35)] transition"
           >
             Save All Products
           </button>

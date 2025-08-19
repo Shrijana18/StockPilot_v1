@@ -161,67 +161,67 @@ const RetailerRequests = ({ db, auth }) => {
   };
 
   return (
-    <div>
-      <h2 className="text-2xl font-semibold mb-4 sticky top-0 bg-white z-10 py-2 shadow-sm animate-fade-in">
+    <div className="text-white">
+      <h2 className="text-2xl font-semibold mb-4 sticky top-[72px] z-10 py-2 px-3 rounded-xl border border-white/10 backdrop-blur-xl bg-[#0B0F14]/60 supports-[backdrop-filter]:bg-[#0B0F14]/50 shadow-sm animate-fade-in">
         Incoming Retailer Requests
       </h2>
       {loading ? (
-        <div className="text-center py-8 text-gray-500">Loading requests...</div>
+        <div className="text-center py-8 text-white/60">Loading requests...</div>
       ) : requests.length === 0 ? (
-        <p className="text-gray-600 text-center mt-8 italic">You're all caught up! No new requests.</p>
+        <p className="text-white/70 text-center mt-8 italic">You're all caught up! No new requests.</p>
       ) : (
         <ul className="space-y-4 animate-fade-in">
           {requests.map((req) => (
-            <li key={req.id} className="bg-white shadow p-4 rounded transition-transform duration-200 hover:scale-[1.01] hover:shadow-md">
+            <li key={req.id} className="bg-white/5 backdrop-blur-xl border border-white/10 text-white p-4 rounded-xl transition-transform duration-200 hover:scale-[1.005] shadow-xl">
               <div className="flex justify-between items-center">
                 <div>
                   <p className="font-semibold">{req.businessName}</p>
-                  <p className="text-sm text-gray-600">{req.ownerName} ({req.email})</p>
+                  <p className="text-sm text-white/70">{req.ownerName} ({req.email})</p>
                   <p className="text-sm">
                     Status:{" "}
                     <span
-                      className={`px-2 py-0.5 rounded-full text-white text-xs ${
+                      className={`px-2 py-0.5 rounded-full text-xs ${
                         req.status === "accepted"
-                          ? "bg-green-500"
+                          ? "bg-emerald-500/20 text-emerald-200"
                           : req.status === "rejected"
-                          ? "bg-red-500"
-                          : "bg-yellow-500"
+                          ? "bg-rose-500/20 text-rose-200"
+                          : "bg-amber-500/20 text-amber-200"
                       }`}
                     >
                       {req.status}
                     </span>
                   </p>
                   {req.sentAt?.seconds && (
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-white/50 mt-1">
                       Sent at: {new Date(req.sentAt.seconds * 1000).toLocaleString()}
                     </p>
                   )}
                   {req.message && (
-                    <p className="text-sm italic text-gray-500 mt-1">
+                    <p className="text-sm italic text-white/60 mt-1">
                       Message: "{req.message}"
                     </p>
                   )}
                   {req.address && (
-                    <p className="text-sm text-gray-500">📍 Address: {req.address}</p>
+                    <p className="text-sm text-white/60">📍 Address: {req.address}</p>
                   )}
                   {req.city && (
-                    <p className="text-sm text-gray-500">🏙️ City: {req.city}</p>
+                    <p className="text-sm text-white/60">🏙️ City: {req.city}</p>
                   )}
                   {req.phone && (
-                    <p className="text-sm text-gray-500">📞 Phone: {req.phone}</p>
+                    <p className="text-sm text-white/60">📞 Phone: {req.phone}</p>
                   )}
                 </div>
                 <div className="space-x-2">
                   <button
                     onClick={() => handleUpdateStatus(req.retailerId, "accepted")}
                     disabled={req.status === "accepted"}
-                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded disabled:opacity-50 transition duration-200 transform hover:scale-105"
+                    className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-3 py-1.5 rounded-full disabled:opacity-50 transition duration-200 transform hover:scale-[1.02]"
                   >
                     Accept
                   </button>
                   <button
                     onClick={() => openRejectModal(req.retailerId)}
-                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition duration-200 transform hover:scale-105"
+                    className="bg-gradient-to-r from-rose-500 to-amber-500 text-white px-3 py-1.5 rounded-full transition duration-200 transform hover:scale-[1.02]"
                   >
                     Reject
                   </button>
@@ -232,12 +232,12 @@ const RetailerRequests = ({ db, auth }) => {
         </ul>
       )}
       {showRejectModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-          <div className="transition-all duration-300 ease-in-out transform scale-100 bg-white p-6 rounded-lg shadow-md w-96">
+        <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50">
+          <div className="transition-all duration-300 ease-in-out transform scale-100 bg-[#0B0F14]/90 backdrop-blur-2xl border border-white/10 text-white p-6 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.55)] w-96">
             <h3 className="text-lg font-semibold mb-2">Reject Retailer</h3>
-            <p className="mb-4 text-sm text-gray-700">Are you sure you want to reject this request?</p>
+            <p className="mb-4 text-sm text-white/70">Are you sure you want to reject this request?</p>
             <textarea
-              className="w-full border border-gray-300 rounded p-2 mb-4"
+              className="w-full rounded-xl p-2.5 mb-4 bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               placeholder="Optional reason for rejection..."
               value={rejectionNote}
               onChange={(e) => setRejectionNote(e.target.value)}
@@ -245,13 +245,13 @@ const RetailerRequests = ({ db, auth }) => {
             <div className="flex justify-end space-x-2">
               <button
                 onClick={() => setShowRejectModal(false)}
-                className="px-4 py-2 bg-gray-300 rounded"
+                className="px-4 py-2 rounded-full bg-white/10 text-white border border-white/20 hover:bg-white/15"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmReject}
-                className="px-4 py-2 bg-red-500 text-white rounded"
+                className="px-4 py-2 rounded-full text-white bg-gradient-to-r from-rose-500 to-amber-500"
               >
                 Confirm Reject
               </button>

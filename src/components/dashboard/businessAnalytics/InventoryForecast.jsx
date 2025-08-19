@@ -77,13 +77,13 @@ const InventoryForecast = () => {
   }, [timeRangeDays]);
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-5">
+    <div className="p-5 rounded-lg bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
       <div className="mb-4">
-        <label className="text-sm font-medium mr-2">Select Time Range:</label>
+        <label className="text-sm font-medium mr-2 text-white/80">Select Time Range:</label>
         <select
           value={timeRangeDays}
           onChange={(e) => setTimeRangeDays(Number(e.target.value))}
-          className="border rounded px-2 py-1"
+          className="rounded px-2 py-1 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         >
           <option value={7}>Last 7 Days</option>
           <option value={15}>Last 15 Days</option>
@@ -93,30 +93,30 @@ const InventoryForecast = () => {
           <option value={365}>Last 1 Year</option>
         </select>
       </div>
-      <h2 className="text-xl font-semibold mb-4">Inventory Forecast</h2>
+      <h2 className="text-xl font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Inventory Forecast</h2>
       {lowStockForecast.length === 0 ? (
-        <p className="text-gray-500">No sales data available for the selected period.</p>
+        <p className="text-white/70">No sales data available for the selected period.</p>
       ) : (
-        <table className="min-w-full text-sm border-t">
+        <table className="min-w-full text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden">
           <thead>
-            <tr className="border-b bg-gray-50 text-left">
-              <th className="p-2">Product</th>
-              <th className="p-2">Sold</th>
-              <th className="p-2">Daily Velocity</th>
-              <th className="p-2">Stock</th>
-              <th className="p-2">Recommended</th>
-              <th className="p-2">Reorder</th>
+            <tr className="bg-white/10 text-left border-b border-white/10">
+              <th className="p-2 text-white/80">Product</th>
+              <th className="p-2 text-white/80">Sold</th>
+              <th className="p-2 text-white/80">Daily Velocity</th>
+              <th className="p-2 text-white/80">Stock</th>
+              <th className="p-2 text-white/80">Recommended</th>
+              <th className="p-2 text-white/80">Reorder</th>
             </tr>
           </thead>
           <tbody>
             {lowStockForecast.map((item, index) => (
-              <tr key={index} className="border-b">
-                <td className="p-2">{item.name} ({item.sku})</td>
-                <td className="p-2">{item.sold}</td>
-                <td className="p-2">{item.avgDailySales}</td>
-                <td className="p-2">{item.currentStock}</td>
-                <td className="p-2">{item.recommendedStock}</td>
-                <td className={`p-2 ${item.reorderQty > 0 ? "text-red-600 font-semibold" : "text-gray-500"}`}>
+              <tr key={index} className="border-b border-white/10 hover:bg-white/5">
+                <td className="p-2 text-white/90">{item.name} ({item.sku})</td>
+                <td className="p-2 text-white/90">{item.sold}</td>
+                <td className="p-2 text-white/90">{item.avgDailySales}</td>
+                <td className="p-2 text-white/90">{item.currentStock}</td>
+                <td className="p-2 text-white/90">{item.recommendedStock}</td>
+                <td className={`p-2 ${item.reorderQty > 0 ? "text-rose-300 font-semibold" : "text-white/60"}`}>
                   {item.reorderQty}
                 </td>
               </tr>

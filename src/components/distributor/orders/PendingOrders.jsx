@@ -194,61 +194,63 @@ const PendingOrders = () => {
     } catch { return 'N/A'; }
   };
 
-  return (
-    <div className="p-6 space-y-6">
+return (
+    <div className="p-6 space-y-6 text-white">
       {/* Segmented control for status filter */}
-      <div className="mb-4">
-        <div className="inline-flex rounded-lg shadow-sm border border-gray-200 overflow-hidden bg-white">
-          {['All', 'Accepted', 'Modified'].map((status) => (
-            <button
-              key={status}
-              type="button"
-              className={
-                `px-5 py-2 font-medium transition-colors duration-150 focus:outline-none
-                ${statusFilter === status
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-blue-50'}
-                ${status !== 'All' ? 'border-l border-gray-200' : ''}`
-              }
-              onClick={() => setStatusFilter(status)}
-            >
-              {status}
-            </button>
-          ))}
+      <div className="mb-4 sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 border border-white/10 rounded-xl px-3 py-2">
+        <div className="flex gap-2 flex-wrap">
+          {['All', 'Accepted', 'Modified'].map((status) => {
+            const active = statusFilter === status;
+            const base = 'px-4 py-1 rounded-full text-sm border transition backdrop-blur-xl';
+            const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
+            const off = 'bg-white/10 text-white border-white/15 hover:bg-white/15';
+            return (
+              <button
+                key={status}
+                type="button"
+                className={`${base} ${active ? on : off}`}
+                onClick={() => setStatusFilter(status)}
+              >
+                {status}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {filteredOrders.map((order) => (
         <div
           key={order.id}
-          className="rounded-lg border bg-white shadow-sm hover:shadow-md transition p-6"
+          className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl hover:shadow-emerald-400/10 transition p-6"
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
             <div className="flex flex-col gap-1">
-              <h3 className="font-semibold text-lg">Retailer: {order.retailerName}</h3>
-              <p className="text-sm text-gray-500">Order ID: {order.id}</p>
+              <h3 className="font-semibold text-lg text-white">Retailer: {order.retailerName}</h3>
+              <p className="text-sm text-white/60">Order ID: {order.id}</p>
             </div>
             <div className="flex items-center gap-2">
               <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold
-                  ${order.status === 'Accepted'
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-yellow-100 text-yellow-800'}
-                `}
+                className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  order.status === 'Accepted'
+                    ? 'bg-emerald-400/15 text-emerald-300'
+                    : order.status === 'Modified'
+                    ? 'bg-amber-400/15 text-amber-300'
+                    : 'bg-white/10 text-white/80'
+                }`}
               >
                 {order.status}
               </span>
             </div>
           </div>
           <div className="mt-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-            <p className="text-gray-700">Email: {order.retailerEmail}</p>
+            <p className="text-white/70">Email: {order.retailerEmail}</p>
             {order.status === 'Modified' ? (
               <label className="flex items-center gap-2">
-                <span className="font-medium text-gray-700">Payment Mode:</span>
+                <span className="font-medium text-white/80">Payment Mode:</span>
                 <select
                   value={order.paymentMode || ''}
                   onChange={(e) => handlePaymentModeChange(order.id, e.target.value)}
-                  className="border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-200 transition"
+                  className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
                 >
                   <option value="">Select</option>
                   <option value="COD">Cash on Delivery (COD)</option>
@@ -263,15 +265,15 @@ const PendingOrders = () => {
                 </select>
               </label>
             ) : (
-              <p className="text-gray-700"><span className="font-medium">Payment Mode:</span> {order.paymentMode || 'N/A'}</p>
+              <p className="text-white/70"><span className="font-medium">Payment Mode:</span> {order.paymentMode || 'N/A'}</p>
             )}
           </div>
-          <p className="mt-1 text-gray-500 text-sm">
+          <p className="mt-1 text-white/60 text-sm">
             Requested On: {order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : 'N/A'}
           </p>
 
-          <div className="mt-4 border border-gray-200 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-8 font-semibold bg-gray-50 border-b border-gray-200 px-4 py-2 text-gray-700">
+          <div className="mt-4 border border-white/10 rounded-lg overflow-hidden">
+            <div className="grid grid-cols-8 font-semibold bg-white/5 border-b border-white/10 px-4 py-2 text-white">
               <div>Name</div>
               <div>Brand</div>
               <div>Category</div>
@@ -286,48 +288,48 @@ const PendingOrders = () => {
               return (
                 <div
                   key={i}
-                  className="grid grid-cols-8 border-t border-gray-100 px-4 py-2 text-sm items-center gap-2"
+                  className="grid grid-cols-8 border-t border-white/10 px-4 py-2 text-sm items-center gap-2 hover:bg-white/5 transition"
                 >
                   {order.status === 'Modified' ? (
                     <>
                       <input
-                        className="border rounded px-2 py-1 focus:ring-2 focus:ring-blue-100 transition"
+                        className="rounded px-2 py-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition"
                         type="text"
                         value={item.productName}
                         onChange={(e) => handleItemEdit(order.id, i, 'productName', e.target.value)}
                       />
                       <input
-                        className="border rounded px-2 py-1 focus:ring-2 focus:ring-blue-100 transition"
+                        className="rounded px-2 py-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition"
                         type="text"
                         value={item.brand || ''}
                         onChange={(e) => handleItemEdit(order.id, i, 'brand', e.target.value)}
                       />
                       <input
-                        className="border rounded px-2 py-1 focus:ring-2 focus:ring-blue-100 transition"
+                        className="rounded px-2 py-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition"
                         type="text"
                         value={item.category || ''}
                         onChange={(e) => handleItemEdit(order.id, i, 'category', e.target.value)}
                       />
                       <div className="flex flex-col gap-1">
                         <input
-                          className={`border rounded px-2 py-1 focus:ring-2 focus:ring-blue-100 transition ${isOverstock ? 'border-red-500' : ''}`}
+                          className={`rounded px-2 py-1 bg-white/10 border ${isOverstock ? 'border-rose-500' : 'border-white/20'} text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition`}
                           type="number"
                           value={item.quantity}
                           onChange={(e) => handleItemEdit(order.id, i, 'quantity', parseInt(e.target.value))}
                         />
                         {isOverstock && (
-                          <span className="text-xs text-red-600">{message}</span>
+                          <span className="text-xs text-rose-300">{message}</span>
                         )}
                       </div>
                       <input
-                        className="border rounded px-2 py-1 focus:ring-2 focus:ring-blue-100 transition"
+                        className="rounded px-2 py-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition"
                         type="text"
                         value={item.unit || ''}
                         onChange={(e) => handleItemEdit(order.id, i, 'unit', e.target.value)}
                       />
                       <button
                         onClick={() => handleDeleteItem(order.id, i)}
-                        className="text-red-600 font-semibold px-2 py-1 rounded hover:bg-red-50 transition"
+                        className="text-rose-300 font-semibold px-2 py-1 rounded hover:bg-white/10 transition"
                         title="Delete Item"
                         type="button"
                       >
@@ -344,7 +346,7 @@ const PendingOrders = () => {
                       <div>
                         {item.quantity}
                         {(item.stockAvailable !== undefined && item.quantity > item.stockAvailable) && (
-                          <span className="text-red-600 text-xs ml-1">Out of Stock</span>
+                          <span className="text-rose-300 text-xs ml-1">Out of Stock</span>
                         )}
                       </div>
                       <div>{item.unit || 'N/A'}</div>
@@ -359,7 +361,7 @@ const PendingOrders = () => {
           </div>
 
           <div className="mt-6 flex flex-col md:flex-row md:items-center md:gap-6 gap-3">
-            <label className="flex items-center gap-2 font-medium text-gray-700">
+            <label className="flex items-center gap-2 font-medium text-white/80">
               Expected Delivery Date:
               <input
                 type="date"
@@ -370,14 +372,14 @@ const PendingOrders = () => {
                     prev.map(o => o.id === order.id ? { ...o, expectedDeliveryDate: e.target.value } : o)
                   );
                 }}
-                className="border rounded-lg px-3 py-2 ml-1 focus:ring-2 focus:ring-blue-200 transition"
+                className="rounded-lg px-3 py-2 ml-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
               />
             </label>
             {order.deliveryDateError && (
-              <p className="text-red-600 text-sm mt-1">Please select a valid delivery date.</p>
+              <p className="text-rose-300 text-sm mt-1">Please select a valid delivery date.</p>
             )}
 
-            <label className="flex items-center gap-2 font-medium text-gray-700">
+            <label className="flex items-center gap-2 font-medium text-white/80">
               Delivery Mode:
               <select
                 value={order.deliveryMode || ''}
@@ -387,7 +389,7 @@ const PendingOrders = () => {
                     prev.map(o => o.id === order.id ? { ...o, deliveryMode: e.target.value } : o)
                   );
                 }}
-                className="border rounded-lg px-3 py-2 ml-1 focus:ring-2 focus:ring-blue-200 transition"
+                className="rounded-lg px-3 py-2 ml-1 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
               >
                 <option value="">Select</option>
                 <option value="By Distributor">By Distributor</option>
@@ -397,7 +399,7 @@ const PendingOrders = () => {
               </select>
             </label>
             {order.deliveryModeError && (
-              <p className="text-red-600 text-sm mt-1">Please select a delivery mode.</p>
+              <p className="text-rose-300 text-sm mt-1">Please select a delivery mode.</p>
             )}
           </div>
 
@@ -405,14 +407,14 @@ const PendingOrders = () => {
             {order.status === 'Modified' && (
               <button
                 onClick={() => saveModifiedOrder(order.id)}
-                className="px-4 py-2 rounded-lg font-medium bg-yellow-500 text-white hover:bg-yellow-600 transition"
+                className="px-4 py-2 rounded-full font-medium text-sm text-slate-900 bg-gradient-to-r from-amber-300 via-yellow-300 to-orange-300 hover:shadow-[0_8px_24px_rgba(251,191,36,0.35)] transition"
               >
                 Save Changes
               </button>
             )}
             <button
               onClick={() => markAsShipped(order.id)}
-              className="px-4 py-2 rounded-lg font-medium bg-blue-600 text-white hover:bg-blue-700 transition"
+              className="px-4 py-2 rounded-full font-medium text-sm text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] transition"
             >
               Mark as Shipped
             </button>

@@ -69,14 +69,14 @@ const SmartSuggestionsPanel = () => {
   }, []);
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-5">
-      <h2 className="text-xl font-semibold mb-4">Smart Suggestions</h2>
-      <ul className="list-disc list-inside space-y-1">
+    <div className="p-5 rounded-lg bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
+      <h2 className="text-xl font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Smart Suggestions</h2>
+      <ul className="list-disc list-inside space-y-1 marker:text-emerald-300">
         {suggestions.map((text, index) => (
-          <li key={index} className="text-gray-700">{text}</li>
+          <li key={index} className="text-white/90">{text}</li>
         ))}
         {suggestions.length === 0 && (
-          <li className="text-gray-500">Generating suggestions...</li>
+          <li className="text-white/70">Generating suggestions...</li>
         )}
       </ul>
     </div>

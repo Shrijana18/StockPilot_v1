@@ -300,34 +300,34 @@ const TrackOrders = () => {
   };
 
   return (
-    <div className="p-4">
+    <div className="p-4 text-white">
       <ToastContainer />
       <h2 className="text-2xl font-bold mb-4">Track Orders</h2>
       {/* Filter/Search Controls */}
-      <div className="bg-white shadow-md rounded-lg p-4 mb-4 flex flex-col md:flex-row md:items-center gap-4">
+      <div className="sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 supports-[backdrop-filter]:bg-[#0B0F14]/50 border border-white/15 rounded-xl p-4 mb-4 flex flex-col md:flex-row md:items-center gap-4">
         <input
           type="text"
           placeholder="Search by order ID, retailer, phone, email, etc."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="px-3 py-2 border rounded-lg w-full md:w-1/2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-4 py-2 rounded-lg w-full md:w-1/2 bg-white/10 border border-white/15 placeholder-white/50 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
         />
         <input
           type="date"
           value={filterDate}
           onChange={(e) => setFilterDate(e.target.value)}
-          className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
         />
       </div>
       {/* Section Toggle Segmented Control */}
-      <div className="inline-flex rounded-md border border-gray-200 shadow-sm overflow-hidden mb-4 group">
+      <div className="inline-flex rounded-full bg-white/5 border border-white/15 overflow-hidden mb-4 backdrop-blur-xl">
         <button
           onClick={() => setSectionAndHash('Out for Delivery')}
           className={
-            "px-4 py-2 font-medium text-sm focus:outline-none transition " +
+            "px-4 py-2 font-medium text-sm transition focus:outline-none " +
             (activeSection === 'Out for Delivery'
-              ? "bg-blue-600 text-white"
-              : "bg-white text-gray-600 hover:bg-gray-50")
+              ? "bg-emerald-500/20 text-emerald-200"
+              : "text-white/70 hover:bg-white/5")
           }
         >
           Out for Delivery ({outForDeliveryOrders.length})
@@ -335,10 +335,10 @@ const TrackOrders = () => {
         <button
           onClick={() => setSectionAndHash('Payment Due')}
           className={
-            "px-4 py-2 font-medium text-sm focus:outline-none transition border-l border-gray-200 " +
+            "px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " +
             (activeSection === 'Payment Due'
-              ? "bg-blue-600 text-white"
-              : "bg-white text-gray-600 hover:bg-gray-50")
+              ? "bg-amber-500/20 text-amber-200"
+              : "text-white/70 hover:bg-white/5")
           }
         >
           Payment Due ({paymentDueOrders.length})
@@ -346,43 +346,43 @@ const TrackOrders = () => {
         <button
           onClick={() => setSectionAndHash('Paid Orders')}
           className={
-            "px-4 py-2 font-medium text-sm focus:outline-none transition border-l border-gray-200 " +
+            "px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " +
             (activeSection === 'Paid Orders'
-              ? "bg-blue-600 text-white"
-              : "bg-white text-gray-600 hover:bg-gray-50")
+              ? "bg-sky-500/20 text-sky-200"
+              : "text-white/70 hover:bg-white/5")
           }
         >
           Paid Orders ({paidOrders.length})
         </button>
       </div>
       {paymentDueOrders.length === 0 && paidOrders.length === 0 ? (
-        <p className="text-gray-500 mt-8 text-center">No orders to track yet.</p>
+        <p className="text-white/60 mt-8 text-center">No orders to track yet.</p>
       ) : (
         <>
           {activeSection === 'Out for Delivery' && (
             <div>
-              <h3 className="text-lg font-semibold text-blue-700 mb-2">🚚 Out for Delivery</h3>
+              <h3 className="text-lg font-semibold text-emerald-200 mb-2">🚚 Out for Delivery</h3>
               {outForDeliveryOrders.length === 0 ? (
-                <div className="text-gray-500 mb-6">No orders are currently out for delivery.</div>
+                <div className="text-white/60 mb-6">No orders are currently out for delivery.</div>
               ) : (
                 outForDeliveryOrders.map((order) => (
-                  <div key={order.id} className="bg-white rounded-lg shadow-md overflow-hidden mb-4 transition hover:shadow-lg">
+                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
                     {/* --- header --- */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
                       <div>
-                        <span className="font-bold text-lg text-gray-900">
+                        <span className="font-bold text-lg text-white">
                           {order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}
                         </span>
                       </div>
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">{order.status}</span>
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-sky-500/15 text-sky-200">{order.status}</span>
                     </div>
                     {/* subheader */}
-                    <div className="flex flex-wrap gap-6 items-center text-sm text-gray-500 px-4 pb-2">
-                      <span><span className="font-medium text-gray-700">Total:</span> ₹{sumOrderTotal(order).toFixed(2)}</span>
-                      <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-800 text-xs font-medium">Payment: {order.paymentMethod || 'N/A'}</span>
+                    <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
+                      <span><span className="font-medium text-white/80">Total:</span> ₹{sumOrderTotal(order).toFixed(2)}</span>
+                      <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 text-xs font-medium">Payment: {order.paymentMethod || 'N/A'}</span>
                       {order.paymentMethod === 'Credit Cycle' && (
                         <div className="flex items-center gap-2">
-                          <label className="text-xs text-gray-600 font-medium">Credit Days:</label>
+                          <label className="text-xs text-white/70 font-medium">Credit Days:</label>
                           <input
                             type="number"
                             min={1}
@@ -394,7 +394,7 @@ const TrackOrders = () => {
                               setCreditDaysEdit((prev) => ({ ...prev, [order.id]: Number.isFinite(val) ? val : '' }));
                             }}
                           />
-                          <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-800 text-[11px] font-medium">
+                          <span className="px-2 py-1 rounded-full bg-amber-500/15 text-amber-200 text-[11px] font-medium">
                             Due if delivered today: {formatDate(duePreviewFromDays(getEditedCreditDays(order)))}
                           </span>
                         </div>
@@ -404,13 +404,13 @@ const TrackOrders = () => {
                     {/* action buttons */}
                     <div className="px-4 pb-2 flex flex-col md:flex-row gap-2">
                       {order.paymentMethod === 'COD' && !order.isPaid && (
-                        <button onClick={() => confirmCODPayment(order)} className="rounded-lg px-4 py-2 font-medium bg-green-700 text-white hover:bg-green-800 transition">
+                        <button onClick={() => confirmCODPayment(order)} className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition">
                           Confirm Payment Received
                         </button>
                       )}
                       <button
                         onClick={() => guardedMarkDelivered(order)}
-                        className={`rounded-lg px-4 py-2 font-medium text-white transition ${order.paymentMethod === 'COD' && !order.isPaid ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                        className={`rounded-lg px-4 py-2 font-medium text-white transition ${order.paymentMethod === 'COD' && !order.isPaid ? 'bg-white/10 cursor-not-allowed' : 'bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-500'}`}
                         disabled={order.paymentMethod === 'COD' && !order.isPaid}
                       >
                         Mark Delivered
@@ -428,11 +428,11 @@ const TrackOrders = () => {
                     {expandedOrderIds.includes(order.id) && (
                       <div className="p-4 space-y-2 text-sm">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                          <div className="border rounded p-3 bg-gray-50">
-                            <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">At time of order</div>
-                            <div className="font-medium text-gray-900">{order.retailerBusinessName || order.retailerName || 'N/A'}</div>
-                            <div className="text-sm text-gray-600">Owner: {order.ownerName || order.retailerOwnerName || order.retailerName || 'N/A'}</div>
-                            <div className="text-sm text-gray-600">
+                          <div className="border border-white/10 rounded-lg p-3 bg-white/5">
+                            <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">At time of order</div>
+                            <div className="font-medium text-white">{order.retailerBusinessName || order.retailerName || 'N/A'}</div>
+                            <div className="text-sm text-white/70">Owner: {order.ownerName || order.retailerOwnerName || order.retailerName || 'N/A'}</div>
+                            <div className="text-sm text-white/70">
                               {(() => {
                                 const snapAddr = [order.retailerAddress, order.city, order.state].filter(Boolean).join(', ');
                                 const current = currentRetailers[order.retailerId] || {};
@@ -443,8 +443,8 @@ const TrackOrders = () => {
                               })()}
                             </div>
                           </div>
-                          <div className="border rounded p-3 bg-white">
-                            <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Current profile</div>
+                          <div className="border border-white/10 rounded-lg p-3 bg-white/5">
+                            <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">Current profile</div>
                             {(() => {
                               const current = currentRetailers[order.retailerId] || {};
                               const currentTitle = current.businessName || current.retailerName || current.ownerName || '—';
@@ -452,9 +452,9 @@ const TrackOrders = () => {
                               const currentAddress = [current.address, current.city, current.state].filter(Boolean).join(', ') || '—';
                               return (
                                 <>
-                                  <div className="font-medium text-gray-900">{currentTitle}</div>
-                                  <div className="text-sm text-gray-600">Owner: {currentOwner}</div>
-                                  <div className="text-sm text-gray-600">{currentAddress}</div>
+                                  <div className="font-medium text-white">{currentTitle}</div>
+                                  <div className="text-sm text-white/70">Owner: {currentOwner}</div>
+                                  <div className="text-sm text-white/70">{currentAddress}</div>
                                 </>
                               );
                             })()}
@@ -466,23 +466,23 @@ const TrackOrders = () => {
                         <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
                         <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
                         {/* Items Table (same as other tabs) */}
-                        <div className="mt-4 rounded-lg bg-white border p-3">
+                        <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
                           <div className="overflow-x-auto">
                             <table className="min-w-full table-auto">
-                              <thead className="bg-gray-100">
+                              <thead className="bg-white/5">
                                 <tr>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">Product Name</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">Brand</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">SKU</th>
-                                  <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600">Qty</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-gray-600">Price</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-gray-600">Subtotal</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Name</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
+                                  <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Subtotal</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {(order.items || []).map((item, idx) => (
-                                  <tr key={idx} className="hover:bg-blue-50 transition">
+                                  <tr key={idx} className="hover:bg-white/5 transition">
                                     <td className="px-2 py-2">{item.productName || 'N/A'}</td>
                                     <td className="px-2 py-2">{item.brand || '—'}</td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
@@ -505,24 +505,24 @@ const TrackOrders = () => {
           )}
           {activeSection === 'Payment Due' && (
             <div>
-              <h3 className="text-lg font-semibold text-yellow-700 mb-2">📅 Payment Due</h3>
+              <h3 className="text-lg font-semibold text-amber-200 mb-2">📅 Payment Due</h3>
               {paymentDueOrders.length === 0 ? (
-                <div className="text-gray-500 mb-6">No payment due orders.</div>
+                <div className="text-white/60 mb-6">No payment due orders.</div>
               ) : (
                 paymentDueOrders.map((order) => (
-                  <div key={order.id} className="bg-white rounded-lg shadow-md overflow-hidden mb-4 transition hover:shadow-lg">
+                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
                       <div>
-                        <span className="font-bold text-lg text-gray-900">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
+                        <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
                       </div>
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">{order.status}</span>
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-200">{order.status}</span>
                     </div>
-                    <div className="flex flex-wrap gap-6 items-center text-sm text-gray-500 px-4 pb-2">
+                    <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
                       {order.deliveredAt && (
-                        <span><span className="font-medium text-gray-700">Delivered:</span> {formatDate(order.deliveredAt)}</span>
+                        <span><span className="font-medium text-white/80">Delivered:</span> {formatDate(order.deliveredAt)}</span>
                       )}
                       {(order.creditDueDate || order.__dueDate) && (
-                        <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-medium">
+                        <span className="px-2 py-1 rounded-full bg-amber-500/15 text-amber-200 text-xs font-medium">
                           Credit Due Date: <span className="font-semibold">{formatDate(order.creditDueDate || order.__dueDate)}</span>
                         </span>
                       )}
@@ -537,10 +537,10 @@ const TrackOrders = () => {
                         {/* Credit info header */}
                         <div className="flex flex-wrap items-center gap-3">
                           {order.deliveredAt && (
-                            <span><span className="font-medium text-gray-700">Delivered:</span> {formatDate(order.deliveredAt)}</span>
+                            <span><span className="font-medium text-white/80">Delivered:</span> {formatDate(order.deliveredAt)}</span>
                           )}
                           {(order.creditDueDate || order.__dueDate) && (
-                            <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-medium">
+                            <span className="px-2 py-1 rounded-full bg-amber-500/15 text-amber-200 text-xs font-medium">
                               Credit Due Date: <span className="font-semibold">{formatDate(order.creditDueDate || order.__dueDate)}</span>
                             </span>
                           )}
@@ -549,11 +549,11 @@ const TrackOrders = () => {
                         {/* Retailer info: historical vs current */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                           {/* Historical snapshot at time of order */}
-                          <div className="border rounded p-3 bg-gray-50">
-                            <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">At time of order</div>
-                            <div className="font-medium text-gray-900">{order.retailerBusinessName || order.retailerName || 'N/A'}</div>
-                            <div className="text-sm text-gray-600">Owner: {order.ownerName || order.retailerOwnerName || order.retailerName || 'N/A'}</div>
-                            <div className="text-sm text-gray-600">
+                          <div className="border border-white/10 rounded-lg p-3 bg-white/5">
+                            <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">At time of order</div>
+                            <div className="font-medium text-white">{order.retailerBusinessName || order.retailerName || 'N/A'}</div>
+                            <div className="text-sm text-white/70">Owner: {order.ownerName || order.retailerOwnerName || order.retailerName || 'N/A'}</div>
+                            <div className="text-sm text-white/70">
                               {(() => {
                                 const snapAddr = [order.retailerAddress, order.city, order.state].filter(Boolean).join(', ');
                                 const current = currentRetailers[order.retailerId] || {};
@@ -565,8 +565,8 @@ const TrackOrders = () => {
                             </div>
                           </div>
                           {/* Current live profile */}
-                          <div className="border rounded p-3 bg-white">
-                            <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Current profile</div>
+                          <div className="border border-white/10 rounded-lg p-3 bg-white/5">
+                            <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">Current profile</div>
                             {(() => {
                               const current = currentRetailers[order.retailerId] || {};
                               const currentTitle = current.businessName || current.retailerName || current.ownerName || '—';
@@ -574,9 +574,9 @@ const TrackOrders = () => {
                               const currentAddress = [current.address, current.city, current.state].filter(Boolean).join(', ') || '—';
                               return (
                                 <>
-                                  <div className="font-medium text-gray-900">{currentTitle}</div>
-                                  <div className="text-sm text-gray-600">Owner: {currentOwner}</div>
-                                  <div className="text-sm text-gray-600">{currentAddress}</div>
+                                  <div className="font-medium text-white">{currentTitle}</div>
+                                  <div className="text-sm text-white/70">Owner: {currentOwner}</div>
+                                  <div className="text-sm text-white/70">{currentAddress}</div>
                                 </>
                               );
                             })()}
@@ -596,23 +596,23 @@ const TrackOrders = () => {
                         </div>
 
                         {/* Items Table */}
-                        <div className="mt-2 rounded-lg bg-white border p-3">
+                        <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
                           <div className="overflow-x-auto">
                             <table className="min-w-full table-auto">
-                              <thead className="bg-gray-100">
+                              <thead className="bg-white/5">
                                 <tr>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">Product Name</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">Brand</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">SKU</th>
-                                  <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600">Qty</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-gray-600">Price</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-gray-600">Subtotal</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Name</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
+                                  <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Subtotal</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {(order.items || []).map((item, idx) => (
-                                  <tr key={idx} className="hover:bg-blue-50 transition">
+                                  <tr key={idx} className="hover:bg-white/5 transition">
                                     <td className="px-2 py-2">{item.productName || 'N/A'}</td>
                                     <td className="px-2 py-2">{item.brand || '—'}</td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
@@ -631,13 +631,13 @@ const TrackOrders = () => {
                         <div className="flex flex-wrap gap-2 mt-2">
                           <span className={
                             "px-2 py-1 rounded-full text-xs font-medium " +
-                            (order.paymentMethod === 'Credit Cycle' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-700')
+                            (order.paymentMethod === 'Credit Cycle' ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-white/80')
                           }>
                             Payment: {order.paymentMethod || 'N/A'}
                           </span>
                           <span className={
                             "px-2 py-1 rounded-full text-xs font-medium " +
-                            (order.deliveryMode === 'Self Pickup' ? 'bg-green-100 text-green-800' : order.deliveryMode === 'Courier' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700')
+                            (order.deliveryMode === 'Self Pickup' ? 'bg-emerald-500/15 text-emerald-200' : order.deliveryMode === 'Courier' ? 'bg-sky-500/15 text-sky-200' : 'bg-white/10 text-white/80')
                           }>
                             Delivery: {order.deliveryMode || 'N/A'}
                           </span>
@@ -655,7 +655,7 @@ const TrackOrders = () => {
                               await updateDoc(retailerOrderRef, paymentPayload);
                               toast.success('✅ Credit payment marked as received!');
                             }}
-                            className="rounded-lg px-4 py-2 font-medium bg-green-700 text-white hover:bg-green-800 transition"
+                            className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition"
                           >
                             Mark Credit as Paid
                           </button>
@@ -669,19 +669,19 @@ const TrackOrders = () => {
           )}
           {activeSection === 'Paid Orders' && (
             <div>
-              <h3 className="text-lg font-semibold text-green-700 mb-2">✅ Paid Orders</h3>
+              <h3 className="text-lg font-semibold text-emerald-200 mb-2">✅ Paid Orders</h3>
               {paidOrders.length === 0 ? (
-                <div className="text-gray-500 mb-6">No paid orders.</div>
+                <div className="text-white/60 mb-6">No paid orders.</div>
               ) : (
                 paidOrders.map((order) => (
                   <div
                     key={order.id}
-                    className="bg-white rounded-lg shadow-md overflow-hidden mb-4 transition hover:shadow-lg"
+                    className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10"
                   >
                     {/* --- Card header --- */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
                       <div>
-                        <span className="font-bold text-lg text-gray-900">
+                        <span className="font-bold text-lg text-white">
                           {order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}
                         </span>
                       </div>
@@ -689,33 +689,33 @@ const TrackOrders = () => {
                         className={
                           "px-2 py-1 rounded-full text-xs font-medium " +
                           (order.status === 'Delivered'
-                            ? "bg-green-100 text-green-800"
+                            ? "bg-emerald-500/15 text-emerald-200"
                             : order.status === 'Shipped'
-                            ? "bg-blue-100 text-blue-800"
+                            ? "bg-sky-500/15 text-sky-200"
                             : order.status === 'Accepted'
-                            ? "bg-yellow-100 text-yellow-800"
+                            ? "bg-amber-500/15 text-amber-200"
                             : order.status === 'Requested'
-                            ? "bg-gray-100 text-gray-700"
-                            : "bg-gray-100 text-gray-700")
+                            ? "bg-white/10 text-white/80"
+                            : "bg-white/10 text-white/80")
                         }
                       >
                         {order.status}
                       </span>
                     </div>
                     {/* --- Subheader info --- */}
-                    <div className="flex flex-wrap gap-6 items-center text-sm text-gray-500 px-4 pb-2">
+                    <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
                       <span>
-                        <span className="font-medium text-gray-700">City:</span>{" "}
+                        <span className="font-medium text-white/80">City:</span>{" "}
                         {order.city || connectedRetailerMap[order.retailerId]?.city || currentRetailers[order.retailerId]?.city || "—"}
                       </span>
                       {order.deliveredAt && (
                         <span>
-                          <span className="font-medium text-gray-700">Delivered:</span>{" "}
+                          <span className="font-medium text-white/80">Delivered:</span>{" "}
                           {formatDate(order.deliveredAt)}
                         </span>
                       )}
                       <span>
-                        <span className="font-medium text-gray-700">Total:</span>{" "}
+                        <span className="font-medium text-white/80">Total:</span>{" "}
                         ₹{sumOrderTotal(order).toFixed(2)}
                       </span>
                     </div>
@@ -758,15 +758,15 @@ const TrackOrders = () => {
                         {/* Retailer info: historical vs current */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                           {/* Historical snapshot at time of order */}
-                          <div className="border rounded p-3 bg-gray-50">
-                            <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">At time of order</div>
-                            <div className="font-medium text-gray-900">
+                          <div className="border border-white/10 rounded-lg p-3 bg-white/5">
+                            <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">At time of order</div>
+                            <div className="font-medium text-white">
                               {order.retailerBusinessName || order.retailerName || 'N/A'}
                             </div>
-                            <div className="text-sm text-gray-600">
+                            <div className="text-sm text-white/70">
                               Owner: {order.ownerName || order.retailerOwnerName || order.retailerName || 'N/A'}
                             </div>
-                            <div className="text-sm text-gray-600">
+                            <div className="text-sm text-white/70">
                               {(() => {
                                 const snapAddr = [order.retailerAddress, order.city, order.state].filter(Boolean).join(', ');
                                 const current = currentRetailers[order.retailerId] || {};
@@ -778,8 +778,8 @@ const TrackOrders = () => {
                             </div>
                           </div>
                           {/* Current live profile */}
-                          <div className="border rounded p-3 bg-white">
-                            <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Current profile</div>
+                          <div className="border border-white/10 rounded-lg p-3 bg-white/5">
+                            <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">Current profile</div>
                             {(() => {
                               const current = currentRetailers[order.retailerId] || {};
                               const currentTitle = current.businessName || current.retailerName || current.ownerName || '—';
@@ -787,9 +787,9 @@ const TrackOrders = () => {
                               const currentAddress = [current.address, current.city, current.state].filter(Boolean).join(', ') || '—';
                               return (
                                 <>
-                                  <div className="font-medium text-gray-900">{currentTitle}</div>
-                                  <div className="text-sm text-gray-600">Owner: {currentOwner}</div>
-                                  <div className="text-sm text-gray-600">{currentAddress}</div>
+                                  <div className="font-medium text-white">{currentTitle}</div>
+                                  <div className="text-sm text-white/70">Owner: {currentOwner}</div>
+                                  <div className="text-sm text-white/70">{currentAddress}</div>
                                 </>
                               );
                             })()}
@@ -825,25 +825,25 @@ const TrackOrders = () => {
                           </button>
                         </div>
                         {/* Items Table */}
-                        <div className="mt-4 rounded-lg bg-white border p-3">
+                        <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
                           <div className="overflow-x-auto">
                             <table className="min-w-full table-auto">
-                              <thead className="bg-gray-100">
+                              <thead className="bg-white/5">
                                 <tr>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">Product Name</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">Brand</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600">SKU</th>
-                                  <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600">Qty</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-gray-600">Price</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-gray-600">Subtotal</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Name</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
+                                  <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Subtotal</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {(order.items || []).map((item, idx) => (
                                   <tr
                                     key={idx}
-                                    className="hover:bg-blue-50 transition"
+                                    className="hover:bg-white/5 transition"
                                   >
                                     <td className="px-2 py-2">{item.productName || 'N/A'}</td>
                                     <td className="px-2 py-2">{item.brand || '—'}</td>
@@ -865,20 +865,20 @@ const TrackOrders = () => {
                           <span className={
                             "px-2 py-1 rounded-full text-xs font-medium " +
                             (order.paymentMethod === 'Credit Cycle'
-                              ? "bg-yellow-100 text-yellow-800"
+                              ? "bg-amber-500/15 text-amber-200"
                               : order.paymentMethod === 'Online'
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-gray-100 text-gray-700")
+                              ? "bg-sky-500/15 text-sky-200"
+                              : "bg-white/10 text-white/80")
                           }>
                             Payment: {order.paymentMethod || 'N/A'}
                           </span>
                           <span className={
                             "px-2 py-1 rounded-full text-xs font-medium " +
                             (order.deliveryMode === 'Self Pickup'
-                              ? "bg-green-100 text-green-800"
+                              ? "bg-emerald-500/15 text-emerald-200"
                               : order.deliveryMode === 'Courier'
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-gray-100 text-gray-700")
+                              ? "bg-sky-500/15 text-sky-200"
+                              : "bg-white/10 text-white/80")
                           }>
                             Delivery: {order.deliveryMode || 'N/A'}
                           </span>

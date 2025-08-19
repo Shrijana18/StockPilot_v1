@@ -60,9 +60,9 @@ const DispatchTracker = () => {
       onClick={() => onClick(id)}
       className={`${
         active
-          ? "bg-blue-600 text-white shadow"
-          : "bg-white text-gray-600 border hover:bg-gray-50"
-      } px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200 border`}
+          ? "bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+          : "bg-white/10 text-white border border-white/15 hover:bg-white/15"
+      } px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200 border focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50`}
       aria-selected={active}
       role="tab"
     >
@@ -71,11 +71,14 @@ const DispatchTracker = () => {
   );
 
   return (
-    <div className="p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-2xl font-semibold mb-4">Dispatch Tracker</h2>
+    <div className="p-6 rounded-xl bg-white/5 backdrop-blur-xl border border-white/10 shadow-xl text-white">
+      <div className="relative mb-4">
+        <h2 className="text-2xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Dispatch Tracker</h2>
+        <div className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent" />
+      </div>
 
-      <div className="mb-6">
-        <div className="inline-flex gap-2 p-1 bg-gray-50 rounded-lg border">
+      <div className="mb-6 sticky top-[72px] z-30">
+        <div className="inline-flex gap-2 p-1 rounded-full border border-white/15 bg-[#0B0F14]/80 supports-[backdrop-filter]:bg-[#0B0F14]/60 backdrop-blur-xl shadow-lg" role="tablist" aria-label="Dispatch sections">
           <TabButton id="requests" active={activeTab === "requests"} onClick={setTabAndHash}>
             Order Requests
           </TabButton>

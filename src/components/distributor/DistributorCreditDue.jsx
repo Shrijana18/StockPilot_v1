@@ -1,9 +1,29 @@
-
-
 import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { auth, db } from "../../firebase/firebaseConfig";
 import { motion } from "framer-motion";
+
+// UI helpers (presentational only)
+const GlassCard = ({ className = "", children }) => (
+  <div
+    className={`rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl hover:shadow-emerald-400/10 hover:scale-[1.005] transition duration-300 vignette ${className}`}
+  >
+    {children}
+  </div>
+);
+
+const Pill = ({ children, tone = "neutral" }) => {
+  const map = {
+    neutral: "bg-white/10 text-white/90",
+    orange: "bg-orange-400/15 text-orange-300",
+    indigo: "bg-indigo-400/15 text-indigo-300",
+    cyan: "bg-cyan-400/15 text-cyan-300",
+    emerald: "bg-emerald-400/15 text-emerald-300",
+  };
+  return (
+    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${map[tone] || map.neutral}`}>{children}</span>
+  );
+};
 
 function addDays(date, days) {
   const result = new Date(date);
@@ -88,50 +108,63 @@ const DistributorCreditDue = () => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: 0.35 }}
-      className="bg-white shadow-md rounded-lg p-4 max-w-md"
+      className="max-w-md text-white"
     >
-      <h3 className="font-semibold text-lg mb-3">Credit Due Snapshot</h3>
-
-      <div className="space-y-2 text-sm">
-        <div className="flex items-center justify-between">
-          <span className="text-gray-600">Total Due Orders</span>
-          <span className="font-semibold">{snapshot.totalDueOrders}</span>
+      <GlassCard className="p-5">
+        <div className="relative mb-3">
+          <h3 className="font-semibold text-lg flex items-center gap-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">
+            <span>🧾</span> Credit Due Snapshot
+          </h3>
+          <div className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent" />
         </div>
 
-        <div>
+        <div className="flex flex-wrap gap-2 mb-3 text-xs">
+          <Pill tone="cyan">Due Today {inr.format(snapshot.dueToday.amount)}</Pill>
+          <Pill tone="indigo">Due Tomorrow {inr.format(snapshot.dueTomorrow.amount)}</Pill>
+          <Pill tone="emerald">Total Due Orders {snapshot.totalDueOrders}</Pill>
+        </div>
+
+        <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-gray-600">Due Today</span>
-            <span className="font-semibold text-orange-600">{inr.format(snapshot.dueToday.amount)}</span>
+            <span className="text-white/70">Total Due Orders</span>
+            <span className="font-semibold">{snapshot.totalDueOrders}</span>
           </div>
-          {snapshot.dueToday.retailers.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {snapshot.dueToday.retailers.slice(0,3).map((r) => (
-                <span key={r} className="px-2 py-0.5 text-xs rounded-full bg-orange-50 text-orange-700 border border-orange-200">{r}</span>
-              ))}
-              {snapshot.dueToday.retailers.length > 3 && (
-                <span className="px-2 py-0.5 text-xs rounded-full bg-gray-50 text-gray-600 border border-gray-200">+{snapshot.dueToday.retailers.length - 3} more</span>
-              )}
-            </div>
-          )}
-        </div>
 
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="text-gray-600">Due Tomorrow</span>
-            <span className="font-semibold text-indigo-600">{inr.format(snapshot.dueTomorrow.amount)}</span>
-          </div>
-          {snapshot.dueTomorrow.retailers.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {snapshot.dueTomorrow.retailers.slice(0,3).map((r) => (
-                <span key={r} className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">{r}</span>
-              ))}
-              {snapshot.dueTomorrow.retailers.length > 3 && (
-                <span className="px-2 py-0.5 text-xs rounded-full bg-gray-50 text-gray-600 border border-gray-200">+{snapshot.dueTomorrow.retailers.length - 3} more</span>
-              )}
+          <div aria-label="Due today amount">
+            <div className="flex items-center justify-between">
+              <span className="text-white/70">Due Today</span>
+              <span className="font-semibold text-orange-300">{inr.format(snapshot.dueToday.amount)}</span>
             </div>
-          )}
+            {snapshot.dueToday.retailers.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {snapshot.dueToday.retailers.slice(0,3).map((r) => (
+                  <span key={r} className="px-2 py-0.5 text-xs rounded-full bg-orange-400/15 text-orange-300 border border-orange-300/20">{r}</span>
+                ))}
+                {snapshot.dueToday.retailers.length > 3 && (
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-white/10 text-white/80 border border-white/15">+{snapshot.dueToday.retailers.length - 3} more</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div aria-label="Due tomorrow amount">
+            <div className="flex items-center justify-between">
+              <span className="text-white/70">Due Tomorrow</span>
+              <span className="font-semibold text-indigo-300">{inr.format(snapshot.dueTomorrow.amount)}</span>
+            </div>
+            {snapshot.dueTomorrow.retailers.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {snapshot.dueTomorrow.retailers.slice(0,3).map((r) => (
+                  <span key={r} className="px-2 py-0.5 text-xs rounded-full bg-indigo-400/15 text-indigo-300 border border-indigo-300/20">{r}</span>
+                ))}
+                {snapshot.dueTomorrow.retailers.length > 3 && (
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-white/10 text-white/80 border border-white/15">+{snapshot.dueTomorrow.retailers.length - 3} more</span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </GlassCard>
     </motion.div>
   );
 };

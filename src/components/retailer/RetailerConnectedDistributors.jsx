@@ -78,33 +78,33 @@ const RetailerConnectedDistributors = ({ onSelect }) => {
   };
 
   return (
-    <div>
+    <div className="text-white">
       {loading ? (
-        <div className="text-center py-8">Loading connected distributors...</div>
+        <div className="text-center py-8 text-white/80">Loading connected distributors...</div>
       ) : !selectedDistributor ? (
         distributors.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">No connected distributors found.</div>
+          <div className="text-center py-8 text-white/70">No connected distributors found.</div>
         ) : (
           <div>
-            <h3 className="mb-2 text-lg font-semibold">View Connected Distributors</h3>
+            <h3 className="mb-2 text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">View Connected Distributors</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {distributors.map((dist) => (
-                <div key={dist.id} className="p-4 border rounded shadow-sm">
-                  <h4 className="font-medium">{dist.distributorOwner || dist.distributorName || dist.id}</h4>
-                  <p className="text-sm text-gray-600">{dist.city || 'City unknown'}</p>
+                <div key={dist.id} className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
+                  <h4 className="font-medium text-white">{dist.distributorOwner || dist.distributorName || dist.id}</h4>
+                  <p className="text-sm text-white/70">{dist.city || 'City unknown'}</p>
                   {(dist.phone || dist.email) && (
-                    <p className="text-sm text-gray-700 mt-1">
+                    <p className="text-sm text-white/70 mt-1">
                       {dist.phone && <span>Phone: {dist.phone} </span>}
                       {dist.email && <span>Email: {dist.email}</span>}
                     </p>
                   )}
                   <button
                     onClick={() => handleViewDetails(dist)}
-                    className="mt-2 text-sm bg-blue-600 text-white px-3 py-1 rounded"
+                    className="mt-2 text-sm px-3 py-1 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
                   >
                     View Details
                   </button>
-                  <p className="mt-1 text-xs text-green-600 font-semibold">Connected</p>
+                  <p className="mt-1 text-xs text-emerald-300 font-semibold">Connected</p>
                 </div>
               ))}
             </div>
@@ -112,7 +112,7 @@ const RetailerConnectedDistributors = ({ onSelect }) => {
         )
       ) : (
         <div>
-          <h3 className="mb-4 text-lg font-semibold">
+          <h3 className="mb-4 text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">
             Distributor: {selectedDistributor?.distributorName || selectedDistributor?.id}
           </h3>
           <ConnectedDistributorPanel

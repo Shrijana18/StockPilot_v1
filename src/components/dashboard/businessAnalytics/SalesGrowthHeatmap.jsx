@@ -47,13 +47,13 @@ const SalesGrowthHeatmap = () => {
   }, []);
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-5">
-      <h2 className="text-xl font-semibold mb-4">Sales Growth (Last 30 Days)</h2>
+    <div className="p-5 rounded-lg bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
+      <h2 className="text-xl font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Sales Growth (Last 30 Days)</h2>
       <div className="grid grid-cols-5 gap-2 text-center text-sm">
         {Object.entries(dailySales).map(([date, total], index) => (
-          <div key={index} className="p-2 border rounded">
-            <div className="font-medium">{format(new Date(date), 'MMM d')}</div>
-            <div className="text-green-700 font-semibold">₹{total.toFixed(0)}</div>
+          <div key={index} className="p-2 rounded border border-white/10 bg-white/5 hover:bg-white/10 transition">
+            <div className="font-medium text-white/90">{format(new Date(date), 'MMM d')}</div>
+            <div className="font-semibold text-emerald-300">₹{total.toFixed(0)}</div>
           </div>
         ))}
       </div>

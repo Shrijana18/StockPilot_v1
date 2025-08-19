@@ -22,22 +22,22 @@ const DistributorPanel = () => {
   };
 
   return (
-    <div className="p-4">
+    <div className="p-4 text-white">
       <div className="flex gap-4 mb-4">
         <button
-          className={`px-4 py-2 rounded ${activeSubTab === 'search' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+          className={`px-4 py-2 rounded-xl transition ${activeSubTab === 'search' ? 'bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]' : 'bg-white/10 text-white hover:bg-white/15 border border-white/15'}`}
           onClick={() => setActiveSubTab('search')}
         >
           Search Distributors
         </button>
         <button
-          className={`px-4 py-2 rounded ${activeSubTab === 'sent' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+          className={`px-4 py-2 rounded-xl transition ${activeSubTab === 'sent' ? 'bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]' : 'bg-white/10 text-white hover:bg-white/15 border border-white/15'}`}
           onClick={() => setActiveSubTab('sent')}
         >
           Sent Requests
         </button>
         <button
-          className={`px-4 py-2 rounded ${activeSubTab === 'connected' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+          className={`px-4 py-2 rounded-xl transition ${activeSubTab === 'connected' ? 'bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]' : 'bg-white/10 text-white hover:bg-white/15 border border-white/15'}`}
           onClick={() => setActiveSubTab('connected')}
         >
           Send Order

@@ -188,18 +188,18 @@ const OrderStatusTab = () => {
   };
 
   return (
-    <div>
+    <div className="text-white">
       <div className="flex gap-4 mb-4 justify-between items-center">
         <div className="flex gap-4">
           <input
             type="text"
             placeholder="Search by distributor or order ID"
-            className="border px-3 py-2 rounded w-1/3"
+            className="px-3 py-2 rounded-xl w-1/3 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -210,7 +210,7 @@ const OrderStatusTab = () => {
             <option>Modified</option>
           </select>
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
           >
@@ -223,13 +223,13 @@ const OrderStatusTab = () => {
         <div className="flex gap-2">
           <button
             onClick={handleExportCSV}
-            className="border bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-2 rounded text-sm"
+            className="px-3 py-2 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
           >
             Export CSV
           </button>
           <button
             onClick={handleExportPDF}
-            className="border bg-green-50 hover:bg-green-100 text-green-600 px-3 py-2 rounded text-sm"
+            className="px-3 py-2 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
           >
             Export PDF
           </button>
@@ -238,54 +238,54 @@ const OrderStatusTab = () => {
       {dateFilter === 'Custom Range' && (
         <div className="flex gap-2 items-center mb-4">
           <label>From:</label>
-          <input type="date" value={customFromDate} onChange={(e) => setCustomFromDate(e.target.value)} className="border px-2 py-1 rounded" />
+          <input type="date" value={customFromDate} onChange={(e) => setCustomFromDate(e.target.value)} className="px-2 py-1 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
           <label>To:</label>
-          <input type="date" value={customToDate} onChange={(e) => setCustomToDate(e.target.value)} className="border px-2 py-1 rounded" />
+          <input type="date" value={customToDate} onChange={(e) => setCustomToDate(e.target.value)} className="px-2 py-1 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
         </div>
       )}
 
-      <table className="min-w-full bg-white border border-gray-200">
+      <table className="min-w-full rounded-xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 text-sm">
         <thead>
-          <tr className="bg-gray-100 text-left">
-            <th className="p-2 border">Order ID</th>
-            <th className="p-2 border">Distributor (Name)</th>
-            <th className="p-2 border">Status</th>
-            <th className="p-2 border">Amount</th>
-            <th className="p-2 border">Date</th>
+          <tr className="bg-white/10 text-left text-white/80">
+            <th className="p-2 border border-white/10">Order ID</th>
+            <th className="p-2 border border-white/10">Distributor (Name)</th>
+            <th className="p-2 border border-white/10">Status</th>
+            <th className="p-2 border border-white/10">Amount</th>
+            <th className="p-2 border border-white/10">Date</th>
           </tr>
         </thead>
         <tbody>
           {filteredOrders.map((order) => (
             <React.Fragment key={order.id}>
-              <tr onClick={() => toggleRow(order.id)} className="cursor-pointer hover:bg-gray-50">
-                <td className="p-2 border">{order.id}</td>
-                <td className="p-2 border">
+              <tr onClick={() => toggleRow(order.id)} className="cursor-pointer hover:bg-white/10">
+                <td className="p-2 border border-white/10">{order.id}</td>
+                <td className="p-2 border border-white/10">
                   <div>{order.distributorName || '—'}</div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-white/60">
                     {order.distributorCity || '—'}, {order.distributorState || '—'}
                   </div>
-                  <div className="text-xs text-gray-400">{order.distributorId}</div>
+                  <div className="text-xs text-white/40">{order.distributorId}</div>
                 </td>
-                <td className="p-2 border">
+                <td className="p-2 border border-white/10">
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                    order.status === 'Accepted' ? 'bg-green-100 text-green-700' :
-                    order.status === 'Rejected' ? 'bg-red-100 text-red-700' :
-                    order.status === 'Modified' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-gray-100 text-gray-600'
+                    order.status === 'Accepted' ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-300/30' :
+                    order.status === 'Rejected' ? 'bg-rose-400/20 text-rose-300 border border-rose-300/30' :
+                    order.status === 'Modified' ? 'bg-amber-400/20 text-amber-300 border border-amber-300/30' :
+                    'bg-white/10 text-white/70 border border-white/15'
                   }`}>
                     {order.status}
                   </span>
                   {order.status === 'Rejected' && order.rejectionNote && (
-                    <div className="text-xs text-red-500 mt-1">Reason: {order.rejectionNote}</div>
+                    <div className="text-xs text-rose-300 mt-1">Reason: {order.rejectionNote}</div>
                   )}
                 </td>
-                <td className="p-2 border">₹{order.totalAmount || 0}</td>
-                <td className="p-2 border">{order.timestamp?.toDate?.().toLocaleString() || '-'}</td>
+                <td className="p-2 border border-white/10">₹{order.totalAmount || 0}</td>
+                <td className="p-2 border border-white/10">{order.timestamp?.toDate?.().toLocaleString() || '-'}</td>
               </tr>
               {expandedRow === order.id && (
-                <tr className="bg-gray-50">
-                  <td colSpan="5" className="p-4 border">
-                    <div className="text-sm mb-2 text-gray-700">
+                <tr className="bg-white/5">
+                  <td colSpan="5" className="p-4 border border-white/10">
+                    <div className="text-sm mb-2 text-white/80">
                       <strong>Order Note:</strong> {order.note || '—'}<br />
                       <strong>Payment Mode:</strong> {order.paymentMode || '—'}<br />
                       {order.status === 'Rejected' && order.rejectionNote && (
@@ -301,25 +301,25 @@ const OrderStatusTab = () => {
                     <div className="flex gap-2 mb-2">
                       <button
                         onClick={() => handleExportSingleOrder(order, 'pdf')}
-                        className="border bg-green-50 hover:bg-green-100 text-green-600 px-3 py-1 rounded text-sm"
+                        className="px-3 py-1 rounded-lg text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
                       >
                         PDF
                       </button>
                       <button
                         onClick={() => handleExportSingleOrder(order, 'csv')}
-                        className="border bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1 rounded text-sm"
+                        className="px-3 py-1 rounded-lg text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
                       >
                         CSV
                       </button>
                       <button
                         onClick={() => handleExportSingleOrder(order, 'excel')}
-                        className="border bg-yellow-50 hover:bg-yellow-100 text-yellow-600 px-3 py-1 rounded text-sm"
+                        className="px-3 py-1 rounded-lg text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
                       >
                         Excel
                       </button>
                     </div>
                     <table className="w-full text-sm border">
-                      <thead className="bg-gray-100">
+                      <thead className="bg-white/10">
                         <tr>
                           <th className="p-1 border">Product</th>
                           <th className="p-1 border">Brand</th>

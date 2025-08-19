@@ -125,15 +125,15 @@ const ManualEntryForm = () => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 p-4 bg-white rounded shadow">
-      <div className="grid grid-cols-2 gap-4">
+    <form onSubmit={handleSubmit} className="space-y-5 text-white">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <input
           type="text"
           name="productName"
           placeholder="Product Name"
           value={form.productName}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
           required
         />
         <input
@@ -142,7 +142,7 @@ const ManualEntryForm = () => {
           placeholder="SKU"
           value={form.sku}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
         />
         <input
           type="text"
@@ -150,7 +150,7 @@ const ManualEntryForm = () => {
           placeholder="Brand"
           value={form.brand}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
         />
         <input
           type="text"
@@ -158,7 +158,7 @@ const ManualEntryForm = () => {
           placeholder="Category"
           value={form.category}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
         />
         <input
           type="number"
@@ -166,7 +166,7 @@ const ManualEntryForm = () => {
           placeholder="Quantity"
           value={form.quantity}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
           required
         />
         <input
@@ -175,7 +175,7 @@ const ManualEntryForm = () => {
           placeholder="Cost Price"
           value={form.costPrice}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
         />
         <input
           type="number"
@@ -183,7 +183,7 @@ const ManualEntryForm = () => {
           placeholder="Selling Price"
           value={form.sellingPrice}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
           required
         />
         <input
@@ -192,7 +192,7 @@ const ManualEntryForm = () => {
           placeholder="Unit (e.g., kg, box)"
           value={form.unit}
           onChange={handleChange}
-          className="border p-2 rounded w-full"
+          className="w-full rounded-lg px-3 py-2 bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
         />
       </div>
       <textarea
@@ -200,30 +200,33 @@ const ManualEntryForm = () => {
         placeholder="Description"
         value={form.description}
         onChange={handleChange}
-        className="border p-2 rounded w-full"
+        className="w-full rounded-lg px-3 py-2 min-h-[96px] bg-slate-800/60 border border-white/10 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/40"
       />
-      <div className="flex items-center space-x-4">
-        <input
-          type="file"
-          name="image"
-          accept="image/*"
-          onChange={handleChange}
-          className="border p-2 rounded w-full"
-        />
-      </div>
-      {preview && (
-        <div className="mt-2">
-          <img
-            src={preview}
-            alt="Preview"
-            className="h-32 w-32 object-cover border rounded"
-          />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+        <div className="md:col-span-2">
+          <div className="rounded-lg border border-dashed border-white/20 bg-slate-800/50 p-3 hover:border-emerald-400/40 transition">
+            <input
+              type="file"
+              name="image"
+              accept="image/*"
+              onChange={handleChange}
+              className="w-full bg-transparent border-0 text-white file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-emerald-500/10 file:text-emerald-200 file:hover:bg-emerald-500/20 focus:outline-none"
+            />
+            <p className="mt-2 text-xs text-white/50">PNG or JPG preferred. Keep under ~1 MB for faster save.</p>
+          </div>
         </div>
-      )}
-      <div className="mt-4">
+        <div>
+          {preview ? (
+            <img src={preview} alt="Preview" className="h-28 w-28 object-cover border border-white/20 rounded-lg shadow" />
+          ) : (
+            <div className="h-28 w-28 rounded-lg border border-dashed border-white/15 bg-slate-800/40 grid place-items-center text-[11px] text-white/40">No image</div>
+          )}
+        </div>
+      </div>
+      <div className="pt-2">
         <button
           type="submit"
-          className="px-4 py-2 bg-blue-600 text-white rounded"
+          className="px-5 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 disabled:opacity-60"
           disabled={loading}
         >
           {loading ? "Saving..." : "Add Product"}

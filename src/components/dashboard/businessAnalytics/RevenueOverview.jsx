@@ -169,7 +169,7 @@ const RevenueOverview = () => {
       if (!item) return null;
       const sign = item.changeAmount >= 0 ? '+' : '';
       return (
-        <div className="bg-white shadow rounded px-3 py-2 border text-sm">
+        <div className="rounded px-3 py-2 text-sm border border-white/10 bg-[#0B0F14]/80 backdrop-blur-xl text-white">
           <p className="font-semibold">{label}</p>
           <p>Revenue: ₹{item.revenue.toFixed(2)}</p>
           {item.changeAmount !== undefined && (
@@ -184,8 +184,8 @@ const RevenueOverview = () => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-5">
-      <h2 className="text-xl font-semibold mb-4">Revenue Overview</h2>
+    <div className="p-5 rounded-lg bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
+      <h2 className="text-xl font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Revenue Overview</h2>
       <div className="flex flex-col md:flex-row justify-between gap-6">
         <div>
           <p><strong>Total Revenue:</strong> ₹{totalRevenue.toFixed(2)}</p>
@@ -230,15 +230,15 @@ const RevenueOverview = () => {
             setAnimatedData([]);
             setAnimationIndex(0);
           }}
-          className="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition"
+          className="px-3 py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] transition"
         >
           ▶️ Play Animation
         </button>
 
         <div className="flex items-center gap-2">
-          <label className="font-medium">Sort by Time Period:</label>
+          <label className="font-medium text-white/80">Sort by Time Period:</label>
           <select
-            className="border px-2 py-1 rounded text-sm"
+            className="px-2 py-1 rounded text-sm bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={selectedRange}
             onChange={(e) => {
               setSelectedRange(e.target.value);

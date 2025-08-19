@@ -402,28 +402,58 @@ const OrderRequests = () => {
     html2pdf().from(content).save(`order_${order.id}.pdf`);
   };
 
-  if (loading) {
-    return <div className="p-4">Loading order requests...</div>;
-  }
+if (loading) {
+  return (
+    <div className="p-4 text-white">
+      <div className="space-y-3">
+        {[0,1,2].map(i => (
+          <div key={i} className="rounded-xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 animate-pulse shadow-xl">
+            <div className="px-5 py-3 flex items-center justify-between">
+              <div className="space-y-2 w-full">
+                <div className="h-4 bg-white/10 rounded w-1/3" />
+                <div className="flex gap-3">
+                  <div className="h-3 bg-white/10 rounded w-1/5" />
+                  <div className="h-3 bg-white/10 rounded w-1/6" />
+                  <div className="h-3 bg-white/10 rounded w-1/6" />
+                </div>
+              </div>
+              <div className="h-6 w-20 bg-white/10 rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-  if (orders.length === 0) {
-    return <div className="p-4 text-gray-500">No order requests yet.</div>;
-  }
+if (orders.length === 0) {
+  return (
+    <div className="p-6">
+      <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl text-white p-6 text-center shadow-xl">
+        <div className="text-2xl">🧺</div>
+        <p className="mt-2 font-medium">No order requests yet</p>
+        <p className="text-white/70 text-sm">New orders from retailers will appear here.</p>
+      </div>
+    </div>
+  );
+}
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4 text-white">
       {/* Export buttons */}
       <div className="flex justify-end mb-4">
         <div className="flex gap-2">
           <button
             onClick={handleExportAllCSV}
-            className="px-3 py-1 border border-gray-200 rounded-md text-sm bg-white hover:bg-gray-50 transition shadow-sm"
+            className="px-3 py-1 rounded-lg text-sm bg-white/10 border border-white/15 hover:bg-white/15 transition shadow-sm backdrop-blur-xl"
+            aria-label="Export visible orders as CSV"
           >
             Export CSV (visible)
           </button>
           <button
             onClick={handleExportAllExcel}
-            className="px-3 py-1 border border-gray-200 rounded-md text-sm bg-white hover:bg-gray-50 transition shadow-sm"
+            className="px-3 py-1 rounded-lg text-sm bg-white/10 border border-white/15 hover:bg-white/15 transition shadow-sm backdrop-blur-xl"
+            aria-label="Export visible orders as Excel"
           >
             Export Excel (visible)
           </button>
@@ -431,7 +461,7 @@ const OrderRequests = () => {
       </div>
 
       {/* Filters container */}
-      <div className="bg-white shadow-md rounded-lg p-4 mb-4 flex flex-col md:flex-row md:items-center md:gap-4 gap-3">
+      <div className="sticky top-[72px] z-40 rounded-xl p-4 mb-4 flex flex-col md:flex-row md:items-center md:gap-4 gap-3 border border-white/10 bg-[#0B0F14]/90 supports-[backdrop-filter]:bg-[#0B0F14]/70 backdrop-blur-xl shadow-lg">
         {/* Search */}
         <div className="flex-1">
           <input
@@ -439,29 +469,21 @@ const OrderRequests = () => {
             placeholder="Search by Order ID, Retailer Name, Email, Phone, City, or Address"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="w-full px-3 py-2 rounded-lg text-sm bg-white/10 border border-white/20 placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           />
         </div>
         {/* Status Segmented Control */}
         <div className="flex items-center gap-2">
           {['All', 'Requested', 'Accepted', 'Rejected'].map((status) => {
-            let color =
-              status === 'Requested'
-                ? 'bg-blue-100 text-blue-700'
-                : status === 'Accepted'
-                ? 'bg-green-100 text-green-700'
-                : status === 'Rejected'
-                ? 'bg-red-100 text-red-700'
-                : 'bg-gray-100 text-gray-700';
-            let active =
-              statusFilter === status
-                ? `${color} font-semibold shadow`
-                : 'bg-white text-gray-500 border hover:bg-gray-50';
+            const active = statusFilter === status;
+            const base = 'px-4 py-1 rounded-full text-xs border transition';
+            const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
+            const off = 'bg-white/10 text-white border-white/20 hover:bg-white/15';
             return (
               <button
                 key={status}
                 type="button"
-                className={`px-4 py-1 rounded-full text-xs border border-gray-200 transition ${active}`}
+                className={`${base} ${active ? on : off}`}
                 onClick={() => setStatusFilter(status)}
               >
                 {status}
@@ -477,21 +499,25 @@ const OrderRequests = () => {
             displayEmpty
             size="small"
             sx={{
-              backgroundColor: 'white',
-              borderRadius: '0.375rem',
+              backgroundColor: 'rgba(255,255,255,0.08)',
+              color: '#fff',
+              borderRadius: '0.75rem',
               fontSize: 14,
-              boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.03)',
-              '.MuiOutlinedInput-notchedOutline': { borderColor: '#d1d5db' },
-              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#2563eb' },
+              boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.10)',
+              '.MuiSvgIcon-root': { color: '#fff' },
+              '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
+              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.35)' },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(16,185,129,0.6)' },
               minWidth: '180px',
               height: '36px',
             }}
             inputProps={{
               className: 'px-3 py-2 text-sm',
             }}
+            MenuProps={{ PaperProps: { sx: { bgcolor: 'rgba(15,23,42,0.98)', color: '#fff' } } }}
           >
             <MenuItem value="all">
-              <span className="text-sm text-gray-700">All Retailers</span>
+              <span className="text-sm text-white">All Retailers</span>
             </MenuItem>
             {connectedRetailers
               .filter(r => r.status === 'accepted')
@@ -504,11 +530,11 @@ const OrderRequests = () => {
                 return (
                   <MenuItem key={retailer.retailerId} value={retailer.retailerId}>
                     <div className="flex flex-col">
-                      <span className="font-semibold text-gray-900">{mainTitle}</span>
-                      <span className="text-xs text-gray-500">
+                      <span className="font-semibold text-white">{mainTitle}</span>
+                      <span className="text-xs text-white/70">
                         Owner: {owner}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-white/70">
                         {(address !== 'N/A' ? address : '')}
                         {(address !== 'N/A' && (city !== 'N/A' || state !== 'N/A')) ? ', ' : ''}
                         {(city !== 'N/A' || state !== 'N/A') ? [city !== 'N/A' ? city : '', state !== 'N/A' ? state : ''].filter(Boolean).join(', ') : ''}
@@ -529,21 +555,21 @@ const OrderRequests = () => {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.03, duration: 0.28, type: 'spring', damping: 20 }}
-            className="bg-white shadow-md rounded-lg overflow-hidden mb-4"
+            className="rounded-xl overflow-hidden mb-4 bg-white/5 backdrop-blur-xl border border-white/10 shadow-xl"
           >
             {/* Header row: retailer name, status badge */}
             <div
-              className="flex items-center justify-between px-5 py-3 cursor-pointer select-none"
+              className="flex items-center justify-between px-5 py-3 cursor-pointer select-none hover:bg-white/5 transition"
               onClick={() => toggleOrder(order.id)}
             >
               <div>
-                <div className="font-bold text-lg text-gray-900">{order.retailerName || 'N/A'}</div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="font-bold text-lg text-white">{order.retailerName || 'N/A'}</div>
+                <div className="text-xs text-white/60 mt-1">
                   {order.retailerCity || 'N/A'}
                   {order.retailerState ? `, ${order.retailerState}` : ''}
                   {order.retailerAddress ? ` — ${order.retailerAddress}` : ''}
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-gray-400">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-white/50">
                   <span>
                     {order.timestamp?.seconds
                       ? `Requested on: ${formatDateTime(order.timestamp.seconds * 1000)}`
@@ -553,7 +579,7 @@ const OrderRequests = () => {
                     Items: {order.items?.length || 0}
                   </span>
                   <span>
-                    Total: <span className="font-semibold text-gray-600">₹{orderTotal(order.items).toFixed(2)}</span>
+                    Total: <span className="font-semibold text-emerald-300">₹{orderTotal(order.items).toFixed(2)}</span>
                   </span>
                 </div>
               </div>
@@ -562,114 +588,130 @@ const OrderRequests = () => {
                   `px-2 py-1 rounded-full text-xs font-medium
                   ${
                     order.status === 'Requested'
-                      ? 'bg-blue-100 text-blue-800'
+                      ? 'bg-sky-400/15 text-sky-300'
                       : order.status === 'Accepted'
-                      ? 'bg-green-100 text-green-800'
+                      ? 'bg-emerald-400/15 text-emerald-300'
                       : order.status === 'Rejected'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-gray-100 text-gray-700'
+                      ? 'bg-rose-400/15 text-rose-300'
+                      : 'bg-white/10 text-white/80'
                   }
                   `
                 }>
+                  {order.status === 'Requested' && '📝 '}
+                  {order.status === 'Accepted' && '✔ '}
+                  {order.status === 'Rejected' && '✖ '}
                   {order.status}
                 </span>
-                <button className="text-xs text-blue-600 underline focus:outline-none">
-                  {expandedOrderIds.includes(order.id) ? 'Hide Details' : 'Show Details'}
+                <button
+                  className="text-xs text-emerald-300 underline focus:outline-none"
+                  aria-expanded={expandedOrderIds.includes(order.id)}
+                  onClick={() => toggleOrder(order.id)}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <span>{expandedOrderIds.includes(order.id) ? 'Hide Details' : 'Show Details'}</span>
+                    <span className={`transition-transform ${expandedOrderIds.includes(order.id) ? 'rotate-180' : ''}`}>▾</span>
+                  </span>
                 </button>
               </div>
             </div>
 
             {/* Expanded details */}
             {expandedOrderIds.includes(order.id) && (
-              <div id={`order-card-${order.id}`} className="bg-gray-50 px-5 pb-5 pt-3">
+              <motion.div
+                id={`order-card-${order.id}`}
+                className="bg-white/5 px-5 pb-5 pt-3"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
                 <div className="relative">
                   <div className="absolute top-0 right-0 text-sm font-bold">
                     {order.status === 'Accepted' && (
-                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full font-bold">✔ Accepted</span>
+                      <span className="px-2 py-1 bg-emerald-400/15 text-emerald-300 rounded-full font-bold">✔ Accepted</span>
                     )}
                     {order.status === 'Rejected' && (
-                      <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full font-bold">✖ Rejected</span>
+                      <span className="px-2 py-1 bg-rose-400/15 text-rose-300 rounded-full font-bold">✖ Rejected</span>
                     )}
                   </div>
                   <div className="mb-1">
-                    <span className="font-medium text-gray-700">Order ID:</span>
-                    <span className="ml-2 text-gray-900">{order.id}</span>
+                    <span className="font-medium text-white/70">Order ID:</span>
+                    <span className="ml-2 text-white">{order.id}</span>
                   </div>
                   <div className="mb-1">
-                    <span className="font-medium text-gray-700">Retailer Email:</span>
-                    <span className="ml-2 text-gray-900">{order.retailerEmail || 'N/A'}</span>
+                    <span className="font-medium text-white/70">Retailer Email:</span>
+                    <span className="ml-2 text-white">{order.retailerEmail || 'N/A'}</span>
                   </div>
                   <div className="mb-1">
-                    <span className="font-medium text-gray-700">Phone:</span>
-                    <span className="ml-2 text-gray-900">{order.retailerPhone || 'N/A'}</span>
+                    <span className="font-medium text-white/70">Phone:</span>
+                    <span className="ml-2 text-white">{order.retailerPhone || 'N/A'}</span>
                   </div>
                   <div className="mb-1">
-                    <span className="font-medium text-gray-700">Address:</span>
-                    <span className="ml-2 text-gray-900">{order.retailerAddress || 'N/A'}</span>
+                    <span className="font-medium text-white/70">Address:</span>
+                    <span className="ml-2 text-white">{order.retailerAddress || 'N/A'}</span>
                   </div>
                   <div className="mb-1">
-                    <span className="font-medium text-gray-700">City:</span>
-                    <span className="ml-2 text-gray-900">{order.retailerCity || 'N/A'}</span>
-                    <span className="ml-4 font-medium text-gray-700">State:</span>
-                    <span className="ml-2 text-gray-900">{order.retailerState || 'N/A'}</span>
+                    <span className="font-medium text-white/70">City:</span>
+                    <span className="ml-2 text-white">{order.retailerCity || 'N/A'}</span>
+                    <span className="ml-4 font-medium text-white/70">State:</span>
+                    <span className="ml-2 text-white">{order.retailerState || 'N/A'}</span>
                   </div>
                   <div className="mb-1">
-                    <span className="font-medium text-gray-700">Requested On:</span>
-                    <span className="ml-2 text-gray-900">
+                    <span className="font-medium text-white/70">Requested On:</span>
+                    <span className="ml-2 text-white">
                       {order.timestamp?.seconds
                         ? formatDateTime(order.timestamp.seconds * 1000)
                         : 'N/A'}
                     </span>
                   </div>
                   <div className="mb-1">
-                    <span className="font-medium text-gray-700">Order Note:</span>
-                    <span className="ml-2 text-gray-900">{order.notes || '—'}</span>
+                    <span className="font-medium text-white/70">Order Note:</span>
+                    <span className="ml-2 text-white">{order.notes || '—'}</span>
                   </div>
                   <div className="mb-1 flex items-center gap-2">
-                    <span className="font-medium text-gray-700">Status:</span>
+                    <span className="font-medium text-white/70">Status:</span>
                     <span className={
                       `ml-2 px-2 py-1 rounded-full font-semibold text-xs
                         ${
                           order.status === 'Requested'
-                            ? 'bg-blue-100 text-blue-800'
+                            ? 'bg-sky-400/15 text-sky-300'
                             : order.status === 'Accepted'
-                            ? 'bg-green-100 text-green-800'
+                            ? 'bg-emerald-400/15 text-emerald-300'
                             : order.status === 'Rejected'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-gray-100 text-gray-700'
+                            ? 'bg-rose-400/15 text-rose-300'
+                            : 'bg-white/10 text-white/80'
                         }`
                     }>
                       {order.status}
                     </span>
                   </div>
                   <div className="mb-1 flex items-center gap-2">
-                    <span className="font-medium text-gray-700">Payment Mode:</span>
+                    <span className="font-medium text-white/70">Payment Mode:</span>
                     {order.paymentMode === 'Credit Cycle' ? (
-                      <span className="px-2 py-1 rounded-full bg-orange-100 text-orange-800 font-medium text-xs">
+                      <span className="px-2 py-1 rounded-full bg-orange-400/15 text-orange-300 font-medium text-xs">
                         Credit Cycle
                       </span>
                     ) : order.paymentMode === 'Split Payment' ? (
-                      <span className="px-2 py-1 rounded-full bg-purple-100 text-purple-800 font-medium text-xs">
+                      <span className="px-2 py-1 rounded-full bg-fuchsia-400/15 text-fuchsia-300 font-medium text-xs">
                         Split Payment
                       </span>
                     ) : (
-                      <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-600 font-medium text-xs">
+                      <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 font-medium text-xs">
                         {order.paymentMode || 'N/A'}
                       </span>
                     )}
                   </div>
                   {order.paymentMode === 'Credit Cycle' && order.timestamp?.seconds && order.creditDays && (
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="font-medium text-gray-700">Due Date:</span>
-                      <span className="px-2 py-1 rounded-full bg-orange-100 text-orange-800 font-medium text-xs">
+                      <span className="font-medium text-white/70">Due Date:</span>
+                      <span className="px-2 py-1 rounded-full bg-orange-400/15 text-orange-300 font-medium text-xs">
                         {formatDate(order.timestamp.seconds * 1000 + order.creditDays * 86400000)}
                       </span>
                     </div>
                   )}
                   {order.paymentMode === 'Split Payment' && order.splitPayment && (
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="font-medium text-gray-700">Split Payment:</span>
-                      <span className="px-2 py-1 rounded-full bg-purple-100 text-purple-800 font-medium text-xs">
+                      <span className="font-medium text-white/70">Split Payment:</span>
+                      <span className="px-2 py-1 rounded-full bg-fuchsia-400/15 text-fuchsia-300 font-medium text-xs">
                         Advance {order.splitPayment.advance}% / Balance {order.splitPayment.balance}%
                       </span>
                     </div>
@@ -678,8 +720,8 @@ const OrderRequests = () => {
                 {/* Items grid */}
                 <div className="mt-4">
                   <h4 className="font-medium mb-1">Items:</h4>
-                  <div className="mt-2 border border-gray-200 rounded-md overflow-hidden">
-                    <div className="grid grid-cols-6 font-semibold bg-gray-100 border-b border-gray-200 px-3 py-2 text-xs">
+                  <div className="mt-2 border border-white/10 rounded-md overflow-hidden">
+                    <div className="grid grid-cols-6 font-semibold bg-white/10 border-b border-white/10 px-3 py-2 text-xs">
                       <div>Name</div>
                       <div>Brand</div>
                       <div>Category</div>
@@ -690,7 +732,7 @@ const OrderRequests = () => {
                     {order.items.map((item, idx) => (
                       <div
                         key={idx}
-                        className="grid grid-cols-6 border-t border-gray-100 px-3 py-2 text-sm hover:bg-gray-50 transition"
+                        className="grid grid-cols-6 border-t border-white/10 px-3 py-2 text-sm hover:bg-white/5 transition"
                       >
                         <div>{item.productName}</div>
                         <div>{item.brand || '—'}</div>
@@ -698,9 +740,9 @@ const OrderRequests = () => {
                         <div>{item.quantity}</div>
                         <div>{item.unit}</div>
                         <div className={`font-medium ${
-                          item.availableStock === undefined ? 'text-gray-400' :
-                          item.availableStock >= item.quantity ? 'text-green-600' :
-                          item.availableStock > 0 ? 'text-yellow-500' : 'text-red-600'
+                          item.availableStock === undefined ? 'text-white/50' :
+                          item.availableStock >= item.quantity ? 'text-emerald-300' :
+                          item.availableStock > 0 ? 'text-amber-300' : 'text-rose-300'
                         }`}>
                           {item.availableStock === undefined
                             ? 'N/A'
@@ -714,26 +756,27 @@ const OrderRequests = () => {
                     ))}
                   </div>
                 </div>
-                <div className="mt-3 flex justify-end">
-                  <div className="text-sm font-semibold">Total: ₹{orderTotal(order.items).toFixed(2)}</div>
-                </div>
+                <div className="mt-3 flex justify-end text-emerald-300 text-sm font-semibold">Total: ₹{orderTotal(order.items).toFixed(2)}</div>
                 {/* Export buttons */}
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => handleExportCSV(order)}
-                    className="px-3 py-1 border border-gray-200 text-xs rounded-md bg-white hover:bg-gray-100 transition"
+                    className="px-3 py-1 text-xs rounded-lg bg-white/10 border border-white/15 hover:bg-white/15 transition"
+                    title="Export this order as CSV"
                   >
                     CSV
                   </button>
                   <button
                     onClick={() => handleExportExcel(order)}
-                    className="px-3 py-1 border border-gray-200 text-xs rounded-md bg-white hover:bg-gray-100 transition"
+                    className="px-3 py-1 text-xs rounded-lg bg-white/10 border border-white/15 hover:bg-white/15 transition"
+                    title="Export this order as Excel"
                   >
                     Excel
                   </button>
                   <button
                     onClick={() => handleExportPDF(order)}
-                    className="px-3 py-1 border border-gray-200 text-xs rounded-md bg-white hover:bg-gray-100 transition"
+                    className="px-3 py-1 text-xs rounded-lg bg-white/10 border border-white/15 hover:bg-white/15 transition"
+                    title="Export this order as PDF"
                   >
                     PDF
                   </button>
@@ -745,8 +788,8 @@ const OrderRequests = () => {
                     onClick={() => handleStatusUpdate(order.id, 'Accepted')}
                     className={`rounded-full px-4 py-1 font-medium text-sm transition ${
                       order.status !== 'Requested'
-                        ? 'bg-green-200 text-white cursor-not-allowed'
-                        : 'bg-green-500 hover:bg-green-600 text-white shadow'
+                        ? 'bg-white/10 text-white/40 cursor-not-allowed'
+                        : 'text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]'
                     }`}
                   >
                     Accept
@@ -756,17 +799,17 @@ const OrderRequests = () => {
                     onClick={() => openRejectModal(order.id)}
                     className={`rounded-full px-4 py-1 font-medium text-sm transition ${
                       order.status !== 'Requested'
-                        ? 'bg-red-200 text-white cursor-not-allowed'
-                        : 'bg-red-500 hover:bg-red-600 text-white shadow'
+                        ? 'bg-white/10 text-white/40 cursor-not-allowed'
+                        : 'bg-rose-600 hover:bg-rose-700 text-white shadow'
                     }`}
                   >
                     Reject
                   </button>
                 </div>
                 {order.rejectionNote && (
-                  <p className="text-sm mt-2 text-red-600"><strong>Reason:</strong> {order.rejectionNote}</p>
+                  <p className="text-sm mt-2 text-rose-300"><strong>Reason:</strong> {order.rejectionNote}</p>
                 )}
-              </div>
+              </motion.div>
             )}
           </motion.div>
         ))}
@@ -776,16 +819,16 @@ const OrderRequests = () => {
       {showRejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={closeRejectModal} />
-          <div className="relative bg-white w-full max-w-lg mx-4 rounded-lg shadow-xl border">
-            <div className="px-5 py-4 border-b">
+          <div className="relative w-full max-w-lg mx-4 rounded-xl border border-white/10 bg-[#0B0F14]/90 backdrop-blur-2xl text-white shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
+            <div className="px-5 py-4 border-b border-white/10">
               <h3 className="text-lg font-semibold">Reject Order</h3>
-              <p className="text-sm text-gray-500">Please provide a reason for rejection. This will be visible to the retailer.</p>
+              <p className="text-sm text-white/70">Please provide a reason for rejection. This will be visible to the retailer.</p>
             </div>
             <div className="px-5 py-4">
-              <div className="mb-2 text-xs text-gray-600">Quick reasons:</div>
+              <div className="mb-2 text-xs text-white/70">Quick reasons:</div>
               <div className="flex flex-wrap gap-2 mb-4">
                 {['Out of stock','Incorrect pricing','Address mismatch','Credit overdue','Not serviceable','Duplicate request'].map((r) => (
-                  <button key={r} type="button" onClick={() => setRejectReason(r)} className="px-2.5 py-1 rounded-full border text-xs hover:bg-gray-50">
+                  <button key={r} type="button" onClick={() => setRejectReason(r)} className="px-2.5 py-1 rounded-full border text-xs bg-white/10 border-white/20 hover:bg-white/15">
                     {r}
                   </button>
                 ))}
@@ -795,13 +838,13 @@ const OrderRequests = () => {
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 rows={4}
-                className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-md px-3 py-2 text-sm bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
                 placeholder="Write the rejection reason..."
               />
             </div>
-            <div className="px-5 py-3 border-t flex justify-end gap-2 bg-gray-50 rounded-b-lg">
-              <button onClick={closeRejectModal} className="px-4 py-2 text-sm rounded border">Cancel</button>
-              <button onClick={confirmReject} disabled={!rejectReason.trim()} className={`px-4 py-2 text-sm rounded text-white ${rejectReason.trim() ? 'bg-red-600 hover:bg-red-700' : 'bg-red-300 cursor-not-allowed'}`}>Confirm Reject</button>
+            <div className="px-5 py-3 border-t border-white/10 flex justify-end gap-2 bg-white/5 rounded-b-xl">
+              <button onClick={closeRejectModal} className="px-4 py-2 text-sm rounded border bg-white/10 border-white/20 hover:bg-white/15">Cancel</button>
+              <button onClick={confirmReject} disabled={!rejectReason.trim()} className={`px-4 py-2 text-sm rounded ${rejectReason.trim() ? 'bg-rose-600 hover:bg-rose-700 text-white' : 'bg-white/10 text-white/40 cursor-not-allowed'}`}>Confirm Reject</button>
             </div>
           </div>
         </div>

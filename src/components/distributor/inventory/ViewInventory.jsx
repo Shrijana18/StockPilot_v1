@@ -391,8 +391,8 @@ const ViewInventory = ({ userId }) => {
     }
   };
 
-  return (
-    <div className="p-4">
+return (
+    <div className="text-white px-0 md:px-0 py-4 md:py-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-3 mb-4">
         <div className="flex items-center w-full md:w-1/3">
           <input
@@ -400,18 +400,18 @@ const ViewInventory = ({ userId }) => {
             placeholder="Search by name, brand, SKU..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border px-4 py-2 rounded w-full"
+            className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
           />
           <button
             onClick={() => setShowImageModalAI(true)}
-            className="ml-2 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded"
+            className="ml-2 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:brightness-110 text-white font-semibold py-2 px-4 rounded-lg shadow"
           >
             Search with AI
           </button>
         </div>
         <div className="flex items-center gap-2">
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
             onChange={(e) => setSortKey(e.target.value)}
             value={sortKey}
           >
@@ -421,7 +421,7 @@ const ViewInventory = ({ userId }) => {
             <option value="sellingPrice">Selling Price</option>
           </select>
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
             onChange={(e) => setSortOrder(e.target.value)}
             value={sortOrder}
           >
@@ -429,7 +429,7 @@ const ViewInventory = ({ userId }) => {
             <option value="desc">Desc</option>
           </select>
           <select
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
             onChange={(e) => setStatusFilter(e.target.value)}
             value={statusFilter}
           >
@@ -439,7 +439,7 @@ const ViewInventory = ({ userId }) => {
           </select>
           <div className="relative">
             <button
-              className="border px-3 py-2 rounded min-w-[120px] text-left bg-white"
+              className="px-3 py-2 rounded-lg min-w-[140px] text-left bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
               type="button"
               onClick={() => setShowBrandDropdown((prev) => !prev)}
             >
@@ -451,12 +451,12 @@ const ViewInventory = ({ userId }) => {
               <span className="ml-1">&#9660;</span>
             </button>
             {showBrandDropdown && (
-              <div className="absolute left-0 mt-1 bg-white border rounded shadow z-20 p-2 min-w-[140px] max-h-56 overflow-y-auto">
+              <div className="absolute left-0 mt-1 bg-[#0b0f14] border border-white/10 rounded-xl shadow-lg z-20 p-2 min-w-[180px] max-h-56 overflow-y-auto text-white">
                 {availableBrands.length === 0 && (
                   <div className="text-xs text-gray-500 px-2 py-1">No brands</div>
                 )}
                 {availableBrands.map((brand, idx) => (
-                  <label key={idx} className="block px-2 py-1 cursor-pointer hover:bg-gray-100">
+                  <label key={idx} className="block px-2 py-1 cursor-pointer hover:bg-white/10 rounded">
                     <input
                       type="checkbox"
                       checked={brandFilter.includes(brand)}
@@ -474,14 +474,14 @@ const ViewInventory = ({ userId }) => {
                 ))}
                 <div className="flex justify-between mt-2">
                   <button
-                    className="text-xs text-blue-500 underline"
+                    className="text-xs text-emerald-300 hover:text-emerald-200 underline"
                     type="button"
                     onClick={() => setBrandFilter([])}
                   >
                     Clear All
                   </button>
                   <button
-                    className="text-xs text-gray-600 underline"
+                    className="text-xs text-white/70 hover:text-white underline"
                     type="button"
                     onClick={() => setShowBrandDropdown(false)}
                   >
@@ -495,19 +495,19 @@ const ViewInventory = ({ userId }) => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex mb-2">
+      <div className="flex mb-2 gap-2">
         <button
           onClick={() => setSelectedTab("view")}
-          className={`px-4 py-2 rounded-t-md ${
-            selectedTab === "view" ? "bg-white font-semibold" : "bg-gray-200"
+          className={`px-4 py-2 rounded-lg border ${
+            selectedTab === "view" ? "bg-white/15 border-white/20 text-white" : "bg-white/5 border-white/10 text-white/70 hover:text-white"
           }`}
         >
           Inventory
         </button>
         <button
           onClick={() => setSelectedTab("recent")}
-          className={`px-4 py-2 rounded-t-md ${
-            selectedTab === "recent" ? "bg-white font-semibold" : "bg-gray-200"
+          className={`px-4 py-2 rounded-lg border ${
+            selectedTab === "recent" ? "bg-white/15 border-white/20 text-white" : "bg-white/5 border-white/10 text-white/70 hover:text-white"
           }`}
         >
           Recently Modified
@@ -519,13 +519,13 @@ const ViewInventory = ({ userId }) => {
         <>
           <div className="flex justify-end mb-4">
             <button
-              className={`px-4 py-1 mr-2 rounded ${viewMode === "list" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+              className={`px-4 py-1 mr-2 rounded-lg border ${viewMode === "list" ? "bg-emerald-600 text-white border-emerald-500" : "bg-white/5 text-white/80 border-white/10 hover:text-white"}`}
               onClick={() => setViewMode("list")}
             >
               List View
             </button>
             <button
-              className={`px-4 py-1 rounded ${viewMode === "grid" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+              className={`px-4 py-1 rounded-lg border ${viewMode === "grid" ? "bg-emerald-600 text-white border-emerald-500" : "bg-white/5 text-white/80 border-white/10 hover:text-white"}`}
               onClick={() => setViewMode("grid")}
             >
               Grid View
@@ -533,9 +533,9 @@ const ViewInventory = ({ userId }) => {
           </div>
 
           {viewMode === "list" ? (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border rounded shadow-sm">
-            <thead className="bg-gray-100 text-left">
+        <div className="overflow-x-auto glass-scroll w-full bg-white/5 border-y border-white/10 rounded-none mx-[-16px] md:mx-[-24px]">
+          <table className="min-w-full text-sm">
+            <thead className="text-left bg-white/10 sticky top-0 z-10">
               <tr>
                 <th className="p-2">Image</th>
                 <th className="p-2">Product</th>
@@ -554,7 +554,7 @@ const ViewInventory = ({ userId }) => {
             </thead>
             <tbody>
               {filtered.map((p, idx) => (
-                <tr key={p.id} className="border-t">
+                <tr key={p.id} className="border-t border-white/10 odd:bg-white/0 even:bg-white/[0.03] hover:bg-white/[0.06] transition-colors">
                   <td className="p-2">
                     <div className="flex items-center gap-1">
                       <div
@@ -562,11 +562,11 @@ const ViewInventory = ({ userId }) => {
                         onClick={() => handleImageClick(p)}
                         title="Click to upload image"
                       >
-                        <img
-                          src={p.imageUrl || "/placeholder.png"}
-                          alt="product"
-                          className="h-10 w-10 rounded object-cover border border-gray-200"
-                        />
+                      <img
+                        src={p.imageUrl || "/placeholder.png"}
+                        alt="product"
+                        className="h-10 w-10 rounded object-cover border border-white/20"
+                      />
                       </div>
                       <button
                         type="button"
@@ -585,7 +585,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "productName" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "productName", editedValue)}
@@ -601,7 +601,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "sku" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "sku", editedValue)}
@@ -617,7 +617,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "brand" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "brand", editedValue)}
@@ -633,7 +633,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "category" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "category", editedValue)}
@@ -647,7 +647,7 @@ const ViewInventory = ({ userId }) => {
                     {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
                       <input
                         type="number"
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
@@ -663,7 +663,7 @@ const ViewInventory = ({ userId }) => {
                   >
                     {editingCell.rowId === p.id && editingCell.field === "unit" ? (
                       <input
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "unit", editedValue)}
@@ -678,14 +678,14 @@ const ViewInventory = ({ userId }) => {
                       <input
                         type="number"
                         step="0.01"
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "costPrice", Number(editedValue))}
                         autoFocus
                       />
                     ) : (
-                      <>₹{p.costPrice}</>
+                      <span className="text-white/90">₹{p.costPrice}</span>
                     )}
                   </td>
                   <td className="p-2" onClick={() => startEdit(p.id, "sellingPrice", p.sellingPrice)}>
@@ -693,20 +693,20 @@ const ViewInventory = ({ userId }) => {
                       <input
                         type="number"
                         step="0.01"
-                        className="w-full border px-1"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
                         onBlur={() => saveEdit(p.id, "sellingPrice", Number(editedValue))}
                         autoFocus
                       />
                     ) : (
-                      <>₹{p.sellingPrice}</>
+                      <span className="text-white/90">₹{p.sellingPrice}</span>
                     )}
                   </td>
                   <td className="p-2 min-w-[80px] text-center">
                     <span
-                      className={`px-2 py-1 rounded text-white text-xs ${
-                        getStatus(p.quantity) === "Low" ? "bg-red-500" : "bg-green-500"
+                      className={`px-2 py-1 rounded-full text-xs ${
+                        getStatus(p.quantity) === "Low" ? "bg-rose-500/90 text-white" : "bg-emerald-600/90 text-white"
                       }`}
                     >
                       {getStatus(p.quantity)}
@@ -757,7 +757,7 @@ const ViewInventory = ({ userId }) => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filtered.map((item) => (
-                <div key={item.id} className="bg-white p-4 rounded shadow flex flex-col">
+                <div key={item.id} className="p-4 rounded-xl border border-white/10 bg-white/5 shadow-lg flex flex-col hover:bg-white/10 transition-colors">
                   <div className="flex justify-center mb-2">
                     <button
                       className="focus:outline-none"
@@ -768,14 +768,14 @@ const ViewInventory = ({ userId }) => {
                       <img
                         src={item.imageUrl || "/placeholder.png"}
                         alt={item.productName}
-                        className="w-full h-32 object-contain rounded border border-gray-200"
+                        className="w-full h-32 object-contain rounded border border-white/20 bg-white/5"
                       />
                     </button>
                   </div>
                   <h3 className="font-semibold mb-1">{item.productName}</h3>
                   <p className="text-sm text-gray-600 mb-1">{item.brand} | {item.category}</p>
                   <p className="text-sm mb-1">
-                    Qty: {item.quantity} | ₹{item.sellingPrice}
+                    Qty: {item.quantity} | <span className="text-white/90">₹{item.sellingPrice}</span>
                   </p>
                   <p className="text-xs text-gray-600 mb-1">
                     SKU: {item.sku || "N/A"} | Unit: {item.unit || "N/A"}
@@ -784,8 +784,8 @@ const ViewInventory = ({ userId }) => {
                     <span
                       className={`px-2 py-1 text-xs rounded font-semibold ${
                         (item.status || getStatus(item.quantity)) === 'In Stock'
-                          ? 'bg-green-500 text-white'
-                          : 'bg-red-500 text-white'
+                          ? 'bg-emerald-600/90 text-white'
+                          : 'bg-rose-500/90 text-white'
                       }`}
                     >
                       {item.status || getStatus(item.quantity)}
@@ -811,11 +811,11 @@ const ViewInventory = ({ userId }) => {
         <div className="p-4">
           <h2 className="text-lg font-semibold mb-3">Recent Inventory Modifications</h2>
           {inventoryLogs.length === 0 ? (
-            <p className="text-gray-500">No recent modifications found.</p>
+            <p className="text-white/60">No recent modifications found.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {inventoryLogs.map((mod, index) => (
-                <div key={index} className="bg-white shadow rounded-md p-4 text-sm">
+                <div key={index} className="shadow rounded-xl p-4 text-sm border border-white/10 bg-white/5 text-white">
                   <div className="font-semibold text-gray-700 mb-1">SKU: {mod.sku}</div>
                   <div>Product: {mod.productName || 'N/A'}</div>
                   <div>Brand: {mod.brand || 'N/A'}</div>
@@ -947,7 +947,6 @@ const UploadProductImageModal = ({
       if (imageSource === "unsplash") {
         results = await fetchUnsplashImages(searchTerm);
       } else {
-        // Already imported from utils
         const fetchGoogleImages2 = (await import("../../../utils/fetchGoogleImages")).default;
         results = await fetchGoogleImages2(searchTerm);
       }
@@ -958,116 +957,145 @@ const UploadProductImageModal = ({
     setLoading(false);
   };
 
+  // Close on ESC
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const onClose = () => {
+    setShowImageModal(false);
+    setImageTargetProduct(null);
+    setImageUploadFile(null);
+    setImageUploadError("");
+    setImagePreviewUrl(null);
+    setSearchTerm("");
+    setImageResults([]);
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center">
-      <div className="bg-white rounded shadow-lg p-6 w-[95%] max-w-md">
-        <h2 className="text-lg font-semibold mb-3">Upload Product Image</h2>
-        <p className="mb-2 text-gray-700">
-          {imageTargetProduct?.productName || "Product"}
-        </p>
-        {/* Toggle UI for Unsplash/Google */}
-        <div className="flex gap-2 mb-2">
-          <button
-            onClick={() => setImageSource("unsplash")}
-            className={`px-3 py-1 rounded ${imageSource === "unsplash" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
-          >
-            Unsplash
-          </button>
-          <button
-            onClick={() => setImageSource("google")}
-            className={`px-3 py-1 rounded ${imageSource === "google" ? "bg-green-600 text-white" : "bg-gray-200"}`}
-          >
-            Google
-          </button>
-        </div>
-        {/* Unified search input/button */}
-        <div className="flex items-center gap-2 mb-2">
-          <input
-            type="text"
-            placeholder={`Search image with ${imageSource === "unsplash" ? "Unsplash" : "Google"}...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="border px-2 py-1 rounded w-full"
-          />
-          <button
-            className="bg-blue-600 text-white px-4 py-1 rounded"
-            onClick={handleImageSearch}
-            type="button"
-            disabled={loading}
-          >
-            {loading ? "Searching..." : "Search"}
-          </button>
-        </div>
-        {/* Image search results */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {imageResults.map((imgUrl, index) => (
-            <img
-              key={index}
-              src={imgUrl}
-              alt="AI result"
-              className="w-24 h-24 object-cover border rounded cursor-pointer hover:scale-105 transition-all"
-              onClick={() => {
-                setImageUploadFile(null);
-                setImageUploadError("");
-                setImagePreviewUrl(imgUrl);
-              }}
-              onError={(e) => (e.target.src = "/placeholder.jpg")}
-            />
-          ))}
-        </div>
-        {/* File upload input */}
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleImageFileChange}
-          className="mb-3"
-          disabled={imageUploadLoading}
-        />
-        {/* Preview area */}
-        {imagePreviewUrl && (
-          <div className="mb-3 flex justify-center">
-            <img
-              src={imagePreviewUrl}
-              alt="Preview"
-              className="max-h-40 max-w-full rounded border"
-              style={{ objectFit: "contain" }}
-            />
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative w-[95%] max-w-2xl rounded-2xl border border-white/10 bg-[#0B0F14]/95 text-white shadow-[0_24px_70px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div>
+            <h2 className="text-lg font-semibold leading-tight">Update Product Image</h2>
+            <p className="text-xs text-white/60 mt-0.5">{imageTargetProduct?.productName || "Product"}</p>
           </div>
-        )}
-        {imageUploadFile && (
-          <div className="mb-2">
-            <span className="text-xs text-gray-500">{imageUploadFile.name}</span>
-          </div>
-        )}
-        {imageUploadError && (
-          <div className="mb-2 text-red-600 text-sm">{imageUploadError}</div>
-        )}
-        <div className="flex justify-end gap-3">
           <button
-            onClick={() => {
-              setShowImageModal(false);
-              setImageTargetProduct(null);
-              setImageUploadFile(null);
-              setImageUploadError("");
-              setImagePreviewUrl(null);
-              setSearchTerm("");
-              setImageResults([]);
-            }}
-            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+            onClick={onClose}
+            className="h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-4">
+          {/* Source toggle */}
+          <div className="inline-flex rounded-full bg-white/10 p-1 border border-white/10">
+            <button
+              onClick={() => setImageSource("unsplash")}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium ${imageSource === 'unsplash' ? 'bg-emerald-500 text-white' : 'text-white/80 hover:text-white'}`}
+            >
+              Unsplash
+            </button>
+            <button
+              onClick={() => setImageSource("google")}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium ${imageSource === 'google' ? 'bg-emerald-500 text-white' : 'text-white/80 hover:text-white'}`}
+            >
+              Google
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder={`Search ${imageSource === 'unsplash' ? 'Unsplash' : 'Google'}…`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-lg bg-white/10 border border-white/15 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+            />
+            <button
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 hover:brightness-110"
+              onClick={handleImageSearch}
+              type="button"
+              disabled={loading}
+            >
+              {loading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+
+          {/* Results */}
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-64 overflow-y-auto pr-1">
+            {imageResults.map((imgUrl, index) => (
+              <button
+                key={index}
+                type="button"
+                className="group relative aspect-square rounded-lg overflow-hidden border border-white/10 bg-white/5 hover:border-emerald-400/50"
+                onClick={() => {
+                  setImageUploadFile(null);
+                  setImageUploadError("");
+                  setImagePreviewUrl(imgUrl);
+                }}
+              >
+                <img
+                  src={imgUrl}
+                  alt="search result"
+                  className="h-full w-full object-cover"
+                  onError={(e) => (e.currentTarget.src = "/placeholder.png")}
+                />
+                <span className="absolute inset-0 hidden group-hover:block bg-black/20" />
+              </button>
+            ))}
+            {imageResults.length === 0 && (
+              <div className="col-span-full text-center text-sm text-white/60">No images yet — try a different query.</div>
+            )}
+          </div>
+
+          {/* File picker & preview */}
+          <div className="space-y-3">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageFileChange}
+              className="block w-full text-sm file:mr-4 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-white/10 file:text-white hover:file:bg-white/20"
+              disabled={imageUploadLoading}
+            />
+            {(imagePreviewUrl || imageUploadFile) && (
+              <div className="flex items-center justify-center">
+                <img
+                  src={imagePreviewUrl || ''}
+                  alt="Preview"
+                  className="max-h-48 max-w-full rounded-lg border border-white/10 bg-white/5 object-contain"
+                />
+              </div>
+            )}
+            {imageUploadError && (
+              <div className="text-rose-400 text-sm">{imageUploadError}</div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-white/10">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15"
             disabled={imageUploadLoading}
           >
             Cancel
           </button>
           <button
             onClick={handleImageUpload}
-            className={`px-4 py-2 rounded text-white ${
-              (imageUploadFile || imagePreviewUrl) && !imageUploadLoading
-                ? "bg-blue-600 hover:bg-blue-700"
-                : "bg-gray-400 cursor-not-allowed"
-            }`}
+            className={`px-4 py-2 rounded-lg ${ (imageUploadFile || imagePreviewUrl) && !imageUploadLoading ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-white/10 cursor-not-allowed'} `}
             disabled={!(imageUploadFile || imagePreviewUrl) || imageUploadLoading}
           >
-            {imageUploadLoading ? "Uploading..." : "Upload"}
+            {imageUploadLoading ? 'Uploading…' : 'Upload'}
           </button>
         </div>
       </div>

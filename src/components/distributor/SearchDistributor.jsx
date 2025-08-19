@@ -68,50 +68,50 @@ const SearchDistributor = () => {
   };
 
   return (
-    <div className="p-4">
-      <h2 className="text-lg font-semibold mb-2">Search Distributors</h2>
+    <div className="p-4 text-white">
+      <h2 className="text-lg font-semibold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Search Distributors</h2>
       <div className="flex gap-2 mb-4">
         <input
           type="text"
           placeholder="Search by name, phone, city or ID"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="border px-3 py-2 rounded w-full"
+          className="px-3 py-2 rounded-xl w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
-        <button onClick={handleSearch} className="bg-blue-600 text-white px-4 py-2 rounded">
+        <button onClick={handleSearch} className="px-4 py-2 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]">
           {loading ? 'Searching...' : 'Search'}
         </button>
       </div>
 
       <div>
         {results.length === 0 && !loading && (
-          <p className="text-gray-500">No distributors found.</p>
+          <p className="text-white/70">No distributors found.</p>
         )}
         {results.map((dist) => (
           <div
             key={dist.id}
-            className="border p-3 rounded mb-2 shadow-sm flex justify-between items-center"
+            className="p-3 rounded-xl mb-2 flex justify-between items-center bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.35)]"
           >
             <div>
-              <p className="font-medium">{dist.businessName}</p>
-              <p className="text-sm text-gray-600">Owner: {dist.ownerName}</p>
-              <p className="text-sm text-gray-500">City: {dist.city}</p>
-              <p className="text-sm text-gray-500">Phone: {dist.phone}</p>
-              <p className="text-sm text-gray-500">ID: {dist.id}</p>
+              <p className="font-medium text-white">{dist.businessName}</p>
+              <p className="text-sm text-white/70">Owner: {dist.ownerName}</p>
+              <p className="text-sm text-white/60">City: {dist.city}</p>
+              <p className="text-sm text-white/60">Phone: {dist.phone}</p>
+              <p className="text-sm text-white/60">ID: {dist.id}</p>
             </div>
             {dist.requestStatus === 'connected' ? (
-              <span className="bg-green-500 text-white px-3 py-1 rounded">Connected</span>
+              <span className="px-3 py-1 rounded text-slate-900 bg-emerald-400">Connected</span>
             ) : dist.requestStatus === 'accepted' ? (
-              <span className="bg-green-400 text-white px-3 py-1 rounded">Accepted</span>
+              <span className="px-3 py-1 rounded text-slate-900 bg-emerald-300">Accepted</span>
             ) : dist.requestStatus === 'pending' ? (
-              <span className="bg-gray-400 text-white px-3 py-1 rounded">Request Sent</span>
+              <span className="px-3 py-1 rounded bg-white/20 text-white/80">Request Sent</span>
             ) : (
               <button
                 onClick={() => {
                   setSelectedDistributor(dist);
                   setShowModal(true);
                 }}
-                className="bg-green-600 text-white px-3 py-1 rounded"
+                className="px-3 py-1 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
               >
                 Send Request
               </button>

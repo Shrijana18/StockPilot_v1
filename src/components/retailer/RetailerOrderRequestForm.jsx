@@ -113,15 +113,15 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
   };
 
   return (
-    <div className="p-4 border rounded shadow-md bg-white">
-      <h2 className="text-lg font-semibold mb-4">Send Order Request</h2>
+    <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
+      <h2 className="text-lg font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Send Order Request</h2>
 
       {/* Universal Product Search Bar */}
       <div className="mb-4 relative">
         <input
           type="text"
           placeholder="🔍 Search product by name, SKU, brand, etc."
-          className="w-full px-4 py-2 border rounded shadow-sm"
+          className="w-full px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 shadow-sm"
           onChange={(e) => {
             const query = e.target.value.toLowerCase();
             if (query.trim() === "") {
@@ -139,11 +139,11 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           }}
         />
         {filteredSuggestions.length > 0 && (
-          <ul className="bg-white border rounded mt-1 max-h-40 overflow-y-auto text-sm absolute left-0 right-0 z-20">
+          <ul className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto text-sm z-50 rounded-xl border border-white/10 bg-[#0B0F14]/90 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
             {filteredSuggestions.map((sug) => (
               <li
                 key={sug.id}
-                className="px-3 py-2 hover:bg-blue-100 cursor-pointer border-b"
+                className="px-3 py-2 cursor-pointer border-b border-white/10 hover:bg-white/10"
                 onClick={() => {
                   const alreadyAdded = items.some(existing => existing.sku === sug.sku);
                   if (alreadyAdded) {
@@ -167,12 +167,12 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
                 }}
               >
                 <div className="font-semibold">{sug.productName}</div>
-                <div className="text-xs text-gray-600 flex flex-wrap gap-2">
+                <div className="text-xs text-white/70 flex flex-wrap gap-2">
                   <span>Brand: {sug.brand || '—'}</span>
                   <span>SKU: {sug.sku || '—'}</span>
                   <span>Unit: {sug.unit || '—'}</span>
                   <span>Price: ₹{sug.sellingPrice || '—'}</span>
-                  <span className={`font-semibold ${sug.quantity === 0 ? 'text-red-600' : sug.quantity <= 10 ? 'text-yellow-600' : 'text-green-600'}`}>
+                  <span className={`font-semibold ${sug.quantity === 0 ? 'text-rose-300' : sug.quantity <= 10 ? 'text-amber-300' : 'text-emerald-300'}`}>
                     In Stock: {sug.quantity}
                   </span>
                 </div>
@@ -183,9 +183,9 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
       </div>
 
       <div className="mb-4">
-        <label className="font-medium mr-2">Payment Mode:</label>
+        <label className="font-medium mr-2 text-white/80">Payment Mode:</label>
         <select
-          className="border px-3 py-2 rounded"
+          className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           value={paymentMode}
           onChange={(e) => setPaymentMode(e.target.value)}
         >
@@ -199,7 +199,7 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
         {paymentMode === 'Credit Cycle' && (
           <input
             type="number"
-            className="ml-4 border px-3 py-2 rounded"
+            className="ml-4 px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             placeholder="Credit days"
             value={creditDays}
             onChange={(e) => setCreditDays(e.target.value)}
@@ -210,14 +210,14 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             <input
               type="number"
               placeholder="Advance %"
-              className="border px-3 py-2 rounded"
+              className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               value={splitPayment.advance}
               onChange={(e) => setSplitPayment({ ...splitPayment, advance: e.target.value })}
             />
             <input
               type="number"
               placeholder="Balance %"
-              className="border px-3 py-2 rounded"
+              className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               value={splitPayment.balance}
               onChange={(e) => setSplitPayment({ ...splitPayment, balance: e.target.value })}
             />
@@ -231,7 +231,7 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             <input
               type="text"
               placeholder="Product Name"
-              className="border px-3 py-2 rounded w-full bg-gray-100 cursor-not-allowed"
+              className="px-3 py-2 rounded-xl w-full bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
               value={item.productName}
               disabled
             />
@@ -239,49 +239,49 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           <input
             type="text"
             placeholder="SKU"
-            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
+            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
             value={item.sku}
             disabled
           />
           <input
             type="text"
             placeholder="Brand"
-            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
+            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
             value={item.brand}
             disabled
           />
           <input
             type="text"
             placeholder="Category"
-            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
+            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
             value={item.category}
             disabled
           />
           <input
             type="number"
             placeholder="Quantity"
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={item.quantity}
             onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
           />
           <input
             type="text"
             placeholder="Unit (e.g., kg)"
-            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
+            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
             value={item.unit}
             disabled
           />
           <input
             type="number"
             placeholder="Price (₹)"
-            className="border px-3 py-2 rounded bg-gray-100 cursor-not-allowed"
+            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
             value={item.unitPrice}
             disabled
           />
           <input
             type="text"
             placeholder="Description"
-            className="border px-3 py-2 rounded"
+            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={item.description}
             onChange={(e) => handleItemChange(index, 'description', e.target.value)}
           />
@@ -289,7 +289,7 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             <input
               type="text"
               placeholder="Notes"
-              className="border px-3 py-2 rounded w-full"
+              className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 w-full"
               value={item.notes}
               onChange={(e) => handleItemChange(index, 'notes', e.target.value)}
             />
@@ -298,7 +298,7 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
                 const updated = items.filter((_, i) => i !== index);
                 setItems(updated);
               }}
-              className="text-red-500 hover:text-red-700 text-sm"
+              className="text-rose-300 hover:text-rose-200 text-sm"
               title="Remove Row"
             >
               🗑️
@@ -309,19 +309,19 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
 
       <button
         onClick={addItemRow}
-        className="mb-4 bg-gray-300 px-3 py-1 rounded text-sm hover:bg-gray-400"
+        className="mb-4 px-3 py-1 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
       >
         + Add Item
       </button>
 
-      <div className="text-right font-semibold text-lg mb-3">
+      <div className="text-right font-semibold text-lg mb-3 text-white">
         Total: ₹{items.reduce((acc, item) => acc + (parseFloat(item.unitPrice || 0) * parseFloat(item.quantity || 0)), 0).toFixed(2)}
       </div>
 
       <button
         onClick={handleSubmit}
         disabled={submitting || !distributorId}
-        className="block w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+        className="block w-full py-2 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 disabled:opacity-60 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
       >
         {submitting ? 'Sending Order...' : 'Send Order'}
       </button>

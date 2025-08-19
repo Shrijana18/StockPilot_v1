@@ -188,26 +188,26 @@ const SmartAssistant = ({ distributor }) => {
   }, [messages]);
 
   return (
-    <div className="h-[500px] flex flex-col border rounded shadow p-4 bg-white relative">
-      <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+    <div className="h-[500px] flex flex-col p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white relative overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-2 mb-4 flex flex-col">
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`p-2 max-w-xs rounded ${
+            className={`p-2 max-w-[75%] rounded-xl shadow inline-block ${
               msg.sender === 'retailer'
-                ? 'bg-blue-100 self-end text-right'
-                : 'bg-gray-100 self-start text-left'
+                ? 'self-end text-right bg-emerald-400/15 border border-emerald-300/20'
+                : 'self-start text-left bg-white/10 border border-white/10'
             }`}
           >
             <p className="text-sm">{msg.message}</p>
             {msg.sender === 'assistant' && msg.timestamp && (
-              <p className="text-[10px] text-gray-500 mt-1">✓ Delivered</p>
+              <p className="text-[10px] text-white/60 mt-1">✓ Delivered</p>
             )}
           </div>
         ))}
         {isTyping && (
-          <div className="p-2 max-w-xs rounded bg-gray-100 self-start text-left animate-pulse">
-            <p className="text-sm italic text-gray-500">Assistant is typing...</p>
+          <div className="p-2 max-w-[75%] rounded-xl bg-white/10 border border-white/10 self-start text-left animate-pulse">
+            <p className="text-sm italic text-white/70">Assistant is typing...</p>
           </div>
         )}
         <div ref={bottomRef} />
@@ -215,7 +215,7 @@ const SmartAssistant = ({ distributor }) => {
       <div className="flex items-center gap-2 relative">
         <input
           type="text"
-          className="flex-1 border rounded px-3 py-2 text-sm"
+          className="flex-1 px-3 py-2 text-sm rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
           placeholder="Ask something..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -223,12 +223,12 @@ const SmartAssistant = ({ distributor }) => {
         />
         <button
           onClick={sendMessage}
-          className="bg-blue-600 text-white px-4 py-2 rounded text-sm"
+          className="px-4 py-2 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
         >
           Send
         </button>
         {suggestions.length > 0 && (
-          <div className="absolute bottom-14 left-0 right-0 bg-white border rounded shadow text-sm z-10">
+          <div className="absolute bottom-14 left-0 right-0 text-sm z-50 rounded-xl border border-white/10 bg-[#0B0F14]/90 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
             {suggestions.map((s, i) => (
               <div
                 key={i}
@@ -236,7 +236,7 @@ const SmartAssistant = ({ distributor }) => {
                   setInput(s);
                   setSuggestions([]);
                 }}
-                className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                className="px-3 py-2 hover:bg-white/10 cursor-pointer text-white"
               >
                 {s}
               </div>

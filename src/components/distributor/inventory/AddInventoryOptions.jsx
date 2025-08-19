@@ -6,49 +6,50 @@ import AIInventoryForm from "./AIAutogenForm";
 const AddInventoryOptions = ({ userId }) => {
   const [selectedOption, setSelectedOption] = useState("manual");
 
+  // Small helper for tab button styles (clean, low‑chrome)
+  const tabBase =
+    "px-3 py-1.5 rounded-lg text-sm transition focus:outline-none ring-1 ring-white/10";
+  const tabOn  = "bg-emerald-500 text-slate-900 ring-emerald-400/30";
+  const tabOff = "bg-white/5 text-white/90 hover:bg-white/10";
+
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-gray-800">Add Inventory</h2>
+    <div className="text-white">
+      {/* Title row – uncomplicated, no extra card */}
+      <div className="mb-3">
+        <h2 className="text-xl font-semibold">Add Inventory</h2>
+      </div>
 
-      <div className="border border-gray-300 p-4 rounded-md shadow-sm bg-white">
-        <div className="flex space-x-4 mb-4">
-          <button
-            className={`px-4 py-2 rounded ${
-              selectedOption === "manual"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200"
-            }`}
-            onClick={() => setSelectedOption("manual")}
-          >
-            Manual Entry
-          </button>
-          <button
-            className={`px-4 py-2 rounded ${
-              selectedOption === "ocr"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200"
-            }`}
-            onClick={() => setSelectedOption("ocr")}
-          >
-            OCR Upload
-          </button>
-          <button
-            className={`px-4 py-2 rounded ${
-              selectedOption === "ai"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200"
-            }`}
-            onClick={() => setSelectedOption("ai")}
-          >
-            AI Autogen
-          </button>
-        </div>
+      {/* Input method selector – a single clean row */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-white/60">Select method:</span>
 
-        <div>
-          {selectedOption === "manual" && <ManualEntryForm />}
-          {selectedOption === "ocr" && <OCRUploadForm distributorId={userId} />}
-          {selectedOption === "ai" && <AIInventoryForm userId={userId} />}
-        </div>
+        <button
+          className={`${tabBase} ${selectedOption === "manual" ? tabOn : tabOff}`}
+          onClick={() => setSelectedOption("manual")}
+        >
+          Manual Entry
+        </button>
+
+        <button
+          className={`${tabBase} ${selectedOption === "ocr" ? tabOn : tabOff}`}
+          onClick={() => setSelectedOption("ocr")}
+        >
+          OCR Upload
+        </button>
+
+        <button
+          className={`${tabBase} ${selectedOption === "ai" ? tabOn : tabOff}`}
+          onClick={() => setSelectedOption("ai")}
+        >
+          AI Autogen
+        </button>
+      </div>
+
+      {/* Form area – rendered directly; no nested background panel */}
+      <div className="mt-2">
+        {selectedOption === "manual" && <ManualEntryForm />}
+        {selectedOption === "ocr" && <OCRUploadForm distributorId={userId} />}
+        {selectedOption === "ai" && <AIInventoryForm userId={userId} />}
       </div>
     </div>
   );

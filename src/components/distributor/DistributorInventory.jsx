@@ -28,47 +28,60 @@ const DistributorInventory = () => {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      className="p-6"
+      transition={{ duration: 0.4 }}
+      className="p-2 md:p-4 text-white"
     >
-
-      <div className="flex space-x-4 mb-4">
-        {["add", "view", "group", "lowstock"].map((tab) => (
+      {/* Top action row — mirrors retailer: Add / View / Group / Low Stock */}
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        {[
+          { id: "add", label: "Add Inventory" },
+          { id: "view", label: "View Inventory" },
+          { id: "group", label: "Item Groups" },
+          { id: "lowstock", label: "Low Stock Alerts" },
+        ].map((t) => (
           <button
-            key={tab}
-            className={`px-4 py-2 rounded shadow-sm transition duration-200 ease-in-out transform hover:scale-105 ${
-              selectedTab === tab
-                ? "bg-blue-600 text-white ring-2 ring-offset-2 ring-blue-400"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-            onClick={() => setSelectedTab(tab)}
+            key={t.id}
+            onClick={() => setSelectedTab(t.id)}
+            className={
+              `px-4 py-2 rounded-lg text-sm font-medium transition-colors border ` +
+              (selectedTab === t.id
+                ? "bg-emerald-500 text-slate-900 border-transparent shadow"
+                : "bg-white/10 text-white/90 border-white/15 hover:bg-white/15")
+            }
           >
-            {tab === "add"
-              ? "Add Inventory"
-              : tab === "view"
-              ? "View Inventory"
-              : tab === "group"
-              ? "Item Groups"
-              : "Low Stock Alerts"}
+            {t.label}
           </button>
         ))}
       </div>
 
-      {selectedTab === "add" && (
-        <div className="mt-4">
-          <AddInventoryOptions userId={distributorId} role="distributor" />
+      {/* Section title — keep structure consistent with Retailer */}
+      {selectedTab === 'add' && (
+        <div className="mb-4">
+          <h3 className="text-base font-semibold">Select Inventory Input Method</h3>
         </div>
       )}
 
-      {selectedTab === "view" && (
-        <div className="mt-6">
-          <ViewInventory userId={distributorId} db={db} role="distributor" />
-        </div>
-      )}
+      {/* Content area — flat, single-surface like Retailer */}
+      <div className="mt-3">
+        {selectedTab === "add" && (
+          <div className="mt-2">
+            <AddInventoryOptions userId={distributorId} role="distributor" />
+          </div>
+        )}
 
-      {["group", "lowstock"].includes(selectedTab) && (
-        <div className="text-gray-500 italic mt-4">This tab is under construction.</div>
-      )}
+        {selectedTab === "view" && (
+          <div className="mt-2">
+            <ViewInventory userId={distributorId} db={db} role="distributor" />
+          </div>
+        )}
+
+        {selectedTab === "group" && (
+          <div className="text-white/70 italic">This tab is under construction.</div>
+        )}
+        {selectedTab === "lowstock" && (
+          <div className="text-white/70 italic">This tab is under construction.</div>
+        )}
+      </div>
     </motion.div>
   );
 };

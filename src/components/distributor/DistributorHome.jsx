@@ -2,7 +2,51 @@ import React, { useEffect, useState } from "react";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { motion } from "framer-motion";
+
 import DistributorCreditDue from "./DistributorCreditDue";
+
+// --- UI-ONLY helpers (no logic changed) ---
+const GlassCard = ({ className = "", children }) => (
+  <div className={`rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl hover:shadow-emerald-400/10 hover:scale-[1.005] transition duration-300 vignette ${className}`}>
+    {children}
+  </div>
+);
+
+const StatCard = ({ label, value, note, tone = "default" }) => {
+  const toneMap = {
+    default: "text-white",
+    yellow: "text-amber-300",
+    green: "text-emerald-300",
+    blue: "text-cyan-300",
+    purple: "text-fuchsia-300",
+  };
+  return (
+    <GlassCard className="p-4">
+      <p className="text-xs uppercase tracking-wide text-white/70">{label}</p>
+      <div className={`mt-1 text-2xl font-semibold ${toneMap[tone] || toneMap.default}`}>{value}</div>
+      {note && <div className="mt-2 text-[11px] text-white/70 space-y-1">{note}</div>}
+    </GlassCard>
+  );
+};
+
+const Pill = ({ children, tone = "neutral" }) => {
+  const toneCls = {
+    danger: "bg-red-400/15 text-red-300",
+    warning: "bg-orange-400/15 text-orange-300",
+    amber: "bg-amber-400/15 text-amber-300",
+    info: "bg-sky-400/15 text-sky-300",
+    purple: "bg-fuchsia-400/15 text-fuchsia-300",
+    neutral: "bg-white/10 text-white/90",
+  }[tone];
+  return <span className={`px-2 py-1 rounded-full text-xs font-semibold ${toneCls}`}>{children}</span>;
+};
+
+const SectionHeader = ({ title, icon }) => (
+  <h3 className="font-semibold text-lg mb-2 flex items-center gap-2">
+    <span className="text-xl">{icon}</span>
+    <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">{title}</span>
+  </h3>
+);
 
 const DistributorHome = () => {
   const [stats, setStats] = useState({
@@ -328,111 +372,80 @@ const DistributorHome = () => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6 }}
-      className="p-6 space-y-6"
+      className="p-6 space-y-6 text-white"
     >
-      <h2 className="text-3xl font-bold">📦 Distributor Business Snapshot</h2>
-
-      {/* Top KPI Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.1 }}
-          className="bg-white shadow-md rounded-lg p-4"
-        >
-          <p className="text-gray-500 text-sm">Total Orders</p>
-          <p className="text-2xl font-bold">{stats.totalOrders}</p>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.2 }}
-          className="bg-white shadow-md rounded-lg p-4"
-        >
-          <p className="text-gray-500 text-sm">Pending Orders</p>
-          <p className="text-2xl font-bold text-yellow-600">{stats.pendingOrders}</p>
-          <div className="mt-2 text-xs text-gray-500 space-y-1">
-            <div className="flex items-center justify-between"><span>• Yet to ship</span><span className="font-semibold text-gray-700">{stats.yetToShip}</span></div>
-            <div className="flex items-center justify-between"><span>• Out for delivery</span><span className="font-semibold text-gray-700">{stats.outForDelivery}</span></div>
-          </div>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.3 }}
-          className="bg-white shadow-md rounded-lg p-4"
-        >
-          <p className="text-gray-500 text-sm">Completed Orders</p>
-          <p className="text-2xl font-bold text-green-600">{stats.completedOrders}</p>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.4 }}
-          className="bg-white shadow-md rounded-lg p-4"
-        >
-          <p className="text-gray-500 text-sm">Total Revenue (Paid)</p>
-          <p className="text-2xl font-bold text-blue-600">₹{stats.totalRevenue.toFixed(2)}</p>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.45 }}
-          className="bg-white shadow-md rounded-lg p-4"
-        >
-          <p className="text-gray-500 text-sm">Due Credit Total</p>
-          <p className="text-2xl font-bold text-purple-600">₹{stats.dueCreditTotal.toFixed(2)}</p>
-        </motion.div>
+      <div className="relative">
+        <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">📦 Distributor Business Snapshot</h2>
+        <div className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent" />
       </div>
 
-      <div className="bg-white shadow-md rounded-lg p-5 mt-2">
+      {/* Top KPI Stats (glass) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatCard label="Total Orders" value={stats.totalOrders} />
+        <StatCard
+          label="Pending Orders"
+          value={stats.pendingOrders}
+          tone="yellow"
+          note={(
+            <>
+              <div className="flex items-center justify-between"><span>• Yet to ship</span><span className="font-semibold text-white">{stats.yetToShip}</span></div>
+              <div className="flex items-center justify-between"><span>• Out for delivery</span><span className="font-semibold text-white">{stats.outForDelivery}</span></div>
+            </>
+          )}
+        />
+        <StatCard label="Completed Orders" value={stats.completedOrders} tone="green" />
+        <StatCard label="Total Revenue (Paid)" value={`₹${stats.totalRevenue.toFixed(2)}`} tone="blue" />
+        <StatCard label="Due Credit Total" value={`₹${stats.dueCreditTotal.toFixed(2)}`} tone="purple" />
+      </div>
+
+      <GlassCard className="p-5 mt-2">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="font-semibold text-lg">🧾 Credit Due Snapshot</h3>
           <div className="flex flex-wrap gap-2 text-xs">
-            <span className="px-2 py-1 rounded-full bg-red-100 text-red-700 font-semibold">Overdue: ₹{creditBuckets.totals.overdue.toLocaleString()}</span>
-            <span className="px-2 py-1 rounded-full bg-orange-100 text-orange-700 font-semibold">Today: ₹{creditBuckets.totals.today.toLocaleString()}</span>
-            <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold">Tomorrow: ₹{creditBuckets.totals.tomorrow.toLocaleString()}</span>
-            <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-semibold">Upcoming: ₹{creditBuckets.totals.upcoming.toLocaleString()}</span>
-            <span className="px-2 py-1 rounded-full bg-purple-100 text-purple-700 font-semibold">Total: ₹{creditBuckets.totals.allDue.toLocaleString()}</span>
+            <Pill tone="danger">Overdue: ₹{creditBuckets.totals.overdue.toLocaleString()}</Pill>
+            <Pill tone="warning">Today: ₹{creditBuckets.totals.today.toLocaleString()}</Pill>
+            <Pill tone="amber">Tomorrow: ₹{creditBuckets.totals.tomorrow.toLocaleString()}</Pill>
+            <Pill tone="info">Upcoming: ₹{creditBuckets.totals.upcoming.toLocaleString()}</Pill>
+            <Pill tone="purple">Total: ₹{creditBuckets.totals.allDue.toLocaleString()}</Pill>
           </div>
         </div>
 
         {/* Controls */}
         <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
           <select
-            className="border rounded px-2 py-1"
+            className="rounded-lg bg-white/10 border border-white/20 text-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={filters.bucket}
             onChange={(e) => setFilters((p) => ({ ...p, bucket: e.target.value }))}
             aria-label="Filter bucket"
           >
-            <option value="ALL">All</option>
-            <option value="OVERDUE">Overdue</option>
-            <option value="TODAY">Due Today</option>
-            <option value="TOMORROW">Due Tomorrow</option>
-            <option value="UPCOMING">Upcoming</option>
+            <option className="text-slate-900" value="ALL">All</option>
+            <option className="text-slate-900" value="OVERDUE">Overdue</option>
+            <option className="text-slate-900" value="TODAY">Due Today</option>
+            <option className="text-slate-900" value="TOMORROW">Due Tomorrow</option>
+            <option className="text-slate-900" value="UPCOMING">Upcoming</option>
           </select>
           <select
-            className="border rounded px-2 py-1"
+            className="rounded-lg bg-white/10 border border-white/20 text-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={filters.sort}
             onChange={(e) => setFilters((p) => ({ ...p, sort: e.target.value }))}
             aria-label="Sort by"
           >
-            <option value="dueDate">Sort: Due date</option>
-            <option value="amount">Sort: Amount</option>
-            <option value="retailer">Sort: Retailer</option>
+            <option className="text-slate-900" value="dueDate">Sort: Due date</option>
+            <option className="text-slate-900" value="amount">Sort: Amount</option>
+            <option className="text-slate-900" value="retailer">Sort: Retailer</option>
           </select>
           <select
-            className="border rounded px-2 py-1"
+            className="rounded-lg bg-white/10 border border-white/20 text-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={filters.dir}
             onChange={(e) => setFilters((p) => ({ ...p, dir: e.target.value }))}
             aria-label="Sort direction"
           >
-            <option value="asc">Asc</option>
-            <option value="desc">Desc</option>
+            <option className="text-slate-900" value="asc">Asc</option>
+            <option className="text-slate-900" value="desc">Desc</option>
           </select>
           <input
             type="text"
-            className="border rounded px-2 py-1 flex-1 min-w-[160px]"
+            className="rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/60 px-2 py-1 flex-1 min-w-[160px] focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             placeholder="Search retailer or order ID"
             value={filters.query}
             onChange={(e) => setFilters((p) => ({ ...p, query: e.target.value }))}
@@ -440,15 +453,15 @@ const DistributorHome = () => {
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto border rounded-lg">
+        <div className="overflow-x-auto border border-white/10 rounded-lg">
           <table className="min-w-full table-auto">
-            <thead className="bg-gray-50">
+            <thead className="bg-white/10">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Retailer</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Amount</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Due Date</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Status</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Actions</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-white/80">Retailer</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-white/80">Amount</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-white/80">Due Date</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-white/80">Status</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-white/80">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -457,61 +470,61 @@ const DistributorHome = () => {
                 if (rows.length === 0) {
                   return (
                     <tr>
-                      <td colSpan={5} className="px-3 py-6 text-center text-gray-500">No credit dues found.</td>
+                      <td colSpan={5} className="px-3 py-6 text-center text-white/60">No credit dues found.</td>
                     </tr>
                   );
                 }
                 return rows.map((r) => (
                   <React.Fragment key={r.id}>
-                    <tr className="border-t hover:bg-gray-50">
-                      <td className="px-3 py-2 text-sm font-medium text-gray-800">
-                        <button onClick={() => toggleRow(r.id)} className="text-blue-600 hover:underline mr-2">
+                    <tr className="border-t border-white/10 hover:bg-white/5">
+                      <td className="px-3 py-2 text-sm font-medium text-white">
+                        <button onClick={() => toggleRow(r.id)} className="text-emerald-300 hover:underline mr-2">
                           {expanded[r.id] ? 'Hide' : 'Show'}
                         </button>
                         {r.retailer}
-                        <div className="text-[11px] text-gray-500">#{r.id.slice(0,8)}</div>
+                        <div className="text-[11px] text-white/60">#{r.id.slice(0,8)}</div>
                       </td>
                       <td className="px-3 py-2 text-sm text-right">₹{Number(r.amount||0).toLocaleString()}</td>
                       <td className="px-3 py-2 text-sm">{r.dueDate ? new Date(r.dueDate).toLocaleDateString('en-GB') : '—'}</td>
                       <td className="px-3 py-2 text-sm">
                         {r.daysLeft < 0 && (
-                          <span className="px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold">{Math.abs(r.daysLeft)} day(s) overdue</span>
+                          <span className="px-2 py-1 rounded-full bg-red-400/15 text-red-300 text-xs font-semibold">{Math.abs(r.daysLeft)} day(s) overdue</span>
                         )}
                         {r.daysLeft === 0 && (
-                          <span className="px-2 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-semibold">Due today</span>
+                          <span className="px-2 py-1 rounded-full bg-orange-400/15 text-orange-300 text-xs font-semibold">Due today</span>
                         )}
                         {r.daysLeft === 1 && (
-                          <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">Due tomorrow</span>
+                          <span className="px-2 py-1 rounded-full bg-amber-400/15 text-amber-300 text-xs font-semibold">Due tomorrow</span>
                         )}
                         {r.daysLeft > 1 && (
-                          <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{r.daysLeft} days left</span>
+                          <span className="px-2 py-1 rounded-full bg-sky-400/15 text-sky-300 text-xs font-semibold">{r.daysLeft} days left</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-sm text-right">
                         <div className="inline-flex gap-2">
-                          <button onClick={() => markCreditPaid(r)} className="px-2 py-1 rounded bg-green-600 text-white text-xs hover:bg-green-700">Mark Paid</button>
-                          <button onClick={() => extendCredit(r)} className="px-2 py-1 rounded bg-blue-600 text-white text-xs hover:bg-blue-700">Extend</button>
+                          <button onClick={() => markCreditPaid(r)} className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60">Mark Paid</button>
+                          <button onClick={() => extendCredit(r)} className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-900 bg-gradient-to-r from-sky-400 to-indigo-500 hover:shadow-[0_8px_24px_rgba(56,189,248,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/60">Extend</button>
                         </div>
                       </td>
                     </tr>
                     {expanded[r.id] && (
-                      <tr className="border-t bg-gray-50">
+                      <tr className="border-t border-white/10 bg-white/5">
                         <td colSpan={5} className="px-4 py-3 text-sm">
                           <div className="flex flex-wrap gap-6">
                             <div>
-                              <div className="text-gray-600 text-xs">Delivered</div>
+                              <div className="text-white/70 text-xs">Delivered</div>
                               <div className="font-medium">{r.deliveredAt ? new Date(r.deliveredAt).toLocaleDateString('en-GB') : '—'}</div>
                             </div>
                             <div>
-                              <div className="text-gray-600 text-xs">Credit Days</div>
+                              <div className="text-white/70 text-xs">Credit Days</div>
                               <div className="font-medium">{r.creditDays || '—'}</div>
                             </div>
                             <div>
-                              <div className="text-gray-600 text-xs">Payment Mode</div>
+                              <div className="text-white/70 text-xs">Payment Mode</div>
                               <div className="font-medium">{r.paymentMode}</div>
                             </div>
                             <div>
-                              <button onClick={goToPaymentDue} className="text-blue-600 hover:underline">Open in Track Orders</button>
+                              <button onClick={goToPaymentDue} className="text-emerald-300 hover:underline">Open in Track Orders</button>
                             </div>
                           </div>
                         </td>
@@ -525,33 +538,29 @@ const DistributorHome = () => {
         </div>
 
         <div className="mt-3 text-right text-sm">
-          <button onClick={goToPaymentDue} className="text-blue-600 hover:underline">Go to Track Orders → Payment Due</button>
+          <button onClick={goToPaymentDue} className="text-emerald-300 hover:underline">Go to Track Orders → Payment Due</button>
         </div>
-      </div>
+      </GlassCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-        <div className="bg-white shadow-md rounded-lg p-4">
-          <h3 className="font-semibold text-lg mb-2">📊 Order Trends</h3>
-          <div className="h-40 bg-gray-100 rounded animate-pulse flex items-center justify-center text-gray-400">
+        <GlassCard className="p-4">
+          <SectionHeader title="Order Trends" icon={<span>📊</span>} />
+          <div className="h-40 rounded bg-white/5 animate-pulse flex items-center justify-center text-white/50">
             Loading chart...
           </div>
-        </div>
-        <div className="bg-white shadow-md rounded-lg p-4">
-          <h3 className="font-semibold text-lg mb-2">💸 Revenue Insights</h3>
-          <div className="h-40 bg-gray-100 rounded animate-pulse flex items-center justify-center text-gray-400">
+        </GlassCard>
+        <GlassCard className="p-4">
+          <SectionHeader title="Revenue Insights" icon={<span>💸</span>} />
+          <div className="h-40 rounded bg-white/5 animate-pulse flex items-center justify-center text-white/50">
             Loading chart...
           </div>
-        </div>
+        </GlassCard>
       </div>
 
-      <div className="bg-white shadow-md rounded-lg p-4 mt-6 hover:shadow-lg transition duration-300">
-        <h3 className="font-semibold text-lg mb-2 flex items-center gap-2">
-          📅 Today’s Collection Schedule
-        </h3>
-        <p className="text-sm text-gray-600">
-          Data will list retailers with dues today (future enhancement)
-        </p>
-      </div>
+      <GlassCard className="p-4 mt-6 hover:shadow-emerald-400/10">
+        <SectionHeader title="Today’s Collection Schedule" icon={<span>📅</span>} />
+        <p className="text-sm text-white/70">Data will list retailers with dues today (future enhancement)</p>
+      </GlassCard>
     </motion.div>
   );
 };
