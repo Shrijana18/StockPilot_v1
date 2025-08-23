@@ -3,6 +3,10 @@ import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, get
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { exportOrderCSV } from "../../../lib/exporters/csv";
+import { downloadOrderExcel } from "../../../lib/exporters/excel";
+import { downloadOrderPDF } from "../../../lib/exporters/pdf";
+import ProformaSummary from "../../retailer/ProformaSummary";
 
 const TrackOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -56,14 +60,18 @@ const TrackOrders = () => {
     );
   };
 
+  const safeName = (s) => (s || "order").toString().replace(/[^a-z0-9_-]+/gi, "_");
   const exportCSV = (order) => {
-    console.log('Exporting CSV:', order);
+    const base = `${safeName(order.retailerBusinessName || order.retailerName)}_${order.id}`;
+    exportOrderCSV(order, `${base}.csv`);
   };
   const exportExcel = (order) => {
-    console.log('Exporting Excel:', order);
+    const base = `${safeName(order.retailerBusinessName || order.retailerName)}_${order.id}`;
+    downloadOrderExcel(order, `${base}.xlsx`);
   };
   const exportPDF = (order) => {
-    console.log('Exporting PDF:', order);
+    const base = `${safeName(order.retailerBusinessName || order.retailerName)}_${order.id}`;
+    downloadOrderPDF(order, `${base}.pdf`);
   };
 
   const getEditedCreditDays = (order) => {
@@ -272,13 +280,24 @@ const TrackOrders = () => {
                matchesDate(order)
   );
 
-  // For summary header
-  const sumOrderTotal = (order) =>
-    (order.items || []).reduce(
-      (acc, item) =>
-        acc + (Number(item.quantity || 0) * Number(item.price || 0)),
-      0
-    );
+  // Proforma-aware helpers
+  const getDisplayPrice = (order, idx, item) => {
+    const ln = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+    if (ln && ln.price != null) return Number(ln.price) || 0;
+    return Number(item?.price) || 0;
+  };
+  const getDisplaySubtotal = (order, idx, item) => {
+    const ln = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+    if (ln && ln.gross != null) return Number(ln.gross) || 0;
+    const qty = Number(item?.quantity) || 0;
+    const price = Number(item?.price) || 0;
+    return qty * price;
+  };
+  // Prefer proforma grandTotal for header totals
+  const sumOrderTotal = (order) => {
+    if (order?.proforma?.grandTotal != null) return Number(order.proforma.grandTotal) || 0;
+    return (order.items || []).reduce((acc, item, idx) => acc + getDisplaySubtotal(order, idx, item), 0);
+  };
   const paymentDueTotal = paymentDueOrders.reduce((acc, o) => acc + sumOrderTotal(o), 0);
   const paidOrdersTotal = paidOrders.reduce((acc, o) => acc + sumOrderTotal(o), 0);
 
@@ -465,6 +484,16 @@ const TrackOrders = () => {
                         <p><strong>Retailer Phone:</strong> {order.retailerPhone || order.retailer?.phone || currentRetailers[order.retailerId]?.phone || connectedRetailerMap[order.retailerId]?.retailerPhone || 'N/A'}</p>
                         <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
                         <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
+                        {/* Proforma Summary Card (if proforma exists) */}
+                        {order?.proforma && (
+                          <div className="mt-4">
+                            <ProformaSummary
+                              proforma={order.proforma}
+                              distributorState={order.distributorState}
+                              retailerState={order.retailerState || order.state}
+                            />
+                          </div>
+                        )}
                         {/* Items Table (same as other tabs) */}
                         <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
@@ -487,8 +516,8 @@ const TrackOrders = () => {
                                     <td className="px-2 py-2">{item.brand || '—'}</td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
                                     <td className="px-2 py-2 text-center">{item.quantity}</td>
-                                    <td className="px-2 py-2 text-right">₹{Number(item.price || 0).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">₹{(Number(item.quantity || 0) * Number(item.price || 0)).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getDisplaySubtotal(order, idx, item).toFixed(2)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -595,6 +624,16 @@ const TrackOrders = () => {
                           )}
                         </div>
 
+                        {/* Proforma Summary Card (if proforma exists) */}
+                        {order?.proforma && (
+                          <div className="mt-4">
+                            <ProformaSummary
+                              proforma={order.proforma}
+                              distributorState={order.distributorState}
+                              retailerState={order.retailerState || order.state}
+                            />
+                          </div>
+                        )}
                         {/* Items Table */}
                         <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
@@ -617,8 +656,8 @@ const TrackOrders = () => {
                                     <td className="px-2 py-2">{item.brand || '—'}</td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
                                     <td className="px-2 py-2 text-center">{item.quantity}</td>
-                                    <td className="px-2 py-2 text-right">₹{Number(item.price || 0).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">₹{(Number(item.quantity || 0) * Number(item.price || 0)).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getDisplaySubtotal(order, idx, item).toFixed(2)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -824,6 +863,16 @@ const TrackOrders = () => {
                             Export PDF
                           </button>
                         </div>
+                        {/* Proforma Summary Card (if proforma exists) */}
+                        {order?.proforma && (
+                          <div className="mt-4">
+                            <ProformaSummary
+                              proforma={order.proforma}
+                              distributorState={order.distributorState}
+                              retailerState={order.retailerState || order.state}
+                            />
+                          </div>
+                        )}
                         {/* Items Table */}
                         <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
@@ -849,14 +898,14 @@ const TrackOrders = () => {
                                     <td className="px-2 py-2">{item.brand || '—'}</td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
                                     <td className="px-2 py-2 text-center">{item.quantity}</td>
-                                    <td className="px-2 py-2 text-right">₹{Number(item.price || 0).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">₹{(Number(item.quantity || 0) * Number(item.price || 0)).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getDisplaySubtotal(order, idx, item).toFixed(2)}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
                             <div className="text-right font-semibold mt-2">
-                              Total: ₹{order.items?.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.price || 0)), 0).toFixed(2)}
+                              Total: ₹{sumOrderTotal(order).toFixed(2)}
                             </div>
                           </div>
                         </div>

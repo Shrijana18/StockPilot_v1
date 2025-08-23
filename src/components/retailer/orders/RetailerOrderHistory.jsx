@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import OrderStatusTab from './OrderStatusTab.jsx';
 import TrackOrderTab from './TrackOrderTab.jsx';
+import RetailerInvoiceTab from './RetailerInvoiceTab.jsx';
 
 const RetailerOrderHistory = () => {
   const [activeTab, setActiveTab] = useState('status');
@@ -29,12 +30,21 @@ const RetailerOrderHistory = () => {
         >
           🚚 Track Orders
         </button>
+        <button
+          onClick={() => setActiveTab('invoice')}
+          className={`px-4 py-2 rounded-xl transition ${
+            activeTab === 'invoice'
+              ? 'bg-emerald-500 text-slate-900 shadow-[0_8px_24px_rgba(16,185,129,0.35)]'
+              : 'bg-white/10 text-white hover:bg-white/15 border border-white/15'
+          }`}
+        >
+          🧾 Invoices
+        </button>
       </div>
 
       <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
-        {activeTab === 'status' ? (
-          <OrderStatusTab />
-        ) : (
+        {activeTab === 'status' && <OrderStatusTab />}
+        {activeTab === 'track' && (
           <div>
             <TrackOrderTab />
             <p className="text-white/70 text-sm mt-4 ml-1">
@@ -42,6 +52,7 @@ const RetailerOrderHistory = () => {
             </p>
           </div>
         )}
+        {activeTab === 'invoice' && <RetailerInvoiceTab />}
       </div>
     </div>
   );

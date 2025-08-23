@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getFirestore, collection, onSnapshot, doc, getDoc, query, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import ProformaSummary from "../../retailer/ProformaSummary";
 
 const PendingOrders = () => {
   const [pendingOrders, setPendingOrders] = useState([]);
@@ -136,16 +137,22 @@ const PendingOrders = () => {
         const retailerSnap = await getDoc(retailerRef);
         const retailerData = retailerSnap.exists() ? retailerSnap.data() : {};
 
-        // For each item, if productId exists, fetch its inventory stockAvailable, price, sku, unit
-        const itemsWithStock = await Promise.all((data.items || []).map(async (item) => {
-          if (item.productId) {
+        // For each item, prefer proforma locked values if available, else fetch product info
+        const itemsWithStock = await Promise.all((data.items || []).map(async (item, idx) => {
+          // If a Proforma exists, prefer its locked values (price, gross per line)
+          const pLine = Array.isArray(data.proforma?.lines) ? data.proforma.lines[idx] : undefined;
+          // Start from original item
+          let enriched = { ...item };
+
+          // If product info is needed AND no proforma (to avoid overriding locked values)
+          if (!pLine && item.productId) {
             try {
               const productRef = doc(db, 'products', item.productId);
               const productSnap = await getDoc(productRef);
               if (productSnap.exists()) {
                 const productData = productSnap.data();
-                return {
-                  ...item,
+                enriched = {
+                  ...enriched,
                   stockAvailable: productData.stockAvailable,
                   price: productData.sellingPrice || 0,
                   sku: productData.sku || '',
@@ -156,7 +163,18 @@ const PendingOrders = () => {
               // fail silently, keep item as is
             }
           }
-          return item;
+
+          // Apply proforma-locked numbers when available
+          if (pLine) {
+            enriched = {
+              ...enriched,
+              price: Number(pLine.price ?? enriched.price ?? 0),
+              proformaGross: Number(pLine.gross ?? 0),
+              gstRate: Number(pLine.gstRate ?? enriched.gstRate ?? 0),
+            };
+          }
+
+          return enriched;
         }));
 
         return {
@@ -192,6 +210,25 @@ const PendingOrders = () => {
         day: '2-digit', month: '2-digit', year: 'numeric'
       });
     } catch { return 'N/A'; }
+  };
+
+  // Helpers to read prices from proforma snapshot when present
+  const getDisplayPrice = (order, idx, item) => {
+    if (Array.isArray(order?.proforma?.lines)) {
+      const ln = order.proforma.lines[idx];
+      if (ln && ln.price != null) return Number(ln.price) || 0;
+    }
+    return Number(item?.price) || 0;
+  };
+
+  const getDisplaySubtotal = (order, idx, item) => {
+    if (Array.isArray(order?.proforma?.lines)) {
+      const ln = order.proforma.lines[idx];
+      if (ln && ln.gross != null) return Number(ln.gross) || 0;
+    }
+    const qty = Number(item?.quantity) || 0;
+    const price = Number(item?.price) || 0;
+    return qty * price;
   };
 
 return (
@@ -272,6 +309,15 @@ return (
             Requested On: {order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : 'N/A'}
           </p>
 
+          {order?.proforma && (
+            <div className="mt-4">
+              <ProformaSummary
+                proforma={order.proforma}
+                distributorState={order.distributorState}
+                retailerState={order.retailerState}
+              />
+            </div>
+          )}
           <div className="mt-4 border border-white/10 rounded-lg overflow-hidden">
             <div className="grid grid-cols-8 font-semibold bg-white/5 border-b border-white/10 px-4 py-2 text-white">
               <div>Name</div>
@@ -351,13 +397,19 @@ return (
                       </div>
                       <div>{item.unit || 'N/A'}</div>
                       <div></div>
-                      <div>₹{(Number(item.price) || 0).toFixed(2)}</div>
-                      <div>₹{(item.quantity * Number(item.price)).toFixed(2)}</div>
+                      <div>₹{getDisplayPrice(order, i, item).toFixed(2)}</div>
+                      <div>₹{getDisplaySubtotal(order, i, item).toFixed(2)}</div>
                     </>
                   )}
                 </div>
               );
             })}
+            {order?.proforma?.grandTotal != null && (
+              <div className="flex justify-end px-4 py-2 border-t border-white/10 text-sm font-semibold">
+                <span className="mr-2 text-white/80">Grand Total:</span>
+                <span>₹{Number(order.proforma.grandTotal || 0).toFixed(2)}</span>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex flex-col md:flex-row md:items-center md:gap-6 gap-3">

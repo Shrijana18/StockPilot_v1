@@ -6,6 +6,7 @@ import html2pdf from 'html2pdf.js';
 import * as XLSX from 'xlsx';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
+import ChargesTaxesEditor from "../ChargesTaxesEditor";
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -42,6 +43,12 @@ const OrderRequests = () => {
   );
   const lineSubtotal = (item) => getQty(item) * getUnitPrice(item);
   const orderTotal = (items = []) => items.reduce((sum, it) => sum + lineSubtotal(it), 0);
+  // Grand total helper: prefer DIRECT snapshot, fallback to computed
+  const orderGrandTotal = (order) => {
+    const g = order?.chargesSnapshot?.breakdown?.grandTotal;
+    if (typeof g === 'number' && !Number.isNaN(g)) return g;
+    return orderTotal(order?.items || []);
+  };
 
   // --- Date formatting helpers ---
   const formatDateTime = (d) => {
@@ -120,7 +127,7 @@ const OrderRequests = () => {
         order.status || 'N/A',
         order.paymentMode || 'N/A',
         order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : '',
-        order.items ? orderTotal(order.items).toFixed(2) : '0.00'
+        orderGrandTotal(order).toFixed(2)
       ]);
     });
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -147,7 +154,7 @@ const OrderRequests = () => {
       'Status': order.status || 'N/A',
       'Payment': order.paymentMode || 'N/A',
       'Requested On': order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : '',
-      'Total': order.items ? orderTotal(order.items).toFixed(2) : '0.00',
+      'Total': orderGrandTotal(order).toFixed(2),
     }));
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -206,12 +213,49 @@ const OrderRequests = () => {
       };
     };
 
+    // Keep distributor orderRequests/<orderId> in sync with retailer sentOrders/<orderId>
+    const ensureMirrorStatusSync = async (distOrder) => {
+      try {
+        // Only attempt when distributor still shows Quoted (or not Accepted)
+        if (!distOrder?.id || !distOrder?.retailerId) return;
+        if (distOrder.status === 'Accepted' || distOrder.statusCode === 'ACCEPTED') return;
+
+        // Read retailer mirror; this may be blocked by security rules for privacy.
+        const retailerRef = doc(db, 'businesses', distOrder.retailerId, 'sentOrders', distOrder.id);
+        const retailerSnap = await getDoc(retailerRef);
+        if (!retailerSnap.exists()) return;
+        const r = retailerSnap.data();
+
+        if (r?.status === 'Accepted' || r?.statusCode === 'ACCEPTED') {
+          const distRef = doc(db, 'businesses', auth.currentUser.uid, 'orderRequests', distOrder.id);
+          await updateDoc(distRef, {
+            status: 'Accepted',
+            statusCode: 'ACCEPTED',
+            statusTimestamps: { acceptedAt: serverTimestamp() },
+            updatedAt: serverTimestamp(),
+          });
+          distOrder.status = 'Accepted';
+          distOrder.statusCode = 'ACCEPTED';
+        }
+      } catch (e) {
+        // If rules prevent reading retailer mirror, fail quietly (not an app error)
+        if (e?.code === 'permission-denied') return;
+        console.debug('Mirror sync skipped:', e?.message || e);
+      }
+    };
+
     const ordersRef = collection(db, 'businesses', user.uid, 'orderRequests');
     const unsubscribe = onSnapshot(ordersRef, (snapshot) => {
-      const dataPromises = snapshot.docs.map(doc => enrichOrderWithRetailerAndStock({ id: doc.id, ...doc.data() }));
-      Promise.all(dataPromises).then(sortedData => {
-        sortedData.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
-        setOrders(sortedData);
+      const dataPromises = snapshot.docs.map(d => enrichOrderWithRetailerAndStock({ id: d.id, ...d.data() }));
+      Promise.all(dataPromises).then(async (enriched) => {
+        // Attempt mirror sync only for those not yet accepted
+        await Promise.all(
+          enriched
+            .filter(o => o?.status !== 'Accepted' && o?.statusCode !== 'ACCEPTED')
+            .map(o => ensureMirrorStatusSync(o))
+        );
+        enriched.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+        setOrders(enriched);
         setLoading(false);
       });
     });
@@ -244,6 +288,8 @@ const OrderRequests = () => {
       const orderDocRef = doc(db, 'businesses', order.distributorId || auth.currentUser.uid, 'orderRequests', orderId);
       const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', orderId);
       const retailerOrderSnap = await getDoc(retailerOrderRef);
+      // Canonical order document reference under /orders
+      const canonicalOrderRef = doc(db, 'businesses', auth.currentUser.uid, 'orders', orderId);
 
       if (newStatus === 'Accepted') {
         const enrichedItems = [];
@@ -275,17 +321,16 @@ const OrderRequests = () => {
           enrichedItems.push(updatedItem);
         }
 
-        const baseData = {
-          status: newStatus,
+        // Create/overwrite canonical order with full payload + enriched items
+        await setDoc(canonicalOrderRef, {
+          ...order,
           items: enrichedItems,
+          status: newStatus,
+          statusCode: 'ACCEPTED',
           distributorId: auth.currentUser.uid,
-          retailerId: order.retailerId, // ✅ Added this line for Firestore rule match
-          timestamp: order.timestamp,
-          notes: order.notes || '',
-          paymentMode: order.paymentMode || 'N/A',
-          creditDays: order.creditDays || null,
-          splitPayment: order.splitPayment || null,
-        };
+          retailerId: order.retailerId,
+          statusTimestamps: { ...(order.statusTimestamps || {}), acceptedAt: serverTimestamp() },
+        }, { merge: true });
 
         // Update orderDocRef with status, items, and acceptedAt timestamp
         await updateDoc(orderDocRef, {
@@ -298,15 +343,22 @@ const OrderRequests = () => {
 
         if (!retailerOrderSnap.exists()) {
           await setDoc(retailerOrderRef, {
-            ...baseData,
+            ...order,
+            items: enrichedItems,
+            status: newStatus,
+            distributorId: auth.currentUser.uid,
+            retailerId: order.retailerId,
             statusTimestamps: {
               requestedAt: order.timestamp,
             },
           });
         } else {
           await updateDoc(retailerOrderRef, {
-            ...baseData,
+            ...order,
+            items: enrichedItems,
             status: newStatus,
+            distributorId: auth.currentUser.uid,
+            retailerId: order.retailerId,
             statusTimestamps: {
               acceptedAt: serverTimestamp(),
             },
@@ -315,18 +367,6 @@ const OrderRequests = () => {
 
         return;
       }
-
-      const baseData = {
-        status: newStatus,
-        items: order.items,
-        distributorId: auth.currentUser.uid,
-        retailerId: order.retailerId, // ✅ Added this line for Firestore rule match
-        timestamp: order.timestamp,
-        notes: order.notes || '',
-        paymentMode: order.paymentMode || 'N/A',
-        creditDays: order.creditDays || null,
-        splitPayment: order.splitPayment || null,
-      };
 
       if (newStatus === 'Rejected') {
         const reason = (providedReason || '').trim();
@@ -338,10 +378,27 @@ const OrderRequests = () => {
             rejectedAt: serverTimestamp(),
           },
         });
+        // Update canonical order (rejected)
+        try {
+          await setDoc(canonicalOrderRef, {
+            ...order,
+            status: newStatus,
+            statusCode: 'REJECTED',
+            distributorId: auth.currentUser.uid,
+            retailerId: order.retailerId,
+            rejectionNote: reason,
+            statusTimestamps: { ...(order.statusTimestamps || {}), rejectedAt: serverTimestamp() },
+          }, { merge: true });
+        } catch (e) {
+          console.warn('Canonical order set (reject) skipped:', e?.message || e);
+        }
 
         if (!retailerOrderSnap.exists()) {
           await setDoc(retailerOrderRef, {
-            ...baseData,
+            ...order,
+            status: newStatus,
+            distributorId: auth.currentUser.uid,
+            retailerId: order.retailerId,
             rejectionNote: reason,
             statusTimestamps: {
               requestedAt: order.timestamp,
@@ -349,7 +406,10 @@ const OrderRequests = () => {
           });
         } else {
           await updateDoc(retailerOrderRef, {
+            ...order,
             status: newStatus,
+            distributorId: auth.currentUser.uid,
+            retailerId: order.retailerId,
             rejectionNote: reason,
             statusTimestamps: {
               rejectedAt: serverTimestamp(),
@@ -359,6 +419,7 @@ const OrderRequests = () => {
 
         return;
       }
+      // For other statuses, no canonical update needed as of now.
     } catch (err) {
       console.error('Failed to update status:', err);
     }
@@ -579,7 +640,7 @@ if (orders.length === 0) {
                     Items: {order.items?.length || 0}
                   </span>
                   <span>
-                    Total: <span className="font-semibold text-emerald-300">₹{orderTotal(order.items).toFixed(2)}</span>
+                    Total: <span className="font-semibold text-emerald-300">₹{orderGrandTotal(order).toFixed(2)}</span>
                   </span>
                 </div>
               </div>
@@ -756,7 +817,46 @@ if (orders.length === 0) {
                     ))}
                   </div>
                 </div>
-                <div className="mt-3 flex justify-end text-emerald-300 text-sm font-semibold">Total: ₹{orderTotal(order.items).toFixed(2)}</div>
+                <div className="mt-3 flex justify-end text-emerald-300 text-sm font-semibold">Total: ₹{orderGrandTotal(order).toFixed(2)}</div>
+                {/* Proforma / Taxes & Charges Editor */}
+                {order.status === 'Requested' && (
+                  <div className="mt-5">
+                    <h4 className="font-medium mb-2">Proforma / Taxes & Charges</h4>
+                    <ChargesTaxesEditor
+                      orderId={order.id}
+                      distributorId={auth.currentUser?.uid}
+                      retailerId={order.retailerId}
+                      order={order}
+                      distributorState={order.distributorState}
+                      retailerState={order.retailerState}
+                      onSaved={() => {
+                        // Optional: no-op; onSnapshot will update the UI when proforma is saved
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* If Proforma already exists, show a compact read-only summary */}
+                {order.status !== 'Requested' && order.proforma && (
+                  <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
+                    <h4 className="font-semibold mb-3">Proforma Summary</h4>
+                    <div className="text-sm text-white/80 space-y-1">
+                      <div className="flex justify-between"><span>Taxable Base</span><span>₹{Number(order.proforma.taxableBase || 0).toFixed(2)}</span></div>
+                      {order.proforma.taxType === 'IGST' ? (
+                        <div className="flex justify-between"><span>IGST</span><span>₹{Number(order.proforma.taxBreakup?.igst || 0).toFixed(2)}</span></div>
+                      ) : (
+                        <>
+                          <div className="flex justify-between"><span>CGST</span><span>₹{Number(order.proforma.taxBreakup?.cgst || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between"><span>SGST</span><span>₹{Number(order.proforma.taxBreakup?.sgst || 0).toFixed(2)}</span></div>
+                        </>
+                      )}
+                      <div className="flex justify-between"><span>Round Off</span><span>₹{Number(order.proforma.roundOff || 0).toFixed(2)}</span></div>
+                      <div className="flex justify-between font-semibold text-white">
+                        <span>Grand Total</span><span>₹{Number(order.proforma.grandTotal || 0).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {/* Export buttons */}
                 <div className="mt-3 flex gap-2">
                   <button

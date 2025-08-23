@@ -5,12 +5,11 @@ import { auth } from "../firebase/firebaseConfig";
 import { useNavigate } from "react-router-dom";
 import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 
-import RetailerRequests from "./distributor/RetailerRequests";
 import DistributorInventory from "./distributor/DistributorInventory.jsx";
 import DispatchTracker from "./distributor/DispatchTracker";
 import DistributorAnalytics from "./distributor/analytics/DistributorAnalytics";
-import ManageRetailers from "./distributor/ManageRetailers";
 import DistributorHome from "./distributor/DistributorHome";
+import RetailerPanel from "./distributor/RetailerPanel";
 
 const DistributorDashboard = () => {
   const navigate = useNavigate();
@@ -58,15 +57,14 @@ const DistributorDashboard = () => {
   const [isPaletteOpen, setPaletteOpen] = useState(false);
   const PALETTE_ITEMS = [
     { id: 'dashboard', label: 'Dashboard' },
-    { id: 'retailerRequests', label: 'Retailer Requests' },
+    { id: 'retailerRequests', label: 'Retailer Panel' },
     { id: 'inventory', label: 'Inventory' },
     { id: 'dispatch', label: 'Dispatch Tracker' },
     { id: 'analytics', label: 'Analytics' },
-    { id: 'manageRetailers', label: 'Manage Retailers' },
   ];
 
   // --- UI-only: tab order for numeric shortcuts
-  const TAB_KEYS = ['dashboard','retailerRequests','inventory','dispatch','analytics','manageRetailers'];
+  const TAB_KEYS = ['dashboard','retailerRequests','inventory','dispatch','analytics'];
 
   const [showGreeting, setShowGreeting] = useState(true);
   useEffect(() => {
@@ -81,7 +79,6 @@ const DistributorDashboard = () => {
     inventory: 'inventory',
     dispatch: 'track-orders', // important: our DispatchTracker page is track-orders in URL
     analytics: 'analytics',
-    manageRetailers: 'manage-retailers',
   };
   const urlTabToId = {
     'dashboard': 'dashboard',
@@ -89,7 +86,6 @@ const DistributorDashboard = () => {
     'inventory': 'inventory',
     'track-orders': 'dispatch',
     'analytics': 'analytics',
-    'manage-retailers': 'manageRetailers',
   };
 
   // Read ?tab= from the URL hash on mount and whenever the hash changes
@@ -157,7 +153,7 @@ const DistributorDashboard = () => {
     fetchDashboardData();
   }, []);
 
-  // Keyboard shortcuts: 1–6 to switch tabs; "g r"=Retailer Requests, "g i"=Inventory, "g d"=Dispatch, "g a"=Analytics, "g m"=Manage
+  // Keyboard shortcuts: 1–5 to switch tabs; "g r"=Retailer Panel, "g i"=Inventory, "g d"=Dispatch, "g a"=Analytics
   const lastKeyRef = useRef(null);
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -166,7 +162,7 @@ const DistributorDashboard = () => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toLowerCase();
 
-      if (/^[1-6]$/.test(key)) {
+      if (/^[1-5]$/.test(key)) {
         const idx = parseInt(key, 10) - 1;
         const next = TAB_KEYS[idx];
         if (next) setTabAndHash(next);
@@ -180,7 +176,6 @@ const DistributorDashboard = () => {
           else if (key === 'i') setTabAndHash('inventory');
           else if (key === 'd') setTabAndHash('dispatch');
           else if (key === 'a') setTabAndHash('analytics');
-          else if (key === 'm') setTabAndHash('manageRetailers');
         }
         return;
       }
@@ -270,7 +265,7 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                📥 Retailer Requests
+                📋 Retailer Panel
               </button>
               <button
                 onClick={() => setTabAndHash("inventory")}
@@ -301,16 +296,6 @@ const DistributorDashboard = () => {
                 }`}
               >
                 📊 Analytics
-              </button>
-              <button
-                onClick={() => setTabAndHash("manageRetailers")}
-                className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
-                  activeTab === "manageRetailers"
-                    ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
-                    : "text-white"
-                }`}
-              >
-                👥 Manage Retailers
               </button>
             </nav>
           </div>
@@ -363,13 +348,13 @@ const DistributorDashboard = () => {
               )}
               {activeTab === "retailerRequests" && (
                 <motion.div
-                  key="retailerRequests"
+                  key="retailerHub"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <RetailerRequests db={db} auth={auth} />
+                  <RetailerPanel />
                 </motion.div>
               )}
               {activeTab === "inventory" && (
@@ -405,17 +390,6 @@ const DistributorDashboard = () => {
                   <DistributorAnalytics distributorId={auth.currentUser.uid} />
                 </motion.div>
               )}
-              {activeTab === "manageRetailers" && (
-                <motion.div
-                  key="manageRetailers"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <ManageRetailers db={db} auth={auth} />
-                </motion.div>
-              )}
             </AnimatePresence>
 
             {isPaletteOpen && (
@@ -423,7 +397,7 @@ const DistributorDashboard = () => {
                 <div className="absolute inset-0 bg-black/50" onClick={() => setPaletteOpen(false)} />
                 <div className="relative w-[90%] max-w-xl rounded-2xl border border-white/10 bg-[#0B0F14]/90 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
                   <div className="p-3 border-b border-white/10">
-                    <input autoFocus placeholder="Jump to… (1–6, g+r/i/d/a/m, ⌘/Ctrl+K)" className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+                    <input autoFocus placeholder="Jump to… (1–5, g+r/i/d/a, ⌘/Ctrl+K)" className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
                   </div>
                   <div className="max-h-72 overflow-y-auto glass-scroll">
                     {PALETTE_ITEMS.map((item) => (

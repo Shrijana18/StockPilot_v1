@@ -4,6 +4,92 @@ import { db, auth } from '../../../firebase/firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import ProformaSummary from "../ProformaSummary";
+import AcceptProformaButton from "../AcceptProformaButton";
+
+// --- Helpers: INR money + Indian date (dd/mm/yyyy) ---
+const formatINR = (amt = 0) => {
+  const n = Number(amt || 0);
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
+};
+
+const formatDate = (ts) => {
+  let d = null;
+  if (!ts) return '-';
+  if (typeof ts?.toDate === 'function') d = ts.toDate();
+  else if (ts instanceof Date) d = ts;
+  if (!d) return '-';
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  }).format(d);
+};
+
+// Normalize any date-like field to a JS Date (supports Firestore Timestamp, ms, seconds, ISO)
+const asDate = (v) => {
+  if (!v) return null;
+  if (typeof v?.toDate === 'function') return v.toDate();
+  if (typeof v?.seconds === 'number') return new Date(v.seconds * 1000);
+  if (typeof v === 'number') return new Date(v);
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+// Resolve the best available order date
+const getOrderDate = (order) =>
+  asDate(order?.timestamp) ||
+  asDate(order?.createdAt) ||
+  asDate(order?.created_at) ||
+  asDate(order?.updatedAt) ||
+  asDate(order?.date) ||
+  asDate(order?.proforma?.date) ||
+  null;
+
+// Compute a clean order total breakdown with graceful fallbacks
+const computeBreakdown = (order) => {
+  const p = order?.proforma || {};
+  const itemsFromRows = Array.isArray(order?.items) ? order.items.reduce((s, it) => {
+    const price = (it.price !== undefined && it.price !== null) ? Number(it.price) : Number(it.unitPrice || 0);
+    const qty = Number(it.quantity || 0);
+    return s + price * qty;
+  }, 0) : 0;
+
+  const itemsTotal = [p.subtotal, p.subTotal, p.itemsTotal].find(v => v !== undefined && v !== null) ?? itemsFromRows;
+  const discount = [p.discountAmount, p.discountTotal, p.totalDiscount].find(v => v !== undefined && v !== null) ?? 0;
+  const taxBreakup = p.taxBreakup || {};
+  const cgst = [p.cgst, p.cgstAmount, taxBreakup.cgst].find(v => v !== undefined && v !== null) ?? 0;
+  const sgst = [p.sgst, p.sgstAmount, taxBreakup.sgst].find(v => v !== undefined && v !== null) ?? 0;
+  const igst = [p.igst, p.igstAmount, taxBreakup.igst].find(v => v !== undefined && v !== null) ?? 0;
+  let taxTotal = [p.taxTotal, p.totalTax].find(v => v !== undefined && v !== null) ?? (cgst + sgst + igst);
+  // Enhanced logic to read values from proforma.orderCharges map
+  const charges = p.orderCharges || {};
+  const shipping = [p.shipping, p.delivery, p.freight, charges.delivery].find(v => v !== undefined && v !== null) ?? 0;
+  const other = [p.otherCharges, p.additionalCharges, charges.packing, charges.insurance, charges.other].find(v => v !== undefined && v !== null) ?? 0;
+  const rounding = [p.rounding, p.roundOff, charges.roundOff].find(v => v !== undefined && v !== null) ?? 0;
+
+  let grand = [p.grandTotal, p.totalAmount, order?.totalAmount].find(v => v !== undefined && v !== null);
+  if (grand === undefined || grand === null) {
+    grand = (Number(itemsTotal) - Number(discount)) + Number(taxTotal) + Number(shipping) + Number(other) + Number(rounding);
+  }
+
+  // If tax not provided but grand available, infer remaining as tax/adjustment
+  if ((taxTotal === undefined || taxTotal === null || Number.isNaN(Number(taxTotal))) && grand !== undefined) {
+    const base = (Number(itemsTotal) - Number(discount)) + Number(shipping) + Number(other) + Number(rounding);
+    taxTotal = Math.max(0, Number(grand) - base);
+  }
+
+  return {
+    itemsTotal: Number(itemsTotal || 0),
+    discount: Number(discount || 0),
+    cgst: Number(cgst || 0),
+    sgst: Number(sgst || 0),
+    igst: Number(igst || 0),
+    taxTotal: Number(taxTotal || 0),
+    shipping: Number(shipping || 0),
+    other: Number(other || 0),
+    rounding: Number(rounding || 0),
+    grand: Number(grand || 0),
+  };
+};
 
 const OrderStatusTab = () => {
   const [orders, setOrders] = useState([]);
@@ -56,7 +142,7 @@ const OrderStatusTab = () => {
     if (dateFilter === 'Today') {
       const today = new Date();
       result = result.filter((order) => {
-        const ts = order.timestamp?.toDate?.();
+        const ts = getOrderDate(order);
         return ts &&
           ts.getDate() === today.getDate() &&
           ts.getMonth() === today.getMonth() &&
@@ -67,22 +153,24 @@ const OrderStatusTab = () => {
       const firstDayOfWeek = new Date(now);
       firstDayOfWeek.setDate(now.getDate() - now.getDay());
       result = result.filter((order) => {
-        const ts = order.timestamp?.toDate?.();
+        const ts = getOrderDate(order);
         return ts && ts >= firstDayOfWeek && ts <= now;
       });
     } else if (dateFilter === 'Custom Range' && customFromDate && customToDate) {
       const from = new Date(customFromDate);
       const to = new Date(customToDate);
       result = result.filter((order) => {
-        const ts = order.timestamp?.toDate?.();
+        const ts = getOrderDate(order);
         return ts && ts >= from && ts <= to;
       });
     }
 
     result = result.sort((a, b) => {
-      const aDate = a.timestamp?.toDate?.();
-      const bDate = b.timestamp?.toDate?.();
-      return bDate - aDate; // Always latest first
+      const aDate = getOrderDate(a);
+      const bDate = getOrderDate(b);
+      const aTime = aDate ? aDate.getTime() : 0;
+      const bTime = bDate ? bDate.getTime() : 0;
+      return bTime - aTime; // newest first, robust to missing dates
     });
 
     setFilteredOrders(result);
@@ -98,8 +186,8 @@ const OrderStatusTab = () => {
       o.id,
       o.distributorName,
       o.status,
-      o.totalAmount,
-      o.timestamp?.toDate?.().toLocaleString() || '-'
+      formatINR(displayAmount(o)),
+      formatDate(getOrderDate(o))
     ]);
     const csvContent = [headers, ...rows].map(e => e.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -117,10 +205,10 @@ const OrderStatusTab = () => {
       o.id,
       o.distributorName,
       o.status,
-      `₹${o.totalAmount}`,
-      o.timestamp?.toDate?.().toLocaleString() || '-'
+      formatINR(displayAmount(o)),
+      formatDate(getOrderDate(o))
     ]);
-    doc.text('Order History', 14, 16);
+    doc.text('Order History (Retailer)', 14, 16);
     autoTable(doc, {
       startY: 20,
       head: headers,
@@ -145,7 +233,7 @@ const OrderStatusTab = () => {
       const doc = new jsPDF();
 
       const formatLine = (label, value) => `${label}: ${value || '—'}`;
-      const orderDate = order.timestamp?.toDate?.().toLocaleString() || '-';
+      const orderDate = formatDate(getOrderDate(order));
 
       doc.setFontSize(12);
       doc.text(`Order ID: ${order.id}`, 14, 14);
@@ -161,8 +249,30 @@ const OrderStatusTab = () => {
 
       doc.text(formatLine('Retailer ID', currentUser?.uid), 14, 94);
 
+      // Compact total breakdown card
+      const b = computeBreakdown(order);
+      doc.setFontSize(11);
+      doc.text('Amount Breakdown', 120, 58);
       autoTable(doc, {
-        startY: 102,
+        startY: 62,
+        margin: { left: 120 },
+        head: [['Label', 'Amount']],
+        body: [
+          ['Items Total', formatINR(b.itemsTotal)],
+          ['Discount', formatINR(-b.discount)],
+          ['CGST', formatINR(b.cgst)],
+          ['SGST', formatINR(b.sgst)],
+          ['IGST', formatINR(b.igst)],
+          ['Other/Shipping', formatINR(b.shipping + b.other)],
+          ['Rounding', formatINR(b.rounding)],
+          ['Grand Total', formatINR(b.grand)],
+        ],
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [240, 240, 240], textColor: 20 },
+      });
+
+      autoTable(doc, {
+        startY: doc.lastAutoTable ? (doc.lastAutoTable.finalY + 6) : 102,
         head: [['Product', 'Brand', 'SKU', 'Qty', 'Unit', 'Price']],
         body: (order.items || []).map((item) => [
           item.productName || item.name || '—',
@@ -177,7 +287,20 @@ const OrderStatusTab = () => {
 
       doc.save(`order-${order.id}.pdf`);
     } else if (type === 'csv' || type === 'excel') {
-      const csvContent = [headers, ...rows].map(e => e.join(',')).join('\n');
+      const b = computeBreakdown(order);
+      const breakdown = [
+        [],
+        ['Amount Breakdown'],
+        ['Items Total', b.itemsTotal],
+        ['Discount', -b.discount],
+        ['CGST', b.cgst],
+        ['SGST', b.sgst],
+        ['IGST', b.igst],
+        ['Other/Shipping', (b.shipping + b.other)],
+        ['Rounding', b.rounding],
+        ['Grand Total', b.grand],
+      ];
+      const csvContent = [headers, ...rows, ...breakdown].map(e => Array.isArray(e) ? e.join(',') : e).join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -185,6 +308,11 @@ const OrderStatusTab = () => {
       a.download = `order-${order.id}.${type === 'excel' ? 'xls' : 'csv'}`;
       a.click();
     }
+  };
+
+  const displayAmount = (order) => {
+    const { grand } = computeBreakdown(order);
+    return grand;
   };
 
   return (
@@ -205,6 +333,7 @@ const OrderStatusTab = () => {
           >
             <option>All</option>
             <option>Requested</option>
+            <option>Quoted</option>
             <option>Accepted</option>
             <option>Rejected</option>
             <option>Modified</option>
@@ -271,6 +400,7 @@ const OrderStatusTab = () => {
                     order.status === 'Accepted' ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-300/30' :
                     order.status === 'Rejected' ? 'bg-rose-400/20 text-rose-300 border border-rose-300/30' :
                     order.status === 'Modified' ? 'bg-amber-400/20 text-amber-300 border border-amber-300/30' :
+                    order.status === 'Quoted' ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-300/30' :
                     'bg-white/10 text-white/70 border border-white/15'
                   }`}>
                     {order.status}
@@ -279,12 +409,55 @@ const OrderStatusTab = () => {
                     <div className="text-xs text-rose-300 mt-1">Reason: {order.rejectionNote}</div>
                   )}
                 </td>
-                <td className="p-2 border border-white/10">₹{order.totalAmount || 0}</td>
-                <td className="p-2 border border-white/10">{order.timestamp?.toDate?.().toLocaleString() || '-'}</td>
+                <td className="p-2 border border-white/10">{formatINR(displayAmount(order))}</td>
+                <td className="p-2 border border-white/10">{formatDate(getOrderDate(order))}</td>
               </tr>
               {expandedRow === order.id && (
                 <tr className="bg-white/5">
                   <td colSpan="5" className="p-4 border border-white/10">
+                    {order.status === 'Quoted' && order.proforma && (
+                      <div className="mb-4 space-y-3">
+                        <ProformaSummary
+                          proforma={order.proforma}
+                          distributorState={order.distributorState}
+                          retailerState={order.retailerState}
+                        />
+                        <div className="flex gap-2">
+                          <AcceptProformaButton
+                            distributorId={order.distributorId}
+                            retailerId={currentUser?.uid}
+                            orderId={order.id}
+                            hasProforma={!!order.proforma}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {/* Compact Amount Breakdown (India format) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                        <div className="text-white/80 text-sm mb-2 font-semibold">Amount Breakdown</div>
+                        {(() => {
+                          const b = computeBreakdown(order);
+                          return (
+                            <div className="space-y-1 text-sm">
+                              <div className="flex justify-between"><span>Items Total</span><span>{formatINR(b.itemsTotal)}</span></div>
+                              <div className="flex justify-between"><span>Discount</span><span>-{formatINR(b.discount)}</span></div>
+                              <div className="flex justify-between"><span>CGST</span><span>{formatINR(b.cgst)}</span></div>
+                              <div className="flex justify-between"><span>SGST</span><span>{formatINR(b.sgst)}</span></div>
+                              <div className="flex justify-between"><span>IGST</span><span>{formatINR(b.igst)}</span></div>
+                              <div className="flex justify-between font-medium text-white/90"><span>Tax Total</span><span>{formatINR(b.taxTotal || (b.cgst + b.sgst + b.igst))}</span></div>
+                              <div className="flex justify-between"><span>Other/Shipping</span><span>{formatINR(b.shipping + b.other)}</span></div>
+                              <div className="flex justify-between"><span>Rounding</span><span>{formatINR(b.rounding)}</span></div>
+                              <div className="h-px bg-white/10 my-2" />
+                              <div className="flex justify-between font-semibold text-emerald-300"><span>Grand Total</span><span>{formatINR(b.grand)}</span></div>
+                              <div className="text-[11px] text-white/50 mt-1">
+                                Formula: Items Total - Discount + CGST + SGST + IGST + Other/Shipping + Rounding = Grand Total
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
                     <div className="text-sm mb-2 text-white/80">
                       <strong>Order Note:</strong> {order.note || '—'}<br />
                       <strong>Payment Mode:</strong> {order.paymentMode || '—'}<br />

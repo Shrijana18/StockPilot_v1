@@ -3,6 +3,8 @@ import { getAuth } from "firebase/auth";
 import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { toast } from 'react-toastify';
 import AddDeliveredItemsToInventory from "../../inventory/AddDeliveredItemsToInventory";
+import ProformaSummary from "../ProformaSummary";
+import AcceptProformaButton from "../AcceptProformaButton";
 
 const TrackOrderTab = () => {
   const [orders, setOrders] = useState([]);
@@ -13,6 +15,30 @@ const TrackOrderTab = () => {
 
   const auth = getAuth();
   const db = getFirestore();
+
+  // Format ETA (supports Firestore Timestamp, Date, YYYY-MM-DD, or plain string)
+  const formatETA = (val) => {
+    if (!val) return "Not specified";
+    // Firestore Timestamp
+    if (val?.seconds) return new Date(val.seconds * 1000).toLocaleDateString();
+    // Native Date
+    if (val instanceof Date) return val.toLocaleDateString();
+    // String formats
+    if (typeof val === "string") {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+        const d = new Date(val + "T00:00:00");
+        return isNaN(d.getTime()) ? val : d.toLocaleDateString();
+      }
+      return val;
+    }
+    // Fallback attempt
+    try {
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? "Not specified" : d.toLocaleDateString();
+    } catch {
+      return "Not specified";
+    }
+  };
 
   const handleAddToInventory = async (order) => {
     try {
@@ -63,7 +89,7 @@ const TrackOrderTab = () => {
   const filteredOrders =
     filter === "All" ? orders : orders.filter((order) => order.status === filter);
 
-  const progressSteps = ['Requested', 'Accepted', 'Modified', 'Shipped', 'Delivered'];
+  const progressSteps = ['Requested', 'Quoted', 'Accepted', 'Modified', 'Shipped', 'Delivered'];
 
   return (
     <div className="p-4 text-white">
@@ -75,6 +101,8 @@ const TrackOrderTab = () => {
           className="px-2 py-1 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         >
           <option>All</option>
+          <option>Requested</option>
+          <option>Quoted</option>
           <option>Accepted</option>
           <option>Rejected</option>
           <option>Pending</option>
@@ -119,7 +147,7 @@ const TrackOrderTab = () => {
                       <div className="text-xs text-rose-300 mt-1">Reason: {order.rejectionNote}</div>
                     )}
                   </td>
-                  <td className="px-3 py-2 border border-white/10">{order.eta || "Not specified"}</td>
+                  <td className="px-3 py-2 border border-white/10">{formatETA(order.expectedDeliveryDate || order.eta)}</td>
                   <td className="px-3 py-2 border border-white/10">
                     {order.status === "Rejected" ? (
                       <div className="flex gap-1 text-xs">
@@ -163,6 +191,7 @@ const TrackOrderTab = () => {
                         <p><strong>Distributor Address:</strong> {order.distributorAddress || "N/A"}</p>
                         <p><strong>Payment Mode:</strong> {order.paymentMode || "N/A"}</p>
                         <p><strong>Note:</strong> {order.note || "—"}</p>
+                        <p><strong>Delivery ETA:</strong> {formatETA(order.expectedDeliveryDate || order.eta)}</p>
 
                         <p><strong>Status:</strong> {order.status}</p>
                         {order.statusTimestamps && (
@@ -181,6 +210,26 @@ const TrackOrderTab = () => {
                             )}
                             {order.statusTimestamps.deliveredAt && (
                               <p><strong>Delivered At:</strong> {new Date(order.statusTimestamps.deliveredAt.seconds * 1000).toLocaleString()}</p>
+                            )}
+                          </div>
+                        )}
+
+                        {order.proforma && (
+                          <div className="mb-4 space-y-3">
+                            <ProformaSummary
+                              proforma={order.proforma}
+                              distributorState={order.distributorState}
+                              retailerState={order.retailerState}
+                            />
+                            {order.status === "Quoted" && (
+                              <div className="flex gap-2">
+                                <AcceptProformaButton
+                                  distributorId={order.distributorId}
+                                  retailerId={auth.currentUser?.uid}
+                                  orderId={order.id}
+                                  hasProforma={!!order.proforma}
+                                />
+                              </div>
                             )}
                           </div>
                         )}
@@ -207,9 +256,11 @@ const TrackOrderTab = () => {
                                   <td className="px-3 py-1 border border-white/10">{item.category || "—"}</td>
                                   <td className="px-3 py-1 border border-white/10">{item.quantity}</td>
                                   <td className="px-3 py-1 border border-white/10">{item.unit}</td>
-                                  <td className="px-3 py-1 border border-white/10">₹{item.price !== undefined ? parseFloat(item.price).toFixed(2) : item.sellingPrice !== undefined ? parseFloat(item.sellingPrice).toFixed(2) : "0.00"}</td>
                                   <td className="px-3 py-1 border border-white/10">
-                                    ₹{((item.price !== undefined ? parseFloat(item.price) : item.sellingPrice !== undefined ? parseFloat(item.sellingPrice) : 0) * (item.quantity || 0)).toFixed(2)}
+                                    ₹{parseFloat(item.price || item.unitPrice || item.sellingPrice || 0).toFixed(2)}
+                                  </td>
+                                  <td className="px-3 py-1 border border-white/10">
+                                    ₹{(parseFloat(item.price || item.unitPrice || item.sellingPrice || 0) * parseFloat(item.quantity || 0)).toFixed(2)}
                                   </td>
                                 </tr>
                               ))}
@@ -220,8 +271,8 @@ const TrackOrderTab = () => {
                         <div className="mt-3 font-semibold text-white">
                           Total Price: ₹
                           {(order.items || []).reduce((total, item) => {
-                            const price = item.price !== undefined ? parseFloat(item.price) : item.sellingPrice !== undefined ? parseFloat(item.sellingPrice) : 0;
-                            const qty = item.quantity || 0;
+                            const price = parseFloat(item.price || item.unitPrice || item.sellingPrice || 0);
+                            const qty = parseFloat(item.quantity || 0);
                             return total + price * qty;
                           }, 0).toFixed(2)}
                         </div>

@@ -3,6 +3,10 @@ import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { db, auth } from '../../firebase/firebaseConfig';
 import { collection, doc, setDoc, serverTimestamp, addDoc, onSnapshot, query, getDoc } from 'firebase/firestore';
+import { computeChargesFromDefaults } from "../../services/proformaDefaults";
+import EstimateNotice from "../../components/common/EstimateNotice";
+import { calculateEstimate } from "../../lib/calcEstimate";
+import { ORDER_STATUSES } from "../../constants/orderStatus";
 
 const RetailerOrderRequestForm = ({ distributorId }) => {
   const [items, setItems] = useState([]);
@@ -14,6 +18,73 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
   const [paymentMode, setPaymentMode] = useState('COD');
   const [creditDays, setCreditDays] = useState(15);
   const [splitPayment, setSplitPayment] = useState({ advance: '', balance: '' });
+  const [expanded, setExpanded] = useState({});
+  const formatINR = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(n || 0));
+
+  const [effectiveDefaults, setEffectiveDefaults] = useState(null);
+  const [chargesPreview, setChargesPreview] = useState(null);
+  const [fastFlow, setFastFlow] = useState(false); // true => skip proforma and create Order directly
+  const [loadingDefaults, setLoadingDefaults] = useState(false);
+
+  const getItemsSubTotal = (list) => list.reduce((sum, it) => (sum + (parseFloat(it.quantity || 0) || 0) * (parseFloat(it.unitPrice || 0) || 0)), 0);
+  useEffect(() => {
+    const run = async () => {
+      if (!distributorId || !auth.currentUser) {
+        setEffectiveDefaults(null);
+        setFastFlow(false);
+        setChargesPreview(null);
+        return;
+      }
+      setLoadingDefaults(true);
+      const retailerUid = auth.currentUser.uid;
+      try {
+        // Read Global
+        const globalRef = doc(db, 'businesses', distributorId, 'orderSettings', 'global');
+        let globalData = {};
+        try {
+          const gSnap = await getDoc(globalRef);
+          if (gSnap.exists()) globalData = gSnap.data() || {};
+        } catch (e) {
+          // ignore if retailer cannot read global (rules). We'll still try override.
+        }
+        // Read retailer override (under global)
+        const overrideRef = doc(db, 'businesses', distributorId, 'orderSettings', 'global', 'retailerOverrides', retailerUid);
+        let overrideData = {};
+        try {
+          const oSnap = await getDoc(overrideRef);
+          if (oSnap.exists()) overrideData = oSnap.data() || {};
+        } catch (e) {
+          // ignore read failure
+        }
+        const merged = { ...globalData, ...overrideData };
+        setEffectiveDefaults(merged);
+        setFastFlow(Boolean(merged.skipProforma));
+      } finally {
+        setLoadingDefaults(false);
+      }
+    };
+    run();
+  }, [distributorId]);
+
+  useEffect(() => {
+    const subTotal = getItemsSubTotal(items);
+    if (!effectiveDefaults || !effectiveDefaults.enabled || subTotal <= 0) {
+      setChargesPreview(null);
+      return;
+    }
+    try {
+      const breakdown = computeChargesFromDefaults({
+        itemsSubTotal: subTotal,
+        defaults: effectiveDefaults,
+        distributorProfile: {},
+        retailerProfile: {},
+      });
+      setChargesPreview(breakdown);
+    } catch (e) {
+      // If compute fails for any reason, hide preview rather than block form
+      setChargesPreview(null);
+    }
+  }, [items, effectiveDefaults]);
 
   useEffect(() => {
     if (!distributorId) return;
@@ -54,6 +125,24 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
 
     try {
       setSubmitting(true);
+
+      // Build a cart snapshot suitable for pre-tax estimate (qty/price fields)
+      const cartForEstimate = items.map((it) => ({
+        // passthrough identifiers
+        inventoryId: it.distributorProductId,
+        name: it.productName,
+        sku: it.sku,
+        hsn: it.hsn || undefined,
+        uom: it.unit || undefined,
+        imageUrl: it.imageUrl || undefined,
+        // normalized numerics expected by calculator
+        qty: Number(it.quantity || 0),
+        price: Number(it.unitPrice || 0),
+        itemDiscountPct: Number(it.itemDiscountPct || 0), // default 0 if absent
+      }));
+
+      const est = calculateEstimate(cartForEstimate);
+
       const totalAmount = items.reduce((sum, item) => {
         const qty = parseFloat(item.quantity) || 0;
         const price = parseFloat(item.unitPrice) || 0;
@@ -66,43 +155,109 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
       const distributorPhone = distributorData.phone || '';
       const distributorEmail = distributorData.email || '';
 
-      const distributorRef = collection(db, `businesses/${distributorId}/orderRequests`);
-      const docRef = await addDoc(distributorRef, {
-        retailerId: currentUser.uid,
-        distributorId: distributorId,
-        items,
-        totalAmount,
-        paymentMode,
-        creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
-        splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
-        status: 'Requested',
-        timestamp: serverTimestamp(),
-        distributorName: distributorData.businessName || distributorData.ownerName || '',
-        distributorCity: distributorData.city || '',
-        distributorState: distributorData.state || '',
-        distributorPhone,
-        distributorEmail,
-      });
+      const retailerUid = currentUser.uid;
+      const itemsSubTotal = totalAmount;
 
-      const retailerRef = doc(db, `businesses/${currentUser.uid}/sentOrders/${docRef.id}`);
-      await setDoc(retailerRef, {
-        retailerId: currentUser.uid,
-        distributorId: distributorId,
-        items,
-        totalAmount,
-        paymentMode,
-        creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
-        splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
-        status: 'Requested',
-        timestamp: serverTimestamp(),
-        distributorName: distributorData.businessName || distributorData.ownerName || '',
-        distributorCity: distributorData.city || '',
-        distributorState: distributorData.state || '',
-        distributorPhone,
-        distributorEmail,
-      });
+      if (fastFlow && effectiveDefaults && effectiveDefaults.enabled) {
+        // DIRECT flow (proforma skipped): create a FULL request in orderRequests only
+        const orderId = doc(collection(db, `businesses/${distributorId}/orderRequests`)).id;
 
-      toast.success('Order request sent successfully!');
+        const chargesSnapshot = {
+          defaultsUsed: effectiveDefaults,
+          breakdown: (chargesPreview || computeChargesFromDefaults({
+            itemsSubTotal,
+            defaults: effectiveDefaults,
+            distributorProfile: {},
+            retailerProfile: {},
+          }))
+        };
+
+        const requestPayload = {
+          orderId,
+          retailerId: retailerUid,
+          distributorId,
+          items,
+          itemsSubTotal,
+          paymentMode,
+          creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
+          splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
+          chargesSnapshot,
+          status: 'Requested',
+          statusCode: 'DIRECT',
+          createdAt: serverTimestamp(),
+          timestamp: serverTimestamp(),
+          distributorName: distributorData.businessName || distributorData.ownerName || '',
+          distributorCity: distributorData.city || '',
+          distributorState: distributorData.state || '',
+          distributorPhone,
+          distributorEmail,
+        };
+
+        // Write full request to distributor's orderRequests
+        await setDoc(doc(db, `businesses/${distributorId}/orderRequests/${orderId}`), requestPayload);
+
+        // Mirror full request to retailer's sentOrders using same orderId
+        await setDoc(doc(db, `businesses/${retailerUid}/sentOrders/${orderId}`), requestPayload);
+
+        toast.success('Order sent (Direct defaults applied). Awaiting distributor action.');
+      } else {
+        // Original PROFORMA flow: create order request for distributor + mirror to retailer
+        const distributorRef = collection(db, `businesses/${distributorId}/orderRequests`);
+        const docRef = await addDoc(distributorRef, {
+          retailerId: currentUser.uid,
+          distributorId: distributorId,
+          items,
+          totalAmount,
+          paymentMode,
+          creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
+          splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
+          status: 'Requested',
+          timestamp: serverTimestamp(),
+          distributorName: distributorData.businessName || distributorData.ownerName || '',
+          distributorCity: distributorData.city || '',
+          distributorState: distributorData.state || '',
+          distributorPhone,
+          distributorEmail,
+          estimate: {
+            subtotal: est.subtotal,
+            lines: est.items.map(({ qty, price, itemDiscountPct, gross, discountAmount, taxable }) => ({
+              qty, price, itemDiscountPct, gross, discountAmount, taxable,
+            })),
+            note: "Pre-tax estimate. Taxes/charges will be added in Proforma by distributor.",
+            version: 1,
+          },
+          statusCode: ORDER_STATUSES.REQUESTED,
+        });
+
+        const retailerRef = doc(db, `businesses/${currentUser.uid}/sentOrders/${docRef.id}`);
+        await setDoc(retailerRef, {
+          retailerId: currentUser.uid,
+          distributorId: distributorId,
+          items,
+          totalAmount,
+          paymentMode,
+          creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
+          splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
+          status: 'Requested',
+          timestamp: serverTimestamp(),
+          distributorName: distributorData.businessName || distributorData.ownerName || '',
+          distributorCity: distributorData.city || '',
+          distributorState: distributorData.state || '',
+          distributorPhone,
+          distributorEmail,
+          estimate: {
+            subtotal: est.subtotal,
+            lines: est.items.map(({ qty, price, itemDiscountPct, gross, discountAmount, taxable }) => ({
+              qty, price, itemDiscountPct, gross, discountAmount, taxable,
+            })),
+            note: "Pre-tax estimate. Taxes/charges will be added in Proforma by distributor.",
+            version: 1,
+          },
+          statusCode: ORDER_STATUSES.REQUESTED,
+        });
+
+        toast.success('Order request sent successfully!');
+      }
       setItems([{ productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '', unitPrice: '' }]);
     } catch (err) {
       console.error('Error sending order:', err);
@@ -225,98 +380,167 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
         )}
       </div>
 
-      {items.map((item, index) => (
-        <div key={index} className="grid grid-cols-9 gap-2 mb-2 items-center">
-          <div className="relative flex-grow">
-            <input
-              type="text"
-              placeholder="Product Name"
-              className="px-3 py-2 rounded-xl w-full bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
-              value={item.productName}
-              disabled
-            />
+      {items.map((item, index) => {
+        const qtyNum = parseFloat(item.quantity || 0) || 0;
+        const priceNum = parseFloat(item.unitPrice || 0) || 0;
+        const subtotal = qtyNum * priceNum;
+        const isOpen = !!expanded[index];
+        return (
+          <div key={index} className="mb-2 rounded-lg border border-white/10 bg-white/[0.04] p-2 md:p-3 shadow-sm">
+            {/* Header: compact name/meta + actions */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate leading-tight">{item.productName || 'Selected product'}</div>
+                <div className="mt-0.5 text-[11px] text-white/60 flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span className="truncate">SKU: {item.sku || '—'}</span>
+                  {item.brand && <span className="truncate">Brand: {item.brand}</span>}
+                  {item.category && <span className="truncate">Category: {item.category}</span>}
+                  {item.available !== undefined && (
+                    <span className={`truncate ${item.available === 0 ? 'text-rose-300' : item.available <= 10 ? 'text-amber-300' : 'text-emerald-300'}`}>In Stock: {item.available}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="hidden md:block text-xs text-white/70">Subtotal: <span className="font-semibold text-white/90">{formatINR(subtotal)}</span></div>
+                <button
+                  onClick={() => setExpanded((s) => ({ ...s, [index]: !s[index] }))}
+                  className="px-2 py-1 text-xs rounded border border-white/10 bg-white/5 hover:bg-white/10"
+                  title={isOpen ? 'Collapse' : 'Expand'}
+                >
+                  {isOpen ? 'Hide' : 'More'}
+                </button>
+                <button
+                  onClick={() => {
+                    const updated = items.filter((_, i) => i !== index);
+                    setItems(updated);
+                  }}
+                  className="px-2 py-1 text-xs rounded border border-white/10 bg-white/5 hover:bg-white/10 text-rose-300"
+                  title="Remove Item"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+
+            {/* Inline compact field row */}
+            <div className="mt-2 grid grid-cols-2 md:grid-cols-8 gap-2">
+              <div className="col-span-1 md:col-span-2">
+                <label className="sr-only">Quantity</label>
+  <input
+    type="number"
+    placeholder="Qty"
+    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+    value={item.quantity}
+    onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
+  />
+</div>
+<div className="col-span-1 md:col-span-2">
+  <label className="sr-only">Unit</label>
+  <div
+    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center"
+    tabIndex={-1}
+    aria-readonly="true"
+  >
+    {item.unit || '—'}
+  </div>
+</div>
+
+<div className="col-span-1 md:col-span-2">
+  <label className="sr-only">Unit Price</label>
+  <div
+    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center justify-between"
+    tabIndex={-1}
+    aria-readonly="true"
+  >
+    <span className="truncate">{item.unitPrice ? `₹${item.unitPrice}` : '—'}</span>
+  </div>
+</div>
+
+<div className="col-span-1 md:col-span-2">
+  <label className="sr-only">SKU</label>
+  <div
+    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center"
+    tabIndex={-1}
+    aria-readonly="true"
+  >
+    <span className="truncate">{item.sku || '—'}</span>
+  </div>
+</div>
+              {/* Subtotal (mobile) */}
+              <div className="col-span-2 md:col-span-0 md:hidden text-xs text-white/70">
+                Subtotal: <span className="font-semibold text-white/90">{formatINR(subtotal)}</span>
+              </div>
+            </div>
+
+            {/* Collapsible extras */}
+            {isOpen && (
+              <div className="mt-2 grid grid-cols-2 md:grid-cols-8 gap-2">
+                <div className="col-span-2 md:col-span-4">
+                  <label className="text-[11px] uppercase tracking-wide text-white/50">Description</label>
+                  <input
+                    type="text"
+                    placeholder="Description"
+                    className="mt-1 h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    value={item.description}
+                    onChange={(e) => handleItemChange(index, 'description', e.target.value)}
+                  />
+                </div>
+                <div className="col-span-2 md:col-span-4">
+                  <label className="text-[11px] uppercase tracking-wide text-white/50">Notes</label>
+                  <input
+                    type="text"
+                    placeholder="Notes for supplier (optional)"
+                    className="mt-1 h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    value={item.notes}
+                    onChange={(e) => handleItemChange(index, 'notes', e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
           </div>
-          <input
-            type="text"
-            placeholder="SKU"
-            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
-            value={item.sku}
-            disabled
-          />
-          <input
-            type="text"
-            placeholder="Brand"
-            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
-            value={item.brand}
-            disabled
-          />
-          <input
-            type="text"
-            placeholder="Category"
-            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
-            value={item.category}
-            disabled
-          />
-          <input
-            type="number"
-            placeholder="Quantity"
-            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-            value={item.quantity}
-            onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="Unit (e.g., kg)"
-            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
-            value={item.unit}
-            disabled
-          />
-          <input
-            type="number"
-            placeholder="Price (₹)"
-            className="px-3 py-2 rounded-xl bg-white/10 cursor-not-allowed text-white/80 border border-white/20"
-            value={item.unitPrice}
-            disabled
-          />
-          <input
-            type="text"
-            placeholder="Description"
-            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-            value={item.description}
-            onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-          />
-          <div className="flex items-center space-x-2">
-            <input
-              type="text"
-              placeholder="Notes"
-              className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 w-full"
-              value={item.notes}
-              onChange={(e) => handleItemChange(index, 'notes', e.target.value)}
-            />
-            <button
-              onClick={() => {
-                const updated = items.filter((_, i) => i !== index);
-                setItems(updated);
-              }}
-              className="text-rose-300 hover:text-rose-200 text-sm"
-              title="Remove Row"
-            >
-              🗑️
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
 
       <button
         onClick={addItemRow}
-        className="mb-4 px-3 py-1 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
+        className="mb-3 px-3 py-1 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
       >
         + Add Item
       </button>
 
+      {/* Estimate banner: clarifies this total is pre‑tax & pre‑charges */}
+      <EstimateNotice className="mb-3" />
+
       <div className="text-right font-semibold text-lg mb-3 text-white">
-        Total: ₹{items.reduce((acc, item) => acc + (parseFloat(item.unitPrice || 0) * parseFloat(item.quantity || 0)), 0).toFixed(2)}
+        Estimate (pre-tax): ₹{items.reduce((acc, item) => acc + (parseFloat(item.unitPrice || 0) * parseFloat(item.quantity || 0)), 0).toFixed(2)}
       </div>
+
+      {fastFlow && effectiveDefaults?.enabled && (
+        <div className="mb-3 rounded-lg border border-white/10 bg-white/5 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold text-white">Charges Preview</div>
+            <span className="text-xs text-emerald-300">Proforma skipped</span>
+          </div>
+          {chargesPreview ? (
+            <div className="text-sm">
+              <div className="flex items-center justify-between py-0.5"><span className="text-white/70">Subtotal</span><span className="text-white">{formatINR(chargesPreview.subTotal || chargesPreview.subtotal || getItemsSubTotal(items))}</span></div>
+              {Number(chargesPreview.discountAmt || 0) > 0 && (
+                <div className="flex items-center justify-between py-0.5"><span className="text-white/70">Discount</span><span className="text-white">- {formatINR(chargesPreview.discountAmt)}</span></div>
+              )}
+              {Number(chargesPreview.delivery || 0) > 0 && (<div className="flex items-center justify-between py-0.5"><span className="text-white/70">Delivery</span><span className="text-white">{formatINR(chargesPreview.delivery)}</span></div>)}
+              {Number(chargesPreview.packing || 0) > 0 && (<div className="flex items-center justify-between py-0.5"><span className="text-white/70">Packing</span><span className="text-white">{formatINR(chargesPreview.packing)}</span></div>)}
+              {Number(chargesPreview.insurance || 0) > 0 && (<div className="flex items-center justify-between py-0.5"><span className="text-white/70">Insurance</span><span className="text-white">{formatINR(chargesPreview.insurance)}</span></div>)}
+              {Number(chargesPreview.other || 0) > 0 && (<div className="flex items-center justify-between py-0.5"><span className="text-white/70">Other</span><span className="text-white">{formatINR(chargesPreview.other)}</span></div>)}
+              <div className="my-1 border-t border-dashed border-white/15" />
+              <div className="flex items-center justify-between py-0.5"><span className="text-white/70">Taxes</span><span className="text-white">{formatINR(chargesPreview.taxes || 0)}</span></div>
+              <div className="flex items-center justify-between py-0.5"><span className="text-white/70">Round Off</span><span className="text-white">{formatINR(chargesPreview.roundOff || 0)}</span></div>
+              <div className="flex items-center justify-between py-0.5 font-semibold"><span className="text-white">Grand Total</span><span className="text-white">{formatINR(chargesPreview.grandTotal || getItemsSubTotal(items))}</span></div>
+            </div>
+          ) : (
+            <div className="text-xs text-white/60">Distributor defaults will be applied when placing the order.</div>
+          )}
+        </div>
+      )}
 
       <button
         onClick={handleSubmit}
