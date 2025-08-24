@@ -33,6 +33,54 @@ const formatDate = (val) => {
   }).format(d);
 };
 
+// --- Helpers for proforma-skipped orders ---
+const getInvoiceDateValue = (inv) => {
+  // prefer deliveredAt from statusTimestamps for official invoice date,
+  // then proforma.date (if present), then deliveredAt string, then createdAt
+  return (
+    inv?.statusTimestamps?.deliveredAt ||
+    inv?.proforma?.date ||
+    inv?.deliveredAt ||
+    inv?.createdAt ||
+    null
+  );
+};
+
+const getChargeBag = (inv) =>
+  inv?.orderCharges ||
+  inv?.proforma?.orderCharges ||
+  inv?.chargesSnapshot ||
+  inv?.breakdown ||
+  {};
+
+const getTaxBag = (inv, oc) =>
+  inv?.proforma?.taxBreakup ||
+  oc?.taxBreakup ||
+  inv?.chargesSnapshot?.taxBreakup ||
+  inv?.breakdown ||
+  {};
+
+const getGrandTotalValue = (inv) => {
+  // prefer proforma.grandTotal if present
+  if (inv?.proforma?.grandTotal != null) return Number(inv.proforma.grandTotal);
+
+  // then prefer grandTotal inside orderCharges/chargesSnapshot
+  const oc = getChargeBag(inv);
+  if (oc?.grandTotal != null) return Number(oc.grandTotal);
+
+  // compute from pieces using either taxBreakup or breakdown
+  const tb = getTaxBag(inv, oc);
+  const base = Number(oc.taxableBase ?? oc.itemsSubTotal ?? oc.subTotal ?? 0);
+  const taxes = Number(tb.cgst ?? 0) + Number(tb.sgst ?? 0) + Number(tb.igst ?? 0);
+  const adders = Number(oc.delivery ?? 0) + Number(oc.packing ?? 0) + Number(oc.insurance ?? 0) + Number(oc.other ?? 0);
+  const discounts = Number(oc.discountAmt ?? 0);
+  const roundOff = Number(oc.roundOff ?? 0);
+  return base + taxes + adders - discounts + roundOff;
+};
+
+const formatInvoiceDate = (inv) => formatDate(getInvoiceDateValue(inv));
+const formatInvoiceTotalINR = (inv) => formatINR(getGrandTotalValue(inv));
+
 const SkeletonCard = () => (
   <div className="bg-white/5 border border-white/10 p-4 rounded-lg shadow animate-pulse">
     <div className="h-5 w-1/2 bg-white/10 rounded mb-3" />
@@ -61,9 +109,7 @@ const RetailerInvoiceTab = () => {
           where("status", "==", "Delivered")
         );
         const snapshot = await getDocs(q);
-        const filtered = snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((order) => !!order?.proforma);
+        const filtered = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         setInvoices(filtered);
       } catch (e) {
         console.error("Failed to load invoices", e);
@@ -88,10 +134,10 @@ const RetailerInvoiceTab = () => {
     }
 
     list.sort((a, b) => {
-      const aDate = toJSDate(a?.proforma?.date)?.getTime() || 0;
-      const bDate = toJSDate(b?.proforma?.date)?.getTime() || 0;
-      const aAmt = Number(a?.proforma?.grandTotal || 0);
-      const bAmt = Number(b?.proforma?.grandTotal || 0);
+      const aDate = toJSDate(getInvoiceDateValue(a))?.getTime() || 0;
+      const bDate = toJSDate(getInvoiceDateValue(b))?.getTime() || 0;
+      const aAmt = Number(getGrandTotalValue(a) || 0);
+      const bAmt = Number(getGrandTotalValue(b) || 0);
       const aName = (a.distributorName || "").toLowerCase();
       const bName = (b.distributorName || "").toLowerCase();
       switch (sortBy) {
@@ -161,10 +207,10 @@ const RetailerInvoiceTab = () => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredInvoices.map((inv) => {
-              const dateStr = formatDate(inv?.proforma?.date);
-              const totalStr = formatINR(inv?.proforma?.grandTotal || 0);
+              const dateStr = formatInvoiceDate(inv);
+              const totalStr = formatInvoiceTotalINR(inv);
               const distributor = inv.distributorName || "Distributor";
-              const orderId = inv.id;
+              const orderId = inv.orderId || inv.id;
               return (
                 <div
                   key={orderId}
@@ -188,10 +234,18 @@ const RetailerInvoiceTab = () => {
                     <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-400/10 border border-emerald-400/30 text-emerald-200">
                       Delivered
                     </span>
+                    {(inv?.skipProforma || inv?.statusCode === "DIRECT") && (
+                      <span className="ml-2 text-[10px] px-2 py-1 rounded-full bg-cyan-400/10 border border-cyan-400/30 text-cyan-200">
+                        Direct
+                      </span>
+                    )}
                   </div>
 
                   <div className="mt-3 text-sm text-white/80">
                     <div>Date: {dateStr}</div>
+                    {inv?.paymentMode && (
+                      <div className="mt-0.5">Payment: <span className="text-white/90">{inv.paymentMode}</span></div>
+                    )}
                   </div>
 
                   <div className="mt-2 text-sm">

@@ -19,6 +19,8 @@ const OrderRequests = () => {
   const [connectedRetailers, setConnectedRetailers] = useState([]);
   // Remove fetching all retailers; use only connectedRetailers for dropdown
   const [selectedRetailerId, setSelectedRetailerId] = useState('all');
+  const [editChargesMap, setEditChargesMap] = useState({});   // { [orderId]: bool }
+  const [chargesDraftMap, setChargesDraftMap] = useState({}); // { [orderId]: breakdown }
 
   // --- Reject modal state ---
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -48,6 +50,28 @@ const OrderRequests = () => {
     const g = order?.chargesSnapshot?.breakdown?.grandTotal;
     if (typeof g === 'number' && !Number.isNaN(g)) return g;
     return orderTotal(order?.items || []);
+  };
+
+  const isDirect = (order) => (order?.statusCode === 'DIRECT' || order?.status === 'Placed (Direct)');
+  const getSnapshot = (order) => {
+    const b = order?.chargesSnapshot?.breakdown || {};
+    const tb = b?.taxBreakup || {};
+    // Flatten taxBreakup for UI convenience while keeping originals
+    return {
+      ...b,
+      cgst: b.cgst ?? tb.cgst ?? 0,
+      sgst: b.sgst ?? tb.sgst ?? 0,
+      igst: b.igst ?? tb.igst ?? 0,
+    };
+  };
+  const previewGrandTotal = (order, editChargesMap, chargesDraftMap) => {
+    if (isDirect(order)) {
+      const draft = chargesDraftMap[order.id];
+      if (editChargesMap[order.id] && typeof draft?.grandTotal === 'number') return draft.grandTotal;
+      const snap = getSnapshot(order);
+      if (typeof snap?.grandTotal === 'number') return snap.grandTotal;
+    }
+    return orderGrandTotal(order);
   };
 
   // --- Date formatting helpers ---
@@ -257,6 +281,13 @@ const OrderRequests = () => {
         enriched.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
         setOrders(enriched);
         setLoading(false);
+        setChargesDraftMap((prev) => {
+          const next = { ...prev };
+          enriched.forEach((o) => {
+            if (isDirect(o) && !next[o.id]) next[o.id] = getSnapshot(o);
+          });
+          return next;
+        });
       });
     });
 
@@ -281,7 +312,7 @@ const OrderRequests = () => {
     label: `${retailer.retailerName || retailer.businessName || retailer.ownerName || 'Unnamed'} — ${retailer.city || retailer.address?.city || ''} — ${retailer.retailerEmail || retailer.email || 'N/A'} (ID: ${(retailer.retailerId || '').substring(0, 6)}...)`,
   }));
 
-  const handleStatusUpdate = async (orderId, newStatus, providedReason) => {
+  const handleStatusUpdate = async (orderId, newStatus, providedReason, isDirectFlag = false, directChargesDraft = null) => {
     try {
       const snapshot = await getDoc(doc(db, 'businesses', auth.currentUser.uid, 'orderRequests', orderId));
       const order = snapshot.data();
@@ -321,6 +352,34 @@ const OrderRequests = () => {
           enrichedItems.push(updatedItem);
         }
 
+        // --- Structure-preserving merge for chargesSnapshot with taxBreakup normalization ---
+        const existingCharges = order?.chargesSnapshot || {};
+        const existingBreakdown = existingCharges?.breakdown || {};
+        const existingTaxBreakup = existingBreakdown?.taxBreakup || {};
+
+        const draft = isDirectFlag ? (directChargesDraft || {}) : {};
+        const mergedBreakdown = {
+          ...existingBreakdown,
+          ...draft,
+        };
+        // Ensure taxBreakup map is updated using flat cgst/sgst/igst if present in draft
+        const nextTaxBreakup = {
+          ...existingTaxBreakup,
+          ...(draft && (draft.cgst !== undefined || draft.sgst !== undefined || draft.igst !== undefined)
+            ? {
+                cgst: draft.cgst ?? existingTaxBreakup.cgst ?? existingBreakdown.cgst ?? 0,
+                sgst: draft.sgst ?? existingTaxBreakup.sgst ?? existingBreakdown.sgst ?? 0,
+                igst: draft.igst ?? existingTaxBreakup.igst ?? existingBreakdown.igst ?? 0,
+              }
+            : existingTaxBreakup),
+        };
+        mergedBreakdown.taxBreakup = nextTaxBreakup;
+
+        const finalCharges = {
+          ...existingCharges,
+          breakdown: mergedBreakdown,
+        };
+
         // Create/overwrite canonical order with full payload + enriched items
         await setDoc(canonicalOrderRef, {
           ...order,
@@ -330,6 +389,7 @@ const OrderRequests = () => {
           distributorId: auth.currentUser.uid,
           retailerId: order.retailerId,
           statusTimestamps: { ...(order.statusTimestamps || {}), acceptedAt: serverTimestamp() },
+          chargesSnapshot: finalCharges,
         }, { merge: true });
 
         // Update orderDocRef with status, items, and acceptedAt timestamp
@@ -339,6 +399,7 @@ const OrderRequests = () => {
           statusTimestamps: {
             acceptedAt: serverTimestamp(),
           },
+          chargesSnapshot: finalCharges,
         });
 
         if (!retailerOrderSnap.exists()) {
@@ -351,6 +412,7 @@ const OrderRequests = () => {
             statusTimestamps: {
               requestedAt: order.timestamp,
             },
+            chargesSnapshot: finalCharges,
           });
         } else {
           await updateDoc(retailerOrderRef, {
@@ -362,6 +424,7 @@ const OrderRequests = () => {
             statusTimestamps: {
               acceptedAt: serverTimestamp(),
             },
+            chargesSnapshot: finalCharges,
           });
         }
 
@@ -663,6 +726,9 @@ if (orders.length === 0) {
                   {order.status === 'Rejected' && '✖ '}
                   {order.status}
                 </span>
+                {isDirect(order) && (
+                  <span className="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-400/20">Direct</span>
+                )}
                 <button
                   className="text-xs text-emerald-300 underline focus:outline-none"
                   aria-expanded={expandedOrderIds.includes(order.id)}
@@ -817,22 +883,90 @@ if (orders.length === 0) {
                     ))}
                   </div>
                 </div>
-                <div className="mt-3 flex justify-end text-emerald-300 text-sm font-semibold">Total: ₹{orderGrandTotal(order).toFixed(2)}</div>
+                <div className="mt-3 flex justify-end text-emerald-300 text-sm font-semibold">Total: ₹{previewGrandTotal(order, editChargesMap, chargesDraftMap).toFixed(2)}</div>
                 {/* Proforma / Taxes & Charges Editor */}
                 {order.status === 'Requested' && (
                   <div className="mt-5">
                     <h4 className="font-medium mb-2">Proforma / Taxes & Charges</h4>
-                    <ChargesTaxesEditor
-                      orderId={order.id}
-                      distributorId={auth.currentUser?.uid}
-                      retailerId={order.retailerId}
-                      order={order}
-                      distributorState={order.distributorState}
-                      retailerState={order.retailerState}
-                      onSaved={() => {
-                        // Optional: no-op; onSnapshot will update the UI when proforma is saved
-                      }}
-                    />
+
+                    {isDirect(order) ? (
+                      <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="text-xs text-white/70">Using retailer’s default charges snapshot</div>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={!!editChargesMap[order.id]}
+                              onChange={() => setEditChargesMap((m) => ({ ...m, [order.id]: !m[order.id] }))}
+                            />
+                            Edit charges
+                          </label>
+                        </div>
+
+                        {(() => {
+                          const snap = chargesDraftMap[order.id] || getSnapshot(order);
+                          const setField = (k, v) => setChargesDraftMap((prev) => ({
+                            ...prev,
+                            [order.id]: { ...(prev[order.id] || getSnapshot(order)), [k]: v }
+                          }));
+                          const disabled = !editChargesMap[order.id];
+                          const num = (x) => (x === '' || x === null || x === undefined ? '' : Number(x));
+
+                          // --- Compute display rates for CGST/SGST/IGST ---
+                          const defaultsUsed = order?.chargesSnapshot?.defaultsUsed || {};
+                          const taxBreakup = snap?.taxBreakup || {};
+                          const taxableBase = Number(snap?.taxableBase ?? 0);
+                          const deriveRate = (explicit, amount) => {
+                            if (typeof explicit === 'number') return explicit;
+                            const amt = Number(amount ?? 0);
+                            if (taxableBase > 0 && amt > 0) return Number(((amt / taxableBase) * 100).toFixed(2));
+                            return undefined;
+                          };
+                          const cgstRate = deriveRate(defaultsUsed.cgstRate, taxBreakup.cgst ?? snap.cgst);
+                          const sgstRate = deriveRate(defaultsUsed.sgstRate, taxBreakup.sgst ?? snap.sgst);
+                          const igstRate = deriveRate(defaultsUsed.igstRate ?? defaultsUsed.gstRate, taxBreakup.igst ?? snap.igst);
+
+                          const Row = ({ label, keyName }) => (
+                            <div className="flex items-center justify-between py-1 border-b border-white/10">
+                              <span className="text-sm text-white/80">{label}</span>
+                              <input
+                                type="number"
+                                className={`w-32 px-2 py-1 rounded bg-white/10 border border-white/20 text-right ${disabled ? 'opacity-60' : ''}`}
+                                value={num(snap?.[keyName] ?? 0)}
+                                onChange={(e) => setField(keyName, Number(e.target.value || 0))}
+                                disabled={disabled}
+                              />
+                            </div>
+                          );
+                          return (
+                            <div className="space-y-1">
+                              <Row label="Delivery" keyName="delivery" />
+                              <Row label="Packing" keyName="packing" />
+                              <Row label="Insurance" keyName="insurance" />
+                              <Row label="Other" keyName="other" />
+                              <Row label="Discount %" keyName="discountPct" />
+                              <Row label="Discount ₹" keyName="discountAmt" />
+                              <Row label="Round Off" keyName="roundOff" />
+                              <Row label={`CGST${cgstRate !== undefined ? ` (${cgstRate}%)` : ''}`} keyName="cgst" />
+                              <Row label={`SGST${sgstRate !== undefined ? ` (${sgstRate}%)` : ''}`} keyName="sgst" />
+                              <Row label={`IGST${igstRate !== undefined ? ` (${igstRate}%)` : ''}`} keyName="igst" />
+                              <Row label="Taxable Base" keyName="taxableBase" />
+                              <Row label="Grand Total" keyName="grandTotal" />
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <ChargesTaxesEditor
+                        orderId={order.id}
+                        distributorId={auth.currentUser?.uid}
+                        retailerId={order.retailerId}
+                        order={order}
+                        distributorState={order.distributorState}
+                        retailerState={order.retailerState}
+                        onSaved={() => {}}
+                      />
+                    )}
                   </div>
                 )}
 
@@ -885,7 +1019,7 @@ if (orders.length === 0) {
                 <div className="mt-4 flex gap-2">
                   <button
                     disabled={order.status !== 'Requested'}
-                    onClick={() => handleStatusUpdate(order.id, 'Accepted')}
+                    onClick={() => handleStatusUpdate(order.id, 'Accepted', null, isDirect(order), chargesDraftMap[order.id])}
                     className={`rounded-full px-4 py-1 font-medium text-sm transition ${
                       order.status !== 'Requested'
                         ? 'bg-white/10 text-white/40 cursor-not-allowed'

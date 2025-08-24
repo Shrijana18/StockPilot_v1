@@ -78,6 +78,46 @@ const LandingPage = () => {
     try { localStorage.setItem('flyp_pricing_yearly', isYearly ? '1' : '0'); } catch {}
   }, [isYearly]);
   const [mag, setMag] = useState({x: 0, y: 0});    // magnetic CTA offset
+  // --- 15-sec Micro Demo (inline cart sandbox) ---
+  const [demo, setDemo] = useState({ sku: '', qty: 1, price: 99, discount: 0 });
+  const [demoTotal, setDemoTotal] = useState(99);
+  const [demoActive, setDemoActive] = useState(false);
+  const [demoProgress, setDemoProgress] = useState(0); // 0..100 over ~15s
+  const demoRef = React.useRef(null);
+
+  const recalcDemo = (d) => {
+    const qty = Math.max(1, Number(d.qty) || 1);
+    const price = Math.max(0, Number(d.price) || 0);
+    const disc = Math.max(0, Math.min(90, Number(d.discount) || 0));
+    const sub = qty * price;
+    const total = sub - (sub * disc) / 100;
+    setDemoTotal(Math.round(total));
+  };
+
+  useEffect(() => { recalcDemo(demo); }, []);
+
+  // Start/stop the 15s progress only when the demo card is on screen
+  useEffect(() => {
+    const el = demoRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([entry]) => {
+      setDemoActive(entry.isIntersecting);
+    }, { threshold: 0.6 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!demoActive) { setDemoProgress((p) => (p > 99 ? 0 : p)); return; }
+    let t0 = performance.now();
+    let id = requestAnimationFrame(function tick(now){
+      const elapsed = now - t0; // ms
+      const p = Math.min(100, (elapsed / 15000) * 100);
+      setDemoProgress(p);
+      if (p < 100 && demoActive) id = requestAnimationFrame(tick); else cancelAnimationFrame(id);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [demoActive]);
   // --- Magnetic hover and INR price helpers ---
   const onMagnetMove = (e) => {
     const el = e.currentTarget;
@@ -359,7 +399,7 @@ const LandingPage = () => {
       {/* Navbar */}
       <header className={`sticky top-0 z-50 glass supports-[backdrop-filter]:bg-white/5 bg-white/10 flex justify-between items-center border-b border-white/10 transition-all duration-300 ${shrinkHeader ? 'py-1 px-3 md:py-2 md:px-4' : 'py-4 px-6 md:py-6 md:px-8'}`}>
         <div className="flex items-center">
-          <img src="/assets/flyp-logo.png" alt="FLYP Logo" className={`${shrinkHeader ? 'h-8 md:h-10' : 'h-16 md:h-20'} w-auto drop-shadow-md transition-all duration-300`} />
+          <img src="/assets/flyp-logo.png" alt="FLYP Logo" loading="eager" className={`${shrinkHeader ? 'h-8 md:h-10' : 'h-16 md:h-20'} w-auto drop-shadow-md transition-all duration-300`} />
         </div>
         <nav className={`hidden md:flex ${shrinkHeader ? 'gap-5 text-sm' : 'gap-6 text-base'} transition-all duration-300`}>
           <Link to="#features" className="hover:text-emerald-300">Features</Link>
@@ -463,6 +503,66 @@ const LandingPage = () => {
           <button onClick={() => setShowRoi(true)} className="mt-3 inline-flex items-center gap-2 text-sm px-4 py-1.5 rounded-full border border-emerald-300/40 bg-white/5 hover:bg-white/10">
             <span>Estimate ROI</span>
           </button>
+          {/* 15‑sec Micro‑Demo: tiny cart sandbox */}
+          <div ref={demoRef} className={`mt-5 p-4 rounded-xl ${THEME.card} shadow-[0_10px_40px_rgba(0,0,0,0.35)]`}
+               aria-label="15 second interactive demo">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm text-white/70">Try it now — edit any field</div>
+              <div className="text-xs text-white/50">~15s</div>
+            </div>
+            {/* progress bar */}
+            <div className="h-1.5 w-full rounded bg-white/10 overflow-hidden mb-4">
+              <div className="h-full bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400"
+                   style={{ width: `${demoProgress}%`, transition: 'width .2s linear' }} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs text-white/70">
+                <span className="mb-1 block">SKU</span>
+                <input
+                  value={demo.sku}
+                  onChange={(e)=> setDemo((d)=>{ const nd={...d, sku: e.target.value}; return nd; }) }
+                  onBlur={()=> recalcDemo(demo)}
+                  placeholder="e.g. CHIPS-200G"
+                  className="w-full rounded bg-white/10 border border-white/10 px-3 py-2 text-sm placeholder-white/40"
+                />
+              </label>
+              <label className="block text-xs text-white/70">
+                <span className="mb-1 block">Qty</span>
+                <input type="number"
+                  value={demo.qty}
+                  onChange={(e)=> { const nd={...demo, qty: e.target.value}; setDemo(nd); recalcDemo(nd); }}
+                  className="w-full rounded bg-white/10 border border-white/10 px-3 py-2 text-sm"
+                  min={1}
+                />
+              </label>
+              <label className="block text-xs text-white/70">
+                <span className="mb-1 block">Unit Price (₹)</span>
+                <input type="number"
+                  value={demo.price}
+                  onChange={(e)=> { const nd={...demo, price: e.target.value}; setDemo(nd); recalcDemo(nd); }}
+                  className="w-full rounded bg-white/10 border border-white/10 px-3 py-2 text-sm"
+                  min={0}
+                />
+              </label>
+              <label className="block text-xs text-white/70">
+                <span className="mb-1 block">Discount (%)</span>
+                <input type="number"
+                  value={demo.discount}
+                  onChange={(e)=> { const nd={...demo, discount: e.target.value}; setDemo(nd); recalcDemo(nd); }}
+                  className="w-full rounded bg-white/10 border border-white/10 px-3 py-2 text-sm"
+                  min={0} max={90}
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <div className="text-white/80 text-sm">Total</div>
+              <div className="text-2xl font-extrabold">₹{demoTotal.toLocaleString('en-IN')}</div>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button onClick={()=>{ burstConfetti(); }} className="px-3 py-1.5 rounded bg-emerald-400/90 text-gray-900 text-sm font-semibold hover-raise">Looks this fast</button>
+              <a href="#story" className="px-3 py-1.5 rounded border border-white/20 text-sm">See full flow</a>
+            </div>
+          </div>
         </div>
         {/* RIGHT: glass card + animation */}
         <div className="w-full md:w-1/2 flex justify-center z-10 md:-mt-10 -mt-4" style={{ transform: `translateY(${heroOffset.art - 20}px)`, transition: 'transform .2s ease-out' }}>
@@ -676,7 +776,7 @@ const LandingPage = () => {
                   <span className="absolute top-3 right-3 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-400/20 border border-emerald-300/40 text-emerald-200">{f.badge}</span>
                 )}
                 <div className="mx-auto mb-4 w-20 h-20 rounded flex items-center justify-center bg-white/5 border border-white/10 overflow-hidden">
-                  <img src={f.icon} alt="" className="w-10 h-10 object-contain group-hover:scale-110 transition-transform" />
+                  <img src={f.icon} alt="" loading="lazy" className="w-10 h-10 object-contain group-hover:scale-110 transition-transform" />
                 </div>
                 <h4 className="font-semibold text-lg text-white">{f.title}</h4>
                 <p className="text-sm text-white/70">{f.desc}</p>
@@ -760,7 +860,7 @@ const LandingPage = () => {
             <div key={i} className={`p-6 text-left rounded-2xl ${THEME.card} hover:shadow-[0_18px_60px_rgba(0,0,0,0.35)] transition`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="relative w-9 h-9 rounded-full overflow-hidden border border-white/10 bg-white/10 flex items-center justify-center text-sm font-semibold">
-                  <img src={t.avatar || ''} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e)=>{ e.currentTarget.style.display='none'; }} />
+                  <img src={t.avatar || ''} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e)=>{ e.currentTarget.style.display='none'; }} />
                   <span className="text-white/90">{t.name?.[0] || 'U'}</span>
                 </div>
                 <div>
@@ -953,10 +1053,10 @@ const LandingPage = () => {
                     {spotlightFeature.key==='ocr-import' ? (
                       <div className="h-full w-full relative">
                         {/* Raw image */}
-                        <img src="/assets/ocr_raw_invoice.jpg" alt="Raw invoice" className="absolute inset-0 h-full w-full object-cover rounded-xl" />
+                        <img src="/assets/ocr_raw_invoice.jpg" alt="Raw invoice" loading="lazy" className="absolute inset-0 h-full w-full object-cover rounded-xl" />
                         {/* Structured overlay clipped by slider */}
                         <div className="absolute inset-0 rounded-xl overflow-hidden" style={{clipPath:`inset(0 ${100-ocrSlider}% 0 0)`}}>
-                          <img src="/assets/ocr_structured_invoice.jpg" alt="Structured fields" className="h-full w-full object-cover" />
+                          <img src="/assets/ocr_structured_invoice.jpg" alt="Structured fields" loading="lazy" className="h-full w-full object-cover" />
                           <div className="absolute bottom-3 right-3 px-3 py-1 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-sm">Detected: {ocrDetected} fields</div>
                         </div>
                         {/* Slider */}
@@ -1145,6 +1245,10 @@ const LandingPage = () => {
           .anim-gradient { animation: none !important; }
         }
         .pause-anim { animation-play-state: paused !important; }
+        /* Micro‑demo helpers */
+        #hero input::-webkit-outer-spin-button,
+        #hero input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        #hero input[type=number] { -moz-appearance: textfield; }
       `}</style>
     </div>
   );

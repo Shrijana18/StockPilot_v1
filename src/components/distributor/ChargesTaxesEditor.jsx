@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { getFirestore, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { calculateProforma } from "../../lib/calcProforma";
 import { ORDER_STATUSES } from "../../constants/orderStatus";
 import { toast } from "react-toastify";
@@ -75,25 +75,53 @@ export default function ChargesTaxesEditor({
   const [rounding, setRounding] = useState("NEAREST"); // NEAREST | UP | DOWN
   const [saving, setSaving] = useState(false);
 
-  const preview = useMemo(
-    () =>
-      calculateProforma({
+  const preview = useMemo(() => {
+    const safe = () => ({
+      subTotal: 0,
+      discountTotal: 0,
+      orderCharges: {
+        delivery: 0,
+        packing: 0,
+        insurance: 0,
+        other: 0,
+      },
+      taxableBase: 0,
+      taxType: 'CGST_SGST',
+      taxBreakup: { cgst: 0, sgst: 0, igst: 0 },
+      roundOff: 0,
+      grandTotal: 0,
+    });
+    try {
+      const p = calculateProforma({
         lines,
         orderCharges,
         distributorState,
         retailerState,
         rounding,
-      }),
-    [lines, orderCharges, distributorState, retailerState, rounding]
-  );
+      }) || safe();
+      // Ensure required nested objects exist to avoid render crashes
+      p.orderCharges = p.orderCharges || { delivery: 0, packing: 0, insurance: 0, other: 0 };
+      p.taxBreakup = p.taxBreakup || { cgst: 0, sgst: 0, igst: 0 };
+      if (typeof p.subTotal !== 'number') p.subTotal = 0;
+      if (typeof p.discountTotal !== 'number') p.discountTotal = 0;
+      if (typeof p.taxableBase !== 'number') p.taxableBase = 0;
+      if (!p.taxType) p.taxType = 'CGST_SGST';
+      if (typeof p.roundOff !== 'number') p.roundOff = 0;
+      if (typeof p.grandTotal !== 'number') p.grandTotal = 0;
+      return p;
+    } catch (e) {
+      console.error('calculateProforma failed', e);
+      return safe();
+    }
+  }, [lines, orderCharges, distributorState, retailerState, rounding]);
 
   const taxTypeLabel = useMemo(() => {
     const from = (distributorState || "—").toString();
     const to = (retailerState || "—").toString();
-    return preview.taxType === "IGST"
+    return (preview?.taxType === "IGST")
       ? `IGST (Interstate: ${from} → ${to})`
       : `CGST + SGST (Intrastate: ${from} → ${to})`;
-  }, [preview.taxType, distributorState, retailerState]);
+  }, [preview?.taxType, distributorState, retailerState]);
 
   function updateLine(index, field, value) {
     setLines((prev) => {
@@ -143,8 +171,8 @@ export default function ChargesTaxesEditor({
       );
     }
 
-    // 2) Confirm overwrite if a proforma already exists
-    if (order?.proforma) {
+    // 2) Confirm overwrite if a proforma already exists (legacy `proforma` or canonical `chargesSnapshot`)
+    if (order?.proforma || order?.chargesSnapshot) {
       const ok = window.confirm("A proforma already exists for this order. Overwrite it?");
       if (!ok) return;
     }
@@ -153,29 +181,70 @@ export default function ChargesTaxesEditor({
     try {
       // sanitize preview to avoid undefined/NaN
       const cleanPreview = sanitizeForFirestore(preview);
+
+      // Build a canonical chargesSnapshot for both UIs
+      const chargesSnapshot = sanitizeForFirestore({
+        breakdown: {
+          subTotal: cleanPreview.subTotal,
+          delivery: cleanPreview?.orderCharges?.delivery || 0,
+          packing: cleanPreview?.orderCharges?.packing || 0,
+          insurance: cleanPreview?.orderCharges?.insurance || 0,
+          other: cleanPreview?.orderCharges?.other || 0,
+          discountPct: Number(orderCharges?.discountPct || 0),
+          discountAmt: Number(orderCharges?.discountAmt || 0),
+          roundOff: cleanPreview.roundOff || 0,
+          taxableBase: cleanPreview.taxableBase || 0,
+          taxType: cleanPreview.taxType,
+          taxBreakup: cleanPreview.taxBreakup || {},
+          grandTotal: cleanPreview.grandTotal || 0,
+        },
+        defaultsUsed: {
+          enabled: true,
+          skipProforma: false,
+          autodetectTaxType: true,
+          deliveryFee: Number(orderCharges?.delivery || 0),
+          packingFee: Number(orderCharges?.packing || 0),
+          insuranceFee: Number(orderCharges?.insurance || 0),
+          otherFee: Number(orderCharges?.other || 0),
+          discountPct: Number(orderCharges?.discountPct || 0),
+          discountAmt: Number(orderCharges?.discountAmt || 0),
+          roundRule: (rounding || 'NEAREST').toString().toLowerCase(),
+        },
+        version: 1,
+      });
+
+      // Legacy field kept for backward compatibility in older UIs
       const proforma = {
         ...cleanPreview,
         date: serverTimestamp(),
         version: 1,
       };
 
-      // Distributor copy
-      const distDoc = doc(db, `businesses/${distributorId}/orderRequests/${orderId}`);
-      await updateDoc(distDoc, {
-        proforma,
-        statusCode: ORDER_STATUSES.QUOTED,
-        status: "Quoted", // legacy support if UI relies on this
+      const patch = {
+        proforma,                           // legacy fallback for old views
+        chargesSnapshot,                    // new canonical structure
+        statusCode: ORDER_STATUSES.QUOTED,  // aka PROFORMA_SENT
+        status: "Quoted",                   // legacy label
+        statusTimestamps: { ...(order?.statusTimestamps || {}), quotedAt: serverTimestamp() },
         updatedAt: serverTimestamp(),
-      });
+      };
 
-      // Retailer mirror copy
-      const retDoc = doc(db, `businesses/${retailerId}/sentOrders/${orderId}`);
-      await updateDoc(retDoc, {
-        proforma,
-        statusCode: ORDER_STATUSES.QUOTED,
-        status: "Quoted",
-        updatedAt: serverTimestamp(),
-      });
+      // Resolve IDs safely before mirroring (prevents silent writes to /undefined/)
+      const distId = distributorId || order?.distributorId;
+      const retId  = retailerId || order?.retailerId;
+      if (!distId || !retId) {
+        toast.error("Missing distributorId/retailerId — unable to share proforma.");
+        setSaving(false);
+        return;
+      }
+
+      // Distributor request doc (exists) — update with patch
+      const distDoc = doc(db, `businesses/${distId}/orderRequests/${orderId}`);
+      await updateDoc(distDoc, patch);
+
+      // Retailer mirror — create if missing, else merge
+      const retDoc = doc(db, `businesses/${retId}/sentOrders/${orderId}`);
+      await setDoc(retDoc, patch, { merge: true });
 
       toast.success("Proforma generated and shared with retailer.");
       onSaved && onSaved(proforma);
@@ -286,10 +355,10 @@ export default function ChargesTaxesEditor({
           <h3 className="text-white font-semibold mb-3">Proforma Preview</h3>
           <div className="text-sm text-white/80 space-y-1">
             <Row k="Sub‑Total (pre‑charges)" v={preview.subTotal} />
-            <Row k="+ Delivery" v={preview.orderCharges.delivery} />
-            <Row k="+ Packing" v={preview.orderCharges.packing} />
-            <Row k="+ Insurance" v={preview.orderCharges.insurance} />
-            <Row k="+ Other" v={preview.orderCharges.other} />
+            <Row k="+ Delivery" v={preview.orderCharges?.delivery || 0} />
+            <Row k="+ Packing" v={preview.orderCharges?.packing || 0} />
+            <Row k="+ Insurance" v={preview.orderCharges?.insurance || 0} />
+            <Row k="+ Other" v={preview.orderCharges?.other || 0} />
             <Row k="− Order Discount" v={preview.discountTotal} />
             <Row k="Taxable Base" v={preview.taxableBase} bold />
             {/* Tax Type as TEXT, not money */}
@@ -298,11 +367,11 @@ export default function ChargesTaxesEditor({
               <span>{taxTypeLabel}</span>
             </div>
             {preview.taxType === "IGST" ? (
-              <Row k={"IGST"} v={preview.taxBreakup.igst} />
+              <Row k={"IGST"} v={preview.taxBreakup?.igst || 0} />
             ) : (
               <>
-                <Row k={"CGST"} v={preview.taxBreakup.cgst} />
-                <Row k={"SGST"} v={preview.taxBreakup.sgst} />
+                <Row k={"CGST"} v={preview.taxBreakup?.cgst || 0} />
+                <Row k={"SGST"} v={preview.taxBreakup?.sgst || 0} />
               </>
             )}
             <Row k={"Round Off"} v={preview.roundOff} />

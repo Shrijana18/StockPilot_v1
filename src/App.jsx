@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 import LandingPage from './pages/LandingPage.jsx';
@@ -19,68 +19,164 @@ import 'react-toastify/dist/ReactToastify.css';
 
 import { AuthContext } from './context/AuthContext';
 
+import { isNativeApp } from './utils/isNativeApp';
+import MobileLayout from './components/mobile/MobileLayout';
+
+import { App as CapacitorApp } from '@capacitor/app';
+import { Toast } from '@capacitor/toast';
+
 const App = () => {
+  useEffect(() => {
+    if (!isNativeApp()) return;
+
+    let exitConfirmed = false;
+
+    const handler = async () => {
+      if (!exitConfirmed) {
+        exitConfirmed = true;
+        await Toast.show({ text: 'Press back again to exit' });
+        setTimeout(() => {
+          exitConfirmed = false;
+        }, 2000);
+      } else {
+        CapacitorApp.exitApp();
+      }
+    };
+
+    CapacitorApp.addListener('backButton', handler);
+
+    return () => {
+      CapacitorApp.removeAllListeners();
+    };
+  }, []);
+
   return (
     <AuthProvider>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/auth/*" element={<AuthPage />} />
-        <Route path="/employee-login" element={<EmployeeLogin />} />
+      {isNativeApp() ? (
+        <MobileLayout>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/auth/*" element={<AuthPage />} />
+            <Route path="/employee-login" element={<EmployeeLogin />} />
 
-        {/* Protected Routes */}
-        <Route
-          path="/dashboard"
-          element={
-            <PrivateRoute>
-              <RetailerDashboard />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/distributor-dashboard"
-          element={
-            <PrivateRoute>
-              <DistributorDashboard />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/product-owner-dashboard"
-          element={
-            <PrivateRoute>
-              <ProductOwnerDashboard />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/inventory"
-          element={
-            <PrivateRoute>
-              <Inventory />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/billing"
-          element={
-            <PrivateRoute>
-              <Billing />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/invoices"
-          element={
-            <PrivateRoute>
-              <AllInvoices />
-            </PrivateRoute>
-          }
-        />
+            {/* Protected Routes */}
+            <Route
+              path="/dashboard"
+              element={
+                <PrivateRoute>
+                  <RetailerDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/distributor-dashboard"
+              element={
+                <PrivateRoute>
+                  <DistributorDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/product-owner-dashboard"
+              element={
+                <PrivateRoute>
+                  <ProductOwnerDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/inventory"
+              element={
+                <PrivateRoute>
+                  <Inventory />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/billing"
+              element={
+                <PrivateRoute>
+                  <Billing />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/invoices"
+              element={
+                <PrivateRoute>
+                  <AllInvoices />
+                </PrivateRoute>
+              }
+            />
 
-        {/* Future routes can be conditionally rendered based on role */}
-        <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
-      </Routes>
+            {/* Future routes can be conditionally rendered based on role */}
+            <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
+          </Routes>
+        </MobileLayout>
+      ) : (
+        <>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/auth/*" element={<AuthPage />} />
+            <Route path="/employee-login" element={<EmployeeLogin />} />
+
+            {/* Protected Routes */}
+            <Route
+              path="/dashboard"
+              element={
+                <PrivateRoute>
+                  <RetailerDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/distributor-dashboard"
+              element={
+                <PrivateRoute>
+                  <DistributorDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/product-owner-dashboard"
+              element={
+                <PrivateRoute>
+                  <ProductOwnerDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/inventory"
+              element={
+                <PrivateRoute>
+                  <Inventory />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/billing"
+              element={
+                <PrivateRoute>
+                  <Billing />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/invoices"
+              element={
+                <PrivateRoute>
+                  <AllInvoices />
+                </PrivateRoute>
+              }
+            />
+
+            {/* Future routes can be conditionally rendered based on role */}
+            <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
+          </Routes>
+        </>
+      )}
       <ToastContainer position="top-right" autoClose={3000} />
     </AuthProvider>
   );

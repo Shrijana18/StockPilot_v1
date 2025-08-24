@@ -44,36 +44,53 @@ const getOrderDate = (order) =>
   asDate(order?.proforma?.date) ||
   null;
 
-// Compute a clean order total breakdown with graceful fallbacks
+// Compute a clean order total breakdown with graceful fallbacks (chargesSnapshot preferred)
 const computeBreakdown = (order) => {
-  const p = order?.proforma || {};
-  const itemsFromRows = Array.isArray(order?.items) ? order.items.reduce((s, it) => {
-    const price = (it.price !== undefined && it.price !== null) ? Number(it.price) : Number(it.unitPrice || 0);
-    const qty = Number(it.quantity || 0);
-    return s + price * qty;
-  }, 0) : 0;
+  const cs = order?.chargesSnapshot?.breakdown || null; // canonical
+  const p = cs || order?.proforma || {};                 // prefer cs, else legacy proforma
+
+  const itemsFromRows = Array.isArray(order?.items)
+    ? order.items.reduce((s, it) => {
+        const price = (it.price !== undefined && it.price !== null) ? Number(it.price) : Number(it.unitPrice || 0);
+        const qty = Number((it.quantity ?? it.qty) || 0);
+        return s + price * qty;
+      }, 0)
+    : 0;
 
   const itemsTotal = [p.subtotal, p.subTotal, p.itemsTotal].find(v => v !== undefined && v !== null) ?? itemsFromRows;
-  const discount = [p.discountAmount, p.discountTotal, p.totalDiscount].find(v => v !== undefined && v !== null) ?? 0;
+
+  const discount = [p.discountAmount, p.discountTotal, p.totalDiscount, p.discountAmt]
+    .find(v => v !== undefined && v !== null) ?? 0;
+
+  // taxes
   const taxBreakup = p.taxBreakup || {};
   const cgst = [p.cgst, p.cgstAmount, taxBreakup.cgst].find(v => v !== undefined && v !== null) ?? 0;
   const sgst = [p.sgst, p.sgstAmount, taxBreakup.sgst].find(v => v !== undefined && v !== null) ?? 0;
   const igst = [p.igst, p.igstAmount, taxBreakup.igst].find(v => v !== undefined && v !== null) ?? 0;
-  let taxTotal = [p.taxTotal, p.totalTax].find(v => v !== undefined && v !== null) ?? (cgst + sgst + igst);
-  // Enhanced logic to read values from proforma.orderCharges map
-  const charges = p.orderCharges || {};
-  const shipping = [p.shipping, p.delivery, p.freight, charges.delivery].find(v => v !== undefined && v !== null) ?? 0;
-  const other = [p.otherCharges, p.additionalCharges, charges.packing, charges.insurance, charges.other].find(v => v !== undefined && v !== null) ?? 0;
-  const rounding = [p.rounding, p.roundOff, charges.roundOff].find(v => v !== undefined && v !== null) ?? 0;
 
+  let taxTotal = [p.taxTotal, p.totalTax].find(v => v !== undefined && v !== null) ?? (Number(cgst) + Number(sgst) + Number(igst));
+
+  // charges / fees
+  const orderCharges = p.orderCharges || {};
+  const delivery = [p.delivery, orderCharges.delivery].find(v => v !== undefined && v !== null) ?? 0;
+  const packing = [p.packing, orderCharges.packing].find(v => v !== undefined && v !== null) ?? 0;
+  const insurance = [p.insurance, orderCharges.insurance].find(v => v !== undefined && v !== null) ?? 0;
+  const other = [p.other, p.otherCharges, p.additionalCharges, orderCharges.other].find(v => v !== undefined && v !== null) ?? 0;
+  const rounding = [p.rounding, p.roundOff, orderCharges.roundOff].find(v => v !== undefined && v !== null) ?? 0;
+
+  // When chargesSnapshot is present, prefer its explicit fields
+  const shippingFromCS = cs ? Number(cs.delivery || 0) + Number(cs.packing || 0) + Number(cs.insurance || 0) + Number(cs.other || 0) : null;
+  const shipping = (shippingFromCS !== null) ? shippingFromCS : (Number(delivery) + Number(packing) + Number(insurance) + Number(other));
+
+  // grand total
   let grand = [p.grandTotal, p.totalAmount, order?.totalAmount].find(v => v !== undefined && v !== null);
   if (grand === undefined || grand === null) {
-    grand = (Number(itemsTotal) - Number(discount)) + Number(taxTotal) + Number(shipping) + Number(other) + Number(rounding);
+    grand = (Number(itemsTotal) - Number(discount)) + Number(taxTotal) + Number(shipping) + Number(rounding);
   }
 
   // If tax not provided but grand available, infer remaining as tax/adjustment
   if ((taxTotal === undefined || taxTotal === null || Number.isNaN(Number(taxTotal))) && grand !== undefined) {
-    const base = (Number(itemsTotal) - Number(discount)) + Number(shipping) + Number(other) + Number(rounding);
+    const base = (Number(itemsTotal) - Number(discount)) + Number(shipping) + Number(rounding);
     taxTotal = Math.max(0, Number(grand) - base);
   }
 
@@ -85,11 +102,18 @@ const computeBreakdown = (order) => {
     igst: Number(igst || 0),
     taxTotal: Number(taxTotal || 0),
     shipping: Number(shipping || 0),
-    other: Number(other || 0),
+    other: 0, // merged into shipping above for display parity
     rounding: Number(rounding || 0),
     grand: Number(grand || 0),
   };
 };
+
+// Predicate for pending proforma actions (quoted or proforma sent)
+const isProformaPending = (order) => (
+  order?.statusCode === 'PROFORMA_SENT' ||
+  order?.statusCode === 'QUOTED' ||
+  order?.status === 'Quoted'
+);
 
 const OrderStatusTab = () => {
   const [orders, setOrders] = useState([]);
@@ -224,7 +248,7 @@ const OrderStatusTab = () => {
       item.productName || item.name || '—',
       item.brand || '—',
       item.sku,
-      item.quantity,
+      (item.quantity ?? item.qty),
       item.unit,
       `₹${(item.price !== undefined && item.price !== null) ? item.price : (item.unitPrice || 0)}`
     ]);
@@ -278,7 +302,7 @@ const OrderStatusTab = () => {
           item.productName || item.name || '—',
           item.brand || '—',
           item.sku,
-          item.quantity,
+          (item.quantity ?? item.qty),
           item.unit,
           `₹${(item.price !== undefined && item.price !== null) ? item.price : (item.unitPrice || 0)}`
         ]),
@@ -311,6 +335,8 @@ const OrderStatusTab = () => {
   };
 
   const displayAmount = (order) => {
+    const csGrand = order?.chargesSnapshot?.breakdown?.grandTotal;
+    if (typeof csGrand === 'number' && !Number.isNaN(csGrand)) return csGrand;
     const { grand } = computeBreakdown(order);
     return grand;
   };
@@ -415,13 +441,36 @@ const OrderStatusTab = () => {
               {expandedRow === order.id && (
                 <tr className="bg-white/5">
                   <td colSpan="5" className="p-4 border border-white/10">
-                    {order.status === 'Quoted' && order.proforma && (
+                    {isProformaPending(order) && (
                       <div className="mb-4 space-y-3">
-                        <ProformaSummary
-                          proforma={order.proforma}
-                          distributorState={order.distributorState}
-                          retailerState={order.retailerState}
-                        />
+                        {order.proforma ? (
+                          <ProformaSummary
+                            proforma={order.proforma}
+                            distributorState={order.distributorState}
+                            retailerState={order.retailerState}
+                          />
+                        ) : (
+                          (() => {
+                            // Compact fallback summary from chargesSnapshot
+                            const b = computeBreakdown(order);
+                            return (
+                              <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
+                                <div className="text-white/80 font-semibold mb-2">Proforma Summary</div>
+                                <div className="space-y-1">
+                                  <div className="flex justify-between"><span>Items Total</span><span>{formatINR(b.itemsTotal)}</span></div>
+                                  <div className="flex justify-between"><span>Discount</span><span>-{formatINR(b.discount)}</span></div>
+                                  <div className="flex justify-between"><span>CGST</span><span>{formatINR(b.cgst)}</span></div>
+                                  <div className="flex justify-between"><span>SGST</span><span>{formatINR(b.sgst)}</span></div>
+                                  <div className="flex justify-between"><span>IGST</span><span>{formatINR(b.igst)}</span></div>
+                                  <div className="flex justify-between"><span>Other/Shipping</span><span>{formatINR(b.shipping)}</span></div>
+                                  <div className="flex justify-between"><span>Rounding</span><span>{formatINR(b.rounding)}</span></div>
+                                  <div className="h-px bg-white/10 my-2" />
+                                  <div className="flex justify-between font-semibold text-emerald-300"><span>Grand Total</span><span>{formatINR(b.grand)}</span></div>
+                                </div>
+                              </div>
+                            );
+                          })()
+                        )}
                         <div className="flex gap-2">
                           <AcceptProformaButton
                             distributorId={order.distributorId}
@@ -508,7 +557,7 @@ const OrderStatusTab = () => {
                             <td className="p-1 border">{item.productName || item.name || '—'}</td>
                             <td className="p-1 border">{item.brand || '—'}</td>
                             <td className="p-1 border">{item.sku}</td>
-                            <td className="p-1 border">{item.quantity}</td>
+                            <td className="p-1 border">{item.quantity ?? item.qty}</td>
                             <td className="p-1 border">{item.unit}</td>
                             <td className="p-1 border">₹{(item.price !== undefined && item.price !== null) ? item.price : (item.unitPrice || 0)}</td>
                           </tr>

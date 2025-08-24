@@ -16,6 +16,27 @@ const TrackOrderTab = () => {
   const auth = getAuth();
   const db = getFirestore();
 
+  // ----- Helpers for DIRECT vs PROFORMA and charges snapshot -----
+  const isDirect = (o) => o?.statusCode === 'DIRECT';
+  const isProformaPending = (o) => o?.statusCode === 'PROFORMA_SENT' || o?.statusCode === 'QUOTED' || o?.status === 'Quoted';
+  const getBreakdown = (o) => {
+    const b = o?.chargesSnapshot?.breakdown || o?.proforma || {};
+    const tb = b?.taxBreakup || {};
+    return {
+      ...b,
+      cgst: b.cgst ?? tb.cgst ?? 0,
+      sgst: b.sgst ?? tb.sgst ?? 0,
+      igst: b.igst ?? tb.igst ?? 0,
+    };
+  };
+  const getDefaultsUsed = (o) => o?.chargesSnapshot?.defaultsUsed || {};
+  const deriveRate = (explicit, amount, taxableBase) => {
+    if (typeof explicit === 'number') return explicit;
+    const amt = Number(amount ?? 0);
+    if (taxableBase > 0 && amt > 0) return Number(((amt / taxableBase) * 100).toFixed(2));
+    return undefined;
+  };
+
   // Format ETA (supports Firestore Timestamp, Date, YYYY-MM-DD, or plain string)
   const formatETA = (val) => {
     if (!val) return "Not specified";
@@ -199,6 +220,9 @@ const TrackOrderTab = () => {
                             {order.statusTimestamps.requestedAt && (
                               <p><strong>Requested At:</strong> {new Date(order.statusTimestamps.requestedAt.seconds * 1000).toLocaleString()}</p>
                             )}
+                            {order.statusTimestamps.quotedAt && (
+                              <p><strong>Quoted At:</strong> {new Date(order.statusTimestamps.quotedAt.seconds * 1000).toLocaleString()}</p>
+                            )}
                             {order.statusTimestamps.acceptedAt && (
                               <p><strong>Accepted At:</strong> {new Date(order.statusTimestamps.acceptedAt.seconds * 1000).toLocaleString()}</p>
                             )}
@@ -214,25 +238,87 @@ const TrackOrderTab = () => {
                           </div>
                         )}
 
-                        {order.proforma && (
-                          <div className="mb-4 space-y-3">
-                            <ProformaSummary
-                              proforma={order.proforma}
-                              distributorState={order.distributorState}
-                              retailerState={order.retailerState}
-                            />
-                            {order.status === "Quoted" && (
-                              <div className="flex gap-2">
-                                <AcceptProformaButton
-                                  distributorId={order.distributorId}
-                                  retailerId={auth.currentUser?.uid}
-                                  orderId={order.id}
-                                  hasProforma={!!order.proforma}
-                                />
+                        {/* Charges / Proforma Summary (supports DIRECT + legacy proforma) */}
+                        {(() => {
+                          const breakdown = getBreakdown(order);
+                          const defaultsUsed = getDefaultsUsed(order);
+                          const taxType = breakdown?.taxType || (breakdown?.igst > 0 ? 'IGST' : 'CGST_SGST');
+                          const taxableBase = Number(breakdown?.taxableBase ?? 0);
+                          const cgstRate = deriveRate(defaultsUsed.cgstRate, breakdown.cgst, taxableBase);
+                          const sgstRate = deriveRate(defaultsUsed.sgstRate, breakdown.sgst, taxableBase);
+                          const igstRate = deriveRate(defaultsUsed.igstRate ?? defaultsUsed.gstRate, breakdown.igst, taxableBase);
+                          const row = (label, value) => (
+                            <div className="flex justify-between py-0.5"><span>{label}</span><span>₹{Number(value || 0).toFixed(2)}</span></div>
+                          );
+                          const rowPct = (label, value) => (
+                            <div className="flex justify-between py-0.5"><span>{label}</span><span>{Number(value || 0).toFixed(2)}%</span></div>
+                          );
+
+                          // Show only if we have any totals/charges info (chargesSnapshot or legacy proforma)
+                          if (!breakdown || Object.keys(breakdown).length === 0) return null;
+
+                          return (
+                            <div className="mb-4 mt-3 p-3 rounded-lg border border-white/10 bg-white/5">
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="font-semibold">{isDirect(order) ? 'Order Charges (Direct)' : 'Proforma Summary'}</h4>
+                                {isDirect(order) && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-400/20">Direct</span>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        )}
+                              <div className="text-sm text-white/85">
+                                {row('Sub‑Total (pre‑charges)', breakdown.subTotal || breakdown.itemsSubTotal)}
+                                {row('Delivery', breakdown.delivery)}
+                                {row('Packing', breakdown.packing)}
+                                {row('Insurance', breakdown.insurance)}
+                                {row('Other', breakdown.other)}
+                                {rowPct('Discount %', breakdown.discountPct)}
+                                {row('Discount ₹', breakdown.discountAmt)}
+                                {row('Round Off', breakdown.roundOff)}
+                                <div className="flex justify-between py-0.5">
+                                  <span>Tax Type</span>
+                                  <span>{taxType === 'IGST' ? 'IGST' : 'CGST + SGST'}</span>
+                                </div>
+                                {taxType === 'IGST' ? (
+                                  <div className="flex justify-between py-0.5">
+                                    <span>{`IGST${igstRate !== undefined ? ` (${igstRate}%)` : ''}`}</span>
+                                    <span>₹{Number(breakdown.igst || 0).toFixed(2)}</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-between py-0.5">
+                                      <span>{`CGST${cgstRate !== undefined ? ` (${cgstRate}%)` : ''}`}</span>
+                                      <span>₹{Number(breakdown.cgst || 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between py-0.5">
+                                      <span>{`SGST${sgstRate !== undefined ? ` (${sgstRate}%)` : ''}`}</span>
+                                      <span>₹{Number(breakdown.sgst || 0).toFixed(2)}</span>
+                                    </div>
+                                  </>
+                                )}
+                                <div className="flex justify-between py-0.5 font-semibold">
+                                  <span>Grand Total</span>
+                                  <span>₹{Number(breakdown.grandTotal || 0).toFixed(2)}</span>
+                                </div>
+                              </div>
+
+                              {/* Retailer action buttons for proforma flow only */}
+                              {isProformaPending(order) && (
+                                <div className="flex gap-2 mt-3">
+                                  <AcceptProformaButton
+                                    distributorId={order.distributorId}
+                                    retailerId={auth.currentUser?.uid}
+                                    orderId={order.id}
+                                    hasProforma={true}
+                                  />
+                                </div>
+                              )}
+
+                              {isDirect(order) && (
+                                <div className="text-xs text-emerald-300 mt-2">Direct order — no proforma acceptance needed.</div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         <div className="mt-3">
                           <strong>Products:</strong>
@@ -254,13 +340,13 @@ const TrackOrderTab = () => {
                                   <td className="px-3 py-1 border border-white/10">{item.name || item.productName || "—"}</td>
                                   <td className="px-3 py-1 border border-white/10">{item.brand || "—"}</td>
                                   <td className="px-3 py-1 border border-white/10">{item.category || "—"}</td>
-                                  <td className="px-3 py-1 border border-white/10">{item.quantity}</td>
+                                  <td className="px-3 py-1 border border-white/10">{item.quantity ?? item.qty ?? 0}</td>
                                   <td className="px-3 py-1 border border-white/10">{item.unit}</td>
                                   <td className="px-3 py-1 border border-white/10">
                                     ₹{parseFloat(item.price || item.unitPrice || item.sellingPrice || 0).toFixed(2)}
                                   </td>
                                   <td className="px-3 py-1 border border-white/10">
-                                    ₹{(parseFloat(item.price || item.unitPrice || item.sellingPrice || 0) * parseFloat(item.quantity || 0)).toFixed(2)}
+                                    ₹{(parseFloat(item.price || item.unitPrice || item.sellingPrice || 0) * parseFloat(item.quantity ?? item.qty ?? 0)).toFixed(2)}
                                   </td>
                                 </tr>
                               ))}
@@ -272,7 +358,7 @@ const TrackOrderTab = () => {
                           Total Price: ₹
                           {(order.items || []).reduce((total, item) => {
                             const price = parseFloat(item.price || item.unitPrice || item.sellingPrice || 0);
-                            const qty = parseFloat(item.quantity || 0);
+                            const qty = parseFloat(item.quantity ?? item.qty ?? 0);
                             return total + price * qty;
                           }, 0).toFixed(2)}
                         </div>

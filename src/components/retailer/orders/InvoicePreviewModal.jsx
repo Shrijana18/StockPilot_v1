@@ -12,9 +12,47 @@ import ReactDOM from "react-dom";
 const InvoicePreviewModal = ({ invoice, onClose }) => {
   if (!invoice) return null;
 
-  const proforma = invoice.proforma || {};
-  const charges = proforma.orderCharges || {};
-  const tax = proforma?.taxBreakup || charges?.taxBreakup || {};
+  // return true if object has at least one meaningful charge key present
+  const hasChargeData = (o) => !!o && typeof o === "object" && (
+    ["subTotal","itemsSubTotal","taxableBase","grandTotal","delivery","packing","insurance","other","roundOff"].some(k => o[k] !== undefined && o[k] !== null)
+  );
+
+  // Prefer proforma; for skipProforma (DIRECT), use chargesSnapshot if present
+  const proforma = (invoice?.proforma && typeof invoice.proforma === "object") ? invoice.proforma : {};
+  const orderChargesRaw = invoice?.orderCharges;
+  const snapshotChargesRaw = invoice?.chargesSnapshot || invoice?.breakdown || {};
+  const isSkipProforma = !!(invoice?.skipProforma || snapshotChargesRaw?.skipProforma || invoice?.statusCode === "DIRECT");
+  const charges = isSkipProforma
+    ? (invoice?.chargesSnapshot || invoice?.breakdown || invoice || {})
+    : (proforma?.orderCharges && hasChargeData(proforma.orderCharges))
+      ? proforma.orderCharges
+      : (hasChargeData(snapshotChargesRaw)
+        ? snapshotChargesRaw
+        : (hasChargeData(orderChargesRaw)
+          ? orderChargesRaw
+          : (invoice || {})));
+
+  // Merge tax from multiple possible shapes:
+  // - proforma.taxBreakup
+  // - invoice.chargesSnapshot.taxBreakup (for skipProforma)
+  // - snapshotChargesRaw.taxBreakup
+  // - charges.taxBreakup
+  // - charges.breakdown
+  // - flat tax fields on charges (cgst/sgst/igst)
+  const taxRaw = proforma?.taxBreakup || invoice?.chargesSnapshot?.taxBreakup || snapshotChargesRaw?.taxBreakup || charges?.taxBreakup || charges?.breakdown || {};
+  const pickNum = (...vals) => {
+    for (const v of vals) {
+      if (v === 0 || (v !== null && v !== undefined && !Number.isNaN(Number(v)))) return Number(v);
+    }
+    return null;
+  };
+  const tax = {
+    cgst: pickNum(taxRaw?.cgst, charges?.cgst),
+    sgst: pickNum(taxRaw?.sgst, charges?.sgst),
+    igst: pickNum(taxRaw?.igst, charges?.igst),
+    taxableBase: pickNum(taxRaw?.taxableBase, charges?.taxableBase, charges?.itemsSubTotal, charges?.subTotal),
+    taxType: taxRaw?.taxType ?? charges?.taxType ?? null,
+  };
 
   const formatINR = (amt = 0) =>
     new Intl.NumberFormat("en-IN", {
@@ -43,12 +81,122 @@ const InvoicePreviewModal = ({ invoice, onClose }) => {
       : "-";
   };
 
-  const dateStr = formatDate(proforma?.date);
-  const orderId = invoice.id || "-";
+  // Coerce possibly string numbers (e.g., "5999") to Number safely
+  const toNum = (v) => (v === 0 || v === "0") ? 0 : (v ? Number(v) : 0);
+
+  const invoiceDate =
+    invoice?.statusTimestamps?.deliveredAt ||
+    proforma?.date ||
+    invoice?.deliveredAt ||
+    invoice?.createdAt;
+  const dateStr = formatDate(invoiceDate);
+  const orderId = invoice.orderId || invoice.id || "-";
   const distributorName = invoice.distributorName || "-";
   const invoiceType = proforma?.invoiceType || invoice?.invoiceType || "Invoice";
+  // Show badge for skipProforma mode
+  // (already defined above)
 
-  const lines = Array.isArray(proforma?.lines) ? proforma.lines : [];
+  // Build item lines; for skipProforma path, per-item GST is not stored → apportion from totals
+  const itemsArray = Array.isArray(proforma?.lines) && proforma.lines.length > 0
+    ? proforma.lines
+    : (Array.isArray(invoice?.items) && invoice.items.length > 0 ? invoice.items : []);
+
+  // Numbers from charges for proportional split
+  const itemsSubTotalNum = Number(charges?.itemsSubTotal ?? charges?.subTotal ?? 0);
+  const addersTotal =
+    Number(charges?.delivery ?? 0) +
+    Number(charges?.packing ?? 0) +
+    Number(charges?.insurance ?? 0) +
+    Number(charges?.other ?? 0);
+
+  const taxableBaseNum = Number(
+    tax?.taxableBase ??
+    (itemsSubTotalNum + addersTotal)
+  );
+
+  const totalTaxNum = Number(tax?.cgst ?? 0) + Number(tax?.sgst ?? 0) + Number(tax?.igst ?? 0);
+
+  const normalizeItem = (raw) => {
+    const qty = toNum(raw.qty ?? raw.quantity ?? 1);
+    const unitPrice = toNum(raw.price ?? raw.unitPrice ?? 0);
+    // raw.subtotal in skipProforma is pre-tax line amount (itemsSubTotal component)
+    const lineSub = toNum(raw.subtotal ?? raw.subTotal ?? (qty * unitPrice));
+    // Share of adders & tax proportional to lineSub
+    const share = itemsSubTotalNum > 0 ? (lineSub / itemsSubTotalNum) : 0;
+    const apportionedAdders = share * addersTotal;
+    const taxable = lineSub + apportionedAdders;
+    const apportionedTax = share * totalTaxNum;
+
+    // If proforma provided explicit taxable/gross/gstRate use them; else use apportioned values
+    const explicitTaxable = toNum(raw.taxable);
+    const explicitGross = toNum(raw.gross);
+    const gstRateSaved = toNum(raw.gstRate);
+
+    const finalTaxable = explicitTaxable || taxable;
+    const finalGstAmt = explicitGross ? (explicitGross - finalTaxable) : (gstRateSaved ? (finalTaxable * gstRateSaved) / 100 : apportionedTax);
+    const finalGross = explicitGross || (finalTaxable + finalGstAmt);
+    const finalGstRate = gstRateSaved || (finalTaxable > 0 ? (finalGstAmt / finalTaxable) * 100 : 0);
+
+    return {
+      name: raw.name || raw.productName || "-",
+      qty,
+      price: unitPrice,
+      gstRate: finalGstRate,
+      gross: finalGross,
+      taxable: finalTaxable,
+    };
+  };
+
+  const lines = itemsArray.map(normalizeItem);
+  // Compute grand total from items + adders + taxes - discounts + roundOff,
+  // falling back to taxableBase if items subtotal is missing
+  const getGrandTotal = () => {
+    // If proforma explicitly stored grand total, trust it
+    if (proforma?.grandTotal !== undefined && proforma?.grandTotal !== null && !Number.isNaN(Number(proforma.grandTotal))) {
+      return Number(proforma.grandTotal);
+    }
+    const oc = charges || {};
+    // Prefer grandTotal on charges if defined
+    if (oc.grandTotal !== undefined && oc.grandTotal !== null && !Number.isNaN(Number(oc.grandTotal))) {
+      return Number(oc.grandTotal);
+    }
+    // Tax breakup can live on tax (normalized), or on charges
+    const tb = (tax && Object.keys(tax).length ? tax : null) || oc.taxBreakup || oc.breakdown || {};
+
+    // Start from items subtotal when available
+    const items = Number(oc.itemsSubTotal ?? oc.subTotal ?? 0);
+
+    // Ancillary charges
+    const adders =
+      Number(oc.delivery ?? 0) +
+      Number(oc.packing ?? 0) +
+      Number(oc.insurance ?? 0) +
+      Number(oc.other ?? 0);
+
+    // Taxes — prefer normalized, else flat fields on charges
+    const taxes =
+      Number(tb.cgst ?? oc.cgst ?? 0) +
+      Number(tb.sgst ?? oc.sgst ?? 0) +
+      Number(tb.igst ?? oc.igst ?? 0);
+
+    const discounts = Number(oc.discountAmt ?? 0);
+    const roundOff = Number(oc.roundOff ?? 0);
+
+    if (items > 0) {
+      // Standard path: items + adders + taxes - discounts + roundOff
+      return items + adders + taxes - discounts + roundOff;
+    }
+
+    // Fallback: if items subtotal missing, use taxableBase (already includes adders)
+    const taxableBase = Number(oc.taxableBase ?? 0);
+    // Prefer grandTotal on charges if defined (in fallback too)
+    if (oc.grandTotal !== undefined && oc.grandTotal !== null && !Number.isNaN(Number(oc.grandTotal))) {
+      return Number(oc.grandTotal);
+    }
+    // Final fallback: use invoice.grandTotal if present, else compute
+    const finalFallback = Number(invoice?.grandTotal ?? 0);
+    return finalFallback > 0 ? finalFallback : taxableBase + taxes - discounts + Number(oc.roundOff ?? 0);
+  };
   const isZero = (v) => Number(v || 0) === 0;
 
   // --- SOLD TO resolver: collects buyer info from multiple shapes ---
@@ -62,6 +210,7 @@ const InvoicePreviewModal = ({ invoice, onClose }) => {
     proforma.buyer
   );
 
+  // For skipProforma, ensure retailer fields are checked as fallback (already present in pick order)
   const buyerName = pick(
     invoice.retailerBusinessName,
     invoice.retailerName,
@@ -116,15 +265,9 @@ const InvoicePreviewModal = ({ invoice, onClose }) => {
     if (!base || base <= 0) return null;
     return Math.round((a / base) * 10000) / 100; // 2 decimals
   };
-  const pickNum = (...vals) => {
-    for (const v of vals) {
-      if (v === 0 || (v && !Number.isNaN(Number(v)))) return Number(v);
-    }
-    return null;
-  };
-  const cgstPct = pickNum(tax?.cgstPct, tax?.cgstRate, proforma?.cgstPct, proforma?.cgstRate) ?? derivePct(tax?.cgst);
-  const sgstPct = pickNum(tax?.sgstPct, tax?.sgstRate, proforma?.sgstPct, proforma?.sgstRate) ?? derivePct(tax?.sgst);
-  const igstPct = pickNum(tax?.igstPct, tax?.igstRate, proforma?.igstPct, proforma?.igstRate) ?? derivePct(tax?.igst);
+  const cgstPct = pickNum(invoice?.defaultsUsed?.cgstRate, tax?.cgstPct, tax?.cgstRate) ?? derivePct(tax?.cgst);
+  const sgstPct = pickNum(invoice?.defaultsUsed?.sgstRate, tax?.sgstPct, tax?.sgstRate) ?? derivePct(tax?.sgst);
+  const igstPct = pickNum(invoice?.defaultsUsed?.igstRate, tax?.igstPct, tax?.igstRate) ?? derivePct(tax?.igst);
   const fmtPct = (v) => (v === null || v === undefined ? null : (Number.isInteger(v) ? String(v) : (Number(v).toFixed(2))));
 
   // Per-line GST rate: prefer saved gstRate; fallback to derive from taxable & gross
@@ -186,7 +329,14 @@ const InvoicePreviewModal = ({ invoice, onClose }) => {
         <div className="invoice-modal__header sticky top-0 z-10 border-b border-white/10 bg-[#0F1216]/95 backdrop-blur px-5 py-4">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-xs uppercase tracking-wide text-white/60">{invoiceType}</div>
+              <div className="text-xs uppercase tracking-wide text-white/60">
+                {invoiceType}
+                {isSkipProforma && (
+                  <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 text-xs text-amber-300">
+                    Direct (Skipped Proforma)
+                  </span>
+                )}
+              </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/80">
                 <span className="truncate"><span className="text-white/60">Order ID:</span> <span className="font-mono">{orderId}</span></span>
                 <span>•</span>
@@ -296,26 +446,50 @@ const InvoicePreviewModal = ({ invoice, onClose }) => {
           {/* Summary */}
           <div className="invoice-panel rounded-lg border border-white/10 bg-[#0f151a] p-4 text-sm text-white/90 mb-1">
             <div className="space-y-2">
-              <Row label="Subtotal" value={formatINR(charges?.subTotal)} dim={isZero(charges?.subTotal)} />
-              <Row label="Delivery" value={formatINR(charges?.delivery)} dim={isZero(charges?.delivery)} />
-              <Row label="Packing" value={formatINR(charges?.packing)} dim={isZero(charges?.packing)} />
-              <Row label="Insurance" value={formatINR(charges?.insurance)} dim={isZero(charges?.insurance)} />
-              {typeof charges?.other !== "undefined" && (
-                <Row label="Other" value={formatINR(charges?.other)} dim={isZero(charges?.other)} />
+              <Row
+                label="Subtotal"
+                value={formatINR(charges?.subTotal ?? charges?.itemsSubTotal ?? invoice?.subTotal ?? invoice?.itemsSubTotal ?? 0)}
+                dim={isZero(charges?.subTotal ?? charges?.itemsSubTotal ?? invoice?.subTotal ?? invoice?.itemsSubTotal)}
+              />
+              <Row
+                label="Delivery"
+                value={formatINR(charges?.delivery ?? invoice?.delivery ?? 0)}
+                dim={isZero(charges?.delivery ?? invoice?.delivery)}
+              />
+              <Row
+                label="Packing"
+                value={formatINR(charges?.packing ?? invoice?.packing ?? 0)}
+                dim={isZero(charges?.packing ?? invoice?.packing)}
+              />
+              <Row
+                label="Insurance"
+                value={formatINR(charges?.insurance ?? invoice?.insurance ?? 0)}
+                dim={isZero(charges?.insurance ?? invoice?.insurance)}
+              />
+              {(typeof charges?.other !== "undefined" || typeof invoice?.other !== "undefined") && (
+                <Row
+                  label="Other"
+                  value={formatINR(charges?.other ?? invoice?.other ?? 0)}
+                  dim={isZero(charges?.other ?? invoice?.other)}
+                />
               )}
-              {typeof charges?.roundOff !== "undefined" && (
-                <Row label="Round Off" value={formatINR(charges?.roundOff)} dim={isZero(charges?.roundOff)} />
+              {(typeof charges?.roundOff !== "undefined" || typeof invoice?.roundOff !== "undefined") && (
+                <Row
+                  label="Round Off"
+                  value={formatINR(charges?.roundOff ?? invoice?.roundOff ?? 0)}
+                  dim={isZero(charges?.roundOff ?? invoice?.roundOff)}
+                />
               )}
 
               {/* Taxes */}
               <div className="mt-3 border-t border-white/10 pt-3" />
-              {typeof tax?.cgst !== "undefined" && (
+              {(tax?.cgst !== null && tax?.cgst !== undefined) && (
                 <Row label={`CGST${fmtPct(cgstPct) ? ` (${fmtPct(cgstPct)}%)` : ''}`} value={formatINR(tax?.cgst)} dim={isZero(tax?.cgst)} />
               )}
-              {typeof tax?.sgst !== "undefined" && (
+              {(tax?.sgst !== null && tax?.sgst !== undefined) && (
                 <Row label={`SGST${fmtPct(sgstPct) ? ` (${fmtPct(sgstPct)}%)` : ''}`} value={formatINR(tax?.sgst)} dim={isZero(tax?.sgst)} />
               )}
-              {typeof tax?.igst !== "undefined" && (
+              {(tax?.igst !== null && tax?.igst !== undefined) && (
                 <Row label={`IGST${fmtPct(igstPct) ? ` (${fmtPct(igstPct)}%)` : ''}`} value={formatINR(tax?.igst)} dim={isZero(tax?.igst)} />
               )}
 
@@ -323,7 +497,7 @@ const InvoicePreviewModal = ({ invoice, onClose }) => {
               <div className="mt-3 border-t border-white/10 pt-3" />
               <div className="flex items-center justify-between text-lg font-bold text-emerald-400">
                 <span>Grand Total</span>
-                <span>{formatINR(proforma?.grandTotal)}</span>
+                <span>{formatINR(getGrandTotal())}</span>
               </div>
             </div>
           </div>
