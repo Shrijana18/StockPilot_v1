@@ -6,6 +6,8 @@ import { useAuth, getCurrentUserId } from "../../context/AuthContext";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { logInventoryChange } from "../../utils/logInventoryChange";
+import PricingModeFields from "./PricingModeFields";
+import { PRICING_MODES, buildPricingSave } from "../../utils/pricing";
 
 const ManualEntryForm = () => {
   const { currentUser } = useAuth();
@@ -20,6 +22,18 @@ const ManualEntryForm = () => {
     unit: "",
     description: "",
     image: null,
+  });
+
+  // Pricing mode state (backward-compatible: default LEGACY keeps current behavior)
+  const [pricingMode, setPricingMode] = useState(PRICING_MODES.LEGACY);
+  const [pricingValues, setPricingValues] = useState({
+    mrp: "",
+    basePrice: "",
+    taxRate: "",
+    legacySellingPrice: "",
+    hsnCode: "",
+    taxSource: "",
+    taxConfidence: "",
   });
 
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -43,14 +57,42 @@ const ManualEntryForm = () => {
 
     setUploading(true);
 
-    const { productName, sku, quantity, costPrice, sellingPrice } = formData;
-    if (!productName || !sku || !quantity || !costPrice || !sellingPrice) {
-      toast.error("Please fill all required fields");
+    const { productName, sku, quantity, costPrice } = formData;
+
+    // Mode-specific pricing validation
+    let pricingError = "";
+    if (pricingMode === PRICING_MODES.LEGACY) {
+      if (!pricingValues.legacySellingPrice && !formData.sellingPrice) {
+        pricingError = "Please enter Selling Price.";
+      }
+    } else if (pricingMode === PRICING_MODES.MRP_INCLUSIVE) {
+      if (!pricingValues.mrp) pricingError = "Please enter MRP (incl. GST).";
+      // GST % optional in MRP mode; if blank, we'll treat it as 0%
+    } else if (pricingMode === PRICING_MODES.BASE_PLUS_TAX) {
+      if (!pricingValues.basePrice) pricingError = "Please enter Unit/Base Price.";
+      // GST % optional in Base+GST mode; if blank, we'll treat it as 0%
+    }
+
+    if (!productName || !sku || !quantity || !costPrice || pricingError) {
+      toast.error(pricingError || "Please fill all required fields");
       setUploading(false);
       return;
     }
 
     try {
+      // Build pricing payload from selected mode (keeps sellingPrice as final)
+      const pricingPayload = buildPricingSave(
+        pricingMode,
+        {
+          mrp: Number(pricingValues.mrp),
+          basePrice: Number(pricingValues.basePrice),
+          taxRate: Number(pricingValues.taxRate),
+          legacySellingPrice: Number(
+            pricingValues.legacySellingPrice !== "" ? pricingValues.legacySellingPrice : formData.sellingPrice
+          ),
+        }
+      );
+
       let imageUrl = "";
       if (formData.image) {
         const imageRef = ref(storage, `inventory/${userId}/${Date.now()}_${formData.image.name}`);
@@ -64,9 +106,17 @@ const ManualEntryForm = () => {
         sku: formData.sku,
         brand: formData.brand,
         category: formData.category,
-        quantity: formData.quantity,
-        costPrice: formData.costPrice,
-        sellingPrice: formData.sellingPrice,
+        quantity: Number(formData.quantity),
+        costPrice: Number(formData.costPrice),
+        // Pricing (final sellingPrice always present)
+        sellingPrice: pricingPayload.sellingPrice,
+        pricingMode: pricingPayload.pricingMode,
+        ...(pricingPayload.mrp !== undefined ? { mrp: pricingPayload.mrp } : {}),
+        ...(pricingPayload.basePrice !== undefined ? { basePrice: pricingPayload.basePrice } : {}),
+        ...(pricingPayload.taxRate !== undefined ? { taxRate: pricingPayload.taxRate } : {}),
+        ...(pricingValues.hsnCode ? { hsnCode: pricingValues.hsnCode } : {}),
+        ...(pricingValues.taxSource ? { taxSource: pricingValues.taxSource } : {}),
+        ...(pricingValues.taxConfidence ? { taxConfidence: Number(pricingValues.taxConfidence) } : {}),
         unit: formData.unit,
         description: formData.description,
         imageUrl, // ✅ Only storing URL
@@ -84,9 +134,16 @@ const ManualEntryForm = () => {
           sku: formData.sku,
           brand: formData.brand,
           category: formData.category,
-          quantity: formData.quantity,
-          costPrice: formData.costPrice,
-          sellingPrice: formData.sellingPrice,
+          quantity: Number(formData.quantity),
+          costPrice: Number(formData.costPrice),
+          sellingPrice: pricingPayload.sellingPrice,
+          pricingMode: pricingPayload.pricingMode,
+          ...(pricingPayload.mrp !== undefined ? { mrp: pricingPayload.mrp } : {}),
+          ...(pricingPayload.basePrice !== undefined ? { basePrice: pricingPayload.basePrice } : {}),
+          ...(pricingPayload.taxRate !== undefined ? { taxRate: pricingPayload.taxRate } : {}),
+          ...(pricingValues.hsnCode ? { hsnCode: pricingValues.hsnCode } : {}),
+          ...(pricingValues.taxSource ? { taxSource: pricingValues.taxSource } : {}),
+          ...(pricingValues.taxConfidence ? { taxConfidence: Number(pricingValues.taxConfidence) } : {}),
           unit: formData.unit,
           description: formData.description,
           imageUrl,
@@ -108,6 +165,16 @@ const ManualEntryForm = () => {
         unit: "",
         description: "",
         image: null,
+      });
+      setPricingMode(PRICING_MODES.LEGACY);
+      setPricingValues({
+        mrp: "",
+        basePrice: "",
+        taxRate: "",
+        legacySellingPrice: "",
+        hsnCode: "",
+        taxSource: "",
+        taxConfidence: "",
       });
       setPreviewUrl(null);
     } catch (error) {
@@ -177,15 +244,44 @@ const ManualEntryForm = () => {
           required
           className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
-        <input
-          type="number"
-          name="sellingPrice"
-          placeholder="Selling Price"
-          value={formData.sellingPrice}
-          onChange={handleChange}
-          required
-          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-        />
+        {/* Pricing Block (replaces single Selling Price field) */}
+        <div className="col-span-2 rounded-xl border border-white/15 bg-white/5 p-3">
+          <div className="text-sm font-medium text-white/90 mb-2">Pricing</div>
+          <PricingModeFields
+            mode={pricingMode}
+            setMode={setPricingMode}
+            values={pricingValues}
+            onChange={(patch) => setPricingValues((v) => ({ ...v, ...patch }))}
+            productName={formData.productName}
+            category={formData.category}
+          />
+          {/* Backward compatibility hint */}
+          {pricingMode === PRICING_MODES.LEGACY && (
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-white/60">Selling Price (Final)</label>
+                <input
+                  type="number"
+                  name="sellingPrice"
+                  placeholder="Selling Price"
+                  value={
+                    pricingValues.legacySellingPrice !== ""
+                      ? pricingValues.legacySellingPrice
+                      : formData.sellingPrice
+                  }
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? "" : +e.target.value;
+                    setPricingValues((v) => ({ ...v, legacySellingPrice: val }));
+                    // keep formData.sellingPrice updated for legacy compatibility
+                    setFormData((f) => ({ ...f, sellingPrice: e.target.value }));
+                  }}
+                  required
+                  className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                />
+              </div>
+            </div>
+          )}
+        </div>
         <input
           type="text"
           name="unit"

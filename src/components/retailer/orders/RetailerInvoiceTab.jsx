@@ -47,13 +47,14 @@ const getInvoiceDateValue = (inv) => {
 };
 
 const getChargeBag = (inv) =>
+  inv?.chargesSnapshot?.breakdown ||
   inv?.orderCharges ||
   inv?.proforma?.orderCharges ||
-  inv?.chargesSnapshot ||
   inv?.breakdown ||
   {};
 
 const getTaxBag = (inv, oc) =>
+  inv?.chargesSnapshot?.breakdown?.taxBreakup ||
   inv?.proforma?.taxBreakup ||
   oc?.taxBreakup ||
   inv?.chargesSnapshot?.taxBreakup ||
@@ -64,18 +65,26 @@ const getGrandTotalValue = (inv) => {
   // prefer proforma.grandTotal if present
   if (inv?.proforma?.grandTotal != null) return Number(inv.proforma.grandTotal);
 
-  // then prefer grandTotal inside orderCharges/chargesSnapshot
+  // then prefer grandTotal inside chargesSnapshot/orderCharges
   const oc = getChargeBag(inv);
   if (oc?.grandTotal != null) return Number(oc.grandTotal);
 
-  // compute from pieces using either taxBreakup or breakdown
+  // compute from pieces
   const tb = getTaxBag(inv, oc);
-  const base = Number(oc.taxableBase ?? oc.itemsSubTotal ?? oc.subTotal ?? 0);
   const taxes = Number(tb.cgst ?? 0) + Number(tb.sgst ?? 0) + Number(tb.igst ?? 0);
+  const roundOff = Number(oc.roundOff ?? 0);
+
+  // If `taxableBase` exists, it already includes adders and discounts
+  if (oc?.taxableBase != null) {
+    const base = Number(oc.taxableBase || 0);
+    return base + taxes + roundOff;
+  }
+
+  // Otherwise build from itemsSubTotal/subTotal + adders - discounts
+  const baseItems = Number(oc.itemsSubTotal ?? oc.subTotal ?? 0);
   const adders = Number(oc.delivery ?? 0) + Number(oc.packing ?? 0) + Number(oc.insurance ?? 0) + Number(oc.other ?? 0);
   const discounts = Number(oc.discountAmt ?? 0);
-  const roundOff = Number(oc.roundOff ?? 0);
-  return base + taxes + adders - discounts + roundOff;
+  return baseItems + adders - discounts + taxes + roundOff;
 };
 
 const formatInvoiceDate = (inv) => formatDate(getInvoiceDateValue(inv));

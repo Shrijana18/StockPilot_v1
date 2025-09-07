@@ -7,6 +7,7 @@ import { exportOrderCSV } from "../../../lib/exporters/csv";
 import { downloadOrderExcel } from "../../../lib/exporters/excel";
 import { downloadOrderPDF } from "../../../lib/exporters/pdf";
 import ProformaSummary from "../../retailer/ProformaSummary";
+import { calculateProforma } from "../../../lib/calcProforma"; // ✅ ensure consistent math
 
 const TrackOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -14,6 +15,7 @@ const TrackOrders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [activeSection, setActiveSection] = useState('Out for Delivery');
+
   // --- Deep link support for ?tab=&sub= in the hash ---
   useEffect(() => {
     const applyFromHash = () => {
@@ -47,6 +49,7 @@ const TrackOrders = () => {
       if (newHash !== hash) window.history.replaceState(null, '', newHash);
     } catch {}
   };
+
   const db = getFirestore();
   const auth = getAuth();
   const [currentRetailers, setCurrentRetailers] = useState({}); // live profile by retailerId
@@ -99,11 +102,7 @@ const TrackOrders = () => {
           .sort((a, b) => {
             const aDelivered = a.status === 'Delivered';
             const bDelivered = b.status === 'Delivered';
-
-            if (aDelivered !== bDelivered) {
-              return aDelivered ? 1 : -1;
-            }
-
+            if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
             return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
           });
         setOrders(orderData);
@@ -158,7 +157,6 @@ const TrackOrders = () => {
   const markAsDelivered = async (orderId) => {
     const user = auth.currentUser;
     if (!user) return;
-    
     const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
     const distributorOrderSnap = await getDoc(distributorOrderRef);
     const orderData = distributorOrderSnap.data();
@@ -183,38 +181,27 @@ const TrackOrders = () => {
 
     await updateDoc(distributorOrderRef, updatePayload);
     await updateDoc(retailerOrderRef, updatePayload);
-    toast.success("📦 Order marked as Delivered!", {
-      position: "top-right",
-      autoClose: 3000,
-      icon: "🚚"
-    });
+    toast.success("📦 Order marked as Delivered!", { position: "top-right", autoClose: 3000, icon: "🚚" });
   };
 
-  // Confirm COD payment (writes to both distributor & retailer copies)
+  // Confirm COD payment
   const confirmCODPayment = async (order) => {
     const user = auth.currentUser;
     if (!user) return;
     const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
     const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
-    const payload = {
-      isPaid: true,
-      paymentStatus: 'Paid',
-      paidAt: new Date().toISOString()
-    };
+    const payload = { isPaid: true, paymentStatus: 'Paid', paidAt: new Date().toISOString() };
     await updateDoc(distributorOrderRef, payload);
     await updateDoc(retailerOrderRef, payload);
     toast.success('💰 Payment received marked (COD)');
   };
 
-  // Guarded deliver action respecting payment mode rules
+  // Guarded deliver action
   const guardedMarkDelivered = async (order) => {
-    // COD requires payment first
     if (order.paymentMethod === 'COD' && !order.isPaid) {
       toast.info("For COD, please confirm 'Payment Received' first.");
       return;
     }
-
-    // For Credit Cycle, persist (possibly edited) creditDays to both docs before delivering
     if (order.paymentMethod === 'Credit Cycle') {
       const days = Number(getEditedCreditDays(order));
       if (!Number.isFinite(days) || days <= 0) {
@@ -227,60 +214,10 @@ const TrackOrders = () => {
       await updateDoc(distributorOrderRef, { creditDays: days });
       await updateDoc(retailerOrderRef, { creditDays: days });
     }
-
     await markAsDelivered(order.id);
   };
 
-  // Split orders into Payment Due and Paid Orders, apply search & date filter to each section
-  const searchText = searchQuery.toLowerCase();
-  const matchesSearch = (order) =>
-    order.id?.toLowerCase().includes(searchText) ||
-    order.retailerName?.toLowerCase().includes(searchText) ||
-    order.retailerEmail?.toLowerCase().includes(searchText) ||
-    order.retailerPhone?.toLowerCase().includes(searchText) ||
-    order.retailerAddress?.toLowerCase().includes(searchText) ||
-    order.city?.toLowerCase().includes(searchText);
-  const matchesDate = (order) =>
-    filterDate
-      ? order.expectedDeliveryDate?.slice(0, 10) === filterDate
-      : true;
-
-  // Helper: Compute credit due date for an order
-  const computeCreditDueDate = (order) => {
-    if (order?.creditDueDate) return new Date(order.creditDueDate);
-    if (order?.deliveredAt && (order?.creditDays || order?.creditDays === 0)) {
-      const d = new Date(order.deliveredAt);
-      d.setDate(d.getDate() + Number(order.creditDays || 0));
-      return d;
-    }
-    return null;
-  };
-
-  // Out for Delivery: orders that are shipped or out for delivery
-  const outForDeliveryOrders = orders.filter((order) =>
-    (order.status === 'Shipped' || order.status === 'Out for Delivery') &&
-    matchesSearch(order) && matchesDate(order)
-  );
-
-  // Payment Due: Credit Cycle, not paid, compute/fallback due date
-  let paymentDueOrders = orders.filter((order) => {
-    if (order.paymentMethod !== 'Credit Cycle') return false;
-    if (order.isPaid === true || order.paymentStatus === 'Paid') return false;
-    const due = computeCreditDueDate(order);
-    return !!due && matchesSearch(order) && matchesDate(order);
-  });
-  paymentDueOrders = paymentDueOrders
-    .map((o) => ({ ...o, __dueDate: computeCreditDueDate(o) }))
-    .sort((a, b) => a.__dueDate - b.__dueDate);
-
-  // Paid Orders: isPaid === true OR paymentStatus === 'Paid'
-  let paidOrders = orders.filter(
-    (order) => (order.isPaid === true || order.paymentStatus === 'Paid') &&
-               matchesSearch(order) &&
-               matchesDate(order)
-  );
-
-  // Proforma-aware helpers
+  // ---------- Proforma-aware helpers ----------
   const getDisplayPrice = (order, idx, item) => {
     const ln = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
     if (ln && ln.price != null) return Number(ln.price) || 0;
@@ -293,36 +230,131 @@ const TrackOrders = () => {
     const price = Number(item?.price) || 0;
     return qty * price;
   };
-  // Prefer proforma grandTotal for header totals
+
+  // ✅ prefer canonical grand total from chargesSnapshot if present
   const sumOrderTotal = (order) => {
+    if (order?.chargesSnapshot?.breakdown?.grandTotal != null) return Number(order.chargesSnapshot.breakdown.grandTotal) || 0;
     if (order?.proforma?.grandTotal != null) return Number(order.proforma.grandTotal) || 0;
     return (order.items || []).reduce((acc, item, idx) => acc + getDisplaySubtotal(order, idx, item), 0);
   };
+
+  // ---------- Shared Proforma Preview & Line Helpers (read-only) ----------
+  const proformaPreviewFromOrder = (order) => {
+    const b = order?.chargesSnapshot?.breakdown;
+    if (b) {
+      return {
+        grossItems: Number(b.grossItems || 0),
+        lineDiscountTotal: Number(b.lineDiscountTotal || 0),
+        itemsSubTotal: Number(b.itemsSubTotal || b.subTotal || 0),
+      };
+    }
+    const items = Array.isArray(order?.items) ? order.items : [];
+    const lines = items.map((it, idx) => ({
+      qty: Number(it.quantity ?? it.qty ?? 0),
+      price: Number(it.unitPrice ?? it.price ?? 0),
+      itemDiscountPct: Number(order?.proforma?.lines?.[idx]?.itemDiscountPct ?? it.itemDiscountPct ?? 0),
+      gstRate: Number(it.gstRate ?? order?.proforma?.lines?.[idx]?.gstRate ?? 0),
+    }));
+    const orderCharges = {
+      delivery: Number(order?.chargesSnapshot?.breakdown?.delivery || order?.delivery || 0),
+      packing: Number(order?.chargesSnapshot?.breakdown?.packing || order?.packing || 0),
+      insurance: Number(order?.chargesSnapshot?.breakdown?.insurance || order?.insurance || 0),
+      other: Number(order?.chargesSnapshot?.breakdown?.other || order?.other || 0),
+      discountPct: Number(order?.chargesSnapshot?.breakdown?.discountPct || order?.orderDiscountPct || 0),
+      discountAmt: Number(order?.chargesSnapshot?.breakdown?.discountAmt || order?.orderDiscountAmt || 0),
+      discountChangedBy: order?.chargesSnapshot?.breakdown?.discountAmt ? "amt" : "pct",
+    };
+    const p = calculateProforma({
+      lines,
+      orderCharges,
+      distributorState: order?.distributorState,
+      retailerState: order?.retailerState || order?.state,
+      roundingEnabled: !!order?.chargesSnapshot?.defaultsUsed?.roundEnabled,
+      rounding: (order?.chargesSnapshot?.defaultsUsed?.roundRule || 'nearest').toUpperCase(),
+    });
+    return {
+      grossItems: p.grossItems,
+      lineDiscountTotal: p.lineDiscountTotal,
+      itemsSubTotal: p.itemsSubTotal ?? p.subTotal,
+    };
+  };
+
+  const getLineGross = (order, idx, item) => {
+    const qty = Number(item?.quantity ?? 0);
+    const price = getDisplayPrice(order, idx, item);
+    return qty * price;
+  };
+  const getLineDiscountPct = (order, idx, item) => {
+    const ln = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+    return Number(ln?.itemDiscountPct ?? item?.itemDiscountPct ?? 0);
+  };
+  const getLineDiscountAmt = (order, idx, item) => {
+    const ln = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+    const gross = getLineGross(order, idx, item);
+    const amt = ln?.discountAmount;
+    if (amt != null) return Number(amt) || 0;
+    const pct = getLineDiscountPct(order, idx, item);
+    return +(gross * Math.max(0, Math.min(100, pct)) / 100);
+  };
+  const getLineNet = (order, idx, item) => getLineGross(order, idx, item) - getLineDiscountAmt(order, idx, item);
+
+  // Split and filter sections...
+  const searchText = searchQuery.toLowerCase();
+  const matchesSearch = (order) =>
+    order.id?.toLowerCase().includes(searchText) ||
+    order.retailerName?.toLowerCase().includes(searchText) ||
+    order.retailerEmail?.toLowerCase().includes(searchText) ||
+    order.retailerPhone?.toLowerCase().includes(searchText) ||
+    order.retailerAddress?.toLowerCase().includes(searchText) ||
+    order.city?.toLowerCase().includes(searchText);
+  const matchesDate = (order) =>
+    filterDate ? order.expectedDeliveryDate?.slice(0, 10) === filterDate : true;
+
+  const computeCreditDueDate = (order) => {
+    if (order?.creditDueDate) return new Date(order.creditDueDate);
+    if (order?.deliveredAt && (order?.creditDays || order?.creditDays === 0)) {
+      const d = new Date(order.deliveredAt);
+      d.setDate(d.getDate() + Number(order.creditDays || 0));
+      return d;
+    }
+    return null;
+  };
+
+  const outForDeliveryOrders = orders.filter((order) =>
+    (order.status === 'Shipped' || order.status === 'Out for Delivery') &&
+    matchesSearch(order) && matchesDate(order)
+  );
+
+  let paymentDueOrders = orders.filter((order) => {
+    if (order.paymentMethod !== 'Credit Cycle') return false;
+    if (order.isPaid === true || order.paymentStatus === 'Paid') return false;
+    const due = computeCreditDueDate(order);
+    return !!due && matchesSearch(order) && matchesDate(order);
+  }).map((o) => ({ ...o, __dueDate: computeCreditDueDate(o) }))
+    .sort((a, b) => a.__dueDate - b.__dueDate);
+
+  let paidOrders = orders.filter(
+    (order) => (order.isPaid === true || order.paymentStatus === 'Paid') &&
+               matchesSearch(order) && matchesDate(order)
+  );
+
   const paymentDueTotal = paymentDueOrders.reduce((acc, o) => acc + sumOrderTotal(o), 0);
   const paidOrdersTotal = paidOrders.reduce((acc, o) => acc + sumOrderTotal(o), 0);
 
   // Date formatting helpers
   const formatDateTime = (d) => {
-    try {
-      return new Date(d).toLocaleString('en-GB', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
-      });
-    } catch { return 'N/A'; }
+    try { return new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});} catch { return 'N/A'; }
   };
   const formatDate = (d) => {
-    try {
-      return new Date(d).toLocaleDateString('en-GB', {
-        day: '2-digit', month: '2-digit', year: 'numeric'
-      });
-    } catch { return 'N/A'; }
+    try { return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});} catch { return 'N/A'; }
   };
 
   return (
     <div className="p-4 text-white">
       <ToastContainer />
       <h2 className="text-2xl font-bold mb-4">Track Orders</h2>
-      {/* Filter/Search Controls */}
+
+      {/* Filters */}
       <div className="sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 supports-[backdrop-filter]:bg-[#0B0F14]/50 border border-white/15 rounded-xl p-4 mb-4 flex flex-col md:flex-row md:items-center gap-4">
         <input
           type="text"
@@ -338,46 +370,25 @@ const TrackOrders = () => {
           className="px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
         />
       </div>
-      {/* Section Toggle Segmented Control */}
+
+      {/* Section Toggle */}
       <div className="inline-flex rounded-full bg-white/5 border border-white/15 overflow-hidden mb-4 backdrop-blur-xl">
-        <button
-          onClick={() => setSectionAndHash('Out for Delivery')}
-          className={
-            "px-4 py-2 font-medium text-sm transition focus:outline-none " +
-            (activeSection === 'Out for Delivery'
-              ? "bg-emerald-500/20 text-emerald-200"
-              : "text-white/70 hover:bg-white/5")
-          }
-        >
+        <button onClick={() => setSectionAndHash('Out for Delivery')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none " + (activeSection==='Out for Delivery' ? "bg-emerald-500/20 text-emerald-200" : "text-white/70 hover:bg-white/5")}>
           Out for Delivery ({outForDeliveryOrders.length})
         </button>
-        <button
-          onClick={() => setSectionAndHash('Payment Due')}
-          className={
-            "px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " +
-            (activeSection === 'Payment Due'
-              ? "bg-amber-500/20 text-amber-200"
-              : "text-white/70 hover:bg-white/5")
-          }
-        >
+        <button onClick={() => setSectionAndHash('Payment Due')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " + (activeSection==='Payment Due' ? "bg-amber-500/20 text-amber-200" : "text-white/70 hover:bg-white/5")}>
           Payment Due ({paymentDueOrders.length})
         </button>
-        <button
-          onClick={() => setSectionAndHash('Paid Orders')}
-          className={
-            "px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " +
-            (activeSection === 'Paid Orders'
-              ? "bg-sky-500/20 text-sky-200"
-              : "text-white/70 hover:bg-white/5")
-          }
-        >
+        <button onClick={() => setSectionAndHash('Paid Orders')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " + (activeSection==='Paid Orders' ? "bg-sky-500/20 text-sky-200" : "text-white/70 hover:bg-white/5")}>
           Paid Orders ({paidOrders.length})
         </button>
       </div>
+
       {paymentDueOrders.length === 0 && paidOrders.length === 0 ? (
         <p className="text-white/60 mt-8 text-center">No orders to track yet.</p>
       ) : (
         <>
+          {/* -------------------- Out for Delivery -------------------- */}
           {activeSection === 'Out for Delivery' && (
             <div>
               <h3 className="text-lg font-semibold text-emerald-200 mb-2">🚚 Out for Delivery</h3>
@@ -386,13 +397,9 @@ const TrackOrders = () => {
               ) : (
                 outForDeliveryOrders.map((order) => (
                   <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
-                    {/* --- header --- */}
+                    {/* header */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
-                      <div>
-                        <span className="font-bold text-lg text-white">
-                          {order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}
-                        </span>
-                      </div>
+                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
                       <span className="px-2 py-1 rounded-full text-xs font-medium bg-sky-500/15 text-sky-200">{order.status}</span>
                     </div>
                     {/* subheader */}
@@ -420,7 +427,7 @@ const TrackOrders = () => {
                       )}
                     </div>
 
-                    {/* action buttons */}
+                    {/* actions */}
                     <div className="px-4 pb-2 flex flex-col md:flex-row gap-2">
                       {order.paymentMethod === 'COD' && !order.isPaid && (
                         <button onClick={() => confirmCODPayment(order)} className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition">
@@ -443,9 +450,10 @@ const TrackOrders = () => {
                       </button>
                     </div>
 
-                    {/* details (same reusable layout as other tabs) */}
+                    {/* details */}
                     {expandedOrderIds.includes(order.id) && (
                       <div className="p-4 space-y-2 text-sm">
+                        {/* two columns of retailer info */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                           <div className="border border-white/10 rounded-lg p-3 bg-white/5">
                             <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">At time of order</div>
@@ -469,32 +477,19 @@ const TrackOrders = () => {
                               const currentTitle = current.businessName || current.retailerName || current.ownerName || '—';
                               const currentOwner = current.ownerName || '—';
                               const currentAddress = [current.address, current.city, current.state].filter(Boolean).join(', ') || '—';
-                              return (
-                                <>
-                                  <div className="font-medium text-white">{currentTitle}</div>
-                                  <div className="text-sm text-white/70">Owner: {currentOwner}</div>
-                                  <div className="text-sm text-white/70">{currentAddress}</div>
-                                </>
-                              );
+                              return (<><div className="font-medium text-white">{currentTitle}</div><div className="text-sm text-white/70">Owner: {currentOwner}</div><div className="text-sm text-white/70">{currentAddress}</div></>);
                             })()}
                           </div>
                         </div>
+
+                        {/* Basic meta */}
                         <p><strong>Order ID:</strong> {order.id}</p>
                         <p><strong>Retailer Email:</strong> {order.retailerEmail || order.retailer?.email || currentRetailers[order.retailerId]?.email || connectedRetailerMap[order.retailerId]?.retailerEmail || 'N/A'}</p>
                         <p><strong>Retailer Phone:</strong> {order.retailerPhone || order.retailer?.phone || currentRetailers[order.retailerId]?.phone || connectedRetailerMap[order.retailerId]?.retailerPhone || 'N/A'}</p>
                         <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
                         <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
-                        {/* Proforma Summary Card (if proforma exists) */}
-                        {order?.proforma && (
-                          <div className="mt-4">
-                            <ProformaSummary
-                              proforma={order.proforma}
-                              distributorState={order.distributorState}
-                              retailerState={order.retailerState || order.state}
-                            />
-                          </div>
-                        )}
-                        {/* Items Table (same as other tabs) */}
+
+                        {/* ITEMS FIRST (with inline discount columns) */}
                         <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
                           <div className="overflow-x-auto">
@@ -506,7 +501,9 @@ const TrackOrders = () => {
                                   <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
                                   <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Subtotal</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc %</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc ₹</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Line Total</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -517,13 +514,39 @@ const TrackOrders = () => {
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
                                     <td className="px-2 py-2 text-center">{item.quantity}</td>
                                     <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">₹{getDisplaySubtotal(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">{getLineDiscountPct(order, idx, item).toFixed(2)}%</td>
+                                    <td className="px-2 py-2 text-right">₹{getLineDiscountAmt(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getLineNet(order, idx, item).toFixed(2)}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
-                            <div className="text-right font-semibold mt-2">Total: ₹{sumOrderTotal(order).toFixed(2)}</div>
+                            {/* Gross → Line Discounts → Items Sub-Total */}
+                            {(() => { const pv = proformaPreviewFromOrder(order); return (
+                              <div className="text-right mt-2 space-y-1">
+                                <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
+                                <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
+                                <div className="font-semibold">Items Sub‑Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
+                              </div>
+                            ); })()}
                           </div>
+                        </div>
+
+                        {/* THEN Proforma box (unchanged component, just moved below items) */}
+                        {order?.proforma && (
+                          <div className="mt-4">
+                            <ProformaSummary
+                              proforma={order.proforma}
+                              distributorState={order.distributorState}
+                              retailerState={order.retailerState || order.state}
+                            />
+                          </div>
+                        )}
+
+                        {/* Badges + actions */}
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.paymentMethod === 'Credit Cycle' ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-white/80')}>Payment: {order.paymentMethod || 'N/A'}</span>
+                          <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.deliveryMode === 'Self Pickup' ? 'bg-emerald-500/15 text-emerald-200' : order.deliveryMode === 'Courier' ? 'bg-sky-500/15 text-sky-200' : 'bg-white/10 text-white/80')}>Delivery: {order.deliveryMode || 'N/A'}</span>
                         </div>
                       </div>
                     )}
@@ -532,6 +555,8 @@ const TrackOrders = () => {
               )}
             </div>
           )}
+
+          {/* -------------------- Payment Due -------------------- */}
           {activeSection === 'Payment Due' && (
             <div>
               <h3 className="text-lg font-semibold text-amber-200 mb-2">📅 Payment Due</h3>
@@ -541,15 +566,11 @@ const TrackOrders = () => {
                 paymentDueOrders.map((order) => (
                   <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
-                      <div>
-                        <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
-                      </div>
+                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
                       <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-200">{order.status}</span>
                     </div>
                     <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
-                      {order.deliveredAt && (
-                        <span><span className="font-medium text-white/80">Delivered:</span> {formatDate(order.deliveredAt)}</span>
-                      )}
+                      {order.deliveredAt && (<span><span className="font-medium text-white/80">Delivered:</span> {formatDate(order.deliveredAt)}</span>)}
                       {(order.creditDueDate || order.__dueDate) && (
                         <span className="px-2 py-1 rounded-full bg-amber-500/15 text-amber-200 text-xs font-medium">
                           Credit Due Date: <span className="font-semibold">{formatDate(order.creditDueDate || order.__dueDate)}</span>
@@ -561,13 +582,12 @@ const TrackOrders = () => {
                         {expandedOrderIds.includes(order.id) ? 'Hide Details' : 'Show Details'}
                       </button>
                     </div>
+
                     {expandedOrderIds.includes(order.id) && (
                       <div className="p-4 space-y-3 text-sm">
-                        {/* Credit info header */}
+                        {/* credit header */}
                         <div className="flex flex-wrap items-center gap-3">
-                          {order.deliveredAt && (
-                            <span><span className="font-medium text-white/80">Delivered:</span> {formatDate(order.deliveredAt)}</span>
-                          )}
+                          {order.deliveredAt && (<span><span className="font-medium text-white/80">Delivered:</span> {formatDate(order.deliveredAt)}</span>)}
                           {(order.creditDueDate || order.__dueDate) && (
                             <span className="px-2 py-1 rounded-full bg-amber-500/15 text-amber-200 text-xs font-medium">
                               Credit Due Date: <span className="font-semibold">{formatDate(order.creditDueDate || order.__dueDate)}</span>
@@ -575,9 +595,8 @@ const TrackOrders = () => {
                           )}
                         </div>
 
-                        {/* Retailer info: historical vs current */}
+                        {/* retailer info */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                          {/* Historical snapshot at time of order */}
                           <div className="border border-white/10 rounded-lg p-3 bg-white/5">
                             <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">At time of order</div>
                             <div className="font-medium text-white">{order.retailerBusinessName || order.retailerName || 'N/A'}</div>
@@ -593,7 +612,6 @@ const TrackOrders = () => {
                               })()}
                             </div>
                           </div>
-                          {/* Current live profile */}
                           <div className="border border-white/10 rounded-lg p-3 bg-white/5">
                             <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">Current profile</div>
                             {(() => {
@@ -601,40 +619,22 @@ const TrackOrders = () => {
                               const currentTitle = current.businessName || current.retailerName || current.ownerName || '—';
                               const currentOwner = current.ownerName || '—';
                               const currentAddress = [current.address, current.city, current.state].filter(Boolean).join(', ') || '—';
-                              return (
-                                <>
-                                  <div className="font-medium text-white">{currentTitle}</div>
-                                  <div className="text-sm text-white/70">Owner: {currentOwner}</div>
-                                  <div className="text-sm text-white/70">{currentAddress}</div>
-                                </>
-                              );
+                              return (<><div className="font-medium text-white">{currentTitle}</div><div className="text-sm text-white/70">Owner: {currentOwner}</div><div className="text-sm text-white/70">{currentAddress}</div></>);
                             })()}
                           </div>
                         </div>
 
-                        {/* Order meta */}
+                        {/* order meta */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           <p><strong>Order ID:</strong> {order.id}</p>
                           <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
                           <p><strong>Retailer Email:</strong> {order.retailerEmail || order.retailer?.email || currentRetailers[order.retailerId]?.email || connectedRetailerMap[order.retailerId]?.retailerEmail || 'N/A'}</p>
                           <p><strong>Retailer Phone:</strong> {order.retailerPhone || order.retailer?.phone || currentRetailers[order.retailerId]?.phone || connectedRetailerMap[order.retailerId]?.retailerPhone || 'N/A'}</p>
                           <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
-                          {order.deliveredAt && (
-                            <p><strong>Delivered On:</strong> {formatDateTime(order.deliveredAt)}</p>
-                          )}
+                          {order.deliveredAt && (<p><strong>Delivered On:</strong> {formatDateTime(order.deliveredAt)}</p>)}
                         </div>
 
-                        {/* Proforma Summary Card (if proforma exists) */}
-                        {order?.proforma && (
-                          <div className="mt-4">
-                            <ProformaSummary
-                              proforma={order.proforma}
-                              distributorState={order.distributorState}
-                              retailerState={order.retailerState || order.state}
-                            />
-                          </div>
-                        )}
-                        {/* Items Table */}
+                        {/* ITEMS FIRST */}
                         <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
                           <div className="overflow-x-auto">
@@ -646,7 +646,9 @@ const TrackOrders = () => {
                                   <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
                                   <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Subtotal</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc %</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc ₹</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Line Total</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -657,32 +659,35 @@ const TrackOrders = () => {
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
                                     <td className="px-2 py-2 text-center">{item.quantity}</td>
                                     <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">₹{getDisplaySubtotal(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">{getLineDiscountPct(order, idx, item).toFixed(2)}%</td>
+                                    <td className="px-2 py-2 text-right">₹{getLineDiscountAmt(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getLineNet(order, idx, item).toFixed(2)}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
-                            <div className="text-right font-semibold mt-2">Total: ₹{sumOrderTotal(order).toFixed(2)}</div>
+                            {(() => { const pv = proformaPreviewFromOrder(order); return (
+                              <div className="text-right mt-2 space-y-1">
+                                <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
+                                <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
+                                <div className="font-semibold">Items Sub‑Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
+                              </div>
+                            ); })()}
                           </div>
                         </div>
 
-                        {/* Badges */}
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          <span className={
-                            "px-2 py-1 rounded-full text-xs font-medium " +
-                            (order.paymentMethod === 'Credit Cycle' ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-white/80')
-                          }>
-                            Payment: {order.paymentMethod || 'N/A'}
-                          </span>
-                          <span className={
-                            "px-2 py-1 rounded-full text-xs font-medium " +
-                            (order.deliveryMode === 'Self Pickup' ? 'bg-emerald-500/15 text-emerald-200' : order.deliveryMode === 'Courier' ? 'bg-sky-500/15 text-sky-200' : 'bg-white/10 text-white/80')
-                          }>
-                            Delivery: {order.deliveryMode || 'N/A'}
-                          </span>
-                        </div>
+                        {/* Proforma summary AFTER items */}
+                        {order?.proforma && (
+                          <div className="mt-4">
+                            <ProformaSummary
+                              proforma={order.proforma}
+                              distributorState={order.distributorState}
+                              retailerState={order.retailerState || order.state}
+                            />
+                          </div>
+                        )}
 
-                        {/* Action */}
+                        {/* action */}
                         <div className="mt-4 flex flex-col md:flex-row gap-2 items-center">
                           <button
                             onClick={async () => {
@@ -706,6 +711,8 @@ const TrackOrders = () => {
               )}
             </div>
           )}
+
+          {/* -------------------- Paid Orders -------------------- */}
           {activeSection === 'Paid Orders' && (
             <div>
               <h3 className="text-lg font-semibold text-emerald-200 mb-2">✅ Paid Orders</h3>
@@ -713,61 +720,25 @@ const TrackOrders = () => {
                 <div className="text-white/60 mb-6">No paid orders.</div>
               ) : (
                 paidOrders.map((order) => (
-                  <div
-                    key={order.id}
-                    className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10"
-                  >
-                    {/* --- Card header --- */}
+                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
+                    {/* header */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
-                      <div>
-                        <span className="font-bold text-lg text-white">
-                          {order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}
-                        </span>
-                      </div>
-                      <span
-                        className={
-                          "px-2 py-1 rounded-full text-xs font-medium " +
-                          (order.status === 'Delivered'
-                            ? "bg-emerald-500/15 text-emerald-200"
-                            : order.status === 'Shipped'
-                            ? "bg-sky-500/15 text-sky-200"
-                            : order.status === 'Accepted'
-                            ? "bg-amber-500/15 text-amber-200"
-                            : order.status === 'Requested'
-                            ? "bg-white/10 text-white/80"
-                            : "bg-white/10 text-white/80")
-                        }
-                      >
-                        {order.status}
-                      </span>
+                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
+                      <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.status === 'Delivered' ? "bg-emerald-500/15 text-emerald-200" : order.status === 'Shipped' ? "bg-sky-500/15 text-sky-200" : order.status === 'Accepted' ? "bg-amber-500/15 text-amber-200" : "bg-white/10 text-white/80")}>{order.status}</span>
                     </div>
-                    {/* --- Subheader info --- */}
                     <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
-                      <span>
-                        <span className="font-medium text-white/80">City:</span>{" "}
-                        {order.city || connectedRetailerMap[order.retailerId]?.city || currentRetailers[order.retailerId]?.city || "—"}
-                      </span>
-                      {order.deliveredAt && (
-                        <span>
-                          <span className="font-medium text-white/80">Delivered:</span>{" "}
-                          {formatDate(order.deliveredAt)}
-                        </span>
-                      )}
-                      <span>
-                        <span className="font-medium text-white/80">Total:</span>{" "}
-                        ₹{sumOrderTotal(order).toFixed(2)}
-                      </span>
+                      <span><span className="font-medium text-white/80">City:</span> {order.city || connectedRetailerMap[order.retailerId]?.city || currentRetailers[order.retailerId]?.city || "—"}</span>
+                      {order.deliveredAt && (<span><span className="font-medium text-white/80">Delivered:</span> {formatDate(order.deliveredAt)}</span>)}
+                      <span><span className="font-medium text-white/80">Total:</span> ₹{sumOrderTotal(order).toFixed(2)}</span>
                     </div>
-                    {/* --- Order Progress --- */}
+
                     <div className="px-4 pb-2">
                       <div className="flex items-center gap-2">
                         {(() => {
                           const steps = ['Requested', 'Accepted', 'Shipped', 'Delivered', 'Paid'];
                           const baseStatuses = ['Requested', 'Accepted', 'Shipped', 'Delivered'];
                           let statusIndex = baseStatuses.indexOf(order.status);
-                          if (order.isPaid || order.paymentStatus === 'Paid') {
-                            statusIndex = 4;
-                          }
+                          if (order.isPaid || order.paymentStatus === 'Paid') statusIndex = 4;
                           return steps.map((step, index) => {
                             const isCompleted = index < statusIndex;
                             const isActive = index === statusIndex;
@@ -782,29 +753,22 @@ const TrackOrders = () => {
                         })()}
                       </div>
                     </div>
-                    {/* --- Expand/collapse button --- */}
+
+                    {/* expand/collapse */}
                     <div className="flex justify-end px-4 pb-2">
-                      <button
-                        onClick={() => toggleOrder(order.id)}
-                        className="text-sm text-blue-600 hover:underline focus:outline-none"
-                      >
+                      <button onClick={() => toggleOrder(order.id)} className="text-sm text-blue-600 hover:underline focus:outline-none">
                         {expandedOrderIds.includes(order.id) ? 'Hide Details' : 'Show Details'}
                       </button>
                     </div>
-                    {/* --- Details --- */}
+
                     {expandedOrderIds.includes(order.id) && (
                       <div className="p-4 space-y-2 text-sm">
-                        {/* Retailer info: historical vs current */}
+                        {/* retailer info */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                          {/* Historical snapshot at time of order */}
                           <div className="border border-white/10 rounded-lg p-3 bg-white/5">
                             <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">At time of order</div>
-                            <div className="font-medium text-white">
-                              {order.retailerBusinessName || order.retailerName || 'N/A'}
-                            </div>
-                            <div className="text-sm text-white/70">
-                              Owner: {order.ownerName || order.retailerOwnerName || order.retailerName || 'N/A'}
-                            </div>
+                            <div className="font-medium text-white">{order.retailerBusinessName || order.retailerName || 'N/A'}</div>
+                            <div className="text-sm text-white/70">Owner: {order.ownerName || order.retailerOwnerName || order.retailerName || 'N/A'}</div>
                             <div className="text-sm text-white/70">
                               {(() => {
                                 const snapAddr = [order.retailerAddress, order.city, order.state].filter(Boolean).join(', ');
@@ -816,7 +780,6 @@ const TrackOrders = () => {
                               })()}
                             </div>
                           </div>
-                          {/* Current live profile */}
                           <div className="border border-white/10 rounded-lg p-3 bg-white/5">
                             <div className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mb-1">Current profile</div>
                             {(() => {
@@ -824,56 +787,26 @@ const TrackOrders = () => {
                               const currentTitle = current.businessName || current.retailerName || current.ownerName || '—';
                               const currentOwner = current.ownerName || '—';
                               const currentAddress = [current.address, current.city, current.state].filter(Boolean).join(', ') || '—';
-                              return (
-                                <>
-                                  <div className="font-medium text-white">{currentTitle}</div>
-                                  <div className="text-sm text-white/70">Owner: {currentOwner}</div>
-                                  <div className="text-sm text-white/70">{currentAddress}</div>
-                                </>
-                              );
+                              return (<><div className="font-medium text-white">{currentTitle}</div><div className="text-sm text-white/70">Owner: {currentOwner}</div><div className="text-sm text-white/70">{currentAddress}</div></>);
                             })()}
                           </div>
                         </div>
+
                         <p><strong>Order ID:</strong> {order.id}</p>
                         <p><strong>Retailer Email:</strong> {order.retailerEmail || order.retailer?.email || currentRetailers[order.retailerId]?.email || connectedRetailerMap[order.retailerId]?.retailerEmail || 'N/A'}</p>
                         <p><strong>Retailer Phone:</strong> {order.retailerPhone || order.retailer?.phone || currentRetailers[order.retailerId]?.phone || connectedRetailerMap[order.retailerId]?.retailerPhone || 'N/A'}</p>
                         <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
                         <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
-                        {order.deliveredAt && (
-                          <p><strong>Delivered On:</strong> {formatDateTime(order.deliveredAt)}</p>
-                        )}
-                        {/* Export Buttons */}
+                        {order.deliveredAt && (<p><strong>Delivered On:</strong> {formatDateTime(order.deliveredAt)}</p>)}
+
+                        {/* export buttons */}
                         <div className="flex gap-2 mb-2">
-                          <button
-                            className="rounded-lg px-4 py-2 font-medium bg-blue-600 text-white text-xs hover:bg-blue-700 transition"
-                            onClick={() => exportCSV(order)}
-                          >
-                            Export CSV
-                          </button>
-                          <button
-                            className="rounded-lg px-4 py-2 font-medium bg-green-600 text-white text-xs hover:bg-green-700 transition"
-                            onClick={() => exportExcel(order)}
-                          >
-                            Export Excel
-                          </button>
-                          <button
-                            className="rounded-lg px-4 py-2 font-medium bg-red-500 text-white text-xs hover:bg-red-600 transition"
-                            onClick={() => exportPDF(order)}
-                          >
-                            Export PDF
-                          </button>
+                          <button className="rounded-lg px-4 py-2 font-medium bg-blue-600 text-white text-xs hover:bg-blue-700 transition" onClick={() => exportCSV(order)}>Export CSV</button>
+                          <button className="rounded-lg px-4 py-2 font-medium bg-green-600 text-white text-xs hover:bg-green-700 transition" onClick={() => exportExcel(order)}>Export Excel</button>
+                          <button className="rounded-lg px-4 py-2 font-medium bg-red-500 text-white text-xs hover:bg-red-600 transition" onClick={() => exportPDF(order)}>Export PDF</button>
                         </div>
-                        {/* Proforma Summary Card (if proforma exists) */}
-                        {order?.proforma && (
-                          <div className="mt-4">
-                            <ProformaSummary
-                              proforma={order.proforma}
-                              distributorState={order.distributorState}
-                              retailerState={order.retailerState || order.state}
-                            />
-                          </div>
-                        )}
-                        {/* Items Table */}
+
+                        {/* ITEMS FIRST */}
                         <div className="mt-4 rounded-lg bg-white/5 border border-white/10 p-3">
                           <h4 className="font-semibold mb-2">Items Ordered:</h4>
                           <div className="overflow-x-auto">
@@ -885,54 +818,48 @@ const TrackOrders = () => {
                                   <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
                                   <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Subtotal</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc %</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc ₹</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Line Total</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {(order.items || []).map((item, idx) => (
-                                  <tr
-                                    key={idx}
-                                    className="hover:bg-white/5 transition"
-                                  >
+                                  <tr key={idx} className="hover:bg-white/5 transition">
                                     <td className="px-2 py-2">{item.productName || 'N/A'}</td>
                                     <td className="px-2 py-2">{item.brand || '—'}</td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
                                     <td className="px-2 py-2 text-center">{item.quantity}</td>
                                     <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">₹{getDisplaySubtotal(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">{getLineDiscountPct(order, idx, item).toFixed(2)}%</td>
+                                    <td className="px-2 py-2 text-right">₹{getLineDiscountAmt(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2 text-right">₹{getLineNet(order, idx, item).toFixed(2)}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
-                            <div className="text-right font-semibold mt-2">
-                              Total: ₹{sumOrderTotal(order).toFixed(2)}
-                            </div>
+                            {(() => { const pv = proformaPreviewFromOrder(order); return (
+                              <div className="text-right mt-2 space-y-1">
+                                <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
+                                <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
+                                <div className="font-semibold">Items Sub‑Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
+                              </div>
+                            ); })()}
                           </div>
                         </div>
-                        {/* Payment/Delivery Info Badges */}
-                        <div className="flex flex-wrap gap-2 mt-4">
-                          <span className={
-                            "px-2 py-1 rounded-full text-xs font-medium " +
-                            (order.paymentMethod === 'Credit Cycle'
-                              ? "bg-amber-500/15 text-amber-200"
-                              : order.paymentMethod === 'Online'
-                              ? "bg-sky-500/15 text-sky-200"
-                              : "bg-white/10 text-white/80")
-                          }>
-                            Payment: {order.paymentMethod || 'N/A'}
-                          </span>
-                          <span className={
-                            "px-2 py-1 rounded-full text-xs font-medium " +
-                            (order.deliveryMode === 'Self Pickup'
-                              ? "bg-emerald-500/15 text-emerald-200"
-                              : order.deliveryMode === 'Courier'
-                              ? "bg-sky-500/15 text-sky-200"
-                              : "bg-white/10 text-white/80")
-                          }>
-                            Delivery: {order.deliveryMode || 'N/A'}
-                          </span>
-                        </div>
-                        {/* No payment action buttons in Paid Orders section */}
+
+                        {/* Proforma AFTER items */}
+                        {order?.proforma && (
+                          <div className="mt-4">
+                            <ProformaSummary
+                              proforma={order.proforma}
+                              distributorState={order.distributorState}
+                              retailerState={order.retailerState || order.state}
+                            />
+                          </div>
+                        )}
+
+                        {/* No payment buttons here */}
                       </div>
                     )}
                   </div>
@@ -945,7 +872,7 @@ const TrackOrders = () => {
     </div>
   );
 
-  // Cleanup all retailer profile listeners on unmount
+  // Cleanup retailer listeners
   useEffect(() => {
     return () => {
       Object.values(retailerSubsRef.current).forEach((unsub) => {

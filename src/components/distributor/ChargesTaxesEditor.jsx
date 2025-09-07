@@ -71,13 +71,19 @@ export default function ChargesTaxesEditor({
     other: 0,
     discountPct: 0,
     discountAmt: 0,
+    discountChangedBy: "pct", // 'pct' | 'amt' — which one the user edited last
   });
+  const [roundingEnabled, setRoundingEnabled] = useState(false);
   const [rounding, setRounding] = useState("NEAREST"); // NEAREST | UP | DOWN
   const [saving, setSaving] = useState(false);
 
   const preview = useMemo(() => {
     const safe = () => ({
-      subTotal: 0,
+      // new fields added so UI never crashes during calc errors
+      grossItems: 0,
+      lineDiscountTotal: 0,
+      itemsSubTotal: 0,
+      subTotal: 0, // back-compat
       discountTotal: 0,
       orderCharges: {
         delivery: 0,
@@ -86,39 +92,49 @@ export default function ChargesTaxesEditor({
         other: 0,
       },
       taxableBase: 0,
-      taxType: 'CGST_SGST',
+      taxType: "CGST_SGST",
       taxBreakup: { cgst: 0, sgst: 0, igst: 0 },
       roundOff: 0,
       grandTotal: 0,
     });
     try {
-      const p = calculateProforma({
-        lines,
-        orderCharges,
-        distributorState,
-        retailerState,
-        rounding,
-      }) || safe();
+      const p =
+        calculateProforma({
+          lines,
+          orderCharges,
+          distributorState,
+          retailerState,
+          roundingEnabled,
+          rounding,
+        }) || safe();
       // Ensure required nested objects exist to avoid render crashes
       p.orderCharges = p.orderCharges || { delivery: 0, packing: 0, insurance: 0, other: 0 };
       p.taxBreakup = p.taxBreakup || { cgst: 0, sgst: 0, igst: 0 };
-      if (typeof p.subTotal !== 'number') p.subTotal = 0;
-      if (typeof p.discountTotal !== 'number') p.discountTotal = 0;
-      if (typeof p.taxableBase !== 'number') p.taxableBase = 0;
-      if (!p.taxType) p.taxType = 'CGST_SGST';
-      if (typeof p.roundOff !== 'number') p.roundOff = 0;
-      if (typeof p.grandTotal !== 'number') p.grandTotal = 0;
+      // numeric guards
+      for (const k of [
+        "grossItems",
+        "lineDiscountTotal",
+        "itemsSubTotal",
+        "subTotal",
+        "discountTotal",
+        "taxableBase",
+        "roundOff",
+        "grandTotal",
+      ]) {
+        if (typeof p[k] !== "number") p[k] = 0;
+      }
+      if (!p.taxType) p.taxType = "CGST_SGST";
       return p;
     } catch (e) {
-      console.error('calculateProforma failed', e);
+      console.error("calculateProforma failed", e);
       return safe();
     }
-  }, [lines, orderCharges, distributorState, retailerState, rounding]);
+  }, [lines, orderCharges, distributorState, retailerState, roundingEnabled, rounding]);
 
   const taxTypeLabel = useMemo(() => {
     const from = (distributorState || "—").toString();
     const to = (retailerState || "—").toString();
-    return (preview?.taxType === "IGST")
+    return preview?.taxType === "IGST"
       ? `IGST (Interstate: ${from} → ${to})`
       : `CGST + SGST (Intrastate: ${from} → ${to})`;
   }, [preview?.taxType, distributorState, retailerState]);
@@ -155,6 +171,19 @@ export default function ChargesTaxesEditor({
     setOrderCharges((prev) => ({ ...prev, [field]: num }));
   }
 
+  // Two-way sync selector for order-level discount: % ↔ ₹
+  function updateOrderDiscount(field, value) {
+    let num = Number(value || 0);
+    if (!Number.isFinite(num)) num = 0;
+    num = Math.max(0, num);
+    if (field === "discountPct") {
+      num = Math.min(100, num);
+      setOrderCharges((prev) => ({ ...prev, discountPct: num, discountChangedBy: "pct" }));
+    } else if (field === "discountAmt") {
+      setOrderCharges((prev) => ({ ...prev, discountAmt: num, discountChangedBy: "amt" }));
+    }
+  }
+
   async function handleGenerateProforma() {
     // 0) Guard: empty or zero-qty cart
     const hasQty = Array.isArray(lines) && lines.some((l) => Number(l.qty) > 0);
@@ -165,10 +194,9 @@ export default function ChargesTaxesEditor({
 
     // 1) Soft warning if POS states are missing (affects IGST vs CGST/SGST)
     if (!distributorState || !retailerState) {
-      toast.warn(
-        "Missing state info for POS. Tax type may be incorrect (IGST vs CGST/SGST).",
-        { autoClose: 3500 }
-      );
+      toast.warn("Missing state info for POS. Tax type may be incorrect (IGST vs CGST/SGST).", {
+        autoClose: 3500,
+      });
     }
 
     // 2) Confirm overwrite if a proforma already exists (legacy `proforma` or canonical `chargesSnapshot`)
@@ -185,13 +213,18 @@ export default function ChargesTaxesEditor({
       // Build a canonical chargesSnapshot for both UIs
       const chargesSnapshot = sanitizeForFirestore({
         breakdown: {
-          subTotal: cleanPreview.subTotal,
+          // New explicit fields for clarity everywhere
+          grossItems: Number(cleanPreview.grossItems || 0),
+          lineDiscountTotal: Number(cleanPreview.lineDiscountTotal || 0),
+          itemsSubTotal: Number(cleanPreview.itemsSubTotal || 0),
+          subTotal: cleanPreview.subTotal, // back-compat
           delivery: cleanPreview?.orderCharges?.delivery || 0,
           packing: cleanPreview?.orderCharges?.packing || 0,
           insurance: cleanPreview?.orderCharges?.insurance || 0,
           other: cleanPreview?.orderCharges?.other || 0,
           discountPct: Number(orderCharges?.discountPct || 0),
           discountAmt: Number(orderCharges?.discountAmt || 0),
+          discountChangedBy: orderCharges?.discountChangedBy || "pct",
           roundOff: cleanPreview.roundOff || 0,
           taxableBase: cleanPreview.taxableBase || 0,
           taxType: cleanPreview.taxType,
@@ -208,7 +241,8 @@ export default function ChargesTaxesEditor({
           otherFee: Number(orderCharges?.other || 0),
           discountPct: Number(orderCharges?.discountPct || 0),
           discountAmt: Number(orderCharges?.discountAmt || 0),
-          roundRule: (rounding || 'NEAREST').toString().toLowerCase(),
+          roundEnabled: !!roundingEnabled,
+          roundRule: (rounding || "NEAREST").toString().toLowerCase(),
         },
         version: 1,
       });
@@ -221,17 +255,17 @@ export default function ChargesTaxesEditor({
       };
 
       const patch = {
-        proforma,                           // legacy fallback for old views
-        chargesSnapshot,                    // new canonical structure
-        statusCode: ORDER_STATUSES.QUOTED,  // aka PROFORMA_SENT
-        status: "Quoted",                   // legacy label
+        proforma, // legacy fallback for old views
+        chargesSnapshot, // new canonical structure
+        statusCode: ORDER_STATUSES.QUOTED, // aka PROFORMA_SENT
+        status: "Quoted", // legacy label
         statusTimestamps: { ...(order?.statusTimestamps || {}), quotedAt: serverTimestamp() },
         updatedAt: serverTimestamp(),
       };
 
       // Resolve IDs safely before mirroring (prevents silent writes to /undefined/)
       const distId = distributorId || order?.distributorId;
-      const retId  = retailerId || order?.retailerId;
+      const retId = retailerId || order?.retailerId;
       if (!distId || !retId) {
         toast.error("Missing distributorId/retailerId — unable to share proforma.");
         setSaving(false);
@@ -255,6 +289,23 @@ export default function ChargesTaxesEditor({
       setSaving(false);
     }
   }
+
+  // --- derived display values for two-way order discount sync ---
+  // preDiscountBase = taxableBase + discountTotal
+  const preDiscountBase = Number(preview.taxableBase || 0) + Number(preview.discountTotal || 0);
+  const derivedDiscountPct =
+    preDiscountBase > 0 ? ((Number(preview.discountTotal || 0) / preDiscountBase) * 100) : 0;
+
+  // What to show inside the inputs (controlled values)
+  const shownDiscountPct =
+    orderCharges.discountChangedBy === "pct"
+      ? orderCharges.discountPct
+      : Number.isFinite(derivedDiscountPct) ? Number(derivedDiscountPct.toFixed(2)) : 0;
+
+  const shownDiscountAmt =
+    orderCharges.discountChangedBy === "amt"
+      ? orderCharges.discountAmt
+      : Number(preview.discountTotal || 0);
 
   return (
     <div className="space-y-4">
@@ -333,28 +384,49 @@ export default function ChargesTaxesEditor({
             <LabeledNumber label="Packing" value={orderCharges.packing} onChange={(v) => updateCharge("packing", v)} />
             <LabeledNumber label="Insurance" value={orderCharges.insurance} onChange={(v) => updateCharge("insurance", v)} />
             <LabeledNumber label="Other" value={orderCharges.other} onChange={(v) => updateCharge("other", v)} />
-            <LabeledNumber label="Discount %" value={orderCharges.discountPct} onChange={(v) => updateCharge("discountPct", v)} />
-            <LabeledNumber label="Discount ₹" value={orderCharges.discountAmt} onChange={(v) => updateCharge("discountAmt", v)} />
+            <LabeledNumber
+              label="Discount %"
+              value={shownDiscountPct}
+              onChange={(v) => updateOrderDiscount("discountPct", v)}
+            />
+            <LabeledNumber
+              label="Discount ₹"
+              value={shownDiscountAmt}
+              onChange={(v) => updateOrderDiscount("discountAmt", v)}
+            />
           </div>
 
-          <div className="mt-3">
-            <label className="block text-white/90 text-sm mb-1">Rounding</label>
-            <select
-              value={rounding}
-              onChange={(e) => setRounding(e.target.value)}
-              className="rounded bg-white/10 text-white px-2 py-1"
-            >
-              <option value="NEAREST">Nearest</option>
-              <option value="UP">Up</option>
-              <option value="DOWN">Down</option>
-            </select>
+          <div className="mt-3 space-y-2">
+            <label className="flex items-center gap-2 text-white/90 text-sm">
+              <input
+                type="checkbox"
+                checked={roundingEnabled}
+                onChange={(e) => setRoundingEnabled(e.target.checked)}
+              />
+              <span>Enable Rounding</span>
+            </label>
+            <div>
+              <label className="block text-white/90 text-sm mb-1">Rounding Mode</label>
+              <select
+                value={rounding}
+                onChange={(e) => setRounding(e.target.value)}
+                className="rounded bg-white/10 text-white px-2 py-1"
+                disabled={!roundingEnabled}
+              >
+                <option value="NEAREST">Nearest</option>
+                <option value="UP">Up</option>
+                <option value="DOWN">Down</option>
+              </select>
+            </div>
           </div>
         </div>
 
         <div className="rounded-xl border border-white/10 bg-white/5 p-4">
           <h3 className="text-white font-semibold mb-3">Proforma Preview</h3>
           <div className="text-sm text-white/80 space-y-1">
-            <Row k="Sub‑Total (pre‑charges)" v={preview.subTotal} />
+            <Row k="Gross Items Total" v={preview.grossItems} />
+            <Row k="− Line Discounts" v={preview.lineDiscountTotal} />
+            <Row k="Items Sub‑Total" v={preview.itemsSubTotal ?? preview.subTotal} />
             <Row k="+ Delivery" v={preview.orderCharges?.delivery || 0} />
             <Row k="+ Packing" v={preview.orderCharges?.packing || 0} />
             <Row k="+ Insurance" v={preview.orderCharges?.insurance || 0} />
@@ -374,7 +446,7 @@ export default function ChargesTaxesEditor({
                 <Row k={"SGST"} v={preview.taxBreakup?.sgst || 0} />
               </>
             )}
-            <Row k={"Round Off"} v={preview.roundOff} />
+            {(roundingEnabled && Number(preview.roundOff || 0) !== 0) && <Row k={"Round Off"} v={preview.roundOff} />}
             <Row k={"Grand Total"} v={preview.grandTotal} bold />
           </div>
 

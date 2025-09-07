@@ -7,6 +7,32 @@ import moment from "moment";
 import html2pdf from "html2pdf.js";
 import MarkPaidModal from "./MarkPaidModal";
 
+// --- normalized readers so Manual + Fast (voice) render identically ---
+const deriveMode = (inv = {}) => (
+  inv.paymentModeLower ||
+  inv.paymentMode ||
+  inv.paymentSummary?.mode ||
+  inv.invoiceConfig?.paymentMode ||
+  ""
+).toString().toLowerCase();
+
+const deriveCreditDue = (inv = {}) => (
+  inv.creditDueDate ||
+  inv.paymentSummary?.creditDueDate ||
+  inv.settings?.creditDueDate ||
+  inv.invoiceConfig?.creditDueDate ||
+  inv.chargesSnapshot?.creditDueDate ||
+  null
+);
+
+const deriveIsPaid = (inv = {}, modeLower = "") => (
+  typeof inv.isPaid === "boolean"
+    ? inv.isPaid
+    : (inv.paymentSummary?.status
+        ? inv.paymentSummary.status !== "pending"
+        : (modeLower === "credit" ? false : true))
+);
+
 const ViewInvoices = () => {
   const [invoices, setInvoices] = useState([]);
   const [filtered, setFiltered] = useState([]);
@@ -118,16 +144,21 @@ const ViewInvoices = () => {
                 </p>
               </div>
               <div className="flex flex-col items-end justify-center gap-2 relative min-h-[50px]">
-                {inv.paymentMode === "credit" && !inv.isPaid && (() => {
-                  const dueDate = moment(inv.creditDueDate || inv.settings?.creditDueDate);
-                  const isOverdue = dueDate.isBefore(moment(), "day");
+                {(() => {
+                  const mode = deriveMode(inv);
+                  const isCredit = (inv.paymentFlags?.isCredit === true) || mode === "credit";
+                  const isPaid = deriveIsPaid(inv, mode);
+                  if (!(isCredit && !isPaid)) return null;
+                  const creditDueRaw = deriveCreditDue(inv);
+                  const dueDate = creditDueRaw ? moment(creditDueRaw) : null;
+                  const isOverdue = dueDate ? dueDate.isBefore(moment(), "day") : false;
                   return (
                     <span
                       className={`absolute top-1/2 right-[72px] transform -translate-y-1/2 text-white text-[10px] px-3 py-[2px] rounded-full shadow whitespace-nowrap ${
                         isOverdue ? "bg-orange-600" : "bg-red-600"
                       }`}>
                       {isOverdue ? "Overdue: " : "Credit Due: "}
-                      {dueDate.format("DD MMM")}
+                      {dueDate ? dueDate.format("DD MMM") : "N/A"}
                     </span>
                   );
                 })()}
@@ -156,17 +187,20 @@ const ViewInvoices = () => {
                 }))}
                 settings={{
                   ...selectedInvoice.settings,
-                  creditDueDate: selectedInvoice.creditDueDate || selectedInvoice.settings?.creditDueDate || null,
+                  creditDueDate: deriveCreditDue(selectedInvoice),
                   splitCash:
                     selectedInvoice.settings?.splitCash ??
+                    selectedInvoice.paymentSummary?.splitPayment?.cash ??
                     selectedInvoice.splitPayment?.cash ??
                     0,
                   splitUPI:
                     selectedInvoice.settings?.splitUPI ??
+                    selectedInvoice.paymentSummary?.splitPayment?.upi ??
                     selectedInvoice.splitPayment?.upi ??
                     0,
                   splitCard:
                     selectedInvoice.settings?.splitCard ??
+                    selectedInvoice.paymentSummary?.splitPayment?.card ??
                     selectedInvoice.splitPayment?.card ??
                     0,
                   isPaid: selectedInvoice.isPaid,
@@ -174,7 +208,7 @@ const ViewInvoices = () => {
                   paidVia: selectedInvoice.paidVia,
                 }}
                 invoiceType={selectedInvoice.invoiceType}
-                paymentMode={selectedInvoice.paymentMode}
+                paymentMode={deriveMode(selectedInvoice)}
                 issuedAt={selectedInvoice.createdAt}
                 userInfo={{
                   businessName: selectedInvoice.userInfo?.businessName,
@@ -195,14 +229,20 @@ const ViewInvoices = () => {
                 {selectedInvoice.createdAt ? moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A") : "N/A"}
               </strong>
             </p>
-            {selectedInvoice.paymentMode === "credit" && !selectedInvoice.isPaid && (
-              <button
-                className="px-4 py-2 rounded-lg mb-4 font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-                onClick={() => setShowMarkPaidModal(true)}
-              >
-                Mark as Paid
-              </button>
-            )}
+            {(() => {
+              const mode = deriveMode(selectedInvoice);
+              const isCredit = (selectedInvoice.paymentFlags?.isCredit === true) || mode === "credit";
+              const isPaid = deriveIsPaid(selectedInvoice, mode);
+              if (!(isCredit && !isPaid)) return null;
+              return (
+                <button
+                  className="px-4 py-2 rounded-lg mb-4 font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                  onClick={() => setShowMarkPaidModal(true)}
+                >
+                  Mark as Paid
+                </button>
+              );
+            })()}
             <div className="flex gap-3">
               <a
                 href={`https://wa.me/91${selectedInvoice.customer?.phone}?text=Here%20is%20your%20invoice%20from%20${encodeURIComponent(selectedInvoice.userInfo?.businessName || "FLYP")}%20-%20Total%3A%20₹${Number(selectedInvoice.totalAmount || 0).toFixed(2)}%20on%20${encodeURIComponent(moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A"))}`}

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 
-const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
+const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdateCart, settings }) => {
   const [cartItems, setCartItems] = useState([]);
+  const isControlled = Array.isArray(cartItemsProp);
+  const items = isControlled ? cartItemsProp : cartItems;
 
   // Extract all tax-related values including SGST
   const {
@@ -18,35 +20,61 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
     igstRate,
   } = settings || {};
 
+  const pushUpdate = (next) => {
+    if (onUpdateCart) {
+      const taxBreakdown = {
+        gst: includeGST && gstRate ? (next.reduce((s,i)=>s + (i.price - (i.price * (parseFloat(i.discount)||0)/100)) * (parseFloat(i.quantity)||0),0) * gstRate) / 100 : 0,
+        cgst: includeCGST && cgstRate ? (next.reduce((s,i)=>s + (i.price - (i.price * (parseFloat(i.discount)||0)/100)) * (parseFloat(i.quantity)||0),0) * cgstRate) / 100 : 0,
+        sgst: includeSGST && sgstRate ? (next.reduce((s,i)=>s + (i.price - (i.price * (parseFloat(i.discount)||0)/100)) * (parseFloat(i.quantity)||0),0) * sgstRate) / 100 : 0,
+        igst: includeIGST && igstRate ? (next.reduce((s,i)=>s + (i.price - (i.price * (parseFloat(i.discount)||0)/100)) * (parseFloat(i.quantity)||0),0) * igstRate) / 100 : 0,
+      };
+      const sub = next.reduce((total, it) => {
+        const q = Math.max(0, parseFloat(it.quantity)||0);
+        const p = Math.max(0, parseFloat(it.price)||0);
+        const d = Math.max(0, Math.min(100, parseFloat(it.discount)||0));
+        const discounted = p - (p * d) / 100;
+        return total + discounted * q;
+      }, 0);
+      const finalTotal = sub + taxBreakdown.gst + taxBreakdown.cgst + taxBreakdown.sgst + taxBreakdown.igst;
+      onUpdateCart(next, { subtotal: sub, taxBreakdown, finalTotal });
+    }
+    if (!isControlled) setCartItems(next);
+  };
+
   const handleAddItem = () => {
-    setCartItems([
-      ...cartItems,
+    const next = [
+      ...items,
       { id: "manual", name: "", sku: "", brand: "", category: "", unit: "", quantity: 1, price: 0, discount: 0 },
-    ]);
+    ];
+    pushUpdate(next);
   };
 
   const handleChange = (index, field, value) => {
-    const updated = [...cartItems];
-    updated[index][field] = field === "quantity" || field === "price" || field === "discount"
-      ? parseFloat(value) || 0
-      : value;
-    setCartItems(updated);
-    // onUpdateCart is now handled in useEffect
+    const next = [...items];
+    let v = value;
+    if (field === "quantity" || field === "price" || field === "discount") {
+      v = parseFloat(value);
+      if (Number.isNaN(v)) v = 0;
+      if (field === "discount") v = Math.max(0, Math.min(100, v));
+    }
+    next[index] = { ...next[index], [field]: v };
+    pushUpdate(next);
   };
 
   const handleRemove = (index) => {
-    const updated = [...cartItems];
-    updated.splice(index, 1);
-    setCartItems(updated);
-    // onUpdateCart is now handled in useEffect
+    const next = items.filter((_, i) => i !== index);
+    pushUpdate(next);
   };
 
   const calculateSubtotal = (item) => {
-    const discounted = item.price - (item.price * item.discount) / 100;
-    return (discounted * item.quantity).toFixed(2);
+    const q = Math.max(0, parseFloat(item.quantity) || 0);
+    const p = Math.max(0, parseFloat(item.price) || 0);
+    const d = Math.max(0, Math.min(100, parseFloat(item.discount) || 0));
+    const discounted = p - (p * d) / 100;
+    return (discounted * q).toFixed(2);
   };
 
-  const subtotal = cartItems.reduce(
+  const subtotal = items.reduce(
     (sum, item) =>
       sum +
       (item.price - (item.price * item.discount) / 100) * item.quantity,
@@ -63,45 +91,33 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
   const finalTotal = subtotal + gstAmount;
 
   useEffect(() => {
+    if (!selectedProducts || selectedProducts.length === 0) return;
+    // When using controlled mode, dedupe against the controlled list; otherwise use local state
+    const base = items;
     const newItems = selectedProducts
-      .filter(
-        (product) => !cartItems.some((item) => item.sku === product.sku)
-      )
+      .filter((product) => !base.some((item) => item.sku === (product.sku || "")))
       .map((product) => ({
-        id: product.id, // Add this line to link with Firestore
-        name: product.productName || "",
+        id: product.id,
+        name: product.name || product.productName || "",
         sku: product.sku || "",
         brand: product.brand || "",
         category: product.category || "",
         unit: product.unit || "",
         quantity: 1,
-        price: product.sellingPrice || 0,
+        price: parseFloat(product.sellingPrice) || 0,
         discount: 0,
       }));
-
     if (newItems.length > 0) {
-      setCartItems((prev) => [...prev, ...newItems]);
+      pushUpdate([...base, ...newItems]);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProducts]);
 
   useEffect(() => {
-    // Notify parent of cart update after cartItems is set
-    console.log("Updated Cart Items:", cartItems);
-    if (onUpdateCart && cartItems.length > 0) {
-      const taxBreakdown = {
-        gst: includeGST && gstRate ? (subtotal * gstRate) / 100 : 0,
-        cgst: includeCGST && cgstRate ? (subtotal * cgstRate) / 100 : 0,
-        sgst: includeSGST && sgstRate ? (subtotal * sgstRate) / 100 : 0,
-        igst: includeIGST && igstRate ? (subtotal * igstRate) / 100 : 0,
-      };
-
-      onUpdateCart(cartItems, {
-        subtotal,
-        taxBreakdown,
-        finalTotal
-      });
-    }
-  }, [cartItems]);
+    // Keep console log for debugging current rendered items
+    console.log("Rendered Items (source-of-truth):", items);
+    // When controlled, updates are pushed synchronously through handlers; nothing to do here
+  }, [items]);
 
   return (
     <div className="space-y-6 px-4 pt-4 md:px-6 text-white">
@@ -130,7 +146,7 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
               </tr>
             </thead>
             <tbody>
-              {cartItems.map((item, index) => (
+              {items.map((item, index) => (
                 <tr key={index} className="border-t border-white/10 hover:bg-white/5">
                   <td className="p-2">
                     <input
@@ -213,15 +229,15 @@ const BillingCart = ({ selectedProducts = [], onUpdateCart, settings }) => {
       </div>
       {/* Bill Summary */}
       <div className="mt-6 text-right space-y-2 text-sm md:text-base bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-4 md:p-6">
-        <p>Total Items: {cartItems.length}</p>
-        <p>Total Quantity: {cartItems.reduce((sum, item) => sum + item.quantity, 0)}</p>
+        <p>Total Items: {items.length}</p>
+        <p>Total Quantity: {items.reduce((sum, item) => sum + item.quantity, 0)}</p>
         <p>
           Total Before Discount: ₹
-          {cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
+          {items.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
         </p>
         <p>
           Total Discount: ₹
-          {cartItems.reduce(
+          {items.reduce(
             (sum, item) => sum + (item.price * item.discount * item.quantity) / 100,
             0
           ).toFixed(2)}

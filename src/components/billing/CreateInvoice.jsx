@@ -7,11 +7,90 @@ import ProductSearch from "./ProductSearch";
 import InvoicePreview from "./InvoicePreview";
 import { auth, db } from "../../firebase/firebaseConfig";
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+import FastBillingMode from "./VoiceBilling/FastBillingMode";
+import { collection, query, where, getDocs } from "firebase/firestore";
 
+/* ---------- Firestore safety + line id helpers ---------- */
+function stripUndefinedDeep(input) {
+  if (input === undefined) return undefined;
+  if (input === null || typeof input !== "object") return input;
+  if (Array.isArray(input)) return input.map(stripUndefinedDeep).filter(v => v !== undefined);
+  const out = {};
+  for (const [k, v] of Object.entries(input)) {
+    const cleaned = stripUndefinedDeep(v);
+    if (cleaned !== undefined) out[k] = cleaned;
+  }
+  return out;
+}
+function findUndefinedPaths(obj, base = "$") {
+  const hits = [];
+  const walk = (v, p) => {
+    if (v === undefined) { hits.push(p); return; }
+    if (v && typeof v === "object") {
+      if (Array.isArray(v)) v.forEach((iv, i) => walk(iv, `${p}[${i}]`));
+      else Object.entries(v).forEach(([k, val]) => walk(val, `${p}.${k}`));
+    }
+  };
+  walk(obj, base);
+  return hits;
+}
+const genCartLineId = () =>
+  (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `line-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+
+// Map logic.js/voice GST entities into our settings shape
+function mapGstEntitiesToSettings(prev, flags = {}) {
+  const next = { ...prev };
+
+  // Explicit include toggle if provided
+  if (typeof flags.includeGST === "boolean") next.includeGST = flags.includeGST;
+
+  // Choose IGST vs CGST/SGST, and make them mutually exclusive with includeGST
+  if (flags.igst === true) {
+    next.includeIGST = true;
+    next.includeCGST = false;
+    next.includeSGST = false;
+    next.includeGST = false; // avoid double-count with generic GST
+  } else if (flags.cgst === true || flags.sgst === true) {
+    next.includeIGST = false;
+    next.includeCGST = true;
+    next.includeSGST = true;
+    next.includeGST = false; // avoid double-count with generic GST
+  }
+  if (flags.igst === false) next.includeIGST = false;
+  if (flags.cgst === false) next.includeCGST = false;
+  if (flags.sgst === false) next.includeSGST = false;
+
+  // Apply a single spoken 'rate'
+  if (Number.isFinite(flags.rate)) {
+    const r = Math.max(0, Math.min(100, Number(flags.rate)));
+    next.gstRate = r;
+
+    if (next.includeIGST) {
+      // IGST uses the full rate
+      next.igstRate = r;
+    } else if (next.includeCGST || next.includeSGST) {
+      // Split evenly across CGST/SGST
+      const half = r / 2;
+      next.cgstRate = half;
+      next.sgstRate = half;
+    } else {
+      // When no IGST/CGST/SGST explicitly selected, treat as generic GST
+      next.includeGST = true;
+      next.includeIGST = false;
+      next.includeCGST = false;
+      next.includeSGST = false;
+    }
+  }
+
+  return next;
+}
+
+/* ---------- Stock updater ---------- */
 const updateInventoryStock = async (userId, cartItems) => {
   for (const item of cartItems) {
     try {
-      // Log brand and category for debugging
       console.log("Updating stock for:", item.name, "ID:", item.id, "Qty:", item.quantity, "Brand:", item.brand, "Category:", item.category);
       const productRef = doc(db, "businesses", userId, "products", item.id);
       const productSnap = await getDoc(productRef);
@@ -19,10 +98,7 @@ const updateInventoryStock = async (userId, cartItems) => {
         const currentStock = parseFloat(productSnap.data().quantity) || 0;
         const newStock = currentStock - item.quantity;
         const finalStock = newStock < 0 ? 0 : newStock;
-
-        await updateDoc(productRef, {
-          quantity: finalStock,
-        });
+        await updateDoc(productRef, { quantity: finalStock });
         console.log("Stock updated to:", finalStock);
       } else {
         console.warn("Product not found for ID:", item.id);
@@ -39,12 +115,17 @@ const CreateInvoice = () => {
   const [settings, setSettings] = useState({
     includeGST: false,
     includeCGST: false,
+    includeSGST: false,
     includeIGST: false,
     gstRate: 9,
     cgstRate: 9,
+    sgstRate: 9,
     igstRate: 18,
     invoiceType: "",
-    paymentMode: ""
+    paymentMode: "",
+    deliveryCharge: 0,
+    packingCharge: 0,
+    otherCharge: 0,
   });
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [showPreview, setShowPreview] = useState({ visible: false, issuedAt: null });
@@ -52,6 +133,13 @@ const CreateInvoice = () => {
   const [invoiceId, setInvoiceId] = useState("");
   const [invoiceData, setInvoiceData] = useState(null);
   const [splitPayment, setSplitPayment] = useState({ cash: 0, upi: 0, card: 0 });
+  const [fastMode, setFastMode] = useState(false);
+
+  // stop Fast Billing mic when leaving fast mode or page
+  useEffect(() => {
+    if (!fastMode) window.dispatchEvent(new Event("fastBilling:stopMic"));
+  }, [fastMode]);
+  useEffect(() => () => { window.dispatchEvent(new Event("fastBilling:stopMic")); }, []);
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -59,39 +147,339 @@ const CreateInvoice = () => {
       if (user) {
         const docRef = doc(db, "businesses", user.uid);
         const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setUserInfo({ ...docSnap.data(), uid: user.uid });
-        }
+        if (docSnap.exists()) setUserInfo({ ...docSnap.data(), uid: user.uid });
       }
     };
     fetchUserInfo();
   }, []);
 
-
-  const handleCustomerChange = (updated) => {
-    setCustomer(updated);
+  /* ---------- Fast Billing: action handlers ---------- */
+  const addSuggestedProductToCart = (product, quantity = 1) => {
+    if (!product) return;
+    const resolvedName =
+      product.productName ||
+      product.name ||
+      product.title ||
+      product.label ||
+      "";
+    const newLine = {
+      cartLineId: genCartLineId(),
+      id: product.id,
+      name: resolvedName,
+      sku: product.sku || "",
+      brand: product.brand || "",
+      category: product.category || "",
+      quantity: Math.max(1, parseFloat(quantity) || 1),
+      price: parseFloat(
+        (product.sellingPrice ?? product.price ?? product.mrp ?? 0)
+      ),
+      discount: 0, // percent
+      unit: product.unit || product.packSize || "",
+    };
+    setSelectedProducts((prev) => {
+      const exists = prev.find((p) => p.id === newLine.id);
+      return exists
+        ? prev
+        : [
+            ...prev,
+            { id: newLine.id, name: resolvedName },
+          ];
+    });
+    setCartItems((prev) => [...prev, newLine]);
   };
 
+  const addItemFromVoice = async (slots = {}) => {
+    if (!userInfo) return;
+    const { sku, name, qty } = slots;
+    let found = null;
+    let candidates = [];
+    try {
+      if (sku) {
+        const q1 = query(
+          collection(db, "businesses", userInfo.uid, "products"),
+          where("sku", "==", sku)
+        );
+        const r1 = await getDocs(q1);
+        r1.forEach((d) => {
+          if (!found) found = { id: d.id, ...d.data() };
+        });
+      }
+      if (!found && name) {
+        const q2 = query(
+          collection(db, "businesses", userInfo.uid, "products"),
+          where("name", "==", name)
+        );
+        const r2 = await getDocs(q2);
+        r2.forEach((d) => {
+          if (!found) found = { id: d.id, ...d.data() };
+        });
+      }
+      // Try productName field as well
+      if (!found && name) {
+        const q3 = query(
+          collection(db, "businesses", userInfo.uid, "products"),
+          where("productName", "==", name)
+        );
+        const r3 = await getDocs(q3);
+        r3.forEach((d) => {
+          if (!found) found = { id: d.id, ...d.data() };
+        });
+      }
+      if (!found && name) {
+        const allSnap = await getDocs(
+          collection(db, "businesses", userInfo.uid, "products")
+        );
+        const queryLower = String(name).toLowerCase();
+        const tokens = queryLower.split(/\s+/).filter(Boolean);
+        allSnap.forEach((d) => {
+          const data = d.data();
+          const resolvedDataName = data.productName || data.name || "";
+          const fullName = resolvedDataName.toLowerCase();
+          const brand = (data.brand || "").toLowerCase();
+          const skuVal = (data.sku || "").toLowerCase();
+          let score = 0;
+          if (
+            fullName.includes(queryLower) ||
+            brand.includes(queryLower) ||
+            skuVal.includes(queryLower)
+          )
+            score += 2;
+          tokens.forEach((t) => {
+            if (
+              t.length >= 3 &&
+              (fullName.includes(t) ||
+                brand.includes(t) ||
+                skuVal.includes(t))
+            )
+              score += 1;
+          });
+          if (score > 0)
+            candidates.push({ id: d.id, ...data, __score: score });
+        });
+        candidates.sort((a, b) => (b.__score || 0) - (a.__score || 0));
+      }
+    } catch (e) {
+      console.warn("Product lookup failed:", e.message);
+    }
+    const quantityNum = Math.max(1, parseFloat(qty || 1) || 1);
+    if (found) {
+      addSuggestedProductToCart(found, quantityNum);
+      return;
+    }
+    const top = (candidates || []).slice(0, 1);
+    if (top.length) addSuggestedProductToCart(top[0], quantityNum);
+    else
+      alert(
+        `Didn't find a matching product for "${name}". Try again or type to search.`
+      );
+  };
+
+  const setCustomerFromVoice = async (slots = {}) => {
+    if (!userInfo) return;
+    const { phone, name, email } = slots;
+    try {
+      if (phone) {
+        const q = query(collection(db, "businesses", userInfo.uid, "customers"), where("phone", "==", String(phone)));
+        const snap = await getDocs(q);
+        let matched = null;
+        snap.forEach(d => { if (!matched) matched = { custId: d.id, ...d.data() }; });
+        if (matched) { setCustomer(matched); return; }
+      }
+    } catch (e) {
+      console.warn("Customer lookup failed:", e.message);
+    }
+    setCustomer(prev => ({ ...prev, ...(name && { name }), ...(phone && { phone: String(phone) }), ...(email && { email }) }));
+  };
+
+  const setPaymentModeFromVoice = (mode) => {
+    if (!mode) return;
+    const m = String(mode).toLowerCase();
+    const normalized = m === "upi" ? "UPI" : m === "card" ? "Card" : m === "credit" ? "Credit" : "Cash";
+    setSettings(prev => ({ ...prev, paymentMode: normalized }));
+  };
+
+  const applyOrderCharge = ({ type, amount }) => {
+    const amt = parseFloat(amount) || 0;
+    const key = (String(type || "").toLowerCase());
+    setSettings(prev => ({
+      ...prev,
+      deliveryCharge: key.includes("deliver") ? amt : prev.deliveryCharge,
+      packingCharge: key.includes("pack") ? amt : prev.packingCharge,
+      otherCharge: (!key.includes("deliver") && !key.includes("pack")) ? amt : prev.otherCharge,
+    }));
+  };
+
+  // Compute tax breakdown once, in a mutually-exclusive order:
+  // 1) IGST, else 2) CGST/SGST, else 3) generic GST.
+  function calcTaxBreakdown(subtotal, s) {
+    const safe = (v) => Math.max(0, parseFloat(v) || 0);
+    let gstAmount = 0, cgstAmount = 0, sgstAmount = 0, igstAmount = 0;
+
+    if (s.includeIGST) {
+      igstAmount = subtotal * (safe(s.igstRate) / 100);
+    } else if (s.includeCGST || s.includeSGST) {
+      cgstAmount = subtotal * (safe(s.cgstRate) / 100);
+      sgstAmount = subtotal * (safe(s.sgstRate) / 100);
+    } else if (s.includeGST) {
+      gstAmount = subtotal * (safe(s.gstRate) / 100);
+    }
+    return { gstAmount, cgstAmount, sgstAmount, igstAmount };
+  }
+
+  /* ---------- Totals ---------- */
+  const computeTotals = () => {
+    const subtotal = cartItems.reduce((total, item) => {
+      const itemTotal = (parseFloat(item.quantity) || 0) * (parseFloat(item.price) || 0);
+      const discount = parseFloat(item.discount) || 0;
+      return total + itemTotal - (itemTotal * discount / 100);
+    }, 0);
+
+    const { gstAmount, cgstAmount, sgstAmount, igstAmount } = calcTaxBreakdown(subtotal, settings);
+
+    const charges =
+      (parseFloat(settings.deliveryCharge) || 0) +
+      (parseFloat(settings.packingCharge) || 0) +
+      (parseFloat(settings.otherCharge) || 0);
+
+    const grandTotal = parseFloat((subtotal + gstAmount + cgstAmount + sgstAmount + igstAmount + charges).toFixed(2));
+    return { subtotal, gstAmount, cgstAmount, sgstAmount, igstAmount, charges, grandTotal };
+  };
+
+  /* ---------- Fast Billing Actions (used by FastBillingMode) ---------- */
+  const fastActions = {
+    addItemByQuery: (entities) => addItemFromVoice(entities),
+
+    updateQty: ({ lineKey, cartLineId, id, sku, name, qty }) => {
+      const nextQty = Math.max(1, parseFloat(qty) || 1);
+      setCartItems(prev => prev.map((it, idx) => {
+        const key = it.cartLineId || it.id || `${it.sku || it.name}-${idx}`;
+        if ((cartLineId && it.cartLineId === cartLineId) ||
+            (id && it.id === id) ||
+            (lineKey && key === lineKey) ||
+            (!cartLineId && !id && name && it.name === name) ||
+            (!cartLineId && !id && sku && it.sku === sku)) {
+          return { ...it, quantity: nextQty };
+        }
+        return it;
+      }));
+    },
+
+    setLineDiscount: ({ lineKey, cartLineId, id, discountPct, discountAmt }) => {
+      setCartItems(prev => prev.map((it, idx) => {
+        const key = it.cartLineId || it.id || `${it.sku || it.name}-${idx}`;
+        const match = (cartLineId && it.cartLineId === cartLineId) || (id && it.id === id) || (lineKey && key === lineKey);
+        if (!match) return it;
+        let pct = discountPct;
+        if (pct === undefined && discountAmt !== undefined) {
+          const base = (parseFloat(it.quantity) || 0) * (parseFloat(it.price) || 0);
+          pct = base > 0 ? (Number(discountAmt) / base) * 100 : 0;
+        }
+        const safePct = Math.max(0, Math.min(100, parseFloat(pct) || 0));
+        return { ...it, discount: safePct };
+      }));
+    },
+
+    removeItem: ({ lineKey, cartLineId, id }) => {
+      setCartItems(prev => prev.filter((it, idx) => {
+        const key = it.cartLineId || it.id || `${it.sku || it.name}-${idx}`;
+        if (cartLineId && it.cartLineId === cartLineId) return false;
+        if (id && it.id === id) return false;
+        if (lineKey && key === lineKey) return false;
+        return true;
+      }));
+      if (id) setSelectedProducts(prev => prev.filter(p => p.id !== id));
+    },
+
+    removeItemByName: (name) => {
+      setCartItems(prev => prev.filter(it => it.name !== name));
+      setSelectedProducts(prev => prev.filter(p => p.name !== name));
+    },
+
+    setCustomerByText: (payload) => setCustomerFromVoice(payload),
+    setCharge: (key, amount) => applyOrderCharge({ type: key, amount }),
+    setInvoiceType: (type) => setSettings(prev => ({ ...prev, invoiceType: type })),
+    setGSTFlags: (flags) => { setSettings(prev => mapGstEntitiesToSettings(prev, flags)); },
+    setPayment: (p) => setPaymentModeFromVoice(p.mode),
+
+    saveInvoice: async ({ mode }) => {
+      if (!userInfo) throw new Error("Missing user");
+      if (cartItems.length === 0) throw new Error("Empty cart");
+      const issuedAt = moment().format("YYYY-MM-DDTHH:mm:ss.SSSZ");
+      const newInvoiceId = "INV-" + Math.random().toString(36).substr(2, 9).toUpperCase();
+      const totals = computeTotals();
+
+      let isPaid = false, paidOn = null, creditDueDate = null;
+      if ((settings.paymentMode || "").toLowerCase() === "credit") {
+        creditDueDate = settings.creditDueDate || moment().add(7, "days").format("YYYY-MM-DD");
+      } else { isPaid = true; paidOn = issuedAt; }
+
+      const cleanedSettings = { ...settings };
+      delete cleanedSettings.splitCash;
+      delete cleanedSettings.splitUPI;
+      delete cleanedSettings.splitCard;
+      delete cleanedSettings.splitPayment;
+
+      const syncedSplitPaymentSrc = settings.splitPayment || splitPayment || {};
+      const syncedSplitPayment = {
+        cash: Number(syncedSplitPaymentSrc.cash) || 0,
+        upi:  Number(syncedSplitPaymentSrc.upi)  || 0,
+        card: Number(syncedSplitPaymentSrc.card) || 0,
+      };
+
+      const payload = {
+        customer,
+        custId: customer && customer.custId ? customer.custId : undefined,
+        cartItems,
+        settings: cleanedSettings,
+        paymentMode: settings.paymentMode,
+        invoiceType: settings.invoiceType,
+        issuedAt,
+        invoiceId: newInvoiceId,
+        totalAmount: totals.grandTotal,
+        splitPayment: syncedSplitPayment,
+        creditDueDate,
+        isPaid,
+        paidOn,
+        chargesSnapshot: {
+          delivery: parseFloat(settings.deliveryCharge) || 0,
+          packing: parseFloat(settings.packingCharge) || 0,
+          other: parseFloat(settings.otherCharge) || 0,
+        },
+        mode: mode || "fast",
+      };
+
+      const invoiceRef = doc(db, "businesses", userInfo.uid, "finalizedInvoices", newInvoiceId);
+      const toWrite = stripUndefinedDeep({ ...payload, createdAt: issuedAt });
+      const bad = findUndefinedPaths(toWrite);
+      if (bad.length) console.warn("[CreateInvoice fast save] undefined at:", bad);
+      await setDoc(invoiceRef, toWrite);
+      await updateInventoryStock(userInfo.uid, cartItems);
+      setInvoiceId(newInvoiceId);
+      setInvoiceData(payload);
+      return newInvoiceId;
+    },
+
+    undo: undefined,
+    canUndo: false,
+    get cart() { return cartItems; },
+    get totals() { return computeTotals(); },
+  };
+
+  const handleCustomerChange = (updated) => setCustomer(updated);
+
   const handleSubmitInvoice = async () => {
-    if (!userInfo) {
-      alert("User not authenticated or user info missing.");
-      return;
-    }
-    if (cartItems.length === 0) {
-      alert("Cart is empty. Please add products to generate invoice.");
-      return;
-    }
-    const issuedAt = moment().format('YYYY-MM-DDTHH:mm:ss.SSSZ');
+    if (!userInfo) { alert("User not authenticated or user info missing."); return; }
+    if (cartItems.length === 0) { alert("Cart is empty. Please add products to generate invoice."); return; }
+
+    const issuedAt = moment().format("YYYY-MM-DDTHH:mm:ss.SSSZ");
     const newInvoiceId = "INV-" + Math.random().toString(36).substr(2, 9).toUpperCase();
     setInvoiceId(newInvoiceId);
 
-    // --- Customer Firestore Save/Update Logic ---
     try {
       if (customer && customer.custId) {
         const customerRef = doc(db, "businesses", userInfo.uid, "customers", customer.custId);
         const customerSnap = await getDoc(customerRef);
         if (customerSnap.exists()) {
-          // Merge new fields if missing before updating
           const existingData = customerSnap.data();
           const mergedCustomer = { ...existingData, ...customer, updatedAt: issuedAt };
           await updateDoc(customerRef, mergedCustomer);
@@ -111,33 +499,26 @@ const CreateInvoice = () => {
       return total + itemTotal - (itemTotal * discount / 100);
     }, 0);
 
-    const gstAmount = settings.includeGST ? subtotal * (settings.gstRate / 100) : 0;
-    const cgstAmount = settings.includeCGST ? subtotal * (settings.cgstRate / 100) : 0;
-    const sgstAmount = settings.includeSGST ? subtotal * (settings.sgstRate / 100) : 0;
-    const igstAmount = settings.includeIGST ? subtotal * (settings.igstRate / 100) : 0;
+    const { gstAmount, cgstAmount, sgstAmount, igstAmount } = calcTaxBreakdown(subtotal, settings);
 
-    const totalAmount = parseFloat((subtotal + gstAmount + cgstAmount + sgstAmount + igstAmount).toFixed(2));
+    const charges = (parseFloat(settings.deliveryCharge) || 0)
+                  + (parseFloat(settings.packingCharge) || 0)
+                  + (parseFloat(settings.otherCharge) || 0);
+    const totalAmount = parseFloat((subtotal + gstAmount + cgstAmount + sgstAmount + igstAmount + charges).toFixed(2));
 
     if (settings.paymentMode === "Split") {
-      const totalSplit = splitPayment.cash + splitPayment.upi + splitPayment.card;
+      const totalSplit = (Number(splitPayment.cash)||0) + (Number(splitPayment.upi)||0) + (Number(splitPayment.card)||0);
       if (totalSplit !== totalAmount) {
         alert(`Split payment does not match invoice total. Total: ₹${totalAmount}, Split: ₹${totalSplit}`);
         return;
       }
     }
 
-    let isPaid = false;
-    let paidOn = null;
-    let creditDueDate = null;
-
+    let isPaid = false, paidOn = null, creditDueDate = null;
     if (settings.paymentMode?.toLowerCase() === "credit") {
-      creditDueDate = settings.creditDueDate || moment().add(7, 'days').format('YYYY-MM-DD');
-    } else {
-      isPaid = true;
-      paidOn = issuedAt;
-    }
+      creditDueDate = settings.creditDueDate || moment().add(7, "days").format("YYYY-MM-DD");
+    } else { isPaid = true; paidOn = issuedAt; }
 
-    // Prevent duplicate split fields from settings
     const cleanedSettings = { ...settings };
     delete cleanedSettings.splitCash;
     delete cleanedSettings.splitUPI;
@@ -146,7 +527,6 @@ const CreateInvoice = () => {
 
     const syncedSplitPayment = settings.splitPayment || splitPayment;
 
-    console.log("💰 SplitPayment Before Save:", syncedSplitPayment);
     const newInvoiceData = {
       customer,
       custId: customer && customer.custId ? customer.custId : undefined,
@@ -160,16 +540,18 @@ const CreateInvoice = () => {
       splitPayment: syncedSplitPayment,
       creditDueDate,
       isPaid,
-      paidOn
+      paidOn,
+      chargesSnapshot: {
+        delivery: parseFloat(settings.deliveryCharge) || 0,
+        packing: parseFloat(settings.packingCharge) || 0,
+        other: parseFloat(settings.otherCharge) || 0,
+      }
     };
-    console.log("📦 Invoice Data to Save:", newInvoiceData);
     setInvoiceData(newInvoiceData);
     setShowPreview({ visible: true, issuedAt });
   };
 
-  const handleCancelPreview = () => {
-    setShowPreview({ visible: false, issuedAt: null });
-  };
+  const handleCancelPreview = () => setShowPreview({ visible: false, issuedAt: null });
 
   if (showPreview.visible && userInfo && invoiceData) {
     return (
@@ -185,13 +567,16 @@ const CreateInvoice = () => {
         onConfirm={async () => {
           try {
             const invoiceRef = doc(db, "businesses", userInfo.uid, "finalizedInvoices", invoiceId);
-            await setDoc(invoiceRef, {
+            const toWrite = stripUndefinedDeep({
               ...invoiceData,
               createdAt: invoiceData.issuedAt,
               isPaid: invoiceData.isPaid,
               paidOn: invoiceData.paidOn,
               creditDueDate: invoiceData.creditDueDate
             });
+            const bad = findUndefinedPaths(toWrite);
+            if (bad.length) console.warn("[CreateInvoice preview confirm] undefined at:", bad);
+            await setDoc(invoiceRef, toWrite);
             console.log("Invoice saved to Firestore:", invoiceId);
             await updateInventoryStock(userInfo.uid, cartItems);
           } catch (error) {
@@ -204,6 +589,7 @@ const CreateInvoice = () => {
         taxRates={{
           gst: settings.gstRate,
           cgst: settings.cgstRate,
+          sgst: settings.sgstRate,
           igst: settings.igstRate
         }}
         userInfo={{
@@ -219,134 +605,176 @@ const CreateInvoice = () => {
     );
   }
 
+  /* ---------- Page ---------- */
   return (
     <div className="space-y-6 px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)] text-white">
-      {/* Customer Info */}
-      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-        <h2 className="text-lg font-semibold mb-2 text-white">Customer Information</h2>
-        {userInfo && (
-          <CustomerForm customer={customer} onChange={handleCustomerChange} userId={userInfo.uid} />
-        )}
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Billing</h2>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-white/70">Mode:</span>
+          <button className={`px-3 py-1 rounded-xl border ${!fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(false)}>Classic</button>
+          <button className={`px-3 py-1 rounded-xl border ${fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(true)}>Fast Billing</button>
+        </div>
       </div>
 
-      {/* Product Search */}
-      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-        <h2 className="text-lg font-semibold mb-2 text-white">Add Product</h2>
-        <ProductSearch
-          onSelect={(product) => {
-            const alreadyExists = selectedProducts.find(p => p.id === product.id);
-            if (!alreadyExists) {
-              const newSelected = [...selectedProducts, product];
-              setSelectedProducts(newSelected);
-              setCartItems(prev => [...prev, {
-                id: product.id,
-                name: product.name,
-                sku: product.sku || "",
-                brand: product.brand || "",
-                category: product.category || "",
-                quantity: 1,
-                price: parseFloat(product.sellingPrice || 0),
-                discount: 0,
-                unit: product.unit || ""
-              }]);
-            }
-          }}
-        />
-      </div>
-
-      {/* Invoice Settings */}
-      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-        <InvoiceSettings settings={settings} onChange={setSettings} />
-        {settings.paymentMode === "Split" && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-1">Cash Amount</label>
-              <input
-                type="number"
-                value={splitPayment.cash}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value) || 0;
-                  console.log("💰 Cash Split Updated:", val);
-                  setSplitPayment((prev) => ({ ...prev, cash: val }));
-                }}
-                className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+      {fastMode ? (
+        (() => {
+          const handleVoiceCommand = (text) => { console.log("Final Voice Command:", text); };
+          return (
+            <div className="space-y-4 px-4 md:px-6 pb-24 text-white">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Fast Billing</h2>
+                <button onClick={() => setFastMode(false)} className="px-3 py-1 rounded-xl border border-white/20">Exit</button>
+              </div>
+              <FastBillingMode
+                onExit={() => setFastMode(false)}
+                actions={fastActions}
+                onVoiceCommand={handleVoiceCommand}
+                fallbackToWhisper={true}
+                whisperFallbackApi="/api/voice/fallback"
+                inventory={selectedProducts}
+                settings={settings}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-1">UPI Amount</label>
-              <input
-                type="number"
-                value={splitPayment.upi}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value) || 0;
-                  console.log("💰 UPI Split Updated:", val);
-                  setSplitPayment((prev) => ({ ...prev, upi: val }));
-                }}
-                className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-1">Card Amount</label>
-              <input
-                type="number"
-                value={splitPayment.card}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value) || 0;
-                  console.log("💰 Card Split Updated:", val);
-                  setSplitPayment((prev) => ({ ...prev, card: val }));
-                }}
-                className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-              />
-            </div>
+          );
+        })()
+      ) : (
+        <>
+          {/* Customer Info */}
+          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+            <h2 className="text-lg font-semibold mb-2 text-white">Customer Information</h2>
+            {userInfo && (
+              <CustomerForm customer={customer} onChange={handleCustomerChange} userId={userInfo.uid} />
+            )}
           </div>
-        )}
-        {settings.paymentMode === "Credit" && (
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-white/80 mb-1">Credit Due Date (Default: 7 days from today)</label>
-            <input
-              type="date"
-              className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-              value={settings.creditDueDate || ""}
-              onChange={(e) => {
-                setSettings((prev) => ({
-                  ...prev,
-                  creditDueDate: e.target.value
-                }));
+
+          {/* Product Search */}
+          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-white">Add Product</h2>
+            </div>
+            <ProductSearch
+              onSelect={(product) => {
+                const resolvedName =
+                  product.productName ||
+                  product.name ||
+                  product.title ||
+                  product.label ||
+                  "";
+                const resolvedPrice = parseFloat(
+                  product.sellingPrice ??
+                  product.price ??
+                  product.mrp ??
+                  0
+                );
+                const resolvedUnit = product.unit || product.packSize || "";
+                const alreadyExists = selectedProducts.find(
+                  (p) => p.id === product.id
+                );
+                if (!alreadyExists) {
+                  const newSelected = [
+                    ...selectedProducts,
+                    { id: product.id, name: resolvedName },
+                  ];
+                  setSelectedProducts(newSelected);
+                  setCartItems((prev) => [
+                    ...prev,
+                    {
+                      cartLineId: genCartLineId(),
+                      id: product.id,
+                      name: resolvedName,
+                      sku: product.sku || "",
+                      brand: product.brand || "",
+                      category: product.category || "",
+                      quantity: 1,
+                      price: resolvedPrice,
+                      discount: 0,
+                      unit: resolvedUnit,
+                    },
+                  ]);
+                }
               }}
             />
           </div>
-        )}
-      </div>
 
-      {/* Cart */}
-      <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-        <h2 className="text-lg font-semibold mb-2 text-white">Product Cart</h2>
-        <BillingCart
-          selectedProducts={selectedProducts}
-          cartItems={cartItems}
-          onUpdateCart={setCartItems}
-          settings={settings}
-        />
-      </div>
+          {/* Invoice Settings */}
+          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+            <InvoiceSettings settings={settings} onChange={setSettings} />
+            {settings.paymentMode === "Split" && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-1">Cash Amount</label>
+                  <input
+                    type="number"
+                    value={splitPayment.cash}
+                    onChange={(e) => setSplitPayment(prev => ({ ...prev, cash: parseFloat(e.target.value) || 0 }))}
+                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-1">UPI Amount</label>
+                  <input
+                    type="number"
+                    value={splitPayment.upi}
+                    onChange={(e) => setSplitPayment(prev => ({ ...prev, upi: parseFloat(e.target.value) || 0 }))}
+                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-1">Card Amount</label>
+                  <input
+                    type="number"
+                    value={splitPayment.card}
+                    onChange={(e) => setSplitPayment(prev => ({ ...prev, card: parseFloat(e.target.value) || 0 }))}
+                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  />
+                </div>
+              </div>
+            )}
+            {settings.paymentMode === "Credit" && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-white/80 mb-1">Credit Due Date (Default: 7 days from today)</label>
+                <input
+                  type="date"
+                  className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  value={settings.creditDueDate || ""}
+                  onChange={(e) => setSettings(prev => ({ ...prev, creditDueDate: e.target.value }))}
+                />
+              </div>
+            )}
+          </div>
 
-      {/* Submit Button */}
-      <div className="hidden md:flex justify-end">
-        <button
-          onClick={handleSubmitInvoice}
-          className="px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
-        >
-          Create Bill
-        </button>
-      </div>
-      {/* Mobile Floating Button */}
-      <div className="fixed bottom-4 inset-x-4 z-50 md:hidden">
-        <button
-          onClick={handleSubmitInvoice}
-          className="w-full text-slate-900 py-3 rounded-xl shadow-lg text-lg font-semibold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
-        >
-          Create Bill
-        </button>
-      </div>
+          {/* Cart */}
+          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+            <h2 className="text-lg font-semibold mb-2 text-white">Product Cart</h2>
+            <BillingCart
+              selectedProducts={selectedProducts}
+              cartItems={cartItems}
+              onUpdateCart={setCartItems}
+              settings={settings}
+            />
+          </div>
+
+          {/* Submit Button */}
+          <div className="hidden md:flex justify-end">
+            <button
+              onClick={handleSubmitInvoice}
+              className="px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
+            >
+              Create Bill
+            </button>
+          </div>
+          {/* Mobile Floating Button */}
+          <div className="fixed bottom-4 inset-x-4 z-50 md:hidden">
+            <button
+              onClick={handleSubmitInvoice}
+              className="w-full text-slate-900 py-3 rounded-xl shadow-lg text-lg font-semibold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
+            >
+              Create Bill
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };
