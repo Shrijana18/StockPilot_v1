@@ -56,7 +56,7 @@ const HourlyVisitChart = () => {
       {
         label: "Invoices",
         data: hourlyData,
-        backgroundColor: "#10B981",
+        backgroundColor: "rgba(16,185,129,0.8)", // teal gradient-like color
       },
     ],
   };
@@ -67,16 +67,32 @@ const HourlyVisitChart = () => {
       legend: { display: false },
     },
     scales: {
+      x: {
+        ticks: {
+          color: "#e5e7eb" // Tailwind gray-200 for visibility on dark
+        },
+        grid: {
+          color: "rgba(255,255,255,0.04)"
+        }
+      },
       y: {
         beginAtZero: true,
         stepSize: 1,
+        ticks: {
+          color: "#e5e7eb"
+        },
+        grid: {
+          color: "rgba(255,255,255,0.08)"
+        }
       },
     },
   };
 
   return (
-    <div className="bg-white p-4 rounded shadow mb-6">
-      <h2 className="text-lg font-bold mb-4">🕓 Hourly Customer Visit Trends</h2>
+    <div className="bg-slate-900/60 border border-white/10 backdrop-blur-sm shadow rounded p-4 mb-6">
+      <h2 className="text-lg font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-400">
+        🕓 Hourly Customer Visit Trends
+      </h2>
       <Bar data={chartData} options={options} />
     </div>
   );

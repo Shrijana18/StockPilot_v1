@@ -58,7 +58,7 @@ const TopProductsChart = () => {
       {
         label: "Quantity Sold",
         data: topProducts.map(p => p.qty),
-        backgroundColor: "#6366F1",
+        backgroundColor: "rgba(99,102,241,0.8)",
       },
     ],
   };
@@ -72,13 +72,29 @@ const TopProductsChart = () => {
       y: {
         beginAtZero: true,
         stepSize: 1,
+        ticks: {
+          color: "#e5e7eb", // gray-200
+        },
+        grid: {
+          color: "rgba(255,255,255,0.08)",
+        },
+      },
+      x: {
+        ticks: {
+          color: "#e5e7eb",
+        },
+        grid: {
+          color: "rgba(255,255,255,0.04)",
+        },
       },
     },
   };
 
   return (
-    <div className="bg-white p-4 rounded shadow mb-6">
-      <h2 className="text-lg font-bold mb-4">🛒 Top 5 Most Frequently Bought Products</h2>
+    <div className="bg-slate-900/60 border border-white/10 backdrop-blur-sm shadow rounded p-4 mb-6">
+      <h2 className="text-lg font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-500">
+        🛒 Top 5 Most Frequently Bought Products
+      </h2>
       <Bar data={chartData} options={options} />
     </div>
   );

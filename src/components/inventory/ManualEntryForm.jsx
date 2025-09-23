@@ -9,6 +9,7 @@ import { logInventoryChange } from "../../utils/logInventoryChange";
 import PricingModeFields from "./PricingModeFields";
 import { PRICING_MODES, buildPricingSave } from "../../utils/pricing";
 
+
 const ManualEntryForm = () => {
   const { currentUser } = useAuth();
   const [formData, setFormData] = useState({
@@ -35,6 +36,7 @@ const ManualEntryForm = () => {
     taxSource: "",
     taxConfidence: "",
   });
+  const [isSuggesting, setIsSuggesting] = useState(false);
 
   const [previewUrl, setPreviewUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -47,6 +49,62 @@ const ManualEntryForm = () => {
       setPreviewUrl(URL.createObjectURL(file));
     } else {
       setFormData({ ...formData, [name]: value });
+    }
+  };
+
+  const handleAutoSuggest = async () => {
+    try {
+      // Do not overwrite a manually entered HSN
+      if (pricingValues.hsnCode && String(pricingValues.hsnCode).trim()) {
+        toast.info("HSN already filled. Clear it first to use AI.");
+        return;
+      }
+      // Require at least product name
+      if (!formData.productName?.trim()) {
+        toast.warn("Enter Product Name first.");
+        return;
+      }
+      if (isSuggesting) return;
+      setIsSuggesting(true);
+
+      const response = await fetch('https://us-central1-stockpilotv1.cloudfunctions.net/generateHSNAndGST', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productName: formData.productName,
+          brand: formData.brand,
+          category: formData.category,
+          unit: formData.unit,
+        }),
+      });
+
+      let payloadText = '';
+      try { payloadText = await response.clone().text(); } catch (_) {}
+
+      if (!response.ok) {
+        let details = '';
+        try { const j = JSON.parse(payloadText || '{}'); details = j.details || j.error || ''; } catch (_) {}
+        if (response.status === 429) {
+          toast.error(`Rate limited by AI: ${details || 'Please wait a moment and try again.'}`);
+          return;
+        }
+        throw new Error(`Failed to fetch HSN and GST (${response.status}) ${details || payloadText || ''}`);
+      }
+
+      const data = await response.json();
+      setPricingValues((prev) => ({
+        ...prev,
+        hsnCode: data.hsn || "",
+        taxRate: data.gst !== undefined ? data.gst : "",
+        taxSource: "AI",
+        taxConfidence: data.taxConfidence || data.confidence || "",
+      }));
+      toast.success("✨ HSN & GST auto-suggest applied!");
+    } catch (error) {
+      console.error("Auto-suggest error:", error);
+      toast.error("❌ Failed to auto-suggest HSN & GST.");
+    } finally {
+      setIsSuggesting(false);
     }
   };
 
@@ -255,33 +313,76 @@ const ManualEntryForm = () => {
             productName={formData.productName}
             category={formData.category}
           />
-          {/* Backward compatibility hint */}
-          {pricingMode === PRICING_MODES.LEGACY && (
-            <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="text-xs text-white/60">Selling Price (Final)</label>
-                <input
-                  type="number"
-                  name="sellingPrice"
-                  placeholder="Selling Price"
-                  value={
-                    pricingValues.legacySellingPrice !== ""
-                      ? pricingValues.legacySellingPrice
-                      : formData.sellingPrice
-                  }
-                  onChange={(e) => {
-                    const val = e.target.value === "" ? "" : +e.target.value;
-                    setPricingValues((v) => ({ ...v, legacySellingPrice: val }));
-                    // keep formData.sellingPrice updated for legacy compatibility
-                    setFormData((f) => ({ ...f, sellingPrice: e.target.value }));
-                  }}
-                  required
-                  className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                />
+        </div>
+
+        {/* HSN & GST Auto-Suggest Section (clean layout) */}
+        <div className="col-span-2 rounded-xl border border-white/15 bg-white/5 p-3">
+          <div className="text-sm font-medium text-white/90 mb-2">Tax Details</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            {/* HSN */}
+            <div>
+              <label className="text-xs text-white/60 flex items-center gap-2">
+                <span>HSN Code</span>
+                {pricingValues.taxSource === "AI" && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/25">✨ AI Suggested</span>
+                )}
+              </label>
+              <input
+                type="text"
+                name="hsnCode"
+                placeholder="Enter HSN (leave blank to Auto‑Suggest)"
+                value={pricingValues.hsnCode}
+                onChange={(e) => setPricingValues((v) => ({ ...v, hsnCode: e.target.value }))}
+                className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+              />
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-xs text-white/50">Not sure? Click <span className="font-medium">Auto‑Suggest</span>.</p>
+                {pricingValues.hsnCode?.toString().trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setPricingValues((v) => ({ ...v, hsnCode: "", taxSource: "", taxConfidence: "" }))}
+                    className="text-xs text-sky-300 hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             </div>
-          )}
+            {/* GST % */}
+            <div>
+              <label className="text-xs text-white/60">GST %</label>
+              <input
+                type="number"
+                name="taxRate"
+                placeholder="GST %"
+                value={pricingValues.taxRate}
+                onChange={(e) => setPricingValues((v) => ({ ...v, taxRate: e.target.value }))}
+                className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+              />
+            </div>
+            {/* Action */}
+            <div className="md:justify-self-end">
+              <button
+                type="button"
+                onClick={handleAutoSuggest}
+                disabled={
+                  isSuggesting ||
+                  !formData.productName?.trim() ||
+                  (pricingValues.hsnCode && String(pricingValues.hsnCode).trim())
+                }
+                title={
+                  (pricingValues.hsnCode && String(pricingValues.hsnCode).trim())
+                    ? "HSN is already filled manually. Clear it to use AI."
+                    : (!formData.productName?.trim() ? "Enter Product Name first" : "Let AI suggest HSN & GST")
+                }
+                className="w-full md:w-auto px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSuggesting ? 'Suggesting…' : 'Auto‑Suggest'}
+              </button>
+            </div>
+          </div>
         </div>
+
         <input
           type="text"
           name="unit"

@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
@@ -52,11 +50,11 @@ const TopLoyalCustomersTable = () => {
   }, []);
 
   return (
-    <div className="bg-white p-4 rounded shadow mb-6">
-      <h2 className="text-lg font-bold mb-4">🛍️ Top Loyal / High-Spend Customers</h2>
+    <div className="bg-slate-900/60 border border-white/10 backdrop-blur-sm shadow rounded p-4 mb-6">
+      <h2 className="text-lg font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 via-orange-400 to-pink-500">🛍️ Top Loyal / High-Spend Customers</h2>
       <div className="overflow-x-auto">
-        <table className="min-w-full border text-sm">
-          <thead className="bg-gray-100">
+        <table className="min-w-full border border-transparent text-sm bg-slate-800">
+          <thead className="bg-slate-700 bg-opacity-50 text-white">
             <tr>
               <th className="p-2 text-left">Name</th>
               <th className="p-2 text-left">Phone</th>
@@ -67,12 +65,17 @@ const TopLoyalCustomersTable = () => {
           </thead>
           <tbody>
             {topCustomers.map((c, i) => (
-              <tr key={i} className="border-t">
-                <td className="p-2">{c.name || "N/A"}</td>
-                <td className="p-2">{c.phone || "N/A"}</td>
-                <td className="p-2 text-center">{c.orders}</td>
-                <td className="p-2 text-right">₹{c.totalSpend.toFixed(2)}</td>
-                <td className="p-2 text-right">₹{c.avgOrderValue}</td>
+              <tr
+                key={i}
+                className={`border-t border-slate-700 ${
+                  i % 2 === 0 ? "bg-slate-800" : "bg-slate-900"
+                } hover:bg-slate-700`}
+              >
+                <td className="p-2 text-white">{c.name || "N/A"}</td>
+                <td className="p-2 text-white">{c.phone || "N/A"}</td>
+                <td className="p-2 text-center text-gray-300">{c.orders}</td>
+                <td className="p-2 text-right text-white">₹{c.totalSpend.toFixed(2)}</td>
+                <td className="p-2 text-right text-white">₹{c.avgOrderValue}</td>
               </tr>
             ))}
           </tbody>

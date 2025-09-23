@@ -78,14 +78,29 @@ const CustomerRetentionCard = () => {
   };
 
   return (
-    <div className="bg-white p-4 rounded shadow mb-6">
-      <h2 className="text-lg font-bold mb-2">📈 Customer Retention</h2>
-      <p>Total Customers: <strong>{stats.totalCustomers}</strong></p>
-      <p>Returning Customers: <strong>{stats.returningCustomers}</strong></p>
-      <p>Retention Rate: <strong>{stats.retentionRate}%</strong></p>
+    <div className="bg-slate-900/60 border border-white/10 backdrop-blur-sm shadow rounded p-4 mb-6">
+      <h2 className="text-lg font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-400">
+        📈 Customer Retention
+      </h2>
+      <p className="text-gray-300">
+        Total Customers: <strong className="text-white">{stats.totalCustomers}</strong>
+      </p>
+      <p className="text-gray-300">
+        Returning Customers: <strong className="text-white">{stats.returningCustomers}</strong>
+      </p>
+      <p className="text-gray-300">
+        Retention Rate: <strong className="text-white">{stats.retentionRate}%</strong>
+      </p>
       {stats.chartData.length > 0 && (
         <div className="mt-4">
-          <Bar data={barData} options={{ responsive: true, plugins: { legend: { display: false } } }} />
+          <Bar
+            data={barData}
+            options={{
+              responsive: true,
+              plugins: { legend: { display: false } },
+              backgroundColor: "transparent"
+            }}
+          />
         </div>
       )}
     </div>

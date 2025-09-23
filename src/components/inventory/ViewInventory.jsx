@@ -1,13 +1,45 @@
 import { getStorage, ref, getDownloadURL, uploadBytes, getBlob } from "firebase/storage";
 import React from "react";
 import { useState, useEffect } from "react";
-import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
 import fetchGoogleImages from "../../utils/fetchGoogleImages";
 import { logInventoryChange } from "../../utils/logInventoryChange";
 import { collection as fsCollection, query, orderBy, onSnapshot as fsOnSnapshot } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 // Removed useAuth because we will pass userId as prop
 import EditProductModal from "./EditProductModal";
+import AddColumnInventory from "./AddColumnInventory";
+
+// === Column Preferences: defaults + storage keys ===
+const COLUMN_DEFAULTS = [
+  { id: "image", label: "Image", minWidth: 70, sticky: false },
+  { id: "productName", label: "Product", minWidth: 200 },
+  { id: "sku", label: "SKU", minWidth: 140 },
+  { id: "brand", label: "Brand", minWidth: 140 },
+  { id: "category", label: "Category", minWidth: 140 },
+  { id: "hsnCode", label: "HSN", minWidth: 120 },
+  { id: "quantity", label: "Qty", minWidth: 90 },
+  { id: "unit", label: "Unit", minWidth: 90 },
+  { id: "costPrice", label: "Cost", minWidth: 110 },
+  { id: "sellingPrice", label: "Sell", minWidth: 110 },
+  // Newly supported optional columns:
+  { id: "mrp", label: "MRP", minWidth: 110 },
+  { id: "gstRate", label: "GST %", minWidth: 90 },
+  { id: "status", label: "Status", minWidth: 100, align: "center" },
+  { id: "source", label: "Source", minWidth: 120 },
+  { id: "delete", label: "Delete", minWidth: 80 },
+  { id: "edit", label: "Edit", minWidth: 80 },
+];
+const LS_KEY = "FLYP_INVENTORY_COLUMNS_V2";
+const prefDocPath = (uid) => [`businesses`, uid, `preferences`, `inventoryColumns`];
+
+const toSafeKey = (name = "") =>
+  String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
 
 const DeleteConfirmationModal = ({
   product,
@@ -98,6 +130,13 @@ const ViewInventory = ({ userId }) => {
   const [inventoryLogs, setInventoryLogs] = useState([]);
   const [selectedTab, setSelectedTab] = useState("view");
 
+  // Column preferences state
+  const [columns, setColumns] = useState(COLUMN_DEFAULTS);
+  const [hiddenCols, setHiddenCols] = useState(new Set());
+  // Custom columns
+  const [customColumns, setCustomColumns] = useState([]); // [{id,label,minWidth,type,key}]
+  const [showCustomColumnsModal, setShowCustomColumnsModal] = useState(false);
+
   // For compatibility with handleSelectUnsplashImage
   // We'll store the selected Unsplash image URL in imagePreviewUrl, and imageUploadFile remains null
   const handleUnsplashSearch = async () => {
@@ -129,10 +168,61 @@ const ViewInventory = ({ userId }) => {
   const [viewMode, setViewMode] = useState("list");
   const db = getFirestore();
 
+  const saveColumnPrefs = async (uid, order, hidden) => {
+    try {
+      // Persist to Firestore
+      const [c1, c2, c3, c4] = prefDocPath(uid);
+      await setDoc(doc(getFirestore(), ...prefDocPath(uid)), {
+        order,
+        hidden,
+        updatedAt: Date.now(),
+      }, { merge: true });
+    } catch (e) {
+      // Fallback to localStorage if Firestore fails
+      const payload = { order, hidden, updatedAt: Date.now() };
+      localStorage.setItem(LS_KEY, JSON.stringify(payload));
+    }
+  };
+  const loadColumnPrefs = async (uid) => {
+    try {
+      const snap = await getDoc(doc(getFirestore(), ...prefDocPath(uid)));
+      if (snap.exists()) {
+        const data = snap.data();
+        const orderFromDb = Array.isArray(data.order) ? data.order : COLUMN_DEFAULTS.map(c => c.id);
+        const hiddenFromDb = Array.isArray(data.hidden) ? new Set(data.hidden) : new Set();
+        const ordered = orderFromDb
+          .map(id => COLUMN_DEFAULTS.find(c => c.id === id))
+          .filter(Boolean);
+        const merged = [...ordered]; // drop unknowns safely
+        setColumns(merged);
+        setHiddenCols(hiddenFromDb);
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    // Fallback to localStorage or defaults
+    const ls = localStorage.getItem(LS_KEY);
+    if (ls) {
+      try {
+        const parsed = JSON.parse(ls);
+        const order = Array.isArray(parsed.order) ? parsed.order : COLUMN_DEFAULTS.map(c => c.id);
+        const hidden = new Set(Array.isArray(parsed.hidden) ? parsed.hidden : []);
+        const ordered = order.map(id => COLUMN_DEFAULTS.find(c => c.id === id)).filter(Boolean);
+        setColumns(ordered);
+        setHiddenCols(hidden);
+        return;
+      } catch (_) { /* ignore */ }
+    }
+    setColumns(COLUMN_DEFAULTS);
+    setHiddenCols(new Set());
+  };
+
   // Prevent rendering if userId is not available
   if (!userId) {
     return <div className="text-center p-4">Loading user data...</div>;
   }
+  useEffect(() => {
+    if (userId) loadColumnPrefs(userId);
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -164,6 +254,36 @@ const ViewInventory = ({ userId }) => {
     });
 
     return () => unsubscribe(); // cleanup on unmount
+  }, [userId]);
+
+  // Custom columns Firestore subscription
+  useEffect(() => {
+    if (!userId) return;
+    const colRef = collection(db, "businesses", userId, "customColumns");
+    const unsub = onSnapshot(colRef, (snap) => {
+      const list = snap.docs.map(d => {
+        const data = d.data() || {};
+        const label = data.name || "Custom";
+        const key = data.key || toSafeKey(label);
+        return {
+          id: key,
+          label,
+          minWidth: 140,
+          type: data.type || "text",
+          _docId: d.id,
+        };
+      });
+      setCustomColumns(list);
+      // Merge into columns list while preserving existing order from prefs when possible
+      setColumns((prev) => {
+        // Take existing order ids
+        const existingIds = prev.map(c => c.id);
+        // Any custom not present gets appended
+        const appended = list.filter(c => !existingIds.includes(c.id));
+        return [...prev, ...appended];
+      });
+    });
+    return () => unsub();
   }, [userId]);
 
   // Fetch inventoryLogs for Recently Modified tab
@@ -225,7 +345,13 @@ const ViewInventory = ({ userId }) => {
       const originalSnap = await getDoc(productRef);
       const originalData = originalSnap.exists() ? originalSnap.data() : {};
 
-      await updateDoc(productRef, { [field]: value });
+      // Normalize GST field across AI (gstRate) and Manual (taxRate) flows
+      if (field === "gstRate") {
+        const numeric = typeof value === "string" ? Number(value) : value;
+        await updateDoc(productRef, { gstRate: numeric, taxRate: numeric });
+      } else {
+        await updateDoc(productRef, { [field]: value });
+      }
 
       // Call logInventoryChange with proper Firestore field names for productName, brand, category
       await logInventoryChange({
@@ -236,7 +362,9 @@ const ViewInventory = ({ userId }) => {
         brand: originalData.brand || "N/A",
         category: originalData.category || "N/A",
         previousData: originalData,
-        updatedData: { ...originalData, [field]: value },
+        updatedData: field === "gstRate"
+          ? { ...originalData, gstRate: value, taxRate: value }
+          : { ...originalData, [field]: value },
         action: "updated",
         source: "inline-edit",
       });
@@ -505,214 +633,279 @@ const ViewInventory = ({ userId }) => {
           </div>
 
           {viewMode === "list" ? (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden">
-            <thead className="bg-white/10 text-left">
-              <tr>
-                <th className="p-2 text-white/80 border-b border-white/10">Image</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Product</th>
-                <th className="p-2 text-white/80 border-b border-white/10">SKU</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Brand</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Category</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Qty</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Unit</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Cost</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Sell</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Status</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Source</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Delete</th>
-                <th className="p-2 text-white/80 border-b border-white/10">Edit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id} className="border-t border-white/10 hover:bg-white/5">
-                  <td className="p-2">
-                    <div
-                      className="inline-block cursor-pointer"
-                      onClick={() => handleImageClick(p)}
-                      title="Click to upload image"
-                    >
-                      <img
-                        src={p.imageUrl || "/placeholder.png"}
-                        alt="product"
-                        className="h-10 w-10 rounded object-cover border border-white/20 ring-1 ring-white/10"
-                      />
-                    </div>
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'productName', p.productName)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "productName" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "productName", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.productName
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'sku', p.sku)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "sku" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "sku", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.sku
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'brand', p.brand)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "brand" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "brand", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.brand
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'category', p.category)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "category" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "category", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.category
-                    )}
-                  </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
-                    {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
-                      <input
-                        type="number"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
-                        autoFocus
-                      />
-                    ) : (
-                      p.quantity
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'unit', p.unit)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "unit" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "unit", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.unit
-                    )}
-                  </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "costPrice", p.costPrice)}>
-                    {editingCell.rowId === p.id && editingCell.field === "costPrice" ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "costPrice", Number(editedValue))}
-                        autoFocus
-                      />
-                    ) : (
-                      <>₹{p.costPrice}</>
-                    )}
-                  </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "sellingPrice", p.sellingPrice)}>
-                    {editingCell.rowId === p.id && editingCell.field === "sellingPrice" ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "sellingPrice", Number(editedValue))}
-                        autoFocus
-                      />
-                    ) : (
-                      <>₹{p.sellingPrice}</>
-                    )}
-                  </td>
-                  <td className="p-2 min-w-[80px] text-center">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${getStatus(p.quantity) === "Low" ? "bg-rose-500 text-white" : "bg-emerald-500 text-slate-900"}`}
-                    >
-                      {getStatus(p.quantity)}
-                    </span>
-                  </td>
-                  <td className="p-2 min-w-[100px] max-w-[120px] text-center">
-                    {p.sourceOrderId ? (
-                      <span className="inline-block px-2 py-1 rounded text-xs bg-blue-500 text-white break-words whitespace-normal leading-snug">
-                        From Order
-                      </span>
-                    ) : (
-                      ''
-                    )}
-                  </td>
-                  <td className="p-2">
+            <>
+          <div className="flex items-center gap-2">
+            <button
+              className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white hover:bg-white/15"
+              onClick={() => setShowCustomColumnsModal(true)}
+              type="button"
+              title="Manage columns"
+            >
+              Manage Columns
+            </button>
+          </div>
+              <div className="overflow-x-auto w-full">
+                <table className="table-fixed w-full text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden">
+                  <thead className="bg-white/10 text-left sticky top-0">
+                    <tr>
+                      {columns.filter(c => !hiddenCols.has(c.id)).map(col => (
+                        <th
+                          key={col.id}
+                          className={
+                            "p-2 text-white/80 border-b border-white/10 truncate " +
+                            (col.id === "status" ? "text-center" : "")
+                          }
+                          style={{ minWidth: col.minWidth ? `${col.minWidth}px` : undefined }}
+                        >
+                          {col.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((p) => (
+                      <tr key={p.id} className="border-t border-white/10 hover:bg-white/5">
+                        {columns.filter(c => !hiddenCols.has(c.id)).map(col => {
+                          switch (col.id) {
+                            case "image":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <div
+                                    className="inline-block cursor-pointer"
+                                    onClick={() => handleImageClick(p)}
+                                    title="Click to upload image"
+                                  >
+                                    <img
+                                      src={p.imageUrl || "/placeholder.png"}
+                                      alt="product"
+                                      className="h-10 w-10 rounded object-cover border border-white/20 ring-1 ring-white/10"
+                                    />
+                                  </div>
+                                </td>
+                              );
+                            case "productName":
+                              return (
+                                <td
+                                  key={col.id}
+                                  className="p-2 max-w-[220px] break-words whitespace-normal"
+                                  onClick={() => startEdit(p.id, "productName", p.productName)}
+                                >
+                                  {editingCell.rowId === p.id && editingCell.field === "productName" ? (
+                                    <input
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, "productName", editedValue)}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p.productName
+                                  )}
+                                </td>
+                              );
+                            case "sku":
+                            case "brand":
+                            case "category":
+                            case "hsnCode":
+                            case "unit":
+                              return (
+                                <td
+                                  key={col.id}
+                                  className="p-2 max-w-[180px] break-words whitespace-normal"
+                                  onClick={() => startEdit(p.id, col.id, p[col.id])}
+                                >
+                                  {editingCell.rowId === p.id && editingCell.field === col.id ? (
+                                    <input
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, col.id, editedValue)}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p[col.id] || ""
+                                  )}
+                                </td>
+                              );
+                            case "quantity":
+                              return (
+                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
+                                  {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
+                                    <input
+                                      type="number"
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p.quantity
+                                  )}
+                                </td>
+                              );
+                            case "costPrice":
+                            case "sellingPrice":
+                            case "mrp":
+                              return (
+                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, col.id, p[col.id])}>
+                                  {editingCell.rowId === p.id && editingCell.field === col.id ? (
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, col.id, Number(editedValue))}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p[col.id] !== undefined ? <>₹{p[col.id]}</> : ""
+                                  )}
+                                </td>
+                              );
+                            case "gstRate":
+                              // Display gstRate from either field; prefer explicit gstRate, fallback to taxRate
+                              const currentGst = p.gstRate !== undefined && p.gstRate !== null ? p.gstRate : p.taxRate;
+                              return (
+                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "gstRate", currentGst)}>
+                                  {editingCell.rowId === p.id && editingCell.field === "gstRate" ? (
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, "gstRate", Number(editedValue))}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    currentGst !== undefined && currentGst !== null ? <>{currentGst}%</> : ""
+                                  )}
+                                </td>
+                              );
+                            case "status": {
+                              const st = getStatus(p.quantity);
+                              const badgeText = st === "In Stock" ? "In\u00A0Stock" : st; // keep on one line
+                              const isLow = st === "Low";
+                              return (
+                                <td key={col.id} className="p-2 align-middle text-center whitespace-nowrap">
+                                  <span
+                                    title={st}
+                                    className={
+                                      "inline-flex items-center justify-center min-w-[72px] h-6 px-2 rounded-full text-xs font-semibold " +
+                                      (isLow ? "bg-rose-500 text-white" : "bg-emerald-400 text-slate-900")
+                                    }
+                                  >
+                                    {badgeText}
+                                  </span>
+                                </td>
+                              );
+                            }
+                            case "source":
+                              return (
+                                <td key={col.id} className="p-2 min-w-[100px] max-w-[120px] text-center">
+                                  {p.sourceOrderId ? (
+                                    <span className="inline-block px-2 py-1 rounded text-xs bg-blue-500 text-white break-words whitespace-normal leading-snug">
+                                      From Order
+                                    </span>
+                                  ) : (
+                                    ""
+                                  )}
+                                </td>
+                              );
+                            case "delete":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <button
+                                    onClick={() => handleDelete(p)}
+                                    className="text-rose-300 hover:text-rose-200"
+                                    title="Delete Item"
+                                  >
+                                    🗑️
+                                  </button>
+                                </td>
+                              );
+                            case "edit":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedProductId(p.id);
+                                      setIsModalOpen(true);
+                                    }}
+                                    className="text-sm text-emerald-300 underline"
+                                  >
+                                    Edit
+                                  </button>
+                                </td>
+                              );
+                            default:
+                              return (
+                                <td
+                                  key={col.id}
+                                  className="p-2 max-w-[180px] break-words whitespace-normal"
+                                  onClick={() => startEdit(p.id, col.id, p[col.id])}
+                                >
+                                  {editingCell.rowId === p.id && editingCell.field === col.id ? (
+                                    <input
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, col.id, editedValue)}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p[col.id] || ""
+                                  )}
+                                </td>
+                              );
+                          }
+                        })}
+                      </tr>
+                    ))}
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={columns.filter(c => !hiddenCols.has(c.id)).length} className="text-center p-4 text-white/70">
+                          {products.length === 0 ? "No products found." : "Loading inventory..."}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              {showCustomColumnsModal && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">
+                  <div className="w-[96%] max-w-2xl rounded-2xl p-4 bg-white/10 backdrop-blur-2xl border border-white/15 shadow-[0_20px_80px_rgba(0,0,0,0.5)] text-white relative">
                     <button
-                      onClick={() => handleDelete(p)}
-                      className="text-rose-300 hover:text-rose-200"
-                      title="Delete Item"
+                      onClick={() => setShowCustomColumnsModal(false)}
+                      className="absolute top-2 right-2 text-white/70 hover:text-white"
                     >
-                      {/* Instead of icon, open confirmation modal */}
-                      🗑️
+                      ✕
                     </button>
-                  </td>
-                  <td className="p-2">
-                    <button
-                      onClick={() => {
-                        setSelectedProductId(p.id);
-                        setIsModalOpen(true);
+                    <AddColumnInventory
+                      availableColumns={columns}
+                      hiddenCols={hiddenCols}
+                      onToggle={(id) => {
+                        const next = new Set(hiddenCols);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        setHiddenCols(next);
+                        // Save immediately (order = current cols ids)
+                        saveColumnPrefs(userId, columns.map(c => c.id), Array.from(next));
                       }}
-                      className="text-sm text-emerald-300 underline"
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan="13" className="text-center p-4 text-white/70">
-                    {products.length === 0 ? "No products found." : "Loading inventory..."}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+                      onReset={() => {
+                        setColumns(COLUMN_DEFAULTS);
+                        const next = new Set();
+                        setHiddenCols(next);
+                        saveColumnPrefs(userId, COLUMN_DEFAULTS.map(c => c.id), []);
+                      }}
+                      onClose={() => setShowCustomColumnsModal(false)}
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filtered.map((item) => (
@@ -734,11 +927,23 @@ const ViewInventory = ({ userId }) => {
                   <h3 className="font-semibold mb-1">{item.productName}</h3>
                   <p className="text-sm text-white/70 mb-1">{item.brand} | {item.category}</p>
                   <p className="text-sm mb-1">
-                    Qty: {item.quantity} | ₹{item.sellingPrice}
+                    Qty: {item.quantity} {item.sellingPrice !== undefined && <>| ₹{item.sellingPrice}</>}
                   </p>
+                  { (item.mrp !== undefined || item.gstRate !== undefined || item.taxRate !== undefined) && (
+                    <p className="text-sm mb-1">
+                      {item.mrp !== undefined && <>MRP: ₹{item.mrp}</>}
+                      {(item.mrp !== undefined) && (item.gstRate !== undefined || item.taxRate !== undefined) && <> &nbsp;|&nbsp; </>}
+                      {(item.gstRate !== undefined || item.taxRate !== undefined) && <>GST: {(item.gstRate ?? item.taxRate)}%</>}
+                    </p>
+                  )}
                   <p className="text-xs text-white/60 mb-1">
                     SKU: {item.sku || "N/A"} | Unit: {item.unit || "N/A"}
                   </p>
+                  { item.hsnCode && (
+                    <p className="text-xs text-white/60 mb-1">
+                      HSN: {item.hsnCode}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 mt-auto">
                     <span
                       className={`px-2 py-1 text-xs rounded font-semibold ${(item.status || getStatus(item.quantity)) === 'In Stock' ? 'bg-emerald-500 text-slate-900' : 'bg-rose-500 text-white'}`}
@@ -892,112 +1097,126 @@ const UploadProductImageModal = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [imageResults, setImageResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [imageSource, setImageSource] = useState("unsplash");
 
-  // Unified image search handler for Unsplash/Google
+  // Google-only image search
   const handleImageSearch = async () => {
+    if (!searchTerm?.trim()) return;
     setLoading(true);
     try {
-      let results = [];
-      if (imageSource === "unsplash") {
-        results = await fetchUnsplashImages(searchTerm);
-      } else {
-        // Already imported from utils
-        const fetchGoogleImages = (await import("../../utils/fetchGoogleImages")).default;
-        results = await fetchGoogleImages(searchTerm);
-      }
-      setImageResults(results);
+      const fetchGoogleImages = (await import("../../utils/fetchGoogleImages")).default;
+      const results = await fetchGoogleImages(searchTerm.trim());
+      setImageResults(results || []);
     } catch (error) {
       console.error("Image search error:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center">
-      <div className="p-6 rounded w-11/12 max-w-2xl relative bg-white/10 backdrop-blur-2xl border border-white/10 shadow-[0_12px_50px_rgba(0,0,0,0.45)] text-white">
-        <h2 className="text-lg font-semibold mb-3 text-white">Upload Product Image</h2>
-        <p className="mb-2 text-white/70">
-          {imageTargetProduct?.productName || "Product"}
-        </p>
-        {/* Toggle UI for Unsplash/Google */}
-        <div className="flex gap-2 mb-2">
-          <button
-            onClick={() => setImageSource("unsplash")}
-            className={`px-3 py-1 rounded transition ${imageSource === "unsplash" ? "bg-emerald-500 text-slate-900" : "bg-white/10 text-white hover:bg-white/15"}`}
-          >
-            Unsplash
-          </button>
-          <button
-            onClick={() => setImageSource("google")}
-            className={`px-3 py-1 rounded transition ${imageSource === "google" ? "bg-emerald-500 text-slate-900" : "bg-white/10 text-white hover:bg-white/15"}`}
-          >
-            Google
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60" />
+
+      {/* Card */}
+      <div className="relative w-11/12 max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl p-6 text-white">
+        {/* Close */}
+        <button
+          onClick={() => {
+            setShowImageModal(false);
+            setImageTargetProduct(null);
+            setImageUploadFile(null);
+            setImageUploadError("");
+            setImagePreviewUrl(null);
+            setSearchTerm("");
+            setImageResults([]);
+          }}
+          className="absolute top-3 right-3 rounded-md px-2 py-1 text-white/70 hover:text-white hover:bg-slate-800"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+
+        <h2 className="text-lg font-semibold mb-1">Upload Product Image</h2>
+        <p className="mb-4 text-white/70">{imageTargetProduct?.productName || "Product"}</p>
+
+        {/* Google Search */}
+        <div className="mb-4">
+          <label className="block text-sm text-white/70 mb-1">Find an image with Google</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Search product image on Google…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="flex-grow px-3 py-2 rounded-md bg-slate-800 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+            />
+            <button
+              onClick={handleImageSearch}
+              disabled={loading}
+              className="px-4 py-2 rounded-md bg-emerald-500 text-slate-900 font-medium hover:bg-emerald-400 disabled:opacity-60"
+            >
+              {loading ? "Searching…" : "Google Search"}
+            </button>
+          </div>
+          {imageResults?.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 mt-3 max-h-48 overflow-y-auto">
+              {imageResults.map((imgUrl, index) => (
+                <img
+                  key={index}
+                  src={imgUrl}
+                  alt="Search result"
+                  className="w-full h-24 object-cover rounded border border-slate-700 hover:border-emerald-300/60 cursor-pointer"
+                  onClick={() => {
+                    setImageUploadFile(null);
+                    setImageUploadError("");
+                    setImagePreviewUrl(imgUrl);
+                  }}
+                  onError={(e) => (e.currentTarget.style.display = "none")}
+                />
+              ))}
+            </div>
+          )}
         </div>
-        {/* Unified search input/button */}
-        <div className="flex items-center gap-2 mb-2">
+
+        {/* Local Upload */}
+        <div className="mb-4">
+          <label className="block text-sm text-white/70 mb-1">Or upload from device</label>
           <input
-            type="text"
-            placeholder={`Search image with ${imageSource === "unsplash" ? "Unsplash" : "Google"}...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="px-2 py-1 rounded w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+            type="file"
+            accept="image/*"
+            onChange={handleImageFileChange}
+            className="block w-full cursor-pointer rounded-md px-3 py-2 bg-slate-800 border border-slate-700 file:bg-slate-700 file:text-white file:border-0 file:px-3 file:py-1"
+            disabled={imageUploadLoading}
           />
-          <button
-            className="px-4 py-1 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-            onClick={handleImageSearch}
-            type="button"
-            disabled={loading}
-          >
-            {loading ? "Searching..." : "Search"}
-          </button>
         </div>
-        {/* Image search results */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {imageResults.map((imgUrl, index) => (
-            <img
-              key={index}
-              src={imgUrl}
-              alt="AI result"
-              className="w-24 h-24 object-cover rounded cursor-pointer hover:scale-105 transition-all border border-white/20 ring-1 ring-white/10"
-              onClick={() => {
-                setImageUploadFile(null);
-                setImageUploadError("");
-                setImagePreviewUrl(imgUrl);
-              }}
-              onError={(e) => (e.target.src = "/placeholder.jpg")}
-            />
-          ))}
-        </div>
-        {/* File upload input */}
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleImageFileChange}
-          className="mb-3 p-2 rounded bg-white/10 border border-white/20 text-white file:bg-white/10 file:border-0 file:px-3 file:py-1 file:mr-3 file:rounded cursor-pointer"
-          disabled={imageUploadLoading}
-        />
-        {/* Preview area */}
-        {imagePreviewUrl && (
-          <div className="mb-3 flex justify-center">
-            <img
-              src={imagePreviewUrl}
-              alt="Preview"
-              className="max-h-40 max-w-full rounded border border-white/20 ring-1 ring-white/10"
-              style={{ objectFit: "contain" }}
-            />
+
+        {/* Preview */}
+        {(imagePreviewUrl || imageUploadFile) && (
+          <div className="mb-4">
+            <label className="block text-sm text-white/70 mb-2">Preview</label>
+            <div className="flex items-center gap-3">
+              {imagePreviewUrl && (
+                <img
+                  src={imagePreviewUrl}
+                  alt="Preview"
+                  className="max-h-36 rounded border border-slate-700"
+                  style={{ objectFit: "contain" }}
+                />
+              )}
+              {imageUploadFile && (
+                <div className="text-xs text-white/60">{imageUploadFile.name}</div>
+              )}
+            </div>
           </div>
         )}
-        {imageUploadFile && (
-          <div className="mb-2">
-            <span className="text-xs text-white/60">{imageUploadFile.name}</span>
-          </div>
-        )}
+
         {imageUploadError && (
-          <div className="mb-2 text-rose-300 text-sm">{imageUploadError}</div>
+          <div className="mb-3 text-rose-300 text-sm">{imageUploadError}</div>
         )}
-        <div className="flex justify-end gap-3">
+
+        {/* Footer */}
+        <div className="flex justify-end gap-3 pt-2">
           <button
             onClick={() => {
               setShowImageModal(false);
@@ -1008,24 +1227,26 @@ const UploadProductImageModal = ({
               setSearchTerm("");
               setImageResults([]);
             }}
-            className="px-4 py-2 rounded border border-white/20 bg-white/10 text-white hover:bg-white/15"
+            className="px-4 py-2 rounded-md bg-slate-800 border border-slate-700 text-white hover:bg-slate-700"
             disabled={imageUploadLoading}
           >
             Cancel
           </button>
           <button
             onClick={handleImageUpload}
-            className={`px-4 py-2 rounded-xl font-medium ${
+            className={`px-4 py-2 rounded-md font-medium ${
               (imageUploadFile || imagePreviewUrl) && !imageUploadLoading
-                ? 'text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]'
-                : 'bg-white/20 text-white/70 cursor-not-allowed'
+                ? "bg-emerald-500 text-slate-900 hover:bg-emerald-400"
+                : "bg-slate-700 text-white/70 cursor-not-allowed"
             }`}
             disabled={!(imageUploadFile || imagePreviewUrl) || imageUploadLoading}
           >
-            {imageUploadLoading ? "Uploading..." : "Upload"}
+            {imageUploadLoading ? "Uploading…" : "Upload"}
           </button>
         </div>
       </div>
     </div>
   );
 };
+// If you have a handleAddFieldSubmit function in this file, update its setDoc path as per instructions.
+// No handleAddFieldSubmit found in this file. If present elsewhere, update accordingly.

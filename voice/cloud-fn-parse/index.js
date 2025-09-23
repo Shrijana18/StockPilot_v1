@@ -50,7 +50,10 @@ function normalizeName(name) {
     "parashut": "parachute",
     "coca cola": "coca-cola",
     "pepsi cola": "pepsi",
-    "biscut": "biscuit"
+    "biscut": "biscuit",
+    "muscle blaze": "muscleblaze",
+    "muscleblaze": "muscleblaze",
+    "muscle-blaze": "muscleblaze"
   };
   if (map[n]) return map[n];
   if (n.startsWith("dabur red")) return "dabur red paste";
@@ -183,14 +186,26 @@ exports.parse = functions.https.onRequest((req, res) => {
   }
 
   try {
-    const { transcript, userId } = req.body;
-    if (!transcript || !userId) {
-      return res.status(400).json({ error: 'Missing transcript or userId' });
+    // Accept both legacy {transcript} and new {text}; require userId only.
+    const body = req.body || {};
+    const { transcript, text, userId, intentHints, locale } = body;
+    if (!userId) {
+      // Truly malformed: no user context
+      return res.status(400).json({ error: "Missing userId" });
     }
-
-    const parsed = parseText(transcript);
+  
+    // Normalize utterance; treat empty as soft miss (200 with unknown)
+    const utterance = String(text ?? transcript ?? "").trim();
+    if (!utterance) {
+      return res.status(200).json({ ok: true, action: "unknown", slots: {}, raw: { type: "UNKNOWN" } });
+    }
+  
+    // Keep inputs small/predictable at scale
+    const clipped = utterance.slice(0, 200);
+  
+    const parsed = parseText(clipped);
     const norm = normalizeForFrontend(parsed);
-    return res.json({ ok: true, ...norm, raw: parsed });
+    return res.status(200).json({ ok: true, ...norm, raw: parsed });
   } catch (error) {
     console.error("❌ parse error", error);
     return res.status(500).json({ error: "Internal error" });

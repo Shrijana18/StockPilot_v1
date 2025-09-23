@@ -6,6 +6,15 @@ import { db, auth } from "../../firebase/firebaseConfig";
 import moment from "moment";
 import html2pdf from "html2pdf.js";
 import MarkPaidModal from "./MarkPaidModal";
+import { createPortal } from "react-dom";
+
+
+const DEFAULT_BILLING = {
+  branding: { logoUrl: "", signatureUrl: "", stampUrl: "" },
+  bank: { bankName: "", branch: "", accountNumber: "", ifsc: "", accountName: "" },
+  payment: { upiId: "", upiQrUrl: "" },
+  terms: "",
+};
 
 // --- normalized readers so Manual + Fast (voice) render identically ---
 const deriveMode = (inv = {}) => (
@@ -41,6 +50,44 @@ const ViewInvoices = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showMarkPaidModal, setShowMarkPaidModal] = useState(false);
+  const [billingSettings, setBillingSettings] = useState(DEFAULT_BILLING);
+  useEffect(() => {
+    const loadBilling = async () => {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+      try {
+        const prefRef = doc(db, "businesses", uid, "preferences", "billing");
+        const snap = await getDoc(prefRef);
+        if (snap.exists()) {
+          const d = snap.data();
+          // Normalize legacy bank keys and stamp
+          const bankIn = d.bank || {};
+          const bank = {
+            bankName: bankIn.bankName || bankIn.name || "",
+            branch: bankIn.branch || "",
+            accountNumber: bankIn.accountNumber || bankIn.account || "",
+            ifsc: bankIn.ifsc || "",
+            accountName: bankIn.accountName || "",
+          };
+          const merged = {
+            ...DEFAULT_BILLING,
+            ...d,
+            branding: {
+              ...DEFAULT_BILLING.branding,
+              ...(d.branding || {}),
+            },
+            bank,
+            payment: { ...DEFAULT_BILLING.payment, ...(d.payment || {}) },
+            terms: d.terms || "",
+          };
+          setBillingSettings(merged);
+        }
+      } catch (e) {
+        console.warn("Failed to load billing settings:", e);
+      }
+    };
+    loadBilling();
+  }, []);
 
   useEffect(() => {
     const fetchInvoices = async () => {
@@ -174,10 +221,9 @@ const ViewInvoices = () => {
           </div>
         ))}
       </div>
-      {/* Modal-style Invoice Preview */}
-      {selectedInvoice && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-          <div className="rounded-lg shadow-lg p-4 md:p-6 max-w-4xl w-full max-h-screen overflow-y-auto space-y-4 text-white bg-white/10 backdrop-blur-2xl border border-white/10">
+      {selectedInvoice && createPortal(
+        <div className="fixed inset-0 w-screen h-screen bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="rounded-lg shadow-lg p-4 md:p-6 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl w-full max-h-screen overflow-y-auto space-y-4 text-white bg-white/10 backdrop-blur-2xl border border-white/10 mx-4">
             <div className="invoice-preview-container">
               <InvoicePreview
                 customer={selectedInvoice.customer}
@@ -216,68 +262,79 @@ const ViewInvoices = () => {
                 }}
                 onCancel={() => setSelectedInvoice(null)}
                 viewOnly={true}
+                previewMode
+                branding={billingSettings.branding}
+                bank={billingSettings.bank}
+                payment={billingSettings.payment}
+                terms={billingSettings.terms}
               />
             </div>
-          {/* Action Buttons */}
-          <div className="mt-4 p-4 rounded text-sm bg-white/5 backdrop-blur-xl border border-white/10">
-            <p className="mb-2">
-              Here is your receipt from <strong>{selectedInvoice.userInfo?.businessName}</strong>, located at{" "}
-              <strong>{selectedInvoice.userInfo?.address || "N/A"}</strong>.<br />
-              Total: <strong>₹{Number(selectedInvoice.totalAmount || 0).toFixed(2)}</strong><br />
-              Issued on:{" "}
-              <strong>
-                {selectedInvoice.createdAt ? moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A") : "N/A"}
-              </strong>
-            </p>
-            {(() => {
-              const mode = deriveMode(selectedInvoice);
-              const isCredit = (selectedInvoice.paymentFlags?.isCredit === true) || mode === "credit";
-              const isPaid = deriveIsPaid(selectedInvoice, mode);
-              if (!(isCredit && !isPaid)) return null;
-              return (
+            {/* Action Buttons */}
+            <div className="mt-4 p-4 rounded text-sm bg-white/5 backdrop-blur-xl border border-white/10">
+              <p className="mb-2">
+                Here is your receipt from <strong>{selectedInvoice.userInfo?.businessName}</strong>, located at{" "}
+                <strong>{selectedInvoice.userInfo?.address || "N/A"}</strong>.<br />
+                Total: <strong>₹{Number(selectedInvoice.totalAmount || 0).toFixed(2)}</strong><br />
+                Issued on:{" "}
+                <strong>
+                  {selectedInvoice.createdAt ? moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A") : "N/A"}
+                </strong>
+              </p>
+              {(() => {
+                const mode = deriveMode(selectedInvoice);
+                const isCredit = (selectedInvoice.paymentFlags?.isCredit === true) || mode === "credit";
+                const isPaid = deriveIsPaid(selectedInvoice, mode);
+                if (!(isCredit && !isPaid)) return null;
+                return (
+                  <button
+                    className="px-4 py-2 rounded-lg mb-4 font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                    onClick={() => setShowMarkPaidModal(true)}
+                  >
+                    Mark as Paid
+                  </button>
+                );
+              })()}
+              <div className="flex gap-3">
                 <button
-                  className="px-4 py-2 rounded-lg mb-4 font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-                  onClick={() => setShowMarkPaidModal(true)}
+                  className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                  onClick={async () => {
+                    try { await (document.fonts?.ready ?? Promise.resolve()); } catch {}
+                    window.print();
+                  }}
                 >
-                  Mark as Paid
+                  Download PDF (A4)
                 </button>
-              );
-            })()}
-            <div className="flex gap-3">
-              <a
-                href={`https://wa.me/91${selectedInvoice.customer?.phone}?text=Here%20is%20your%20invoice%20from%20${encodeURIComponent(selectedInvoice.userInfo?.businessName || "FLYP")}%20-%20Total%3A%20₹${Number(selectedInvoice.totalAmount || 0).toFixed(2)}%20on%20${encodeURIComponent(moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A"))}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 rounded-lg inline-block font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-              >
-                Send via WhatsApp
-              </a>
-              <button
-                className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-                onClick={() => {
-                  const element = document.querySelector(".invoice-preview-container"); // wrap your InvoicePreview in this class
-                  if (!element) return alert("Invoice content not found.");
-
-                  const opt = {
-                    margin:       0.5,
-                    filename:     `Invoice-${selectedInvoice.id}.pdf`,
-                    image:        { type: 'jpeg', quality: 0.98 },
-                    html2canvas:  { scale: 2 },
-                    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
-                  };
-
-                  html2pdf().set(opt).from(element).save(); // or email logic later
-                }}
-              >
-                Send via Email
-              </button>
+                <a
+                  href={`https://wa.me/91${selectedInvoice.customer?.phone}?text=Here%20is%20your%20invoice%20from%20${encodeURIComponent(selectedInvoice.userInfo?.businessName || "FLYP")}%20-%20Total%3A%20₹${Number(selectedInvoice.totalAmount || 0).toFixed(2)}%20on%20${encodeURIComponent(moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A"))}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 rounded-lg inline-block font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                >
+                  Send via WhatsApp
+                </a>
+                <button
+                  className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                  onClick={() => {
+                    const element = document.querySelector(".invoice-preview-container");
+                    if (!element) return alert("Invoice content not found.");
+                    const opt = {
+                      margin: 0.5,
+                      filename: `Invoice-${selectedInvoice.id}.pdf`,
+                      image: { type: 'jpeg', quality: 0.98 },
+                      html2canvas: { scale: 2 },
+                      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+                    };
+                    html2pdf().set(opt).from(element).save();
+                  }}
+                >
+                  Send via Email
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-white/70 italic">Powered by FLYP — smart business invoicing</p>
             </div>
-            <p className="mt-2 text-xs text-white/70 italic">
-              Powered by FLYP — smart business invoicing
-            </p>
           </div>
-          </div>
-        </div>
+        </div>,
+        document.body
       )}
       {showMarkPaidModal && (
         <MarkPaidModal

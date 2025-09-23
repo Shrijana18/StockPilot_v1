@@ -49,14 +49,14 @@ const CustomerLoyaltyTags = () => {
   }, []);
 
   return (
-    <div className="bg-white p-4 rounded shadow mb-6">
-      <h2 className="text-lg font-bold mb-4">🎯 Customer Loyalty Tiers</h2>
+    <div className="bg-slate-900/60 border border-white/10 backdrop-blur-sm shadow rounded p-4 mb-6">
+      <h2 className="text-lg font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400">🎯 Customer Loyalty Tiers</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {loyaltyList.map((c, i) => (
-          <div key={i} className="border p-4 rounded shadow-sm">
-            <p className="font-semibold">{c.name} ({c.phone})</p>
-            <p>Visits: {c.visits}</p>
-            <p>Tier: <strong>{c.tier}</strong></p>
+          <div key={i} className="bg-slate-800/60 border border-white/10 rounded-lg p-4 shadow text-white">
+            <p><span className="font-semibold text-gray-300">Name:</span> <span className="text-white">{c.name} ({c.phone})</span></p>
+            <p><span className="font-semibold text-gray-300">Visits:</span> <span className="text-white">{c.visits}</span></p>
+            <p><span className="font-semibold text-gray-300">Tier:</span> <strong className="text-white">{c.tier}</strong></p>
           </div>
         ))}
       </div>

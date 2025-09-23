@@ -52,15 +52,17 @@ const CustomerInsights = () => {
   }, []);
 
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-semibold mb-4">Customer Insights</h2>
+    <div className="p-4 bg-black/70 rounded-lg border border-white/20 shadow-lg">
+      <h2 className="text-3xl font-extrabold mb-6 bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+        Customer Insights
+      </h2>
       <div className="space-y-4">
         {customerStats.map((c, i) => (
-          <div key={i} className="border p-4 rounded shadow bg-white">
-            <p className="font-semibold">{c.name} ({c.phone})</p>
-            <p>Total Visits: {c.visits}</p>
-            <p>Total Spend: ₹{c.totalSpend.toFixed(2)}</p>
-            <p>Top Products: {Object.entries(c.products).map(([p, q]) => `${p} (${q})`).join(", ")}</p>
+          <div key={i} className="border border-white/10 p-4 rounded-lg shadow bg-slate-900/60 text-white">
+            <p className="font-semibold text-white">{c.name} ({c.phone})</p>
+            <p className="text-gray-300">Total Visits: {c.visits}</p>
+            <p className="text-gray-300">Total Spend: ₹{c.totalSpend.toFixed(2)}</p>
+            <p className="text-gray-300">Top Products: {Object.entries(c.products).map(([p, q]) => `${p} (${q})`).join(", ")}</p>
           </div>
         ))}
       </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
+import { normalizeUnit } from "./pricingUtils";
 
 const ProductSearch = ({ onSelect }) => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -16,7 +17,19 @@ const ProductSearch = ({ onSelect }) => {
         const userId = auth.currentUser?.uid;
         if (!userId) return;
         const snapshot = await getDocs(collection(db, "businesses", userId, "products"));
-        const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const items = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          const mode = data.pricingMode ? data.pricingMode : (data.mrp ? "MRP_INCLUSIVE" : "SELLING_SIMPLE");
+          const gstRate = (data.gstRate ?? data.taxRate ?? 0);
+          const sellingIncludesGst = (data.sellingIncludesGst ?? (mode !== "BASE_PLUS_GST"));
+          return {
+            id: doc.id,
+            ...data,
+            pricingMode: mode,
+            gstRate,
+            sellingIncludesGst,
+          };
+        });
         setAllProducts(items);
       } catch (err) {
         console.error("Failed to load inventory:", err);
@@ -89,9 +102,27 @@ const ProductSearch = ({ onSelect }) => {
                 <span className="text-sm text-white/60">
                   SKU: {product.sku || "N/A"} | Brand: {product.brand || "N/A"} | Category: {product.category || "N/A"}
                 </span>
-                <span className="text-sm text-white/70">Selling Price: ₹{product.sellingPrice || "0.00"}</span>
+                {(() => {
+                  const unitNorm = normalizeUnit({
+                    pricingMode: product.pricingMode || (product.mrp ? "MRP_INCLUSIVE" : "SELLING_SIMPLE"),
+                    gstRate: product.gstRate ?? product.taxRate ?? 0,
+                    hsnCode: product.hsnCode,
+                    sellingPrice: product.sellingPrice ?? product.price ?? product.mrp ?? 0,
+                    sellingIncludesGst: product.sellingIncludesGst ?? (product.pricingMode !== "BASE_PLUS_GST"),
+                    mrp: product.mrp,
+                    basePrice: product.basePrice,
+                  });
+                  return (
+                    <>
+                      <span className="text-sm text-white/70">Price: ₹{unitNorm.unitPriceGross?.toFixed?.(2) ?? unitNorm.unitPriceGross}</span>
+                      {(product.pricingMode === "MRP_INCLUSIVE" || product.pricingMode === "BASE_PLUS_GST") && (
+                        <span className="text-[11px] text-white/60">{unitNorm.pricingExplainer}</span>
+                      )}
+                    </>
+                  );
+                })()}
                 <span className="text-xs text-white/60">Unit: {product.unit || "N/A"}</span>
-                <span className="text-xs text-emerald-300">In Stock: {product.quantity}</span>
+                <span className="text-xs text-emerald-300">In Stock: {product.quantity ?? 0}</span>
               </div>
             </li>
           ))}

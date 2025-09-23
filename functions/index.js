@@ -203,81 +203,183 @@ exports.employeeLogin = onCall(async (request) => {
     retailerId,
   };
 });
+
 // AI Inventory generation from a single brand (region: us-central1)
 exports.generateInventoryByBrand = onRequest({ region: "us-central1" }, (req, res) => {
   corsHandler(req, res, async () => {
     try {
-      const { prompt } = req.body;
+      const { prompt, brand, brandName, category, knownTypes, quantity, description } = req.body || {};
 
-      if (!prompt || typeof prompt !== "string") {
-        return res.status(400).json({ error: "Missing or invalid prompt" });
+      let requestedQty = Number(quantity) || 10;
+      if (requestedQty < 6) requestedQty = 6;
+      if (requestedQty > 50) requestedQty = 50;
+
+      let userPrompt = prompt;
+      if (!userPrompt) {
+        userPrompt = `
+Generate ${requestedQty} products for this brand.
+Brand: ${brand || brandName || ""}
+Category: ${category || ""}
+Known Types: ${knownTypes || "all"}
+Description: ${description || ""}
+`.trim();
       }
 
-      const userPrompt = prompt;
+      // ---- OpenAI: extended table with HSN / GST / Pricing Mode / Base / MRP ----
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      const openaiModel = process.env.OPENAI_MODEL || "gpt-4o-mini";
+      if (!openaiApiKey) {
+        console.error("Missing OPENAI_API_KEY");
+        return res.status(500).json({ error: "OpenAI API key not configured" });
+      }
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent`;
+      const systemPrompt = `You are an expert inventory assistant for Indian retail.
+Return ONLY a markdown table with the exact header:
+| Product Name | Brand | Category | SKU | Unit | HSN | GST (%) | Pricing Mode | Base Price | MRP | Cost |
 
+Rules:
+- GST (%) must be one of: 0, 5, 12, 18, 28.
+- Pricing Mode must be either "MRP_INCLUSIVE" or "BASE_PLUS_GST".
+- If Pricing Mode = MRP_INCLUSIVE and MRP is given but Base Price missing → leave Base Price blank (system computes).
+- If Pricing Mode = BASE_PLUS_GST and Base Price is given but MRP missing → leave MRP blank (system computes).
+- Unit must include quantity + container (e.g., "100ml Bottle", "250g Jar", "1kg Pack", "50ml Tube").
+- HSN must be a realistic Indian HSN (4–8 digits). If unsure, best guess.
+- Cost is optional (approx market-estimate or blank).
+- Output ONLY the table. No notes, no code fences.`;
+
+      const userMsg = `Make a product list for this prompt and output exactly the table described:
+${userPrompt}`;
+
+      const endpoint = "https://api.openai.com/v1/chat/completions";
       const payload = {
-        contents: [
-          {
-            parts: [{ text: userPrompt }],
-          },
+        model: openaiModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMsg }
         ],
+        temperature: 0.3
       };
-
-      const loadedKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.slice(0, 10) : "undefined";
-      console.log("🔥 GEMINI KEY LOADED:", loadedKey);
 
       let response;
       let retries = 2;
       while (retries > 0) {
         try {
           response = await axios.post(endpoint, payload, {
-            headers: { "Content-Type": "application/json" },
-            params: { key: process.env.GEMINI_API_KEY },
-            timeout: 15000
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${openaiApiKey}`
+            },
+            timeout: 20000
           });
           break; // success
         } catch (apiError) {
-          if (apiError.response && apiError.response.status === 503 && retries > 1) {
-            console.warn("503 error, retrying...");
+          const status = apiError.response && apiError.response.status;
+          if ((status === 429 || status === 503) && retries > 1) {
+            console.warn(`${status} from OpenAI, retrying...`);
             retries--;
-            await new Promise(r => setTimeout(r, 1000)); // wait 1 sec
+            await new Promise(r => setTimeout(r, 1200));
           } else {
-            console.error("Gemini API Request Failed:", apiError.message);
-            return res.status(500).json({ error: "Gemini API Request Failed", details: apiError.message });
+            console.error("OpenAI API Request Failed:", apiError.message);
+            return res.status(500).json({ error: "OpenAI API Request Failed", details: apiError.message });
           }
         }
       }
 
       let rawText = "";
       try {
-        const candidates = response.data && response.data.candidates;
-        console.log("Gemini candidates:", JSON.stringify(candidates, null, 2));
-        if (candidates && Array.isArray(candidates)) {
-          for (const c of candidates) {
-            const part = (c && c.content && c.content.parts && c.content.parts[0] && c.content.parts[0].text)
-              ? c.content.parts[0].text.trim()
-              : "";
-            if (part && part.includes("| Product Name")) {
-              rawText = part;
-              break;
-            }
+        rawText =
+          response &&
+          response.data &&
+          response.data.choices &&
+          response.data.choices[0] &&
+          response.data.choices[0].message &&
+          response.data.choices[0].message.content
+            ? response.data.choices[0].message.content.trim()
+            : "";
+
+        // Strip code fences if any
+        if (rawText.startsWith("```")) {
+          rawText = rawText.replace(/```(markdown|md|table|json)?/gi, "").replace(/```/g, "").trim();
+        }
+
+        // Extended header detection
+        const headerRegex = /\|\s*Product\s*Name\s*\|\s*Brand\s*\|\s*Category\s*\|\s*SKU\s*\|\s*Unit\s*\|\s*HSN\s*\|\s*GST\s*\(%\)\s*\|\s*Pricing\s*Mode\s*\|\s*Base\s*Price\s*\|\s*MRP\s*\|\s*Cost\s*\|/i;
+
+        // JSON fallback if the model returns JSON (rare)
+        if (!headerRegex.test(rawText)) {
+          let jsonParsed = null;
+          try { jsonParsed = JSON.parse(rawText); } catch {}
+          if (!Array.isArray(jsonParsed)) {
+            const m = rawText.match(/\[\s*\{[\s\S]*?\}\s*\]/);
+            if (m) { try { jsonParsed = JSON.parse(m[0]); } catch {} }
+          }
+          if (Array.isArray(jsonParsed)) {
+            const rows = jsonParsed.map(it => {
+              const productName = it.productName || it.name || "";
+              const brandVal    = it.brand || "";
+              const categoryVal = it.category || "";
+              const sku         = it.sku || it.SKU || "";
+              const unit        = it.unit || it.Unit || "";
+              const hsnCode     = it.hsnCode || it.hsn || it.HSN || "";
+              const gstRate     = it.gstRate ?? it.gst ?? it.GST ?? "";
+              const pricingMode = it.pricingMode || it.PricingMode || "MRP_INCLUSIVE";
+              const basePrice   = it.basePrice ?? "";
+              const mrp         = it.mrp ?? "";
+              const costPrice   = it.costPrice ?? it.cost ?? "";
+              return `| ${productName} | ${brandVal} | ${categoryVal} | ${sku} | ${unit} | ${hsnCode} | ${gstRate} | ${pricingMode} | ${basePrice} | ${mrp} | ${costPrice} |`;
+            });
+            rawText = [
+              "| Product Name | Brand | Category | SKU | Unit | HSN | GST (%) | Pricing Mode | Base Price | MRP | Cost |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+              ...rows
+            ].join("\n");
           }
         }
 
-        if (!rawText) {
-          console.warn("Gemini raw candidates:", JSON.stringify(response.data, null, 2));
-          console.error("Gemini response did not contain a valid table");
-          return res.status(500).json({ error: "No valid inventory table found", rawResponse: response.data });
+        if (!headerRegex.test(rawText)) {
+          console.error("OpenAI response did not contain a valid extended table header");
+          return res.status(500).json({ error: "No valid inventory table found" });
         }
-
-        console.log("Gemini rawText:", rawText);
       } catch (e) {
-        console.error("Error extracting Gemini response text", e);
-        return res.status(500).json({ error: "Error extracting Gemini response" });
+        console.error("Error extracting OpenAI response text", e);
+        return res.status(500).json({ error: "Error extracting OpenAI response" });
       }
 
+      // ---- Helpers for normalization ----
+      function toNum(v){
+        if (v === null || v === undefined || v === '') return null;
+        const n = Number(String(v).toString().replace(/[^\d.]/g, ''));
+        return Number.isFinite(n) ? n : null;
+      }
+      const GST_ALLOWED = [0,5,12,18,28];
+      function clampGstRate(rate){
+        const n = toNum(rate) ?? 0;
+        if (GST_ALLOWED.includes(n)) return n;
+        // snap to nearest
+        let best = 0, d = Infinity;
+        for (const r of GST_ALLOWED){
+          const dd = Math.abs(r - n);
+          if (dd < d){ d = dd; best = r; }
+        }
+        return best;
+      }
+      function compute(base){
+        const gstRate = clampGstRate(base.gstRate);
+        const mode = base.pricingMode === 'BASE_PLUS_GST' ? 'BASE_PLUS_GST' : 'MRP_INCLUSIVE';
+        let basePrice = toNum(base.basePrice);
+        let mrp = toNum(base.mrp);
+        if (mode === 'MRP_INCLUSIVE'){
+          if (mrp != null && basePrice == null){ basePrice = +(mrp / (1 + gstRate/100)).toFixed(2); }
+          else if (mrp == null && basePrice != null){ mrp = +(basePrice * (1 + gstRate/100)).toFixed(2); }
+        } else {
+          if (basePrice != null && mrp == null){ mrp = +(basePrice * (1 + gstRate/100)).toFixed(2); }
+          else if (basePrice == null && mrp != null){ basePrice = +(mrp / (1 + gstRate/100)).toFixed(2); }
+        }
+        const taxAmount = (mrp != null && basePrice != null) ? +(mrp - basePrice).toFixed(2) : null;
+        return { gstRate, pricingMode: mode, basePrice, mrp, taxAmount };
+      }
+
+      // ---- Parse the table into rows ----
       const tableStartIndex = rawText.indexOf("| Product Name");
       const table = tableStartIndex !== -1 ? rawText.slice(tableStartIndex).trim() : "";
       const lines = table
@@ -295,17 +397,31 @@ exports.generateInventoryByBrand = onRequest({ region: "us-central1" }, (req, re
           .split("|")
           .map(p => p.trim().replace(/\*.*?\*/g, ""));
 
+        if (parts.length < 11) return null;
         if (parts.some(p => p.includes("*"))) return null; // skip corrupted rows
 
-        // Table columns: | Product Name | Brand | Category | SKU | Price (INR) | Unit |
-        return {
+        // Columns: | Product Name | Brand | Category | SKU | Unit | HSN | GST (%) | Pricing Mode | Base Price | MRP | Cost |
+        const base = {
           productName: parts[0] || "",
           brand: parts[1] || "",
           category: parts[2] || "General",
           sku: parts[3] || "",
-          price: /^\d+$/.test(parts[4]) ? parts[4] : "50",
-          unit: parts[5] || "pcs",
+          unit: parts[4] || "",
+          hsnCode: parts[5] || "",
+          gstRate: parts[6] || "",
+          pricingMode: parts[7] || "MRP_INCLUSIVE",
+          basePrice: parts[8] || "",
+          mrp: parts[9] || "",
+          costPrice: parts[10] || "",
           imageUrl: "",
+        };
+        const computed = compute(base);
+        return {
+          ...base,
+          ...computed,
+          // keep sellingPrice aligned to MRP for UI compatibility
+          price: computed.mrp ?? null,
+          sellingPrice: computed.mrp ?? null,
         };
       }).filter(item => item && item.productName && item.sku);
 
@@ -320,6 +436,7 @@ exports.generateInventoryByBrand = onRequest({ region: "us-central1" }, (req, re
     }
   });
 });
+
 // Parse Invoice File via OCR + Gemini
 exports.parseInvoiceFile = onRequest({ region: "us-central1" }, async (req, res) => {
   corsHandler(req, res, async () => {
@@ -401,6 +518,117 @@ ${rawText}
     } catch (error) {
       console.error("parseInvoiceFile Error:", error.message);
       return res.status(500).json({ error: "Internal server error", details: error.message });
+    }
+  });
+});
+// Legacy alias for backward compatibility
+exports.parse = exports.parseInvoiceFile;
+
+// Generate HSN and GST using OpenAI Chat API
+exports.generateHSNAndGST = onRequest({ region: "us-central1" }, (req, res) => {
+  corsHandler(req, res, async () => {
+    // Early return for preflight
+    if (req.method === 'OPTIONS') { return res.status(204).send(''); }
+    try {
+      const { productName, brand, category, unit } = req.body;
+      if (!productName) {
+        return res.status(400).json({ error: "Missing productName in request body." });
+      }
+
+      // Compose system and user messages
+      const systemPrompt = `You are a GST and HSN classification expert for Indian products. Given product details, respond ONLY with a strict JSON object in this format:
+{
+  "hsn": "...",
+  "gst": ...,
+  "confidence": "...",
+  "reference": "..."
+}
+No markdown, no commentary, no explanations. If unsure, make your best guess and mention so in confidence.`;
+      const userPrompt = `Product Name: ${productName}
+Brand: ${brand || ""}
+Category: ${category || ""}
+Unit: ${unit || ""}`;
+
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+      if (!openaiApiKey) {
+        return res.status(500).json({ error: "OpenAI API key not configured" });
+      }
+      const endpoint = "https://api.openai.com/v1/chat/completions";
+      const payload = {
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+      };
+
+      let response;
+      let retries = 2;
+      let lastError;
+      while (retries > 0) {
+        try {
+          response = await axios.post(endpoint, payload, {
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${openaiApiKey}`,
+            },
+            timeout: 18000,
+          });
+          break; // success
+        } catch (apiError) {
+          lastError = apiError;
+          const status = apiError.response && apiError.response.status;
+          if ((status === 429 || status === 503) && retries > 1) {
+            console.warn(`${status} error from OpenAI, retrying...`);
+            retries--;
+            await new Promise(r => setTimeout(r, 1200));
+          } else {
+            console.error("OpenAI API Request Failed:", apiError.message);
+            return res.status(500).json({ error: "OpenAI API Request Failed", details: apiError.message });
+          }
+        }
+      }
+
+      let reply = "";
+      try {
+        reply =
+          response &&
+          response.data &&
+          response.data.choices &&
+          response.data.choices[0] &&
+          response.data.choices[0].message &&
+          response.data.choices[0].message.content
+            ? response.data.choices[0].message.content.trim()
+            : "";
+      } catch (e) {
+        console.error("Failed to extract OpenAI response text", e);
+        return res.status(500).json({ error: "Failed to extract OpenAI response" });
+      }
+      // Remove code fences if present
+      if (reply.startsWith("```")) {
+        reply = reply.replace(/```(json|txt)?/gi, "").replace(/```/g, "").trim();
+      }
+      let parsed = {};
+      try {
+        parsed = JSON.parse(reply);
+      } catch (e) {
+        console.warn("Failed to parse OpenAI HSN/GST response:", reply);
+        parsed = { error: true, rawReply: reply };
+      }
+      // Guard against missing fields and provide safe defaults
+      const out = {
+        hsn: typeof parsed.hsn === 'string' ? parsed.hsn : '',
+        gst: parsed.gst !== undefined && parsed.gst !== null ? parsed.gst : '',
+        confidence: typeof parsed.confidence === 'string' ? parsed.confidence : 'low',
+        reference: typeof parsed.reference === 'string' ? parsed.reference : ''
+      };
+      return res.status(200).json(out);
+    } catch (err) {
+      console.error("generateHSNAndGST Error:", err);
+      return res.status(500).json({ error: "Internal server error", details: err.message });
     }
   });
 });

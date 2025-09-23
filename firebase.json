@@ -1,9 +1,10 @@
 {
   "functions": {
-    "source": "voice/cloud-fn-parse",
+    "source": "functions",
     "runtime": "nodejs20",
     "v2": true,
     "regions": [
+      "us-central1",
       "asia-south1"
     ],
     "ignore": [
@@ -22,6 +23,10 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/getHSNAndGST",
+        "function": "generateHSNAndGST"
+      },
       {
         "source": "**",
         "destination": "/index.html"

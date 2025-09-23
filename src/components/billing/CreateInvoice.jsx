@@ -326,23 +326,106 @@ const CreateInvoice = () => {
     return { gstAmount, cgstAmount, sgstAmount, igstAmount };
   }
 
+  /* ---------- Pricing helpers (row-wise, synced with BillingCart) ---------- */
+  const computeLineBreakdown = (it) => {
+    const qty = Math.max(0, parseFloat(it.quantity) || 0);
+    const discPct = Math.max(0, Math.min(100, parseFloat(it.discount) || 0));
+
+    // Normalized snapshot from BillingCart for MRP/Base+GST
+    if (it?.normalized && (it.pricingMode === "MRP_INCLUSIVE" || it.pricingMode === "BASE_PLUS_GST")) {
+      const unitNet = Math.max(0, parseFloat(it.normalized.unitPriceNet) || 0);
+      const unitTax = Math.max(0, parseFloat(it.normalized.taxPerUnit) || 0);
+      const r = unitNet > 0 ? unitTax / unitNet : 0;
+
+      const unitNetAfterDisc = unitNet * (1 - discPct / 100);
+      const unitGrossAfterDisc = unitNetAfterDisc * (1 + r);
+      const unitTaxAfterDisc = unitGrossAfterDisc - unitNetAfterDisc;
+
+      return {
+        unitNet,
+        unitTax,
+        unitGross: unitNet * (1 + r),
+        unitNetAfterDisc,
+        unitTaxAfterDisc,
+        unitGrossAfterDisc,
+        lineNetAfterDisc: unitNetAfterDisc * qty,
+        lineTaxAfterDisc: unitTaxAfterDisc * qty,
+        lineGrossAfterDisc: unitGrossAfterDisc * qty,
+      };
+    }
+
+    // SELLING_SIMPLE / LEGACY: price is NET; add inline GST on top
+    if (it.pricingMode === "SELLING_SIMPLE" || it.pricingMode === "LEGACY") {
+      const unitNet = Math.max(0, parseFloat(it.price) || 0);
+      const rate = Math.max(0, parseFloat(it.inlineGstRate ?? it.gstRate ?? 0)) / 100;
+      const unitNetAfterDisc = unitNet * (1 - discPct / 100);
+      const unitGrossAfterDisc = unitNetAfterDisc * (1 + rate);
+      const unitTaxAfterDisc = unitGrossAfterDisc - unitNetAfterDisc;
+
+      return {
+        unitNet,
+        unitTax: unitNet * rate,
+        unitGross: unitNet * (1 + rate),
+        unitNetAfterDisc,
+        unitTaxAfterDisc,
+        unitGrossAfterDisc,
+        lineNetAfterDisc: unitNetAfterDisc * qty,
+        lineTaxAfterDisc: unitTaxAfterDisc * qty,
+        lineGrossAfterDisc: unitGrossAfterDisc * qty,
+      };
+    }
+
+    // Fallback: treat item.price as gross, apply discount only
+    const unitGross = Math.max(0, parseFloat(it.price) || 0);
+    const unitGrossAfterDisc = unitGross * (1 - discPct / 100);
+    return {
+      unitNet: unitGrossAfterDisc,
+      unitTax: 0,
+      unitGross,
+      unitNetAfterDisc: unitGrossAfterDisc,
+      unitTaxAfterDisc: 0,
+      unitGrossAfterDisc,
+      lineNetAfterDisc: unitGrossAfterDisc * qty,
+      lineTaxAfterDisc: 0,
+      lineGrossAfterDisc: unitGrossAfterDisc * qty,
+    };
+  };
+
+  const enrichCartItems = (items) => {
+    return (items || []).map((it) => {
+      const b = computeLineBreakdown(it);
+      return {
+        ...it,
+        unitPriceNet: b.unitNet,
+        unitPriceGross: b.unitGross,
+        unitPriceNetAfterDiscount: b.unitNetAfterDisc,
+        unitTaxAfterDiscount: b.unitTaxAfterDisc,
+        unitPriceGrossAfterDiscount: b.unitGrossAfterDisc,
+        lineNetAfterDiscount: b.lineNetAfterDisc,
+        lineTaxAfterDiscount: b.lineTaxAfterDisc,
+        lineGrossAfterDiscount: b.lineGrossAfterDisc,
+      };
+    });
+  };
+
   /* ---------- Totals ---------- */
   const computeTotals = () => {
-    const subtotal = cartItems.reduce((total, item) => {
-      const itemTotal = (parseFloat(item.quantity) || 0) * (parseFloat(item.price) || 0);
-      const discount = parseFloat(item.discount) || 0;
-      return total + itemTotal - (itemTotal * discount / 100);
-    }, 0);
+    const enriched = enrichCartItems(cartItems);
 
-    const { gstAmount, cgstAmount, sgstAmount, igstAmount } = calcTaxBreakdown(subtotal, settings);
+    const rowSubtotal = enriched.reduce((s, it) => s + (parseFloat(it.lineNetAfterDiscount) || 0), 0);
+    const rowTax = enriched.reduce((s, it) => s + (parseFloat(it.lineTaxAfterDiscount) || 0), 0);
+
+    // By default, we DO NOT apply cart-level GST again to avoid double-tax when row GST is present.
+    // If you want a manual override later, add a flag like settings.applyCartLevelTax === true.
+    const gstAmount = 0, cgstAmount = 0, sgstAmount = 0, igstAmount = 0;
 
     const charges =
       (parseFloat(settings.deliveryCharge) || 0) +
       (parseFloat(settings.packingCharge) || 0) +
       (parseFloat(settings.otherCharge) || 0);
 
-    const grandTotal = parseFloat((subtotal + gstAmount + cgstAmount + sgstAmount + igstAmount + charges).toFixed(2));
-    return { subtotal, gstAmount, cgstAmount, sgstAmount, igstAmount, charges, grandTotal };
+    const grandTotal = parseFloat((rowSubtotal + rowTax + charges).toFixed(2));
+    return { subtotal: rowSubtotal, gstAmount, cgstAmount, sgstAmount, igstAmount, rowTax, charges, grandTotal, enriched };
   };
 
   /* ---------- Fast Billing Actions (used by FastBillingMode) ---------- */
@@ -429,7 +512,7 @@ const CreateInvoice = () => {
       const payload = {
         customer,
         custId: customer && customer.custId ? customer.custId : undefined,
-        cartItems,
+        cartItems: totals.enriched,
         settings: cleanedSettings,
         paymentMode: settings.paymentMode,
         invoiceType: settings.invoiceType,
@@ -444,6 +527,10 @@ const CreateInvoice = () => {
           delivery: parseFloat(settings.deliveryCharge) || 0,
           packing: parseFloat(settings.packingCharge) || 0,
           other: parseFloat(settings.otherCharge) || 0,
+        },
+        taxSnapshot: {
+          rowTax: totals.rowTax,
+          cartLevel: { gst: totals.gstAmount, cgst: totals.cgstAmount, sgst: totals.sgstAmount, igst: totals.igstAmount },
         },
         mode: mode || "fast",
       };
@@ -493,18 +580,8 @@ const CreateInvoice = () => {
       return;
     }
 
-    const subtotal = cartItems.reduce((total, item) => {
-      const itemTotal = item.quantity * item.price;
-      const discount = item.discount || 0;
-      return total + itemTotal - (itemTotal * discount / 100);
-    }, 0);
-
-    const { gstAmount, cgstAmount, sgstAmount, igstAmount } = calcTaxBreakdown(subtotal, settings);
-
-    const charges = (parseFloat(settings.deliveryCharge) || 0)
-                  + (parseFloat(settings.packingCharge) || 0)
-                  + (parseFloat(settings.otherCharge) || 0);
-    const totalAmount = parseFloat((subtotal + gstAmount + cgstAmount + sgstAmount + igstAmount + charges).toFixed(2));
+    const totals = computeTotals();
+    const totalAmount = totals.grandTotal;
 
     if (settings.paymentMode === "Split") {
       const totalSplit = (Number(splitPayment.cash)||0) + (Number(splitPayment.upi)||0) + (Number(splitPayment.card)||0);
@@ -530,7 +607,7 @@ const CreateInvoice = () => {
     const newInvoiceData = {
       customer,
       custId: customer && customer.custId ? customer.custId : undefined,
-      cartItems,
+      cartItems: totals.enriched,
       settings: cleanedSettings,
       paymentMode: settings.paymentMode,
       invoiceType: settings.invoiceType,
@@ -545,7 +622,11 @@ const CreateInvoice = () => {
         delivery: parseFloat(settings.deliveryCharge) || 0,
         packing: parseFloat(settings.packingCharge) || 0,
         other: parseFloat(settings.otherCharge) || 0,
-      }
+      },
+      taxSnapshot: {
+        rowTax: totals.rowTax,
+        cartLevel: { gst: totals.gstAmount, cgst: totals.cgstAmount, sgst: totals.sgstAmount, igst: totals.igstAmount },
+      },
     };
     setInvoiceData(newInvoiceData);
     setShowPreview({ visible: true, issuedAt });
@@ -655,44 +736,30 @@ const CreateInvoice = () => {
             </div>
             <ProductSearch
               onSelect={(product) => {
+                if (!product) return;
                 const resolvedName =
-                  product.productName ||
-                  product.name ||
-                  product.title ||
-                  product.label ||
-                  "";
-                const resolvedPrice = parseFloat(
-                  product.sellingPrice ??
-                  product.price ??
-                  product.mrp ??
-                  0
-                );
-                const resolvedUnit = product.unit || product.packSize || "";
-                const alreadyExists = selectedProducts.find(
-                  (p) => p.id === product.id
-                );
+                  product.productName || product.name || product.title || product.label || "";
+
+                // Build a full product payload for BillingCart to normalize correctly
+                const fullProduct = {
+                  id: product.id,
+                  ...product,
+                  productName: resolvedName,
+                  // ensure expected fields exist
+                  pricingMode:
+                    product.pricingMode || (product.mrp ? "MRP_INCLUSIVE" : "SELLING_SIMPLE"),
+                  gstRate: product.gstRate ?? product.taxRate ?? 0,
+                  sellingIncludesGst:
+                    product.sellingIncludesGst ?? (product.pricingMode !== "BASE_PLUS_GST"),
+                };
+
+                // Dedupe by id
+                const alreadyExists = selectedProducts.find((p) => p.id === fullProduct.id);
                 if (!alreadyExists) {
-                  const newSelected = [
-                    ...selectedProducts,
-                    { id: product.id, name: resolvedName },
-                  ];
-                  setSelectedProducts(newSelected);
-                  setCartItems((prev) => [
-                    ...prev,
-                    {
-                      cartLineId: genCartLineId(),
-                      id: product.id,
-                      name: resolvedName,
-                      sku: product.sku || "",
-                      brand: product.brand || "",
-                      category: product.category || "",
-                      quantity: 1,
-                      price: resolvedPrice,
-                      discount: 0,
-                      unit: resolvedUnit,
-                    },
-                  ]);
+                  setSelectedProducts((prev) => [...prev, fullProduct]);
                 }
+                // IMPORTANT: Do NOT push to cartItems here. BillingCart listens to selectedProducts
+                // and will add a single normalized line with correct breakdown.
               }}
             />
           </div>

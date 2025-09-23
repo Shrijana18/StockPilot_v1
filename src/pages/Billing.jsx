@@ -1,13 +1,26 @@
 import React, { useState } from "react";
 import CreateInvoice from "../components/billing/CreateInvoice";
 import ViewInvoices from "../components/billing/ViewInvoices";
+import BillingSettings from "../components/billing/BillingSettings";
 
 const Billing = () => {
   const [activeTab, setActiveTab] = useState("create");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <section className="px-4 py-6 md:px-6 max-w-6xl mx-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-white">
-      <h1 className="text-xl md:text-2xl font-bold mb-4 text-center bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Billing Dashboard</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">
+          Billing Dashboard
+        </h1>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="ml-2 text-lg text-white/70 hover:text-white"
+          title="Customize Billing"
+        >
+          ⚙
+        </button>
+      </div>
 
       <div className="flex flex-wrap justify-center mb-6 gap-2 bg-white/5 backdrop-blur-xl p-2 rounded-2xl border border-white/10">
         <button
@@ -48,6 +61,11 @@ const Billing = () => {
           </button>
         </div>
       )}
+      <BillingSettings
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={(s) => console.log("Billing settings saved:", s)}
+      />
     </section>
   );
 };

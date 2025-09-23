@@ -253,6 +253,10 @@ export default function FastBillingMode({
   const [voicePaymentMode, setVoicePaymentMode] = useState("");
   const [voiceInvoiceType, setVoiceInvoiceType] = useState("");
   const [voicePaymentExtras, setVoicePaymentExtras] = useState({});
+  // Parser health – simple circuit breaker to avoid noisy 400s and keep UX smooth
+  const parserFailuresRef = useRef(0);
+  const parserDisabledUntilRef = useRef(0);
+  const parserLastNoticeRef = useRef(0);
 
   // 👉 Local mirror for tax flags/rates so preview updates instantly
   const [localSettings, setLocalSettings] = useState({});
@@ -553,13 +557,78 @@ export default function FastBillingMode({
       return;
     }
 
+    // If parser is temporarily disabled, go straight to local resolver (customer-aware)
+    if (Date.now() < parserDisabledUntilRef.current) {
+      const rawLower = String(text || "").toLowerCase();
+      const saysCustomer = /\b(customer|client|buyer|customer details?)\b/.test(rawLower);
+      if (saysCustomer) {
+        const phoneStr = extractPhoneFromUtterance(text);
+        const emailMatch = rawLower.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
+        const nameMatch = rawLower.match(/(?:name|named|call(?:ed)?|customer)\s*[:\-\s]*([a-zA-Z ]{2,})/);
+        const quickEnt = {};
+        if (phoneStr) quickEnt.phone = phoneStr;
+        if (emailMatch && emailMatch[0]) quickEnt.email = emailMatch[0];
+        if (nameMatch && nameMatch[1] && nameMatch[1] !== "customer") quickEnt.name = nameMatch[1].trim();
+        clearSuggestions();
+        routeIntent({ intent: "set_customer", entities: quickEnt }, text);
+      } else {
+        clearSuggestions();
+        routeIntent({ intent: "" }, text); // local fuzzy product resolver
+      }
+      setHistory((p) => [{ text, ts: Date.now() }, ...p].slice(0, 20));
+      try { speech?.clearFinalTranscript?.(); } catch {}
+      return;
+    }
+
     try {
       let res = await fetch("https://us-central1-stockpilotv1.cloudfunctions.net/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: text, userId }),
+        body: JSON.stringify({
+          text: String(text).slice(0, 200),
+          userId,
+          locale: "en-IN",
+          intentHints: ["add_product","set_customer","set_payment","set_gst","set_invoice_type"],
+        }),
       });
+      if (!res.ok) {
+        const errTxt = await res.text().catch(() => "");
+        console.error("Parse API non-OK", res.status, errTxt);
+        // Circuit breaker: after 3 consecutive failures, pause parser calls for 2 minutes
+        parserFailuresRef.current += 1;
+        if (parserFailuresRef.current >= 3) {
+          parserDisabledUntilRef.current = Date.now() + 2 * 60 * 1000;
+          if (Date.now() - parserLastNoticeRef.current > 60000) {
+            pushChip("Parser offline. Using local matching for a bit…", "info");
+            parserLastNoticeRef.current = Date.now();
+          }
+        }
+        // Smart fallback: if this was a customer utterance, route to set_customer; otherwise use product resolver
+        const rawLower = String(text || "").toLowerCase();
+        const saysCustomer = /\b(customer|client|buyer|customer details?)\b/.test(rawLower);
+        if (saysCustomer) {
+          const phoneStr = extractPhoneFromUtterance(text);
+          const emailMatch = rawLower.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
+          const nameMatch = rawLower.match(/(?:name|named|call(?:ed)?|customer)\s*[:\-\s]*([a-zA-Z ]{2,})/);
+          const quickEnt = {};
+          if (phoneStr) quickEnt.phone = phoneStr;
+          if (emailMatch && emailMatch[0]) quickEnt.email = emailMatch[0];
+          if (nameMatch && nameMatch[1] && nameMatch[1] !== "customer") quickEnt.name = nameMatch[1].trim();
+          clearSuggestions();
+          routeIntent({ intent: "set_customer", entities: quickEnt }, text);
+        } else {
+          // Fallback to local fuzzy product resolver
+          clearSuggestions();
+          routeIntent({ intent: "" }, text);
+        }
+        setHistory((p) => [{ text, ts: Date.now() }, ...p].slice(0, 20));
+        try {
+          speech?.clearFinalTranscript?.();
+        } catch {}
+        return;
+      }
       res = await res.json();
+      parserFailuresRef.current = 0; // restore parser health on success
 
       const normalized = {
         intent: String(res.intent || res.action || "").toLowerCase().replace(/\s+/g, "_"),
@@ -584,7 +653,23 @@ export default function FastBillingMode({
       } catch {}
 
       if (!normalized.intent) {
-        pushChip("Didn't understand. Try again.", "warn");
+        const rawLower = String(text || "").toLowerCase();
+        const saysCustomer = /\b(customer|client|buyer|customer details?)\b/.test(rawLower);
+        if (saysCustomer) {
+          const phoneStr = extractPhoneFromUtterance(text);
+          const emailMatch = rawLower.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
+          const nameMatch = rawLower.match(/(?:name|named|call(?:ed)?|customer)\s*[:\-\s]*([a-zA-Z ]{2,})/);
+          const quickEnt = {};
+          if (phoneStr) quickEnt.phone = phoneStr;
+          if (emailMatch && emailMatch[0]) quickEnt.email = emailMatch[0];
+          if (nameMatch && nameMatch[1] && nameMatch[1] !== "customer") quickEnt.name = nameMatch[1].trim();
+          clearSuggestions();
+          routeIntent({ intent: "set_customer", entities: quickEnt }, text);
+        } else {
+          // No remote intent → use local fuzzy product resolver
+          clearSuggestions();
+          routeIntent({ intent: "" }, text);
+        }
         setHistory((p) => [{ text, ts: Date.now() }, ...p].slice(0, 20));
         try {
           speech?.clearFinalTranscript?.();
