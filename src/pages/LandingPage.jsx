@@ -855,7 +855,7 @@ const LandingPage = () => {
           {[
             {name:'Riya', role:'Retailer', quote:'“OCR import cut billing time by half.”', avatar:'/assets/avatars/retailer_1.png', stars:5},
             {name:'Aman', role:'Distributor', quote:'“We finally see real-time stock across branches.”', avatar:'/assets/avatars/distributor_1.png', stars:5},
-            {name:'Neha', role:'Retailer', quote:'“12+ hours saved every week, reliably.”', avatar:'/assets/avatars/retailer_2.png', stars:5},
+            {name:'Tejas', role:'Retailer', quote:'“12+ hours saved every week, reliably.”', avatar:'/assets/avatars/retailer_2.png', stars:5},
           ].map((t,i)=>(
             <div key={i} className={`p-6 text-left rounded-2xl ${THEME.card} hover:shadow-[0_18px_60px_rgba(0,0,0,0.35)] transition`}>
               <div className="flex items-center gap-3 mb-3">
