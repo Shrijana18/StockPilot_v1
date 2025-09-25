@@ -191,6 +191,13 @@ const InvoicePreview = (props) => {
   };
   const heading = canonicalTypeToHeading(normalizedInvoiceType);
 
+  // Tolerant % parser (handles "18", "18%", " 18 ")
+  const parseRate = (v, d = 0) => {
+    if (v == null) return d;
+    const n = typeof v === "string" ? parseFloat(v) : Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
+
   // ---------- Tax split helpers (CGST/SGST vs IGST) ----------
   const getItemGstRate = (it) => {
     if (it?.normalized && (it.pricingMode === "MRP_INCLUSIVE" || it.pricingMode === "BASE_PLUS_GST")) {
@@ -198,7 +205,7 @@ const InvoicePreview = (props) => {
       const tax = Number(it.normalized.taxPerUnit || 0);
       return net > 0 ? (tax / net) * 100 : 0;
     }
-    return Number(it.inlineGstRate ?? it.gstRate ?? normalizedSettings.gstRate ?? 0) || 0;
+    return parseRate(it?.inlineGstRate ?? it?.gstRate ?? normalizedSettings.gstRate ?? 0, 0);
   };
   const getGSTStateFromNumber = (gstin) => {
     const m = String(gstin || '').match(/^(\d{2})/);
@@ -406,9 +413,9 @@ const InvoicePreview = (props) => {
                   const price = getPrice(item);
                   const discPct = getDiscountPct(item);
                   const discAmt = getDiscountAmt(item);
-                  // Use discount amount if present, else percent
+
                   let unitNet = price;
-                  let gstRate = Number(item.inlineGstRate ?? item.gstRate ?? normalizedSettings.gstRate ?? 0);
+                  let gstRate = getItemGstRate(item);
                   let unitDiscount = 0;
                   let netSubtotal = 0;
                   let taxPercent = gstRate;
@@ -417,27 +424,34 @@ const InvoicePreview = (props) => {
 
                   if (item?.normalized && (item.pricingMode === "MRP_INCLUSIVE" || item.pricingMode === "BASE_PLUS_GST")) {
                     unitNet = Number(item.normalized.unitPriceNet || 0);
-                    gstRate = Number(item.inlineGstRate ?? item.gstRate ?? normalizedSettings.gstRate ?? 0);
-                    // Discount: percent only (amount not supported in this mode)
-                    unitDiscount = unitNet * (discPct / 100);
-                    netSubtotal = (unitNet - unitDiscount) * qty;
+                    gstRate = getItemGstRate(item);
+                    // Discount: percent only (amount override also supported if provided)
+                    if (discAmt > 0) {
+                      unitDiscount = discAmt / qty;
+                    } else {
+                      unitDiscount = unitNet * (discPct / 100);
+                    }
+                    const unitNetAfterDisc = Math.max(0, unitNet - unitDiscount);
+                    netSubtotal = unitNetAfterDisc * qty;
                     taxPercent = gstRate;
-                    // Tax is on post-discount amount
-                    taxAmt = ((unitNet - unitDiscount) * (gstRate / 100)) * qty;
-                    lineTotal = ((unitNet - unitDiscount) * (1 + gstRate / 100)) * qty;
+                    taxAmt = netSubtotal * (gstRate / 100);
+                    lineTotal = netSubtotal + taxAmt;
                   } else if (item.pricingMode === "SELLING_SIMPLE" || item.pricingMode === "LEGACY") {
                     unitNet = price;
-                    gstRate = Number(item.inlineGstRate ?? item.gstRate ?? normalizedSettings.gstRate ?? 0);
-                    // Discount percent only (amount not supported)
-                    unitDiscount = unitNet * (discPct / 100);
-                    netSubtotal = (unitNet - unitDiscount) * qty;
+                    gstRate = getItemGstRate(item);
+                    if (discAmt > 0) {
+                      unitDiscount = discAmt / qty;
+                    } else {
+                      unitDiscount = unitNet * (discPct / 100);
+                    }
+                    const unitNetAfterDisc = Math.max(0, unitNet - unitDiscount);
+                    netSubtotal = unitNetAfterDisc * qty;
                     taxPercent = gstRate;
-                    taxAmt = ((unitNet - unitDiscount) * (gstRate / 100)) * qty;
-                    lineTotal = ((unitNet - unitDiscount) * (1 + gstRate / 100)) * qty;
+                    taxAmt = netSubtotal * (gstRate / 100);
+                    lineTotal = netSubtotal + taxAmt;
                   } else {
-                    // Legacy flat price (no GST)
+                    // Fallback: treat as net price without GST
                     unitNet = price;
-                    taxPercent = 0;
                     if (discAmt > 0) {
                       unitDiscount = discAmt / qty;
                       netSubtotal = (unitNet * qty) - discAmt;
@@ -445,6 +459,7 @@ const InvoicePreview = (props) => {
                       unitDiscount = unitNet * (discPct / 100);
                       netSubtotal = (unitNet - unitDiscount) * qty;
                     }
+                    taxPercent = 0;
                     taxAmt = 0;
                     lineTotal = netSubtotal;
                   }

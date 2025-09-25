@@ -5,6 +5,7 @@ import BillingCart from "./BillingCart";
 import InvoiceSettings from "./InvoiceSettings";
 import ProductSearch from "./ProductSearch";
 import InvoicePreview from "./InvoicePreview";
+import { normalizeUnit } from "./pricingUtils";
 import { auth, db } from "../../firebase/firebaseConfig";
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import FastBillingMode from "./VoiceBilling/FastBillingMode";
@@ -162,6 +163,29 @@ const CreateInvoice = () => {
       product.title ||
       product.label ||
       "";
+
+    // Decide pricing mode consistently with Manual Billing
+    const mode = product.pricingMode
+      ? product.pricingMode
+      : (product.mrp ? "MRP_INCLUSIVE" : (product.basePrice ? "BASE_PLUS_GST" : "SELLING_SIMPLE"));
+
+    // Resolve GST rate (inline) with same fallback order as Manual
+    const inlineRate = Number(
+      product.gstRate ?? product.taxRate ?? (settings?.gstRate ?? 0)
+    );
+
+    // Build normalized snapshot using the shared normalizer
+    const unitNorm = normalizeUnit({
+      pricingMode: mode,
+      gstRate: inlineRate,
+      hsnCode: product.hsnCode,
+      sellingPrice: product.sellingPrice ?? product.price ?? undefined,
+      // For Selling and Base+GST the selling price is exclusive; only MRP is inclusive
+      sellingIncludesGst: (mode === "SELLING_SIMPLE" || mode === "BASE_PLUS_GST") ? false : true,
+      mrp: product.mrp,
+      basePrice: product.basePrice,
+    });
+
     const newLine = {
       cartLineId: genCartLineId(),
       id: product.id,
@@ -170,23 +194,32 @@ const CreateInvoice = () => {
       brand: product.brand || "",
       category: product.category || "",
       quantity: Math.max(1, parseFloat(quantity) || 1),
-      price: parseFloat(
-        (product.sellingPrice ?? product.price ?? product.mrp ?? 0)
-      ),
+      // UI unit price shows NET (Manual discounts apply on net)
+      price: Number(unitNorm.unitPriceNet ?? 0),
       discount: 0, // percent
       unit: product.unit || product.packSize || "",
+
+      // Parity fields used by computeLineBreakdown / preview
+      pricingMode: mode,
+      gstRate: inlineRate,
+      inlineGstRate: inlineRate,
+      hsnCode: product.hsnCode || "",
+      mrp: product.mrp ?? undefined,
+      basePrice: product.basePrice ?? undefined,
+      normalized: {
+        unitPriceNet: Number(unitNorm.unitPriceNet ?? 0),
+        taxPerUnit: Number(unitNorm.taxPerUnit ?? 0),
+        unitPriceGross: Number(unitNorm.unitPriceGross ?? 0),
+        effectiveRate: Number(unitNorm.effectiveRate ?? inlineRate),
+      },
     };
+
     setSelectedProducts((prev) => {
       const exists = prev.find((p) => p.id === newLine.id);
-      return exists
-        ? prev
-        : [
-            ...prev,
-            { id: newLine.id, name: resolvedName },
-          ];
+      return exists ? prev : [...prev, { id: newLine.id, name: resolvedName }];
     });
     setCartItems((prev) => [...prev, newLine]);
-  };
+  }
 
   const addItemFromVoice = async (slots = {}) => {
     if (!userInfo) return;
@@ -533,6 +566,21 @@ const CreateInvoice = () => {
           cartLevel: { gst: totals.gstAmount, cgst: totals.cgstAmount, sgst: totals.sgstAmount, igst: totals.igstAmount },
         },
         mode: mode || "fast",
+      };
+
+      // ---- Voice/Manual schema parity for View Invoices & analytics ----
+      const isCredit = (String(settings.paymentMode || "")).toLowerCase() === "credit";
+      payload.paymentFlags = {
+        isCredit,
+        isSplit: Boolean(syncedSplitPayment?.cash || syncedSplitPayment?.upi || syncedSplitPayment?.card),
+        isAdvance: Boolean(syncedSplitPayment?.advanceAmount && Number(syncedSplitPayment.advanceAmount) > 0),
+      };
+      payload.paymentSummary = {
+        mode: settings.paymentMode || "",
+        splitPayment: syncedSplitPayment || null,
+        creditDueDays: settings.creditDays || null,
+        creditDueDate: creditDueDate || null,
+        status: isPaid ? "paid" : (isCredit ? "due" : "unpaid"),
       };
 
       const invoiceRef = doc(db, "businesses", userInfo.uid, "finalizedInvoices", newInvoiceId);

@@ -50,7 +50,14 @@ export default function CartView({
   const enriched = useMemo(() => {
     return rows.map((row, idx) => {
       const lineKey = lineKeyForRow(row, idx);
-      const unitPrice = toNumber(row.unitPrice ?? row.price ?? row.sellingPrice ?? row.mrp, 0);
+      const unitPrice = toNumber(
+        (row && row.normalized && row.normalized.unitPriceNet) ??
+        row.unitPrice ??
+        row.price ??
+        row.sellingPrice ??
+        row.mrp,
+        0
+      );
       const qtyBase = toNumber(row.qty ?? row.quantity, 1);
       const qty = toNumber(shadowQtys[lineKey] ?? qtyBase, qtyBase);
       const mode = (discountModes[lineKey] === "amt" || discountModes[lineKey] === "pct")
@@ -70,9 +77,17 @@ export default function CartView({
       const unit = row.unit || row.packSize || meta.unit || "";
       const category = row.category || meta.category || "";
 
+      // Pricing mode label (parity with Manual Billing)
+      const pMode = (row.pricingMode || "").toUpperCase();
+      const modeLabel =
+        pMode === "MRP_INCLUSIVE" ? "MRP (incl.)" :
+        pMode === "BASE_PLUS_GST"  ? "Base+GST"   :
+        pMode === "SELLING_SIMPLE" ? "Selling (net)" : (pMode || "");
+      const gstRate = toNumber(row.inlineGstRate ?? row.gstRate ?? (row.normalized && row.normalized.effectiveRate), NaN);
+
       return {
         row, idx, lineKey, unitPrice, qty, mode, draftStr, draftNum, discAmt, subtotal,
-        displayName, brand, unit, category
+        displayName, brand, unit, category, modeLabel, gstRate
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,7 +137,7 @@ export default function CartView({
           </thead>
 
           <tbody>
-            {enriched.map(({ row, lineKey, unitPrice, qty, mode, draftStr, draftNum, subtotal, displayName, brand, unit, category }, mapIdx) => {
+            {enriched.map(({ row, lineKey, unitPrice, qty, mode, draftStr, draftNum, subtotal, displayName, brand, unit, category, modeLabel, gstRate }, mapIdx) => {
               const handleQty = (next) => {
                 const safeQty = next < 1 ? 1 : next;
                 setShadow(lineKey, safeQty);
@@ -219,13 +234,28 @@ export default function CartView({
                       {brand ? <span className="text-[11px] opacity-80">{brand}</span> : null}
                       {unit ? <span className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 opacity-80">{unit}</span> : null}
                       {category ? <span className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 opacity-70">{category}</span> : null}
+                      {modeLabel ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 opacity-70" title="Pricing mode">
+                          {modeLabel}
+                        </span>
+                      ) : null}
+                      {Number.isFinite(gstRate) && gstRate > 0 ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 opacity-70" title="GST rate applied">
+                          GST {gstRate}%
+                        </span>
+                      ) : null}
                       <span className="text-[11px] opacity-50">•</span>
                       <span className="text-[11px] font-mono opacity-60">{row.sku || row.code || lineKey}</span>
                     </div>
                   </td>
 
                   {/* Price */}
-                  <td className="px-3 py-2 align-top whitespace-nowrap">₹{unitPrice.toFixed(2)}</td>
+                  <td className="px-3 py-2 align-top whitespace-nowrap">
+                    ₹{unitPrice.toFixed(2)}
+                    {row && row.normalized && typeof row.normalized.unitPriceNet !== "undefined" ? (
+                      <span className="ml-1 text-[10px] opacity-60" title="Net unit price (pre-GST)">net</span>
+                    ) : null}
+                  </td>
 
                   {/* Qty controls */}
                   <td className="px-3 py-2 align-top">

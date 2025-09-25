@@ -487,8 +487,37 @@ const LandingPage = () => {
   };
   const resetTilt = (e) => { e.currentTarget.style.transform = 'perspective(900px) rotateX(0deg) rotateY(0deg)'; };
 
+  // Intro overlay state and effect (staged cinematic)
+  const [showIntro, setShowIntro] = React.useState(true);
+  const [introStage, setIntroStage] = React.useState('logo'); // 'logo' | 'tagline' | 'curtain'
+  React.useEffect(() => {
+    // Progress through stages: logo -> tagline -> curtain -> unmount
+    const t1 = setTimeout(() => setIntroStage('tagline'), 900);
+    const t2 = setTimeout(() => setIntroStage('curtain'), 1800);
+    const t3 = setTimeout(() => setShowIntro(false), 2600);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, []);
+
   return (
     <div className={`text-white min-h-screen aurora-bg anim-gradient grain bg-gradient-to-b ${THEME.bg} ${themeMode==='dusk' ? 'theme-dusk' : 'theme-dark'}`}>
+      {showIntro && (
+        <div className={`intro-overlay fixed inset-0 z-50 flex items-center justify-center ${introStage==='curtain' ? 'curtain' : ''}`}>
+          {/* Kite logo + trail */}
+          <div className="intro-stack relative text-center">
+            <div className={`kite-wrapper ${introStage!=='logo' ? 'fly' : ''}`}>
+              <img src="/assets/flyp-logo.png" alt="FLYP" className="kite-logo" />
+              <span aria-hidden className="kite-trail" />
+            </div>
+            <div className={`tagline ${introStage!=='logo' ? 'show' : ''}`}>
+              {['FLYP', '—', 'Built', 'to', 'Fly'].map((w,i)=> (
+                <span key={i} className="tag-word" style={{ '--i': i }}>
+                  {w}{i<4?' ':''}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <div aria-hidden className="fixed inset-0 -z-10 bg-[#0B0F14]" />
       <div ref={auraRef} aria-hidden className="fixed top-0 left-0 z-0 pointer-events-none w-[300px] h-[300px] rounded-full" style={{ background: 'radial-gradient(150px 150px at center, rgba(16,185,129,0.25), rgba(16,185,129,0.0) 70%)', filter: 'blur(20px)' }} />
       <header className={`sticky top-0 z-50 glass supports-[backdrop-filter]:bg-white/5 bg-white/10 flex justify-between items-center border-b border-white/10 transition-all duration-300 ${shrinkHeader ? 'py-1 px-3 md:py-2 md:px-4' : 'py-4 px-6 md:py-6 md:px-8'}`}>
@@ -1257,6 +1286,32 @@ const LandingPage = () => {
       
       <style>{`
         ${styles}
+        /* Intro overlay animation */
+        .animate-pulse{
+          animation: pulseLogo 1.5s ease-in-out infinite;
+        }
+        @keyframes pulseLogo{
+          0%, 100%{ opacity:.6; transform: scale(1); }
+          50%{ opacity:1; transform: scale(1.1); }
+        }
+        /* ——— Intro Cinematic (kite flies + curtain reveal) ——— */
+        .intro-overlay{ background:#000; overflow:hidden; }
+        .intro-overlay.curtain{ animation: curtainUp .8s ease-in forwards; }
+        .intro-stack{ transform: translateY(0); }
+        .kite-wrapper{ display:inline-block; position:relative; will-change:transform; }
+        .kite-logo{ height:72px; width:auto; filter: drop-shadow(0 10px 30px rgba(0,0,0,.6)); }
+        .kite-trail{ position:absolute; left:50%; top:60%; width:2px; height:120px; transform: translateX(-50%);
+          background: linear-gradient(180deg, rgba(52,211,153,.9), rgba(34,211,238,0)); opacity:.7; filter: blur(0.3px);
+        }
+        .kite-wrapper.fly{ animation: flyUp 1.2s cubic-bezier(.2,.7,.3,1) forwards; }
+
+        .tagline{ margin-top:14px; font-weight:800; letter-spacing:.02em; }
+        .tagline .tag-word{ opacity:0; display:inline-block; background:linear-gradient(90deg,#fff,#e7fff5,#a7f3d0); -webkit-background-clip:text; background-clip:text; color:transparent; filter: blur(6px); }
+        .tagline.show .tag-word{ animation: wordIn .6s cubic-bezier(.2,.7,.3,1) forwards; animation-delay: calc(var(--i) * 90ms); }
+
+        @keyframes flyUp{ 0%{ transform: translateY(0) } 70%{ transform: translateY(-160px) } 100%{ transform: translateY(-200px) } }
+        @keyframes wordIn{ to { opacity:1; filter: blur(0); } }
+        @keyframes curtainUp{ to { transform: translateY(-100%); } }
         /* ——— Section Navigator ——— */
         .section-dot{ width:10px; height:10px; border-radius:9999px; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.06); position:relative; transition:transform .2s ease, background .2s ease, border-color .2s ease; }
         .section-dot:hover{ transform: scale(1.15); border-color: rgba(16,185,129,.8); }
