@@ -32,6 +32,9 @@ const styles = `
   .kinetic-text { background: linear-gradient(90deg, rgba(255,255,255,.9), rgba(255,255,255,.6), rgba(16,185,129,.9)); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 6s linear infinite; }
   .grain::before { content:''; position:fixed; inset:-10%; pointer-events:none; background-image:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN0dPz8fwAJ8gPZpjGZ8QAAAABJRU5ErkJggg=='); opacity:.06; mix-blend-mode: overlay; }
   .glass { backdrop-filter: blur(10px); }
+  /* Intro overlay logo size adjustment */
+  .brand-logo{ height:110px; width:auto; filter: drop-shadow(0 14px 32px rgba(0,0,0,.65)); }
+  .navbar-logo{ height:56px; width:auto; }
 `;
 
 const LandingPage = () => {
@@ -505,7 +508,7 @@ const LandingPage = () => {
           {/* Kite logo + trail */}
           <div className="intro-stack relative text-center">
             <div className={`kite-wrapper ${introStage!=='logo' ? 'fly' : ''}`}>
-              <img src="/assets/flyp-logo.png" alt="FLYP" className="kite-logo" />
+              <img src="/assets/flyp-logo.png" alt="FLYP" className="kite-logo brand-logo" />
               <span aria-hidden className="kite-trail" />
             </div>
             <div className={`tagline ${introStage!=='logo' ? 'show' : ''}`}>
@@ -523,7 +526,11 @@ const LandingPage = () => {
       <header className={`sticky top-0 z-50 glass supports-[backdrop-filter]:bg-white/5 bg-white/10 flex justify-between items-center border-b border-white/10 transition-all duration-300 ${shrinkHeader ? 'py-1 px-3 md:py-2 md:px-4' : 'py-4 px-6 md:py-6 md:px-8'}`}>
         <div className="flex items-center">
             <div className="logo-shine">
-                <img src="/assets/flyp-logo.png" alt="FLYP Logo" loading="eager" className={`${shrinkHeader ? 'h-8 md:h-10' : 'h-16 md:h-20'} w-auto drop-shadow-md transition-all duration-300`} />
+                <img
+                  src="/assets/flyp-logo.png"
+                  alt="FLYP"
+                  className="h-14 w-auto"
+                />
             </div>
         </div>
         <nav className={`hidden md:flex ${shrinkHeader ? 'gap-5 text-sm' : 'gap-6 text-base'} transition-all duration-300`}>

@@ -1,6 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { useMode } from "../mode/ModeProvider";
+import { useNavigate } from "react-router-dom";
 import POSBilling from "./panel/POSBilling";
 import KitchenDisplay from "./panel/KitchenDisplay";
 import { collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
@@ -19,6 +20,7 @@ import { db, auth } from "../../firebase/firebaseConfig";
  */
 export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables, onOpenQR }) {
   const { setMode } = useMode();
+  const navigate = useNavigate();
 
   const [view, setView] = React.useState("landing");
 
@@ -71,8 +73,15 @@ export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables
 
   const safeBack = () => {
     if (onBack) return onBack();
-    try { setMode && setMode("dashboard"); }
-    catch (_) { if (window.history.length > 1) return window.history.back(); window.location.assign("/dashboard"); }
+    try {
+      if (navigate) {
+        navigate("/dashboard");
+      }
+      if (setMode) setMode("dashboard");
+    } catch (_) {
+      if (window.history.length > 1) return window.history.back();
+      window.location.assign("/dashboard");
+    }
   };
 
   if (view === "billing") {

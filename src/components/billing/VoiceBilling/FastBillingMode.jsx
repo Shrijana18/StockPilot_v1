@@ -115,6 +115,39 @@ function normalizeGstEntities(entities, current) {
 
 }
 
+// Helper: Coerce value to GST rate (extract number from string, allow number, else NaN)
+function toRate(v) {
+  if (v == null) return NaN;
+  if (typeof v === "number") return v;
+  const s = String(v).trim();
+  const m = s.match(/(\d+(?:\.\d+)?)/);
+  return m ? parseFloat(m[1]) : NaN;
+}
+
+// Helper to extract GST rate from a row with robust fallbacks
+function extractGstRate(row = {}) {
+  const fromTags = () => {
+    const txt = Array.isArray(row.tags) ? row.tags.join(" ") : String(row.tags || "");
+    return toRate(txt);
+  };
+  const candidates = [
+    row.gstRate,
+    row.inlineGstRate,
+    row.normalized?.effectiveRate,
+    row.normalized?.gstRate,
+    row.product?.gstRate,
+    row.product?.gst,
+    row.meta?.gstRate,
+    row.meta?.gst,
+    fromTags()
+  ];
+  for (const c of candidates) {
+    const r = toRate(c);
+    if (Number.isFinite(r) && r >= 0 && r <= 100) return r;
+  }
+  return 0;
+}
+
 // Ensure each cart line we save has a stable, human-friendly description
 // by enriching with inventory data when the host cart only includes SKU.
 function enrichCartLine(row, inventory) {
@@ -169,6 +202,10 @@ function enrichCartLine(row, inventory) {
     }
   }
 
+  // --- GST context passthrough (parity with Manual Billing) ---
+  const gstRate = extractGstRate(r);
+  const pricingMode = r.pricingMode || (r.mode && String(r.mode).toUpperCase().includes("MRP") ? "MRP_INCLUSIVE" : undefined) || "BASE_PLUS_GST";
+
   return {
     // keep any host identifiers intact
     cartLineId: r.cartLineId,
@@ -192,6 +229,22 @@ function enrichCartLine(row, inventory) {
     // common aliases used by manual billing / viewers
     quantity: qty,
     total: subtotal,
+    // GST passthrough fields
+    gstRate,
+    pricingMode,
+    // Full GST context (match manual billing)
+    includeGST: true,
+    includeCGST: true,
+    includeSGST: true,
+    includeIGST: false,
+    cgstRate: Math.round(gstRate/2),
+    sgstRate: Math.floor(gstRate/2),
+    igstRate: gstRate,
+    // --- Add tax fields for InvoicePreview compatibility ---
+    taxAmount: gstRate ? Math.round((subtotal * gstRate) / 100) : 0,
+    cgst: gstRate ? Math.round((subtotal * (gstRate/2)) / 100) : 0,
+    sgst: gstRate ? Math.round((subtotal * (gstRate/2)) / 100) : 0,
+    igst: 0,
   };
 }
 
@@ -1657,6 +1710,9 @@ export default function FastBillingMode({
                     }
                   }
 
+                // Compute gstRate once for reuse
+                const gstRate = extractGstRate(row);
+
                   return {
                     name: name || "—",
                     brand: row.brand || (row.product && row.product.brand) || "",
@@ -1672,6 +1728,21 @@ export default function FastBillingMode({
                       ? Number(discountAmount)
                       : undefined,
                     subtotal,
+                    gstRate,
+                    pricingMode: row.pricingMode || (row.mode && String(row.mode).toUpperCase().includes("MRP") ? "MRP_INCLUSIVE" : undefined) || "BASE_PLUS_GST",
+                    // GST inclusion flags (manual billing defaults)
+                    includeGST: true,
+                    includeCGST: true,
+                    includeSGST: true,
+                    includeIGST: false,
+                    cgstRate: Math.round(gstRate / 2),
+                    sgstRate: Math.floor(gstRate / 2),
+                    igstRate: gstRate,
+                    // --- Add tax fields for InvoicePreview compatibility ---
+                    taxAmount: gstRate ? Math.round((subtotal * gstRate) / 100) : 0,
+                    cgst: gstRate ? Math.round((subtotal * (gstRate/2)) / 100) : 0,
+                    sgst: gstRate ? Math.round((subtotal * (gstRate/2)) / 100) : 0,
+                    igst: 0,
                   };
                 });
 
@@ -1679,6 +1750,14 @@ export default function FastBillingMode({
                 const mergedSettings = {
                   ...getHostSettings(),
                   ...localSettings, // 👈 ensure live mirror is shown in preview
+                  includeGST: localSettings.includeGST ?? true,
+                  includeCGST: localSettings.includeCGST ?? true,
+                  includeSGST: localSettings.includeSGST ?? true,
+                  includeIGST: localSettings.includeIGST ?? false,
+                  gstRate: localSettings.gstRate ?? 18,
+                  cgstRate: localSettings.cgstRate ?? 9,
+                  sgstRate: localSettings.sgstRate ?? 9,
+                  igstRate: localSettings.igstRate ?? 18,
                   paymentMode: derivedPaymentMode,
                   invoiceType: derivedInvoiceType,
                   ...(voicePaymentExtras || {}),

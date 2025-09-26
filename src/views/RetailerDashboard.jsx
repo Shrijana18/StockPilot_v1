@@ -127,7 +127,7 @@ const RetailerDashboardInner = () => {
   };
 
   return (
-    <div className={`flex min-h-screen relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] text-white ${!sidebarOpen && mode !== "pos" ? "md:[&>*:last-child]:max-w-[1400px] md:[&>*:last-child]:mx-auto" : ""}`}>
+    <div className={`flex min-h-[100dvh] w-full relative overflow-x-hidden overflow-y-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] text-white ${!sidebarOpen && mode !== "pos" ? "md:[&>*:last-child]:max-w-[1400px] md:[&>*:last-child]:mx-auto" : ""}`}>
       {/* Aurora backdrop */}
       <div className="pointer-events-none absolute inset-0 opacity-40">
         <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
@@ -137,7 +137,7 @@ const RetailerDashboardInner = () => {
       {showMobileSidebar && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-40 md:hidden" onClick={() => setShowMobileSidebar(false)}>
           <div
-            className="w-64 h-full p-4 bg-white/10 backdrop-blur-2xl border border-white/15 shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
+            className="w-[80vw] max-w-[320px] h-full p-4 bg-white/10 backdrop-blur-2xl border border-white/15 shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
@@ -215,14 +215,14 @@ const RetailerDashboardInner = () => {
           initial="initial"
           animate="enter"
           exit="exit"
-          className={`flex-1 flex flex-col ${mode === "pos" ? "ml-0" : (sidebarOpen ? "ml-64" : "ml-0")} relative z-10 transition-all duration-300`}
+          className={`flex-1 flex flex-col ${mode === "pos" ? "ml-0" : (sidebarOpen ? "ml-0 md:ml-64" : "ml-0")} relative z-10 transition-all duration-300`}
         >
           {mode === "pos" ? (
             <POSView />
           ) : (
             <>
               {/* Top Bar */}
-              <div className="sticky top-0 z-30 px-8 py-4 flex items-center justify-between bg-gradient-to-r from-white/5 to-white/10 backdrop-blur-2xl bg-white/10 border-b border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.25)]">
+              <div className="sticky top-0 z-30 px-4 md:px-8 py-3 md:py-4 pt-[env(safe-area-inset-top)] flex items-center justify-between bg-gradient-to-r from-white/5 to-white/10 backdrop-blur-2xl border-b border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.25)]">
                 {/* Left section: mobile menu button and compact brand capsule */}
                 <div className="flex items-center">
                   <button
@@ -279,7 +279,7 @@ const RetailerDashboardInner = () => {
                 initial={{ opacity: 0, x: 40 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.4 }}
-                className="flex-1 px-4 py-6 md:px-6 overflow-y-auto pt-4 text-white"
+                className="flex-1 px-4 md:px-6 py-4 md:py-6 overflow-y-auto pb-[env(safe-area-inset-bottom)] text-white"
               >
                 {activeTab === 'home' && (
                   <div>

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 import LandingPage from './pages/LandingPage.jsx';
+import AppLanding from './pages/AppLanding.jsx';
 import RetailerDashboard from './views/RetailerDashboard.jsx';
 import DistributorDashboard from './components/DistributorDashboard.jsx';
 import ProductOwnerDashboard from './components/ProductOwnerDashboard.jsx';
@@ -20,7 +21,6 @@ import 'react-toastify/dist/ReactToastify.css';
 import { AuthContext } from './context/AuthContext';
 
 import { isNativeApp } from './utils/isNativeApp';
-import MobileLayout from './components/mobile/MobileLayout';
 
 import { App as CapacitorApp } from '@capacitor/app';
 import { Toast } from '@capacitor/toast';
@@ -53,11 +53,12 @@ const App = () => {
   return (
     <AuthProvider>
       {isNativeApp() ? (
-        <MobileLayout>
           <Routes>
             {/* Public Routes */}
-            <Route path="/" element={<LandingPage />} />
+            <Route path="/" element={<AppLanding />} />
             <Route path="/auth/*" element={<AuthPage />} />
+            <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
+            <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
 
             {/* Protected Routes */}
@@ -113,13 +114,14 @@ const App = () => {
             {/* Future routes can be conditionally rendered based on role */}
             <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
           </Routes>
-        </MobileLayout>
       ) : (
         <>
           <Routes>
             {/* Public Routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/auth/*" element={<AuthPage />} />
+            <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
+            <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
 
             {/* Protected Routes */}

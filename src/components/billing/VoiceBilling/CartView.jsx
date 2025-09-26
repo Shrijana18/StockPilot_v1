@@ -85,9 +85,19 @@ export default function CartView({
         pMode === "SELLING_SIMPLE" ? "Selling (net)" : (pMode || "");
       const gstRate = toNumber(row.inlineGstRate ?? row.gstRate ?? (row.normalized && row.normalized.effectiveRate), NaN);
 
+      // --- tax calculations (parity with Manual Billing) ---
+      const effectiveGst = Number.isFinite(gstRate) && gstRate > 0 ? gstRate : 0;
+      const taxAmount = round2(subtotal * (effectiveGst / 100));
+      const useIGST = !!(row.useIGST || row.igst); // heuristic from item if present
+      const cgst = useIGST ? 0 : round2(taxAmount / 2);
+      const sgst = useIGST ? 0 : round2(taxAmount / 2);
+      const igst = useIGST ? taxAmount : 0;
+      const grossTotal = round2(subtotal + taxAmount);
+
       return {
         row, idx, lineKey, unitPrice, qty, mode, draftStr, draftNum, discAmt, subtotal,
-        displayName, brand, unit, category, modeLabel, gstRate
+        displayName, brand, unit, category, modeLabel, gstRate,
+        effectiveGst, taxAmount, cgst, sgst, igst, grossTotal
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,6 +107,20 @@ export default function CartView({
     () => round2(enriched.reduce((acc, r) => acc + (r.subtotal || 0), 0)),
     [enriched]
   );
+
+  const tableTaxTotals = useMemo(() => {
+    return enriched.reduce(
+      (acc, r) => {
+        acc.tax += r.taxAmount || 0;
+        acc.cgst += r.cgst || 0;
+        acc.sgst += r.sgst || 0;
+        acc.igst += r.igst || 0;
+        acc.gross += r.grossTotal || (r.subtotal || 0);
+        return acc;
+      },
+      { tax: 0, cgst: 0, sgst: 0, igst: 0, gross: 0 }
+    );
+  }, [enriched]);
 
   return (
     <div className="rounded-2xl p-4 bg-gradient-to-br from-neutral-900/70 to-neutral-800/60 shadow-lg shadow-black/30 border border-white/10">
@@ -137,7 +161,7 @@ export default function CartView({
           </thead>
 
           <tbody>
-            {enriched.map(({ row, lineKey, unitPrice, qty, mode, draftStr, draftNum, subtotal, displayName, brand, unit, category, modeLabel, gstRate }, mapIdx) => {
+            {enriched.map(({ row, lineKey, unitPrice, qty, mode, draftStr, draftNum, subtotal, displayName, brand, unit, category, modeLabel, gstRate, effectiveGst, taxAmount, cgst, sgst, igst, grossTotal }, mapIdx) => {
               const handleQty = (next) => {
                 const safeQty = next < 1 ? 1 : next;
                 setShadow(lineKey, safeQty);
@@ -247,6 +271,15 @@ export default function CartView({
                       <span className="text-[11px] opacity-50">•</span>
                       <span className="text-[11px] font-mono opacity-60">{row.sku || row.code || lineKey}</span>
                     </div>
+                    {Number.isFinite(gstRate) && gstRate > 0 ? (
+                      <div className="w-full text-[10px] opacity-60">
+                        {row.useIGST || row.igst ? (
+                          <span title="IGST breakdown">IGST {gstRate}% = ₹{(subtotal * (gstRate/100)).toFixed(2)}</span>
+                        ) : (
+                          <span title="CGST/SGST breakdown">CGST {(gstRate/2).toFixed(1)}% = ₹{(subtotal * (gstRate/200)).toFixed(2)} • SGST {(gstRate/2).toFixed(1)}% = ₹{(subtotal * (gstRate/200)).toFixed(2)}</span>
+                        )}
+                      </div>
+                    ) : null}
                   </td>
 
                   {/* Price */}
@@ -367,6 +400,17 @@ export default function CartView({
                   {rows.length} line{rows.length === 1 ? "" : "s"}
                 </td>
                 <td className="px-3 py-2 text-right font-semibold">₹{tableSubtotal.toFixed(2)}</td>
+                {onRemoveLine && <td />}
+              </tr>
+              <tr>
+                <td className="px-3 py-2 text-xs opacity-70" colSpan={3}>Est. tax (items)</td>
+                <td className="px-3 py-2 text-right text-xs opacity-70">CGST: ₹{round2(tableTaxTotals.cgst).toFixed(2)} • SGST: ₹{round2(tableTaxTotals.sgst).toFixed(2)}{tableTaxTotals.igst > 0 ? ` • IGST: ₹${round2(tableTaxTotals.igst).toFixed(2)}` : ""}</td>
+                <td className="px-3 py-2 text-right font-semibold">₹{round2(tableTaxTotals.tax).toFixed(2)}</td>
+                {onRemoveLine && <td />}
+              </tr>
+              <tr>
+                <td className="px-3 py-2 text-xs opacity-70" colSpan={4}>Grand total</td>
+                <td className="px-3 py-2 text-right font-semibold">₹{round2(tableTaxTotals.gross).toFixed(2)}</td>
                 {onRemoveLine && <td />}
               </tr>
             </tfoot>

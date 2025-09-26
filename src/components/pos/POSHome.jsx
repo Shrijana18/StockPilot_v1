@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import POSView from "./POSView";
 
@@ -16,11 +16,10 @@ import POSView from "./POSView";
 export default function POSHome() {
   const navigate = useNavigate();
 
-  const handleBack = () => {
-    // Prefer going back if possible; fallback to retailer dashboard
-    if (window.history.length > 1) navigate(-1);
-    else navigate("/dashboard");
-  };
+  const handleBack = useCallback(() => {
+    // Always go to dashboard to avoid inconsistent history stacks in WebView
+    navigate("/dashboard", { replace: true });
+  }, [navigate]);
 
   return (
     <div className="w-full h-full">
