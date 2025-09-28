@@ -9,6 +9,7 @@ import { db, auth } from "../../firebase/firebaseConfig";
 // Removed useAuth because we will pass userId as prop
 import EditProductModal from "./EditProductModal";
 import AddColumnInventory from "./AddColumnInventory";
+import QRCodeGenerator from "./QRCodeGenerator";
 
 // === Column Preferences: defaults + storage keys ===
 const COLUMN_DEFAULTS = [
@@ -27,6 +28,7 @@ const COLUMN_DEFAULTS = [
   { id: "gstRate", label: "GST %", minWidth: 90 },
   { id: "status", label: "Status", minWidth: 100, align: "center" },
   { id: "source", label: "Source", minWidth: 120 },
+  { id: "qr", label: "QR", minWidth: 80 },
   { id: "delete", label: "Delete", minWidth: 80 },
   { id: "edit", label: "Edit", minWidth: 80 },
 ];
@@ -110,6 +112,9 @@ const ViewInventory = ({ userId }) => {
   const [deleteTargetProduct, setDeleteTargetProduct] = useState(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   // Modal states for image upload
+  // QR modal states
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrTargetProduct, setQrTargetProduct] = useState(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageTargetProduct, setImageTargetProduct] = useState(null);
   const [imageUploadFile, setImageUploadFile] = useState(null);
@@ -380,6 +385,7 @@ const ViewInventory = ({ userId }) => {
     const q = parseInt(qty);
     return isNaN(q) ? "Unknown" : q <= 5 ? "Low" : "In Stock";
   };
+
 
   // Delete modal logic
   const handleDelete = (product) => {
@@ -667,6 +673,18 @@ const ViewInventory = ({ userId }) => {
                       <tr key={p.id} className="border-t border-white/10 hover:bg-white/5">
                         {columns.filter(c => !hiddenCols.has(c.id)).map(col => {
                           switch (col.id) {
+                            case "qr":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <button
+                                    onClick={() => { setQrTargetProduct(p); setShowQrModal(true); }}
+                                    className="px-2 py-1 text-xs rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                                    title="Generate QR"
+                                  >
+                                    Generate
+                                  </button>
+                                </td>
+                              );
                             case "image":
                               return (
                                 <td key={col.id} className="p-2">
@@ -950,6 +968,13 @@ const ViewInventory = ({ userId }) => {
                     >
                       {item.status || getStatus(item.quantity)}
                     </span>
+                    <button
+                      className="text-xs px-2 py-1 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                      onClick={() => { setQrTargetProduct(item); setShowQrModal(true); }}
+                      title="Generate QR"
+                    >
+                      QR
+                    </button>
                     {/* Delete button triggers modal */}
                     <button
                       className="ml-auto text-rose-300 hover:text-rose-200 px-2"
@@ -1073,6 +1098,19 @@ const ViewInventory = ({ userId }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* QR Modal (fresh component handles its own portal/overlay/scroll lock) */}
+      {showQrModal && qrTargetProduct && (
+        <QRCodeGenerator
+          product={qrTargetProduct}
+          size={220}
+          businessId={userId}
+          onClose={() => {
+            setShowQrModal(false);
+            setQrTargetProduct(null);
+          }}
+        />
       )}
     </div>
   );

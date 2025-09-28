@@ -1,4 +1,5 @@
 import React from "react";
+import ScanModal from "../../billing/ScanModal";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -54,6 +55,25 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
   const [activeCat, setActiveCat] = React.useState(/** @type {string|undefined} */(undefined));
   const [saving, setSaving] = React.useState(false);
   const [notice, setNotice] = React.useState("");
+  const [scanOpen, setScanOpen] = React.useState(false);
+  // Handler for barcode/QR scan decoded text
+  const onDecoded = React.useCallback(
+    (text) => {
+      if (!text) return;
+      // Try to find product by SKU or id
+      let found =
+        results.find((p) => p.sku && p.sku === text) ||
+        results.find((p) => p.id === text);
+      if (found) {
+        addToCart(found);
+        setScanOpen(false);
+      } else {
+        setNotice("Product not found");
+        setTimeout(() => setNotice(""), 1200);
+      }
+    },
+    [results]
+  );
 
   // Retail vs Cafe/Restro: Inventory browse vs Menu builder
   const [useInventory, setUseInventory] = React.useState(mode !== "cafe");
@@ -229,6 +249,36 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
   const cardGradient = "border-2 border-transparent bg-clip-padding bg-gradient-to-br from-emerald-100/60 to-cyan-100/40 hover:from-emerald-200/90 hover:to-cyan-200/80";
   const cardBorderGradient = "border bg-gradient-to-br from-emerald-300/60 to-cyan-300/40";
 
+  // Handler used by ScanModal to push scanned item(s) straight into the cart
+  const handleScanAddToCart = React.useCallback(async (payload) => {
+    if (!payload) return;
+    // Case 1: full line from scanner { product, qty }
+    if (payload.product) {
+      const qty = Math.max(1, payload.qty || 1);
+      for (let i = 0; i < qty; i++) addToCart(payload.product);
+      setScanOpen(false);
+      return;
+    }
+    // Case 2: scanner gives a SKU/ID string { sku } or raw string
+    const code = typeof payload === 'string' ? payload : (payload.sku || payload.id || payload.code || '');
+    if (!code) return;
+    // Try to resolve locally first
+    let found = results.find(p => (p.sku && p.sku === code) || p.id === code);
+    if (!found && inventory.searchProducts) {
+      try {
+        const r = await inventory.searchProducts(code);
+        found = (r || []).find(p => (p.sku && p.sku === code) || p.id === code) || (r && r[0]);
+      } catch (_) {}
+    }
+    if (found) {
+      addToCart(found);
+      setScanOpen(false);
+    } else {
+      setNotice('Product not found');
+      setTimeout(() => setNotice(''), 1200);
+    }
+  }, [results, inventory]);
+
   // Animation variants
   const fadeVariants = {
     initial: { opacity: 0, y: 18 },
@@ -259,6 +309,12 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
             onClick={onBack}
             className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-4 py-2 text-sm font-semibold shadow hover:shadow-lg"
           >← Back</button>
+          <button
+            onClick={() => setScanOpen(true)}
+            className="rounded-lg bg-gradient-to-r from-cyan-400 via-emerald-300 to-teal-400 text-slate-900 px-4 py-2 text-sm font-semibold shadow hover:shadow-lg"
+            type="button"
+            style={{ marginLeft: "0.5rem" }}
+          >Scan</button>
           <h2 className="text-lg font-semibold">Billing POS</h2>
           <div className="flex-1" />
           <button
@@ -637,6 +693,12 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
           </motion.div>
         )}
       </AnimatePresence>
+      <ScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onDecoded={onDecoded}
+        onAddToCart={handleScanAddToCart}
+      />
     </div>
   );
 }

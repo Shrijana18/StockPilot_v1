@@ -76,6 +76,8 @@ const InvoicePreview = (props) => {
 
   // Merge Billing Settings override (branding, bank, payment, terms only; no theme/template)
   const [billingPrefs, setBillingPrefs] = React.useState(null);
+  // Publishing overlay state
+  const [publishStatus, setPublishStatus] = React.useState("idle"); // idle | publishing | success | error
   const prefs = billingPrefsOverride || billingPrefs || {};
   const effectiveBranding = { ...(branding || {}), ...(prefs.branding || {}) };
   const effectiveBank = { ...(bank || {}), ...(prefs.bank || {}) };
@@ -191,6 +193,42 @@ const InvoicePreview = (props) => {
   };
   const heading = canonicalTypeToHeading(normalizedInvoiceType);
 
+  // ---- Extras (Delivery/Packaging/Insurance) + Driver normalizers ----
+  const computeExtrasCharges = (subtotal, s = {}) => {
+    const ex = s.extras || {};
+
+    // legacy fields (kept)
+    const legacyDelivery = Number(s.deliveryCharge) || 0;
+    const legacyPacking  = Number(s.packingCharge)  || 0;
+    const legacyOther    = Number(s.otherCharge)    || 0;
+
+    const deliveryFee  = Number(ex.deliveryFee)   || 0;
+    const packagingFee = Number(ex.packagingFee)  || 0;
+
+    let insuranceAmt = 0;
+    const insType = ex.insuranceType || 'none';
+    const insVal  = Number(ex.insuranceValue) || 0;
+    if (insType === 'flat') insuranceAmt = insVal;
+    if (insType === 'percent') insuranceAmt = subtotal * (insVal / 100);
+
+    const delivery  = legacyDelivery + deliveryFee;
+    const packaging = legacyPacking  + packagingFee;
+    const other     = legacyOther;
+    const total     = delivery + packaging + insuranceAmt + other;
+
+    return { delivery, packaging, insurance: insuranceAmt, other, total, insuranceMeta: { type: insType, val: insVal } };
+  };
+
+  const normalizedDriver = () => {
+    const d = (settings?.driver) || (settings?.extras?.driver) || (normalizedSettings?.driver) || (normalizedSettings?.extras?.driver) || {};
+    return {
+      name: d.name || settings?.driverName || normalizedSettings?.driverName || '',
+      phone: d.phone || settings?.driverPhone || normalizedSettings?.driverPhone || '',
+      vehicle: d.vehicle || settings?.vehicleId || normalizedSettings?.vehicleId || '',
+      tracking: d.tracking || settings?.trackingRef || normalizedSettings?.trackingRef || '',
+    };
+  };
+
   // Tolerant % parser (handles "18", "18%", " 18 ")
   const parseRate = (v, d = 0) => {
     if (v == null) return d;
@@ -227,6 +265,12 @@ const InvoicePreview = (props) => {
     return { igstPct: 0, igstAmt: 0, cgstPct: r / 2, sgstPct: r / 2, cgstAmt: t / 2, sgstAmt: t / 2 };
   };
 
+  // Pretty-print tax percentages (avoid long floating decimals)
+  const formatRate = (r) => {
+    const n = Number(r || 0);
+    // Keep two decimals, strip trailing .00
+    return n.toFixed(2).replace(/\.00$/, "");
+  };
   // ---------- Row-wise breakdown synced with BillingCart/CreateInvoice ----------
   const computeLineBreakdown = (it) => {
     const qty = Number(it.quantity ?? it.qty ?? 1);
@@ -279,10 +323,12 @@ const InvoicePreview = (props) => {
   const gstAmount = 0, cgstAmount = 0, sgstAmount = 0, igstAmount = 0;
 
   // Optional order-level charges (used by both Classic and Fast flows)
-  const deliveryCharge = Number(normalizedSettings.deliveryCharge) || 0;
-  const packingCharge  = Number(normalizedSettings.packingCharge)  || 0;
-  const otherCharge    = Number(normalizedSettings.otherCharge)    || 0;
-  const chargesTotal   = deliveryCharge + packingCharge + otherCharge;
+  const extras = computeExtrasCharges(subtotal, normalizedSettings);
+  const deliveryCharge = extras.delivery;
+  const packingCharge  = extras.packaging;
+  const otherCharge    = extras.other;
+  const insuranceCharge = extras.insurance;
+  const chargesTotal   = extras.total;
 
   const total = subtotal + rowTax + chargesTotal;
 
@@ -489,7 +535,7 @@ const InvoicePreview = (props) => {
                           {discAmt > 0 ? `₹${discAmt.toFixed(2)}` : (discPct > 0 ? `${discPct}%` : '—')}
                         </td>
                         <td className={`px-2 ${densityRow} md:px-3 border-t border-white/10 text-right num`}>₹{netSubtotal.toFixed(2)}</td>
-                        <td className={`px-2 ${densityRow} md:px-3 border-t border-white/10 text-right num`}>{taxPercent > 0 ? `${taxPercent}%` : '—'}</td>
+                        <td className={`px-2 ${densityRow} md:px-3 border-t border-white/10 text-right num`}>{taxPercent > 0 ? `${formatRate(taxPercent)}%` : '—'}</td>
                         <td className={`px-2 ${densityRow} md:px-3 border-t border-white/10 text-right num`}>₹{taxAmt.toFixed(2)}</td>
                         <td className={`px-2 ${densityRow} md:px-3 border-t border-white/10 text-right num`}>₹{lineTotal.toFixed(2)}</td>
                       </tr>
@@ -509,9 +555,9 @@ const InvoicePreview = (props) => {
                           colSpan={4}
                         >
                           {split.igstPct > 0 ? (
-                            <span>IGST {split.igstPct}% = ₹{split.igstAmt.toFixed(2)}</span>
+                            <span>IGST {formatRate(split.igstPct)}% = ₹{split.igstAmt.toFixed(2)}</span>
                           ) : (
-                            <span>CGST {split.cgstPct}% = ₹{split.cgstAmt.toFixed(2)} &nbsp;•&nbsp; SGST {split.sgstPct}% = ₹{split.sgstAmt.toFixed(2)}</span>
+                            <span>CGST {formatRate(split.cgstPct)}% = ₹{split.cgstAmt.toFixed(2)} &nbsp;•&nbsp; SGST {formatRate(split.sgstPct)}% = ₹{split.sgstAmt.toFixed(2)}</span>
                           )}
                         </td>
                       </tr>
@@ -546,6 +592,14 @@ const InvoicePreview = (props) => {
             {deliveryCharge > 0 && (<><span className="text-white/70">Delivery:</span><span className="text-right">₹{deliveryCharge.toFixed(2)}</span></>)}
             {packingCharge > 0 && (<><span className="text-white/70">Packing:</span><span className="text-right">₹{packingCharge.toFixed(2)}</span></>)}
             {otherCharge > 0 && (<><span className="text-white/70">Other:</span><span className="text-right">₹{otherCharge.toFixed(2)}</span></>)}
+            {insuranceCharge > 0 && (
+              <>
+                <span className="text-white/70">
+                  Insurance{extras?.insuranceMeta?.type === 'percent' ? ` (${extras.insuranceMeta.val}% of subtotal)` : ''}:
+                </span>
+                <span className="text-right">₹{insuranceCharge.toFixed(2)}</span>
+              </>
+            )}
             <span className="col-span-2 h-[1px] bg-white/10 my-1"></span>
             <span className="font-semibold">Grand Total:</span><span className="text-right font-bold text-lg">₹{total.toFixed(2)}</span>
           </div>
@@ -579,6 +633,23 @@ const InvoicePreview = (props) => {
             })()
           )}
         </div>
+
+        {/* Delivery Details (Driver/Delivery) */}
+        {(() => {
+          const d = normalizedDriver();
+          const hasDeliveryDetails = !!(d.name || d.phone || d.vehicle || d.tracking);
+          return hasDeliveryDetails ? (
+            <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-4 text-sm avoid-break">
+              <h4 className="font-semibold mb-2">Delivery Details</h4>
+              <div className="space-y-1">
+                {d.name && (<div><span className="text-white/70">Driver Name:</span> <span>{d.name}</span></div>)}
+                {d.phone && (<div><span className="text-white/70">Phone:</span> <span>{d.phone}</span></div>)}
+                {d.vehicle && (<div><span className="text-white/70">Vehicle / ID:</span> <span>{d.vehicle}</span></div>)}
+                {d.tracking && (<div><span className="text-white/70">Tracking / Ref:</span> <span>{d.tracking}</span></div>)}
+              </div>
+            </div>
+          ) : null;
+        })()}
 
         {/* Bank + UPI */}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 avoid-break">
@@ -632,20 +703,74 @@ const InvoicePreview = (props) => {
       <div className="text-center mt-6">
         {(!props.viewOnly && !previewMode) && (
           <button
-            className="no-print px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
-            onClick={(e) => {
-              if (typeof props.onPublish === "function") {
-                e.preventDefault?.();
-                props.onPublish();
-              } else if (typeof onConfirm === "function") {
-                onConfirm();
+            className="no-print px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={publishStatus === "publishing"}
+            onClick={async (e) => {
+              e.preventDefault?.();
+              try {
+                setPublishStatus("publishing");
+                const run = typeof props.onPublish === "function" ? props.onPublish : (typeof onConfirm === "function" ? onConfirm : null);
+                const result = run ? run() : null;
+                if (result && typeof result.then === "function") {
+                  await result;
+                }
+                setPublishStatus("success");
+                setTimeout(() => setPublishStatus("idle"), 1200);
+              } catch (err) {
+                console.error("Publish failed", err);
+                setPublishStatus("error");
+                setTimeout(() => setPublishStatus("idle"), 1500);
               }
             }}
           >
-            Publish Invoice
+            {publishStatus === "publishing" ? "Publishing…" : "Publish Invoice"}
           </button>
         )}
       </div>
+      {publishStatus !== "idle" && (
+        <div className="no-print fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
+          <div className="relative w-[min(92vw,420px)] rounded-2xl border border-white/10 bg-white/10 p-6 text-white shadow-2xl">
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute -top-12 -left-10 h-48 w-48 rounded-full blur-3xl bg-emerald-400/20 animate-[auroraShift_18s_ease-in-out_infinite]" />
+              <div className="absolute -bottom-12 -right-10 h-56 w-56 rounded-full blur-3xl bg-cyan-400/20 animate-[auroraShift_18s_ease-in-out_infinite]" />
+            </div>
+            <div className="relative text-center">
+              {publishStatus === "publishing" && (
+                <>
+                  <div className="mx-auto mb-3 h-10 w-10 rounded-full border-4 border-white/30 border-t-emerald-300 animate-spin" />
+                  <div className="text-lg font-semibold">Publishing invoice…</div>
+                  <div className="text-sm text-white/80 mt-1">Saving and generating a shareable copy</div>
+                  <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full w-1/2 bg-gradient-to-r from-transparent via-white/60 to-transparent animate-[shimmer_1.6s_linear_infinite]" />
+                  </div>
+                </>
+              )}
+              {publishStatus === "success" && (
+                <>
+                  <div className="mx-auto mb-3 h-10 w-10 rounded-full bg-emerald-400/90 flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6 text-slate-900"><path fill="currentColor" d="M9 16.2l-3.5-3.5 1.4-1.4L9 13.4l8.1-8.1 1.4 1.4z"/></svg>
+                  </div>
+                  <div className="text-lg font-semibold">Invoice published</div>
+                  <div className="text-sm text-white/80 mt-1">You can now share or print the invoice</div>
+                </>
+              )}
+              {publishStatus === "error" && (
+                <>
+                  <div className="mx-auto mb-3 h-10 w-10 rounded-full bg-rose-400/90 flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6 text-slate-900"><path fill="currentColor" d="M12 2L2 22h20L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg>
+                  </div>
+                  <div className="text-lg font-semibold">Publish failed</div>
+                  <div className="text-sm text-white/80 mt-1">Please try again</div>
+                </>
+              )}
+            </div>
+            <style>{`
+              @keyframes auroraShift { 0%{transform:translateX(-8%) translateY(-6%) rotate(0)} 50%{transform:translateX(6%) translateY(4%) rotate(10deg)} 100%{transform:translateX(-8%) translateY(-6%) rotate(0)} }
+              @keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(200%)} }
+            `}</style>
+          </div>
+        </div>
+      )}
     </>
   );
 };

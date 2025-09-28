@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { db, auth } from '../../firebase/firebaseConfig';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -6,6 +6,39 @@ import KpiCards from './KpiCards';
 import RecentInvoices from './RecentInvoices';
 import LowStockAlertWidget from './LowStockAlertWidget';
 import CreditDueList from './CreditDueList';
+// Import motion from Framer Motion
+import { motion } from 'framer-motion';
+
+// --- ANIMATION VARIANTS ---
+
+// This variant controls the container. It will be invisible at first
+// and then orchestrate the animation of its children.
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      // The `staggerChildren` property creates the cinematic sequence effect.
+      // Each child will animate in 0.1 seconds after the previous one.
+      staggerChildren: 0.1,
+    },
+  },
+};
+
+// This variant controls each individual item.
+// They will start slightly lower and invisible, then spring up into place.
+const itemVariants = {
+  hidden: { y: 20, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: {
+      type: 'spring',
+      stiffness: 100,
+    },
+  },
+};
+
 
 const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
   const [invoiceData, setInvoiceData] = useState([]);
@@ -13,6 +46,9 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
   const [filterType, setFilterType] = useState(selectedFilterType || 'All');
   const [filteredInvoices, setFilteredInvoices] = useState([]);
   const [businessInfo, setBusinessInfo] = useState({ name: '', address: '' });
+  const creditsSectionRef = useRef(null);
+
+  const scrollToCredits = () => { if (creditsSectionRef.current) { creditsSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); } };
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -115,18 +151,14 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
     setFilterType(selectedFilterType || 'All');
   }, [selectedFilterType]);
 
-  // KPI calculations: Only count credit invoices if isPaid === true, and use paidVia for paymentStats
   const totalRevenue = filteredInvoices.reduce((acc, inv) => {
     const total = parseFloat(inv.totalAmount || inv.total || 0);
-
     if (!inv.isPaid) return acc;
-
     return acc + total;
   }, 0);
 
   const paymentStats = filteredInvoices.reduce((acc, inv) => {
     if (!inv.isPaid) return acc;
-
     const total = parseFloat(inv.totalAmount || inv.total || 0);
     const mode = (inv.paymentMode || '').toLowerCase();
 
@@ -171,10 +203,7 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
     dueDate.setHours(0, 0, 0, 0);
     return dueDate.getTime() === today.getTime();
   });
-  const dueTodayAmount = dueTodayInvoices.reduce((sum, inv) => {
-    const amt = parseFloat(inv.totalAmount || inv.settings?.totalAmount || 0);
-    return sum + amt;
-  }, 0);
+  const dueTodayAmount = dueTodayInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || inv.settings?.totalAmount || 0), 0);
 
   const dueTomorrowInvoices = creditInvoices.filter(inv => {
     const dueDateStr = inv.settings?.creditDueDate || inv.creditDueDate;
@@ -182,68 +211,64 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
     dueDate.setHours(0, 0, 0, 0);
     return dueDate.getTime() === tomorrow.getTime();
   });
-  const dueTomorrowAmount = dueTomorrowInvoices.reduce((sum, inv) => {
-    const amt = parseFloat(inv.totalAmount || inv.settings?.totalAmount || 0);
-    return sum + amt;
-  }, 0);
+  const dueTomorrowAmount = dueTomorrowInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || inv.settings?.totalAmount || 0), 0);
+  
+  const totalDueAmount = creditInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || inv.settings?.totalAmount || 0), 0);
 
-  console.log('Filtered invoices:', filteredInvoices);
-
-  // Compute total due across all unpaid credit invoices
-  const totalDueAmount = creditInvoices.reduce((sum, inv) => {
-    const amt = parseFloat(inv.totalAmount || inv.settings?.totalAmount || 0);
-    return sum + amt;
-  }, 0);
-
+  // We replace the main `div` with `motion.div` and apply our variants.
   return (
-    <div className="p-4 md:p-6 space-y-6 text-white">
-      <div className="text-xs text-white/70 mb-1">
-        {filterType === 'All' && !filterDates?.start ? 'Showing all time data' : `Filtered by: ${filterType}`}
-        {filterDates?.start && filterDates?.end && (
-          <span> | Custom Range: {filterDates.start.toLocaleDateString()} - {filterDates.end.toLocaleDateString()}</span>
-        )}
-      </div>
-      <h2 className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">📊 Home Snapshot: Today’s KPIs</h2>
-      {/* Summary header card (light theme, subtle gradient ring) */}
-      <div className="relative rounded-2xl">
-        <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
-        <div className="relative rounded-[14px] bg-white/10 backdrop-blur-xl border border-white/10">
-          <div className="px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <div className="text-sm text-white/70">Business</div>
-              <div className="text-lg font-semibold text-white">{businessInfo.name}</div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-sm">
-                <span className="text-white/70">Revenue</span>
-                <span className="font-semibold text-white">₹{Math.round(totalRevenue).toLocaleString('en-IN')}</span>
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-sm">
-                <span className="text-white/70">Due Today</span>
-                <span className="font-semibold text-white">₹{Math.round(dueTodayAmount).toLocaleString('en-IN')}</span>
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-sm">
-                <span className="text-white/70">Due Tomorrow</span>
-                <span className="font-semibold text-white">₹{Math.round(dueTomorrowAmount).toLocaleString('en-IN')}</span>
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-sm">
-                <span className="text-white/70">Pending Credits</span>
-                <span className="font-semibold text-white">{creditInvoices?.filter(i => i.isPaid === false).length || 0}</span>
-              </span>
-            </div>
+    <motion.div
+      className="px-4 md:px-6 py-4 space-y-6 text-white max-w-[1400px] mx-auto w-full"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
+      {/* Each major element is now an animated item. */}
+      <motion.h2
+        variants={itemVariants}
+        className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200"
+      >
+        📊 Home Snapshot: Today’s KPIs
+      </motion.h2>
+
+      <motion.div variants={itemVariants}>
+        <KpiCards
+          invoiceData={filteredInvoices}
+          totalRevenue={totalRevenue}
+          paymentStats={paymentStats}
+          dueToday={dueTodayAmount}
+          dueTomorrow={dueTomorrowAmount}
+          totalDue={totalDueAmount}
+          totalDueCount={creditInvoices?.filter(i => i.isPaid === false).length || 0}
+        />
+      </motion.div>
+
+      <motion.section
+        variants={itemVariants}
+        className="mt-4 overflow-x-auto"
+        ref={creditsSectionRef}
+      >
+        <div className="relative rounded-2xl min-w-0 w-full">
+          <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
+          <div className="relative rounded-[14px] bg-white/10 backdrop-blur-xl border border-white/10 p-4 md:p-5 w-full min-w-0 overflow-visible">
+            <CreditDueList
+              creditInvoices={creditInvoices}
+              dueToday={dueTodayInvoices}
+              dueTomorrow={dueTomorrowInvoices}
+              totalDue={totalDueAmount}
+              businessName={businessInfo.name}
+              businessAddress={businessInfo.address}
+              layout="horizontal"
+            />
           </div>
         </div>
-      </div>
-      <KpiCards
-        invoiceData={filteredInvoices}
-        totalRevenue={totalRevenue}
-        paymentStats={paymentStats}
-        dueToday={dueTodayAmount}
-        dueTomorrow={dueTomorrowAmount}
-        totalDue={totalDueAmount}
-        totalDueCount={creditInvoices?.filter(i => i.isPaid === false).length || 0}
-      />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      </motion.section>
+      
+      {/* We wrap the grid itself so both cards can animate in together after the items above them. */}
+      <motion.div
+        variants={itemVariants}
+        className="grid grid-cols-1 md:grid-cols-2 gap-4"
+      >
         <div className="relative rounded-2xl h-full">
           <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
           <div className="relative rounded-[14px] bg-white/10 backdrop-blur-xl border border-white/10 p-4 h-full">
@@ -257,22 +282,8 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
             <RecentInvoices invoiceData={[...filteredInvoices].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} />
           </div>
         </div>
-
-        <div className="relative rounded-2xl h-full">
-          <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
-          <div className="relative rounded-[14px] bg-white/10 backdrop-blur-xl border border-white/10 p-4 h-full">
-            <CreditDueList
-              creditInvoices={creditInvoices}
-              dueToday={dueTodayInvoices}
-              dueTomorrow={dueTomorrowInvoices}
-              totalDue={totalDueAmount}
-              businessName={businessInfo.name}
-              businessAddress={businessInfo.address}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

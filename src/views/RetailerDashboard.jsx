@@ -218,7 +218,7 @@ const RetailerDashboardInner = () => {
           className={`flex-1 flex flex-col ${mode === "pos" ? "ml-0" : (sidebarOpen ? "ml-0 md:ml-64" : "ml-0")} relative z-10 transition-all duration-300`}
         >
           {mode === "pos" ? (
-            <POSView />
+            <POSView onLogout={handleSignOut} />
           ) : (
             <>
               {/* Top Bar */}

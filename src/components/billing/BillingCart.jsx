@@ -56,21 +56,77 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
     igstRate,
   } = settings || {};
 
+  // Compute Delivery/Packaging/Insurance/Other (backward compatible)
+  const computeExtrasCharges = (subtotal, s = settings || {}) => {
+    const ex = s.extras || {};
+
+    // legacy fields kept for compatibility
+    const legacyDelivery = parseFloat(s.deliveryCharge) || 0;
+    const legacyPacking  = parseFloat(s.packingCharge)  || 0;
+    const legacyOther    = parseFloat(s.otherCharge)    || 0;
+
+    const deliveryFee   = parseFloat(ex.deliveryFee)   || 0;
+    const packagingFee  = parseFloat(ex.packagingFee)  || 0;
+
+    let insuranceAmt = 0;
+    const type = ex.insuranceType || 'none';
+    const val  = parseFloat(ex.insuranceValue) || 0;
+    if (type === 'flat')    insuranceAmt = val;
+    if (type === 'percent') insuranceAmt = subtotal * (val / 100);
+
+    const delivery  = legacyDelivery + deliveryFee;
+    const packaging = legacyPacking  + packagingFee;
+    const other     = legacyOther;
+
+    const total = delivery + packaging + insuranceAmt + other;
+    return { delivery, packaging, insurance: insuranceAmt, other, total, insuranceMeta: { type, val } };
+  };
+
+  // Reusable totals calculator: computes subtotal, tax breakdown, extras, and final total
+  const computeCartTotals = (list = items, s = settings) => {
+    const sub = list.reduce((sum, it) => sum + computeLineGrossAfterDiscount(it), 0);
+    const taxBreakdown = {
+      gst:  (s?.includeGST  && s?.gstRate)  ? (sub * s.gstRate)  / 100 : 0,
+      cgst: (s?.includeCGST && s?.cgstRate) ? (sub * s.cgstRate) / 100 : 0,
+      sgst: (s?.includeSGST && s?.sgstRate) ? (sub * s.sgstRate) / 100 : 0,
+      igst: (s?.includeIGST && s?.igstRate) ? (sub * s.igstRate) / 100 : 0,
+    };
+    const extrasTotals = computeExtrasCharges(sub, s);
+    const finalTotalCalc = sub + taxBreakdown.gst + taxBreakdown.cgst + taxBreakdown.sgst + taxBreakdown.igst + extrasTotals.total;
+    return { subtotal: sub, taxBreakdown, extras: extrasTotals, finalTotal: finalTotalCalc };
+  };
+
   const pushUpdate = (next) => {
     if (onUpdateCart) {
-      const discountedSum = next.reduce((s, i) => s + computeLineGrossAfterDiscount(i), 0);
-      const taxBreakdown = {
-        gst: includeGST && gstRate ? (discountedSum * gstRate) / 100 : 0,
-        cgst: includeCGST && cgstRate ? (discountedSum * cgstRate) / 100 : 0,
-        sgst: includeSGST && sgstRate ? (discountedSum * sgstRate) / 100 : 0,
-        igst: includeIGST && igstRate ? (discountedSum * igstRate) / 100 : 0,
-      };
-      const sub = discountedSum;
-      const finalTotal = sub + taxBreakdown.gst + taxBreakdown.cgst + taxBreakdown.sgst + taxBreakdown.igst;
-      onUpdateCart(next, { subtotal: sub, taxBreakdown, finalTotal });
+      const totals = computeCartTotals(next, settings);
+      onUpdateCart(next, totals);
     }
     if (!isControlled) setCartItems(next);
   };
+  // Emit totals when settings (extras/taxes) change, even if items don't change
+  useEffect(() => {
+    if (!onUpdateCart) return;
+    const totals = computeCartTotals(items, settings);
+    onUpdateCart(items, totals);
+  }, [
+    // Extras (new settings)
+    settings?.extras?.deliveryFee,
+    settings?.extras?.packagingFee,
+    settings?.extras?.insuranceType,
+    settings?.extras?.insuranceValue,
+    settings?.deliveryCharge,
+    settings?.packingCharge,
+    settings?.otherCharge,
+    // Tax toggles and rates
+    settings?.includeGST,
+    settings?.includeCGST,
+    settings?.includeSGST,
+    settings?.includeIGST,
+    settings?.gstRate,
+    settings?.cgstRate,
+    settings?.sgstRate,
+    settings?.igstRate,
+  ]);
 
   const handleAddItem = () => {
     const next = [
@@ -104,6 +160,7 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
   };
 
   const subtotal = items.reduce((sum, item) => sum + computeLineGrossAfterDiscount(item), 0);
+  const extras = computeExtrasCharges(subtotal, settings);
 
   // GST, CGST, SGST, IGST calculation (Firestore-driven)
   const gstAmount =
@@ -112,7 +169,7 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
     (includeSGST && sgstRate ? (subtotal * sgstRate) / 100 : 0) +
     (includeIGST && igstRate ? (subtotal * igstRate) / 100 : 0);
 
-  const finalTotal = subtotal + gstAmount;
+  const finalTotal = subtotal + gstAmount + extras.total;
 
   useEffect(() => {
     if (!selectedProducts || selectedProducts.length === 0) return;
@@ -481,10 +538,74 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
         {includeIGST && igstRate > 0 && (
           <p>IGST ({igstRate}%): ₹{((subtotal * igstRate) / 100).toFixed(2)}</p>
         )}
+        {/* Extras Breakdown */}
+        {extras.delivery > 0 && (
+          <p>Delivery Fee: ₹{extras.delivery.toFixed(2)}</p>
+        )}
+        {extras.packaging > 0 && (
+          <p>Packaging Fee: ₹{extras.packaging.toFixed(2)}</p>
+        )}
+        {extras.insurance > 0 && (
+          <p>
+            Insurance{extras.insuranceMeta?.type === 'percent' ? ` (${extras.insuranceMeta.val}% of subtotal)` : ''}: ₹{extras.insurance.toFixed(2)}
+          </p>
+        )}
+        {extras.other > 0 && (
+          <p>Other Charges: ₹{extras.other.toFixed(2)}</p>
+        )}
         <p className="font-semibold text-lg">
           Final Total: ₹{finalTotal.toFixed(2)}
         </p>
       </div>
+
+      {/* Delivery Details block */}
+      {(() => {
+        const driver = settings?.driver || settings?.extras?.driver || {};
+        const driverName = driver.name || "";
+        const driverPhone = driver.phone || "";
+        const driverVehicle = driver.vehicle || "";
+        const driverTracking = driver.tracking || "";
+        // Only render if at least one field is present
+        if (
+          driverName ||
+          driverPhone ||
+          driverVehicle ||
+          driverTracking
+        ) {
+          return (
+            <div className="mt-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-4 md:p-6 text-sm md:text-base text-left">
+              <div className="font-semibold text-white/80 mb-2">Delivery Details</div>
+              <div className="space-y-1">
+                {driverName && (
+                  <div>
+                    <span className="text-white/60">Driver Name: </span>
+                    <span className="text-white/90">{driverName}</span>
+                  </div>
+                )}
+                {driverPhone && (
+                  <div>
+                    <span className="text-white/60">Phone: </span>
+                    <span className="text-white/90">{driverPhone}</span>
+                  </div>
+                )}
+                {driverVehicle && (
+                  <div>
+                    <span className="text-white/60">Vehicle: </span>
+                    <span className="text-white/90">{driverVehicle}</span>
+                  </div>
+                )}
+                {driverTracking && (
+                  <div>
+                    <span className="text-white/60">Tracking: </span>
+                    <span className="text-white/90">{driverTracking}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+        return null;
+      })()}
     </div>
   );
 };

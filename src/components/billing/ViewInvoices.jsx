@@ -252,6 +252,57 @@ const ViewInvoices = () => {
                   isPaid: selectedInvoice.isPaid,
                   paidOn: selectedInvoice.paidOn,
                   paidVia: selectedInvoice.paidVia,
+                  // Delivery and extra fields
+                  deliveryFee:
+                    selectedInvoice.settings?.deliveryFee ??
+                    selectedInvoice.deliveryFee ??
+                    0,
+                  packagingFee:
+                    selectedInvoice.settings?.packagingFee ??
+                    selectedInvoice.packagingFee ??
+                    0,
+                  insuranceType:
+                    selectedInvoice.settings?.insuranceType ??
+                    selectedInvoice.insuranceType ??
+                    "",
+                  insuranceValue:
+                    selectedInvoice.settings?.insuranceValue ??
+                    selectedInvoice.insuranceValue ??
+                    0,
+                  driverName:
+                    selectedInvoice.settings?.driverName ??
+                    selectedInvoice.driverName ??
+                    "",
+                  driverPhone:
+                    selectedInvoice.settings?.driverPhone ??
+                    selectedInvoice.driverPhone ??
+                    "",
+                  vehicleId:
+                    selectedInvoice.settings?.vehicleId ??
+                    selectedInvoice.vehicleId ??
+                    "",
+                  trackingRef:
+                    selectedInvoice.settings?.trackingRef ??
+                    selectedInvoice.trackingRef ??
+                    "",
+                }}
+                deliveryExtras={{
+                  driverName:
+                    selectedInvoice.settings?.driverName ??
+                    selectedInvoice.driverName ??
+                    "",
+                  driverPhone:
+                    selectedInvoice.settings?.driverPhone ??
+                    selectedInvoice.driverPhone ??
+                    "",
+                  vehicleId:
+                    selectedInvoice.settings?.vehicleId ??
+                    selectedInvoice.vehicleId ??
+                    "",
+                  trackingRef:
+                    selectedInvoice.settings?.trackingRef ??
+                    selectedInvoice.trackingRef ??
+                    "",
                 }}
                 invoiceType={selectedInvoice.invoiceType}
                 paymentMode={deriveMode(selectedInvoice)}

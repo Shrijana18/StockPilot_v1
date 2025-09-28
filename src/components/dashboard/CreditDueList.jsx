@@ -1,287 +1,367 @@
-import React from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 
+// --- utils ---
 const parseDate = (dateStr) => {
   if (!dateStr) return null;
   let date = new Date(`${dateStr}T00:00:00`);
   if (isNaN(date.getTime())) {
-    const [dd, mm, yyyy] = dateStr.split('-');
-    if (dd && mm && yyyy) {
-      date = new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
-    }
+    const [dd, mm, yyyy] = (dateStr || '').split('-');
+    if (dd && mm && yyyy) date = new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
   }
   return isNaN(date.getTime()) ? null : date;
 };
 
-const CreditDueList = ({ creditInvoices = [], dueToday = [], dueTomorrow = [], totalDue = 0, businessName = "Your Business", businessAddress = "", layout = "vertical" }) => {
+const formatINR = (n) => `₹${Number(n || 0).toFixed(2)}`;
+const getAmount = (inv) => parseFloat(inv?.splitPayment?.totalAmount || inv?.totalAmount || inv?.settings?.totalAmount || 0) || 0;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+// --- component ---
+const CreditDueList = ({
+  creditInvoices = [],
+  dueToday = [], // not used in new compute (kept for backward compatibility)
+  dueTomorrow = [], // not used in new compute (kept for backward compatibility)
+  totalDue = 0,
+  businessName = 'Your Business',
+  businessAddress = '',
+  layout = 'horizontal', // kept but we now also allow switching in-UI
+  onOpenInvoice, // optional: open invoice preview
+}) => {
+  // view state
+  const [view, setView] = useState('lanes'); // 'lanes' | 'table'
+  const [query, setQuery] = useState('');
+  const [onlyOverdue, setOnlyOverdue] = useState(false);
+  const [sortBy, setSortBy] = useState('dueAsc'); // 'dueAsc' | 'dueDesc' | 'amountDesc' | 'amountAsc'
+  const [hideEmpty, setHideEmpty] = useState(true);
+  const [minAmount, setMinAmount] = useState('');
 
-  const categorize = (inv) => {
-    const dueDateStr = inv.creditDueDate || inv.settings?.creditDueDate;
-    const dueDate = parseDate(dueDateStr);
-    if (!dueDate) return 'Invalid';
-    dueDate.setHours(0, 0, 0, 0);
-    const diff = (dueDate - today) / (1000 * 60 * 60 * 24);
-    if (diff < 0) return 'Overdue';
-    if (diff === 0) return 'Due Today';
-    if (diff === 1) return 'Due Tomorrow';
-    return 'Upcoming';
-  };
+  // keep focus stable on the search input while typing (fixes focus loss on re-renders)
+  const searchRef = useRef(null);
+  const [searchHasFocus, setSearchHasFocus] = useState(false);
+  useEffect(() => {
+    if (searchHasFocus && searchRef.current) {
+      searchRef.current.focus({ preventScroll: true });
+    }
+  }, [searchHasFocus, query]);
 
-  const grouped = {
-    'Overdue': [],
-    'Due Today': [],
-    'Due Tomorrow': [],
-    'Upcoming': []
-  };
-
-creditInvoices.forEach(inv => {
-  if (inv.isPaid) return; // Skip paid invoices
-  const dueDateStr = inv.creditDueDate || inv.settings?.creditDueDate;
-  const dueDate = parseDate(dueDateStr);
-  if (!dueDate) return;
-  const category = categorize(inv);
-  grouped[category].push(inv);
-});
-
-  const renderSection = (title, list, rowClass = '') => (
-    list.length > 0 && (
-      <div className="mb-4">
-        <h4 className="font-semibold text-sm text-white mb-1">{title}</h4>
-        <table className="min-w-full text-sm mb-2 border border-white/10 bg-white/5 rounded-xl overflow-hidden">
-          <tbody>
-            {list.map((inv, idx) => {
-              const dueDateStr = inv.creditDueDate || inv.settings?.creditDueDate;
-              const due = parseDate(dueDateStr);
-              const amount = parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0).toFixed(2);
-
-              if (title === 'Upcoming') {
-                return (
-                  <tr key={idx} className={`border-b border-white/10 hover:bg-white/5 ${rowClass}`}>
-                    <td className="px-2 py-1 text-white/90">{inv.name || inv.customer?.name || 'N/A'}</td>
-                    <td className="px-2 py-1 text-white/90">₹{amount}</td>
-                    <td className="px-2 py-1 text-white/90">{due ? due.toLocaleDateString() : 'Invalid Date'}</td>
-                  </tr>
-                );
-              }
-
-              const daysLeft = due ? Math.ceil((due - today) / (1000 * 60 * 60 * 24)) : null;
-              const dueText = title === 'Overdue'
-                ? `Overdue by ${Math.abs(daysLeft)} days`
-                : title;
-
-              return (
-                <tr key={idx} className={`border-b border-white/10 hover:bg-white/5 ${rowClass}`}>
-                  <td className="px-2 py-1 text-white/90">{inv.name || inv.customer?.name || 'N/A'}</td>
-                  <td className="px-2 py-1 text-white/90">{inv.invoiceId || inv.id}</td>
-                  <td className="px-2 py-1 text-white/90">{due ? due.toLocaleDateString() : 'Invalid Date'}</td>
-                  <td className="px-2 py-1 text-white/90">₹{amount}</td>
-                  <td className="px-2 py-1 text-white/90">
-                    {inv.isPaid ? (
-                      `Paid via ${inv.paidVia || 'N/A'} on ${new Date(inv.paidOn).toLocaleDateString()}`
-                    ) : (
-                      <>
-                        {dueText}
-                        {daysLeft !== null && daysLeft <= 1 && (
-                          <button
-                            onClick={() => handleSendReminder(inv)}
-                            className="ml-2 px-2 py-1 rounded text-xs font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
-                          >
-                            Send Reminder
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    )
-  );
-
-  const normalizeDate = (date) => {
-    const d = new Date(date);
+  // today helpers
+  const today = useMemo(() => {
+    const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;
-  };
+  }, []);
 
-  const hasDues = Object.values(grouped).some(arr => arr.length > 0);
+  // normalize + enrich
+  const enriched = useMemo(() => {
+    return (creditInvoices || [])
+      .filter((inv) => !inv.isPaid)
+      .map((inv) => {
+        const dueDateStr = inv.creditDueDate || inv.settings?.creditDueDate;
+        const due = parseDate(dueDateStr);
+        const amount = getAmount(inv);
+        let status = 'Upcoming';
+        if (due) {
+          const diffDays = Math.floor((due - today) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) status = 'Overdue';
+          else if (diffDays === 0) status = 'Due Today';
+          else if (diffDays === 1) status = 'Due Tomorrow';
+          else status = 'Upcoming';
+        } else {
+          status = 'Invalid';
+        }
+        return {
+          raw: inv,
+          id: inv.invoiceId || inv.id || 'N/A',
+          name: inv.customer?.name || inv.name || 'Customer',
+          phone: inv.customer?.phone || '',
+          amount,
+          due,
+          status,
+        };
+      })
+      .filter((x) => (query ? (x.name?.toLowerCase().includes(query.toLowerCase()) || String(x.id).toLowerCase().includes(query.toLowerCase())) : true))
+      .filter((x) => (minAmount !== '' ? x.amount >= parseFloat(minAmount || 0) : true))
+      .filter((x) => (onlyOverdue ? x.status === 'Overdue' : true));
+  }, [creditInvoices, query, onlyOverdue, today, minAmount]);
 
-  const handleSendReminder = (inv) => {
+  // sort
+  const sorted = useMemo(() => {
+    const arr = [...enriched];
+    if (sortBy === 'dueAsc') arr.sort((a, b) => (a.due?.getTime?.() || 0) - (b.due?.getTime?.() || 0));
+    if (sortBy === 'dueDesc') arr.sort((a, b) => (b.due?.getTime?.() || 0) - (a.due?.getTime?.() || 0));
+    if (sortBy === 'amountDesc') arr.sort((a, b) => b.amount - a.amount);
+    if (sortBy === 'amountAsc') arr.sort((a, b) => a.amount - b.amount);
+    return arr;
+  }, [enriched, sortBy]);
+
+  // group by status (for lanes view)
+  const groups = useMemo(() => {
+    const g = { Overdue: [], 'Due Today': [], 'Due Tomorrow': [], Upcoming: [] };
+    sorted.forEach((x) => { if (g[x.status]) g[x.status].push(x); });
+    return g;
+  }, [sorted]);
+
+  const totals = useMemo(() => {
+    const sum = (arr) => arr.reduce((acc, x) => acc + x.amount, 0);
+    return {
+      all: sum(sorted),
+      overdue: sum(groups['Overdue']),
+      today: sum(groups['Due Today']),
+      tomorrow: sum(groups['Due Tomorrow']),
+      upcoming: sum(groups['Upcoming']),
+    };
+  }, [sorted, groups]);
+
+  const hasDues = sorted.length > 0;
+
+  const handleSendReminder = (invObj) => {
+    const inv = invObj.raw || invObj;
     const phone = inv.customer?.phone?.replace('+91', '').trim();
     if (!phone) return alert('Phone number missing');
 
-    const rawDueDate = inv.creditDueDate || inv.settings?.creditDueDate || '';
-    const dueDateObj = parseDate(rawDueDate);
+    const dueDateObj = parseDate(inv.creditDueDate || inv.settings?.creditDueDate || '');
     const dueDate = dueDateObj ? dueDateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A';
 
-    const total = parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0).toFixed(2);
+    const total = getAmount(inv).toFixed(2);
     const name = inv.customer?.name || inv.name || 'Customer';
     const invoiceId = inv.invoiceId || inv.id || 'N/A';
     const purchaseDate = inv.createdAt?.toDate?.() || new Date(inv.createdAt);
     const formattedDate = purchaseDate ? purchaseDate.toLocaleDateString() : 'N/A';
 
-    const itemList = inv.items?.map(item => {
-      const qty = item.quantity || 1;
-      const price = item.price || 0;
-      return `• ${item.productName || item.name} (${qty} x ₹${price})`;
-    }).join('\n') || 'No items listed.';
+    const itemList = inv.items?.map((item) => `• ${item.productName || item.name} (${item.quantity || 1} x ₹${item.price || 0})`).join('\n') || 'No items listed.';
 
-    const message = `Hello *${name}*, 👋
-
-This is a kind reminder regarding your purchase from *${businessName}*.
-
-🧾 *Invoice ID:* ${invoiceId}
-📅 *Date of Purchase:* ${formattedDate}
-🛍️ *Items Purchased:*
-${itemList}
-
-💰 *Total Due:* ₹${total}
-📆 *Due Date:* ${dueDate}
-
-💳 *How to Pay:*
-- Visit our store & pay by Cash or Card
-- UPI: upi_id@bank
-
-Thank you for shopping with us!
-We appreciate your timely payment. 🙏
-
-– ${businessName}
-${businessAddress ? businessAddress + '\n' : ''}_Powered by FLYP_`;
+    const message = `Hello *${name}*, 👋\n\nThis is a kind reminder regarding your purchase from *${businessName}*.\n\n🧾 *Invoice ID:* ${invoiceId}\n📅 *Date of Purchase:* ${formattedDate}\n🛍️ *Items Purchased:*\n${itemList}\n\n💰 *Total Due:* ₹${total}\n📆 *Due Date:* ${dueDate}\n\n💳 *How to Pay:*\n- Visit our store & pay by Cash or Card\n- UPI: upi_id@bank\n\nThank you for shopping with us!\nWe appreciate your timely payment. 🙏\n\n– ${businessName}\n${businessAddress ? businessAddress + '\n' : ''}_Powered by FLYP_`;
 
     const whatsappURL = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
     window.open(whatsappURL, '_blank');
   };
 
   const handleSendAllReminders = () => {
-    const allInvoices = [...grouped['Overdue'], ...grouped['Due Today'], ...grouped['Due Tomorrow']];
-    allInvoices.forEach(inv => handleSendReminder(inv));
+    sorted.forEach((x) => handleSendReminder(x.raw));
   };
 
-  // Prepare arrays for horizontal layout
-  const overdueItems = grouped['Overdue'];
-  const dueTodayItems = grouped['Due Today'];
-  const dueTomorrowItems = grouped['Due Tomorrow'];
-  const upcomingItems = grouped['Upcoming'];
-
-  const renderHorizontalItem = (inv, type) => {
-    const dueDateStr = inv.creditDueDate || inv.settings?.creditDueDate;
-    const due = parseDate(dueDateStr);
-    const amount = parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0).toFixed(2);
-
-    return (
-      <div
-        key={inv.invoiceId || inv.id}
-        className="rounded p-2 flex flex-col gap-1 bg-white/10 backdrop-blur border border-white/10"
-        style={{ borderLeftColor: type === 'Overdue' ? 'rgb(244 63 94)' : (type === 'Due Today' ? 'rgb(16 185 129)' : (type === 'Due Tomorrow' ? 'rgb(245 158 11)' : 'rgba(255,255,255,0.2)')), borderLeftWidth: '3px' }}
-      >
-        <div className="font-semibold text-xs text-white">{inv.invoiceId || inv.id}</div>
-        <div className="text-xs text-white/70">{due ? due.toLocaleDateString() : 'Invalid Date'}</div>
-        <div className="text-xs font-semibold text-white">₹{amount}</div>
-        {!inv.isPaid && (
-          <button
-            onClick={() => handleSendReminder(inv)}
-            className="text-xs px-2 py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
-          >
-            Send Reminder
-          </button>
-        )}
-      </div>
-    );
+  // ---- UI helpers ----
+  const StatusPill = ({ status }) => {
+    const map = {
+      Overdue: 'bg-rose-500/20 text-rose-200 border-rose-400/30',
+      'Due Today': 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30',
+      'Due Tomorrow': 'bg-amber-500/20 text-amber-200 border-amber-400/30',
+      Upcoming: 'bg-sky-500/20 text-sky-200 border-sky-400/30',
+    };
+    return <span className={`text-[11px] px-2 py-0.5 rounded-full border ${map[status] || 'bg-white/10 text-white/70 border-white/20'}`}>{status}</span>;
   };
 
-  if (layout === "horizontal") {
-    return (
-      <div className="rounded-lg p-4 flex flex-col gap-4 bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">📅 Credit Dues</h3>
+  // ---- Header ----
+  const Header = () => (
+    <div className="flex flex-col gap-3 mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="relative inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/10 border border-white/10 ring-1 ring-white/10 shadow-[0_2px_8px_rgba(0,0,0,0.25)]">
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5 text-emerald-200">
+              <path fill="currentColor" d="M19 4h-1V3a1 1 0 10-2 0v1H8V3a1 1 0 10-2 0v1H5a3 3 0 00-3 3v10a3 3 0 003 3h14a3 3 0 003-3V7a3 3 0 00-3-3zm1 13a1 1 0 01-1 1H5a1 1 0 01-1-1V10h16v7zm0-9H4V7a1 1 0 011-1h1v1a1 1 0 102 0V6h8v1a1 1 0 102 0V6h1a1 1 0 011 1v1z"/>
+            </svg>
+          </span>
+          <h3 className="text-[18px] md:text-[19px] font-semibold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Credit Dues</h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[13px] leading-none backdrop-blur">
+            <span className="text-white/70">Total Due Pending</span>
+            <span className="font-semibold text-white">{formatINR(totals.all)}</span>
+            <span className="text-white/70">/{sorted.length} invoice(s)</span>
+          </span>
           {hasDues && (
-            <button
-              onClick={handleSendAllReminders}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-            >
+            <button onClick={handleSendAllReminders} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white/90 bg-white/5 border border-white/10 hover:bg-white/10 active:bg-white/15">
               ✉️ Send All Reminders
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <h4 className="font-semibold text-sm text-white mb-2">Overdue</h4>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {overdueItems.length > 0 ? overdueItems.map(inv => renderHorizontalItem(inv, 'Overdue')) : <div className="text-xs text-white/70">No items</div>}
-            </div>
+      </div>
+
+      {/* controls */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={searchRef}
+          onFocus={() => setSearchHasFocus(true)}
+          onBlur={() => setSearchHasFocus(false)}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search customer or invoice ID..."
+          className="w-full sm:w-64 rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm outline-none focus:border-emerald-300/30 placeholder:text-white/50"
+        />
+        <input
+          value={minAmount}
+          onChange={(e) => setMinAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+          placeholder="Min ₹"
+          className="w-28 rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm outline-none focus:border-emerald-300/30 placeholder:text-white/50"
+        />
+        <label className="inline-flex items-center gap-2 text-sm text-white/80 bg-white/5 border border-white/10 px-3 py-2 rounded-lg">
+          <input type="checkbox" checked={onlyOverdue} onChange={(e) => setOnlyOverdue(e.target.checked)} />
+          Only Overdue
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm text-white/80 bg-white/5 border border-white/10 px-3 py-2 rounded-lg">
+          <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} />
+          Hide Empty Lanes
+        </label>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm outline-none focus:border-emerald-300/30"
+        >
+          <option value="dueAsc">Sort: Due ↑</option>
+          <option value="dueDesc">Sort: Due ↓</option>
+          <option value="amountDesc">Sort: Amount ↓</option>
+          <option value="amountAsc">Sort: Amount ↑</option>
+        </select>
+        <div className="ml-auto flex gap-2">
+          <div className="flex gap-1 bg-white/5 border border-white/10 rounded-lg p-1">
+            <button onClick={() => setView('lanes')} className={`px-3.5 py-1.5 text-sm rounded ${view === 'lanes' ? 'bg-white/10' : ''}`}>Lanes</button>
+            <button onClick={() => setView('table')} className={`px-3.5 py-1.5 text-sm rounded ${view === 'table' ? 'bg-white/10' : ''}`}>Table</button>
           </div>
-          <div>
-            <h4 className="font-semibold text-sm text-white mb-2">Due Today</h4>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {dueTodayItems.length > 0 ? dueTodayItems.map(inv => renderHorizontalItem(inv, 'Due Today')) : <div className="text-xs text-white/70">No items</div>}
-            </div>
-          </div>
-          <div>
-            <h4 className="font-semibold text-sm text-white mb-2">Due Tomorrow</h4>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {dueTomorrowItems.length > 0 ? dueTomorrowItems.map(inv => renderHorizontalItem(inv, 'Due Tomorrow')) : <div className="text-xs text-white/70">No items</div>}
-            </div>
-          </div>
-          <div>
-            <h4 className="font-semibold text-sm text-white mb-2">Upcoming</h4>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {upcomingItems.length > 0 ? upcomingItems.map(inv => renderHorizontalItem(inv, 'Upcoming')) : <div className="text-xs text-white/70">No items</div>}
-            </div>
-          </div>
+          <button
+            onClick={() => {
+              const rows = [['Customer','Invoice','Due Date','Status','Amount']].concat(sorted.map(x => [x.name, x.id, x.due ? x.due.toLocaleDateString() : 'Invalid Date', x.status, x.amount]));
+              const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'credit-dues.csv'; a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-white/10 border border-white/10 hover:bg-white/15"
+          >
+            Export CSV
+          </button>
         </div>
       </div>
-    );
-  }
+
+      {/* status chips */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        <span className="inline-flex items-center gap-2 rounded-full border border-rose-400/25 bg-rose-500/15 px-2.5 py-1 shadow-[0_0_0_1px_rgba(255,255,255,0.06)_inset]">
+          <span>Overdue</span>
+          <span className="font-semibold">{formatINR(totals.overdue)}</span>
+          <span className="opacity-70">/{groups['Overdue'].length}</span>
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/15 px-2.5 py-1 shadow-[0_0_0_1px_rgba(255,255,255,0.06)_inset]">
+          <span>Due Today</span>
+          <span className="font-semibold">{formatINR(totals.today)}</span>
+          <span className="opacity-70">/{groups['Due Today'].length}</span>
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-500/15 px-2.5 py-1 shadow-[0_0_0_1px_rgba(255,255,255,0.06)_inset]">
+          <span>Due Tomorrow</span>
+          <span className="font-semibold">{formatINR(totals.tomorrow)}</span>
+          <span className="opacity-70">/{groups['Due Tomorrow'].length}</span>
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-full border border-sky-400/25 bg-sky-500/15 px-2.5 py-1 shadow-[0_0_0_1px_rgba(255,255,255,0.06)_inset]">
+          <span>Upcoming</span>
+          <span className="font-semibold">{formatINR(totals.upcoming)}</span>
+          <span className="opacity-70">/{groups['Upcoming'].length}</span>
+        </span>
+      </div>
+    </div>
+  );
+
+  // ---- lanes view ----
+  const Lanes = () => (
+    <div className="overflow-x-auto pb-2 w-full min-w-0">
+      <div className="grid auto-cols-[minmax(260px,340px)] grid-flow-col gap-4 snap-x snap-mandatory min-w-full">
+        {[
+          { key: 'Overdue', color: 'from-rose-500/15 to-rose-400/15', countColor: 'text-rose-300' },
+          { key: 'Due Today', color: 'from-emerald-500/15 to-teal-400/15', countColor: 'text-emerald-300' },
+          { key: 'Due Tomorrow', color: 'from-amber-500/15 to-yellow-400/15', countColor: 'text-amber-300' },
+          { key: 'Upcoming', color: 'from-sky-500/15 to-indigo-400/15', countColor: 'text-sky-300' },
+        ]
+          .filter(lane => !hideEmpty || (groups[lane.key] && groups[lane.key].length > 0))
+          .map((lane) => (
+            <section key={lane.key} className="snap-start rounded-xl border border-white/10 ring-1 ring-white/10 bg-white/5 backdrop-blur p-3 transition-transform hover:-translate-y-[1px]">
+              <div className="sticky top-0 z-10 -mt-px mb-2">
+                <div className={`flex items-center justify-between rounded-t-xl border border-white/10 bg-white/5 px-3 py-2 shadow-[inset_0_-1px_0_rgba(255,255,255,0.05)]`}>
+                  <div className="relative pl-3">
+                    <span className={`absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-gradient-to-b ${lane.color}`} />
+                    <h4 className="font-semibold text-[13px] text-white/95 tracking-tight">{lane.key}</h4>
+                  </div>
+                  <div className="text-[11px] font-medium flex items-center gap-2">
+                    <span className={`${lane.countColor}`}>{groups[lane.key].length}</span>
+                    <span className="text-white/70">{formatINR(groups[lane.key].reduce((a, x) => a + x.amount, 0))}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
+                {groups[lane.key].length ? (
+                  groups[lane.key].map((x) => (
+                    <div key={x.id} className="rounded-xl p-3 bg-white/5 backdrop-blur border border-white/10 ring-1 ring-white/5 hover:bg-white/10 transition-all hover:shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold bg-clip-text text-transparent bg-gradient-to-r from-emerald-200 to-sky-300 truncate">{x.name}</div>
+                        <StatusPill status={x.status} />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-white/80 mt-0.5">
+                        <span>{x.id}</span>
+                        <span>{x.due ? x.due.toLocaleDateString() : 'Invalid Date'}</span>
+                      </div>
+                      <div className="text-[15px] font-bold text-white mt-1">{formatINR(x.amount)}</div>
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={() => handleSendReminder(x.raw)} className="text-xs px-2 py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]">Send Reminder</button>
+                        {onOpenInvoice && (
+                          <button onClick={() => onOpenInvoice(x.raw)} className="text-xs px-2 py-1 rounded border border-white/15 text-white/90 hover:bg-white/10">Open</button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-xs text-white/50">No items</div>
+                )}
+              </div>
+            </section>
+          ))}
+      </div>
+    </div>
+  );
+
+  // ---- table view ----
+  const Table = () => (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm border border-white/10 bg-white/5 rounded-xl overflow-hidden">
+        <thead className="bg-white/10">
+          <tr className="text-left">
+            <th className="px-3 py-2">Customer</th>
+            <th className="px-3 py-2">Invoice</th>
+            <th className="px-3 py-2">Due Date</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Amount</th>
+            <th className="px-3 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((x) => (
+            <tr key={x.id} className="border-t border-white/10 hover:bg-white/5">
+              <td className="px-3 py-2 text-white/90">
+                <div className="text-sm font-semibold bg-clip-text text-transparent bg-gradient-to-r from-emerald-200 to-sky-300 truncate">{x.name}</div>
+              </td>
+              <td className="px-3 py-2 text-white/70">{x.id}</td>
+              <td className="px-3 py-2 text-white/70">{x.due ? x.due.toLocaleDateString() : 'Invalid Date'}</td>
+              <td className="px-3 py-2"><StatusPill status={x.status} /></td>
+              <td className="px-3 py-2 font-semibold text-white">
+                <div className="text-[15px] font-bold text-white mt-1">{formatINR(x.amount)}</div>
+              </td>
+              <td className="px-3 py-2">
+                <div className="flex gap-2">
+                  <button onClick={() => handleSendReminder(x.raw)} className="text-xs px-2 py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]">Reminder</button>
+                  {onOpenInvoice && (
+                    <button onClick={() => onOpenInvoice(x.raw)} className="text-xs px-2 py-1 rounded border border-white/15 text-white/90 hover:bg-white/10">Open</button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
-    <div className="relative rounded-2xl text-white">
-      <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 pointer-events-none" />
-      <div className="relative rounded-[14px] bg-white/10 backdrop-blur-xl border border-white/10 p-4 md:p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">📅 Credit Dues</h3>
-          {hasDues && (
-            <button
-              onClick={handleSendAllReminders}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-            >
-              ✉️ Send All Reminders
-            </button>
-          )}
-        </div>
-
-        {/* Totals as chips */}
-        <div className="flex flex-wrap gap-2 text-sm mb-4">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1">
-            <span className="text-white/70">Total Due Pending</span>
-            <span className="font-semibold text-white">₹{creditInvoices.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)}</span>
-            <span className="text-white/70">/{creditInvoices.length} invoice(s)</span>
-          </span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1">
-            <span className="text-white/70">Due Today</span>
-            <span className="font-semibold text-white">₹{dueToday.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)}</span>
-            <span className="text-white/70">/{dueToday.length}</span>
-          </span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1">
-            <span className="text-white/70">Due Tomorrow</span>
-            <span className="font-semibold text-white">₹{dueTomorrow.reduce((acc, inv) => acc + parseFloat(inv.splitPayment?.totalAmount || inv.totalAmount || inv.settings?.totalAmount || 0), 0).toFixed(2)}</span>
-            <span className="text-white/70">/{dueTomorrow.length}</span>
-          </span>
-        </div>
-
-        {/* Lists */}
-        <div className="overflow-x-auto max-h-[300px] overflow-y-auto pr-1">
-          {renderSection('Overdue', grouped['Overdue'])}
-          {renderSection('Due Today', grouped['Due Today'])}
-          {renderSection('Due Tomorrow', grouped['Due Tomorrow'])}
-          {renderSection('Upcoming', grouped['Upcoming'])}
-        </div>
+    <div className="relative rounded-2xl text-white w-full">
+      {/* Aurora wash */}
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-400/7 via-fuchsia-400/6 to-sky-400/7 opacity-90 pointer-events-none" />
+      <div className="relative rounded-[16px] bg-white/5 backdrop-blur-xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_40px_rgba(2,6,23,0.45)] p-5 min-w-0">
+        <Header />
+        {view === 'lanes' ? <Lanes /> : <Table />}
       </div>
     </div>
   );

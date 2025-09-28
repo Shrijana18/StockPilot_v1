@@ -124,9 +124,24 @@ const CreateInvoice = () => {
     igstRate: 18,
     invoiceType: "",
     paymentMode: "",
+    // legacy charges (kept for backward compatibility)
     deliveryCharge: 0,
     packingCharge: 0,
     otherCharge: 0,
+    // NEW: Delivery & Extras
+    extras: {
+      deliveryFee: 0,
+      packagingFee: 0,
+      insuranceType: 'none', // 'none' | 'flat' | 'percent'
+      insuranceValue: 0,
+    },
+    // NEW: Driver details
+    driver: {
+      name: "",
+      phone: "",
+      vehicle: "",
+      tracking: "",
+    },
   });
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [showPreview, setShowPreview] = useState({ visible: false, issuedAt: null });
@@ -135,6 +150,25 @@ const CreateInvoice = () => {
   const [invoiceData, setInvoiceData] = useState(null);
   const [splitPayment, setSplitPayment] = useState({ cash: 0, upi: 0, card: 0 });
   const [fastMode, setFastMode] = useState(false);
+
+  // UI: show an overlay while we prepare the invoice preview
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Totals from BillingCart (kept in sync for split-payment suggestions)
+  const [cartTotals, setCartTotals] = useState({
+    subtotal: 0,
+    taxBreakdown: {},
+    extras: {},
+    finalTotal: 0,
+    grandTotal: 0,
+  });
+  // Keep cart items + computed totals in sync with BillingCart
+  const handleCartUpdate = (nextItems, totals) => {
+    if (Array.isArray(nextItems)) setCartItems(nextItems);
+    if (totals && typeof totals === 'object') {
+      setCartTotals((prev) => ({ ...prev, ...totals, grandTotal: totals.grandTotal ?? totals.finalTotal ?? prev.grandTotal }));
+    }
+  };
 
   // stop Fast Billing mic when leaving fast mode or page
   useEffect(() => {
@@ -441,6 +475,34 @@ const CreateInvoice = () => {
     });
   };
 
+  // Compute extras in a backward compatible way
+  function computeExtrasCharges(subtotal, currentSettings) {
+    const s = currentSettings || {};
+    const ex = s.extras || {};
+
+    const legacyDelivery = parseFloat(s.deliveryCharge) || 0;
+    const legacyPacking = parseFloat(s.packingCharge) || 0;
+    const legacyOther = parseFloat(s.otherCharge) || 0;
+
+    const deliveryFee = parseFloat(ex.deliveryFee) || 0;
+    const packagingFee = parseFloat(ex.packagingFee) || 0;
+
+    let insuranceAmt = 0;
+    const type = ex.insuranceType || 'none';
+    const val = parseFloat(ex.insuranceValue) || 0;
+    if (type === 'flat') insuranceAmt = val;
+    else if (type === 'percent') insuranceAmt = subtotal * (val / 100);
+
+    return {
+      delivery: legacyDelivery + deliveryFee,
+      packaging: legacyPacking + packagingFee,
+      insurance: Math.max(0, insuranceAmt),
+      other: legacyOther,
+      total: (legacyDelivery + deliveryFee) + (legacyPacking + packagingFee) + Math.max(0, insuranceAmt) + legacyOther,
+      meta: { type, val }
+    };
+  }
+
   /* ---------- Totals ---------- */
   const computeTotals = () => {
     const enriched = enrichCartItems(cartItems);
@@ -452,13 +514,12 @@ const CreateInvoice = () => {
     // If you want a manual override later, add a flag like settings.applyCartLevelTax === true.
     const gstAmount = 0, cgstAmount = 0, sgstAmount = 0, igstAmount = 0;
 
-    const charges =
-      (parseFloat(settings.deliveryCharge) || 0) +
-      (parseFloat(settings.packingCharge) || 0) +
-      (parseFloat(settings.otherCharge) || 0);
+    const extras = computeExtrasCharges(rowSubtotal, settings);
+
+    const charges = extras.total;
 
     const grandTotal = parseFloat((rowSubtotal + rowTax + charges).toFixed(2));
-    return { subtotal: rowSubtotal, gstAmount, cgstAmount, sgstAmount, igstAmount, rowTax, charges, grandTotal, enriched };
+    return { subtotal: rowSubtotal, gstAmount, cgstAmount, sgstAmount, igstAmount, rowTax, charges, grandTotal, enriched, extras };
   };
 
   /* ---------- Fast Billing Actions (used by FastBillingMode) ---------- */
@@ -557,9 +618,12 @@ const CreateInvoice = () => {
         isPaid,
         paidOn,
         chargesSnapshot: {
-          delivery: parseFloat(settings.deliveryCharge) || 0,
-          packing: parseFloat(settings.packingCharge) || 0,
-          other: parseFloat(settings.otherCharge) || 0,
+          delivery: totals.extras?.delivery || 0,
+          packing: totals.extras?.packaging || 0,
+          insurance: totals.extras?.insurance || 0,
+          other: totals.extras?.other || 0,
+          insuranceType: settings?.extras?.insuranceType || 'none',
+          insuranceValue: settings?.extras?.insuranceValue || 0,
         },
         taxSnapshot: {
           rowTax: totals.rowTax,
@@ -605,6 +669,7 @@ const CreateInvoice = () => {
   const handleSubmitInvoice = async () => {
     if (!userInfo) { alert("User not authenticated or user info missing."); return; }
     if (cartItems.length === 0) { alert("Cart is empty. Please add products to generate invoice."); return; }
+    setIsCreating(true);
 
     const issuedAt = moment().format("YYYY-MM-DDTHH:mm:ss.SSSZ");
     const newInvoiceId = "INV-" + Math.random().toString(36).substr(2, 9).toUpperCase();
@@ -625,6 +690,7 @@ const CreateInvoice = () => {
     } catch (err) {
       console.error("Error saving/updating customer:", err);
       alert("Failed to save customer info. Please try again.");
+      setIsCreating(false);
       return;
     }
 
@@ -632,9 +698,11 @@ const CreateInvoice = () => {
     const totalAmount = totals.grandTotal;
 
     if (settings.paymentMode === "Split") {
-      const totalSplit = (Number(splitPayment.cash)||0) + (Number(splitPayment.upi)||0) + (Number(splitPayment.card)||0);
-      if (totalSplit !== totalAmount) {
+      const sp = settings.splitPayment || splitPayment || {};
+      const totalSplit = (Number(sp.cash)||0) + (Number(sp.upi)||0) + (Number(sp.card)||0);
+      if (Number(totalSplit.toFixed(2)) !== Number(totalAmount.toFixed(2))) {
         alert(`Split payment does not match invoice total. Total: ₹${totalAmount}, Split: ₹${totalSplit}`);
+        setIsCreating(false);
         return;
       }
     }
@@ -667,9 +735,12 @@ const CreateInvoice = () => {
       isPaid,
       paidOn,
       chargesSnapshot: {
-        delivery: parseFloat(settings.deliveryCharge) || 0,
-        packing: parseFloat(settings.packingCharge) || 0,
-        other: parseFloat(settings.otherCharge) || 0,
+        delivery: totals.extras?.delivery || 0,
+        packing: totals.extras?.packaging || 0,
+        insurance: totals.extras?.insurance || 0,
+        other: totals.extras?.other || 0,
+        insuranceType: settings?.extras?.insuranceType || 'none',
+        insuranceValue: settings?.extras?.insuranceValue || 0,
       },
       taxSnapshot: {
         rowTax: totals.rowTax,
@@ -677,6 +748,7 @@ const CreateInvoice = () => {
       },
     };
     setInvoiceData(newInvoiceData);
+    setIsCreating(false);
     setShowPreview({ visible: true, issuedAt });
   };
 
@@ -736,161 +808,154 @@ const CreateInvoice = () => {
 
   /* ---------- Page ---------- */
   return (
-    <div className="space-y-6 px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)] text-white">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Billing</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-white/70">Mode:</span>
-          <button className={`px-3 py-1 rounded-xl border ${!fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(false)}>Classic</button>
-          <button className={`px-3 py-1 rounded-xl border ${fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(true)}>Fast Billing</button>
+    <>
+      <div className="space-y-6 px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)] text-white">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Billing</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-white/70">Mode:</span>
+            <button className={`px-3 py-1 rounded-xl border ${!fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(false)}>Classic</button>
+            <button className={`px-3 py-1 rounded-xl border ${fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(true)}>Fast Billing</button>
+          </div>
         </div>
-      </div>
 
-      {fastMode ? (
-        (() => {
-          const handleVoiceCommand = (text) => { console.log("Final Voice Command:", text); };
-          return (
-            <div className="space-y-4 px-4 md:px-6 pb-24 text-white">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold">Fast Billing</h2>
-                <button onClick={() => setFastMode(false)} className="px-3 py-1 rounded-xl border border-white/20">Exit</button>
+        {fastMode ? (
+          (() => {
+            const handleVoiceCommand = (text) => { console.log("Final Voice Command:", text); };
+            return (
+              <div className="space-y-4 px-4 md:px-6 pb-24 text-white">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Fast Billing</h2>
+                  <button onClick={() => setFastMode(false)} className="px-3 py-1 rounded-xl border border-white/20">Exit</button>
+                </div>
+                <FastBillingMode
+                  onExit={() => setFastMode(false)}
+                  actions={fastActions}
+                  onVoiceCommand={handleVoiceCommand}
+                  fallbackToWhisper={true}
+                  whisperFallbackApi="/api/voice/fallback"
+                  inventory={selectedProducts}
+                  settings={settings}
+                />
               </div>
-              <FastBillingMode
-                onExit={() => setFastMode(false)}
-                actions={fastActions}
-                onVoiceCommand={handleVoiceCommand}
-                fallbackToWhisper={true}
-                whisperFallbackApi="/api/voice/fallback"
-                inventory={selectedProducts}
+            );
+          })()
+        ) : (
+          <>
+            {/* Customer Info */}
+            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+              <h2 className="text-lg font-semibold mb-2 text-white">Customer Information</h2>
+              {userInfo && (
+                <CustomerForm customer={customer} onChange={handleCustomerChange} userId={userInfo.uid} />
+              )}
+            </div>
+
+            {/* Product Search */}
+            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-lg font-semibold text-white">Add Product</h2>
+              </div>
+              <ProductSearch
+                onSelect={(product) => {
+                  if (!product) return;
+                  const resolvedName =
+                    product.productName || product.name || product.title || product.label || "";
+
+                  // Build a full product payload for BillingCart to normalize correctly
+                  const fullProduct = {
+                    id: product.id,
+                    ...product,
+                    productName: resolvedName,
+                    // ensure expected fields exist
+                    pricingMode:
+                      product.pricingMode || (product.mrp ? "MRP_INCLUSIVE" : "SELLING_SIMPLE"),
+                    gstRate: product.gstRate ?? product.taxRate ?? 0,
+                    sellingIncludesGst:
+                      product.sellingIncludesGst ?? (product.pricingMode !== "BASE_PLUS_GST"),
+                  };
+
+                  // Dedupe by id
+                  const alreadyExists = selectedProducts.find((p) => p.id === fullProduct.id);
+                  if (!alreadyExists) {
+                    setSelectedProducts((prev) => [...prev, fullProduct]);
+                  }
+                  // IMPORTANT: Do NOT push to cartItems here. BillingCart listens to selectedProducts
+                  // and will add a single normalized line with correct breakdown.
+                }}
+              />
+            </div>
+
+            {/* Invoice Settings */}
+            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+              <InvoiceSettings
+                settings={settings}
+                onChange={setSettings}
+                grandTotal={cartTotals.grandTotal || cartTotals.finalTotal || 0}
+              />
+              {settings.paymentMode === "Credit" && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-white/80 mb-1">Credit Due Date (Default: 7 days from today)</label>
+                  <input
+                    type="date"
+                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                    value={settings.creditDueDate || ""}
+                    onChange={(e) => setSettings(prev => ({ ...prev, creditDueDate: e.target.value }))}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Cart */}
+            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+              <h2 className="text-lg font-semibold mb-2 text-white">Product Cart</h2>
+              <BillingCart
+                selectedProducts={selectedProducts}
+                cartItems={cartItems}
+                onUpdateCart={handleCartUpdate}
                 settings={settings}
               />
             </div>
-          );
-        })()
-      ) : (
-        <>
-          {/* Customer Info */}
-          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-            <h2 className="text-lg font-semibold mb-2 text-white">Customer Information</h2>
-            {userInfo && (
-              <CustomerForm customer={customer} onChange={handleCustomerChange} userId={userInfo.uid} />
-            )}
-          </div>
 
-          {/* Product Search */}
-          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold text-white">Add Product</h2>
+            {/* Submit Button */}
+            <div className="hidden md:flex justify-end">
+              <button
+                onClick={handleSubmitInvoice}
+                className="px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
+              >
+                Create Bill
+              </button>
             </div>
-            <ProductSearch
-              onSelect={(product) => {
-                if (!product) return;
-                const resolvedName =
-                  product.productName || product.name || product.title || product.label || "";
-
-                // Build a full product payload for BillingCart to normalize correctly
-                const fullProduct = {
-                  id: product.id,
-                  ...product,
-                  productName: resolvedName,
-                  // ensure expected fields exist
-                  pricingMode:
-                    product.pricingMode || (product.mrp ? "MRP_INCLUSIVE" : "SELLING_SIMPLE"),
-                  gstRate: product.gstRate ?? product.taxRate ?? 0,
-                  sellingIncludesGst:
-                    product.sellingIncludesGst ?? (product.pricingMode !== "BASE_PLUS_GST"),
-                };
-
-                // Dedupe by id
-                const alreadyExists = selectedProducts.find((p) => p.id === fullProduct.id);
-                if (!alreadyExists) {
-                  setSelectedProducts((prev) => [...prev, fullProduct]);
-                }
-                // IMPORTANT: Do NOT push to cartItems here. BillingCart listens to selectedProducts
-                // and will add a single normalized line with correct breakdown.
-              }}
-            />
+            {/* Mobile Floating Button */}
+            <div className="fixed bottom-4 inset-x-4 z-50 md:hidden">
+              <button
+                onClick={handleSubmitInvoice}
+                className="w-full text-slate-900 py-3 rounded-xl shadow-lg text-lg font-semibold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
+              >
+                Create Bill
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+      {isCreating && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
+          <div className="relative p-6 rounded-2xl border border-white/10 bg-white/10 shadow-2xl text-white w-[min(90vw,420px)]">
+            {/* Spinner */}
+            <div className="mx-auto mb-3 h-10 w-10 rounded-full border-4 border-white/30 border-t-emerald-300 animate-spin" />
+            <div className="text-center">
+              <div className="text-lg font-semibold">Creating invoice…</div>
+              <div className="text-sm text-white/80 mt-1">Preparing preview and totals</div>
+            </div>
+            {/* Shimmer bar */}
+            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="h-full w-1/2 animate-[shimmer_1.6s_linear_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+            </div>
+            {/* Inline keyframes for the shimmer */}
+            <style>{`@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}`}</style>
           </div>
-
-          {/* Invoice Settings */}
-          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-            <InvoiceSettings settings={settings} onChange={setSettings} />
-            {settings.paymentMode === "Split" && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-white/80 mb-1">Cash Amount</label>
-                  <input
-                    type="number"
-                    value={splitPayment.cash}
-                    onChange={(e) => setSplitPayment(prev => ({ ...prev, cash: parseFloat(e.target.value) || 0 }))}
-                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white/80 mb-1">UPI Amount</label>
-                  <input
-                    type="number"
-                    value={splitPayment.upi}
-                    onChange={(e) => setSplitPayment(prev => ({ ...prev, upi: parseFloat(e.target.value) || 0 }))}
-                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white/80 mb-1">Card Amount</label>
-                  <input
-                    type="number"
-                    value={splitPayment.card}
-                    onChange={(e) => setSplitPayment(prev => ({ ...prev, card: parseFloat(e.target.value) || 0 }))}
-                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                  />
-                </div>
-              </div>
-            )}
-            {settings.paymentMode === "Credit" && (
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-white/80 mb-1">Credit Due Date (Default: 7 days from today)</label>
-                <input
-                  type="date"
-                  className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                  value={settings.creditDueDate || ""}
-                  onChange={(e) => setSettings(prev => ({ ...prev, creditDueDate: e.target.value }))}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Cart */}
-          <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-            <h2 className="text-lg font-semibold mb-2 text-white">Product Cart</h2>
-            <BillingCart
-              selectedProducts={selectedProducts}
-              cartItems={cartItems}
-              onUpdateCart={setCartItems}
-              settings={settings}
-            />
-          </div>
-
-          {/* Submit Button */}
-          <div className="hidden md:flex justify-end">
-            <button
-              onClick={handleSubmitInvoice}
-              className="px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
-            >
-              Create Bill
-            </button>
-          </div>
-          {/* Mobile Floating Button */}
-          <div className="fixed bottom-4 inset-x-4 z-50 md:hidden">
-            <button
-              onClick={handleSubmitInvoice}
-              className="w-full text-slate-900 py-3 rounded-xl shadow-lg text-lg font-semibold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
-            >
-              Create Bill
-            </button>
-          </div>
-        </>
+        </div>
       )}
-    </div>
+    </>
   );
 };
 
