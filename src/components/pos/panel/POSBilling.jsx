@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 /**
  * POSBilling
  * ------------------------------------------------------------
- * A clean, modern, and high‑performance billing workspace built to
+ * A clean, modern, and high-performance billing workspace built to
  * plug into your **existing dashboard logic** without breaking anything.
  *
  * Integration contract (all optional, but recommended):
@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
  *   searchProducts: (q: string) => Promise<Product[]>,
  *   listByCategory?: (categoryId: string) => Promise<Product[]>,
  *   listPopular?: (limit?: number) => Promise<Product[]>,
+ *   listAll?: () => Promise<Product[]>,
  *   listCategories?: () => Promise<Category[]>
  * }
  * props.billing: {
@@ -22,25 +23,30 @@ import { motion, AnimatePresence } from "framer-motion";
  * props.mode: 'retail' | 'cafe' (enables Menu section for cafe/restro)
  * props.onBack?: () => void
  * props.onInvoiceSaved?: (id: string) => void
- *
- * NOTE: Wire these to your existing dashboard services to keep logic identical.
  */
 
 // ——— Types (JSDoc for editor intellisense)
-/** @typedef {{ id: string, name: string, sku?: string, price: number, taxRate?: number, img?: string, categoryId?: string }} Product */
-/** @typedef {{ id: string, name: string }} Category */
+/** @typedef {{ id: string, name: string, sku?: string, price?: number, mrp?: number, sellingPrice?: number, basePrice?: number, taxRate?: number, img?: string, imageUrl?: string, categoryId?: string, categoryName?: string }} Product */
+/** @typedef {{ id: string, name: string, icon?: string }} Category */
 /** @typedef {{ product: Product, qty: number, discount?: number }} CartLine */
 /** @typedef {{ subTotal: number, tax: number, discount: number, grandTotal: number }} Totals */
 /** @typedef {{ lines: CartLine[], totals: Totals, payments: {method: string, amount: number}[], meta?: any }} InvoiceDraft */
+
+
+// --- Category field helpers (support multiple shapes from Firestore)
+const getCatId = (p) => p?.categoryId ?? p?.category ?? p?.category_id ?? p?.categoryName ?? undefined;
+const getCatName = (p) => p?.categoryName ?? p?.category ?? p?.categoryId ?? p?.category_id ?? "Uncategorized";
 
 const money = (n) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function localCalcTotals(lines /** @type {CartLine[]} */) {
   let sub = 0, tax = 0, disc = 0;
   for (const l of lines) {
-    const line = (l.product.price * l.qty) - (l.discount ?? 0);
+    // normalize price so NaN never happens
+    const unit = l.product?.price ?? l.product?.mrp ?? l.product?.sellingPrice ?? l.product?.basePrice ?? 0;
+    const line = (unit * l.qty) - (l.discount ?? 0);
     sub += Math.max(line, 0);
-    tax += ((l.product.taxRate ?? 0) / 100) * (l.product.price * l.qty);
+    tax += ((l.product.taxRate ?? 0) / 100) * (unit * l.qty);
     disc += (l.discount ?? 0);
   }
   return { subTotal: sub, tax, discount: disc, grandTotal: sub + tax };
@@ -56,24 +62,25 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
   const [saving, setSaving] = React.useState(false);
   const [notice, setNotice] = React.useState("");
   const [scanOpen, setScanOpen] = React.useState(false);
-  // Handler for barcode/QR scan decoded text
-  const onDecoded = React.useCallback(
-    (text) => {
-      if (!text) return;
-      // Try to find product by SKU or id
-      let found =
-        results.find((p) => p.sku && p.sku === text) ||
-        results.find((p) => p.id === text);
-      if (found) {
-        addToCart(found);
-        setScanOpen(false);
-      } else {
-        setNotice("Product not found");
-        setTimeout(() => setNotice(""), 1200);
-      }
-    },
-    [results]
-  );
+
+  // Cached "default listing" and derived categories for chips
+  const [allResults, setAllResults] = React.useState(/** @type {Product[]} */([]));
+  const [derivedCats, setDerivedCats] = React.useState(/** @type {Category[]} */([]));
+
+  // Aggregate categories (fallback) from the cached full listing
+  const catAgg = React.useMemo(() => {
+    const map = new Map();
+    for (const p of allResults || []) {
+      const id = getCatId(p);
+      const name = getCatName(p);
+      if (!id && !name) continue;
+      const key = id || name;
+      const current = map.get(key) || { id: key, name, count: 0 };
+      current.count += 1;
+      map.set(key, current);
+    }
+    return Array.from(map.values());
+  }, [allResults]);
 
   // Retail vs Cafe/Restro: Inventory browse vs Menu builder
   const [useInventory, setUseInventory] = React.useState(mode !== "cafe");
@@ -98,55 +105,126 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
 
   const totals = (billing.calcTotals || localCalcTotals)(cart);
 
-  // Load initial suggestions (popular items or empty)
+  // Load default listing (popular/all/empty) and derive categories if none provided
+  async function loadDefaultListing() {
+    if (!useInventory) return;
+    try {
+      let base = [];
+      if (inventory.listPopular) {
+        base = await inventory.listPopular(24) || [];
+      } else if (inventory.listAll) {
+        base = await inventory.listAll() || [];
+      } else if (inventory.searchProducts) {
+        // Many backends return all items for empty query
+        base = await inventory.searchProducts("") || [];
+      }
+      setAllResults(base);
+      setResults(base);
+
+      // Derive categories if backend doesn't provide
+      if (!inventory.listCategories) {
+        const uniq = new Map();
+        for (const p of base) {
+          const id = getCatId(p);
+          if (!id) continue;
+          if (!uniq.has(id)) {
+            uniq.set(id, { id, name: getCatName(p) });
+          }
+        }
+        setDerivedCats(Array.from(uniq.values()));
+      }
+    } catch (_) {}
+  }
+
+  // Load initial suggestions and categories
   React.useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        if (useInventory && inventory.listPopular) {
-          const pop = await inventory.listPopular(24);
-          if (alive) setResults(pop || []);
-        }
-        if (mode === "cafe" && useInventory && inventory.listCategories) {
+      await loadDefaultListing();
+      if (!alive) return;
+
+      if (useInventory && mode === "cafe" && inventory.listCategories) {
+        try {
           const cats = await inventory.listCategories();
           if (alive) setCategories(cats || []);
-        }
-      } catch (_) {}
+        } catch {}
+      }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [mode, useInventory]);
 
   // Load menu full listing (for Menu mode)
   React.useEffect(() => {
     if (!useInventory) {
-      // If menuLibrary already has items, use them
       setMenuItems(menuLibrary);
-      // If menuLibrary is empty, try to get from props if available
-      // (Assume inventory.menuLibrary or billing.menuLibrary)
       if ((!menuLibrary || menuLibrary.length === 0) && (inventory.menuLibrary || billing.menuLibrary)) {
         setMenuItems(inventory.menuLibrary || billing.menuLibrary || []);
       }
     }
   }, [useInventory, menuLibrary, inventory.menuLibrary, billing.menuLibrary]);
 
-  // Search products (inventory mode only)
-  async function doSearch(text) {
-    setQ(text);
-    if (!useInventory) return; // disabled in Menu mode
-    if (!text) return;
-    if (!inventory.searchProducts) return;
-    setLoading(true);
-    try {
-      const r = await inventory.searchProducts(text);
-      setResults(r || []);
-    } finally {
-      setLoading(false);
-    }
+  // Local multi-field filter (fallback when no backend search or to refine)
+  function localFilter(text, base = allResults) {
+    if (!text?.trim()) return base;
+    const t = text.toLowerCase();
+    return (base || []).filter(p => {
+      const name = p.name || p.productName || "";
+      return (
+        name?.toLowerCase?.().includes(t) ||
+        p?.sku?.toLowerCase?.().includes(t) ||
+        p?.brand?.toLowerCase?.().includes(t) ||
+        p?.categoryName?.toLowerCase?.().includes(t) ||
+        p?.category?.toLowerCase?.().includes(t)
+      );
+    });
   }
 
-  // Category filter (cafe, inventory mode only)
+  // Debounced search that restores default listing on empty query
+  const searchTimer = React.useRef(null);
+  async function doSearch(text) {
+    setQ(text);
+    // Instant restore when the query is empty (handles backspace quickly)
+    if (!useInventory) return; // disabled in Menu mode
+    if (!text || !text.trim()) {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+      setActiveCat(undefined);
+      setResults(allResults);
+      setLoading(false);
+      return;
+    }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        let r = [];
+        // Backend search first (if wired)
+        if (inventory.searchProducts) {
+          try {
+            r = await inventory.searchProducts(text);
+          } catch { r = []; }
+        }
+        // Fallback / refine using local multi-field search
+        if (!r || r.length === 0) {
+          r = localFilter(text, allResults);
+        } else {
+          r = localFilter(text, r); // refine backend results too
+        }
+        setResults(r || []);
+      } finally {
+        setLoading(false);
+      }
+    }, 220);
+  }
+  // Guard to re-sync results when input becomes empty via any path
+  React.useEffect(() => {
+    if (!useInventory) return;
+    if (!q || !q.trim()) {
+      setActiveCat(undefined);
+      setResults(allResults);
+    }
+  }, [q, useInventory, allResults]);
+
+  // Category filter
   async function pickCategory(catId) {
     if (!useInventory) return;
     setActiveCat(catId);
@@ -158,20 +236,25 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
       } finally {
         setLoading(false);
       }
+    } else {
+      // Fallback to client-side filter on cached list
+      setResults(allResults.filter(p => (getCatId(p) === catId) || (getCatName(p) === catId)));
     }
   }
 
   function addToCart(p /** @type {Product} */) {
+    const price = Number(p.price ?? p.mrp ?? p.sellingPrice ?? p.basePrice ?? 0) || 0;
+    const normalized = { ...p, price };
     setCart(prev => {
-      const i = prev.findIndex(l => l.product.id === p.id);
+      const i = prev.findIndex(l => l.product.id === normalized.id);
       if (i >= 0) {
         const copy = [...prev];
         copy[i] = { ...copy[i], qty: copy[i].qty + 1 };
         return copy;
       }
-      return [...prev, { product: p, qty: 1 }];
+      return [...prev, { product: normalized, qty: 1 }];
     });
-    setNotice(`${p.name} added`);
+    setNotice(`${normalized.name || normalized.productName || "Item"} added`);
     setTimeout(() => setNotice(""), 1200);
   }
 
@@ -245,9 +328,25 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
     });
   }
 
-  // Advanced card border
-  const cardGradient = "border-2 border-transparent bg-clip-padding bg-gradient-to-br from-emerald-100/60 to-cyan-100/40 hover:from-emerald-200/90 hover:to-cyan-200/80";
-  const cardBorderGradient = "border bg-gradient-to-br from-emerald-300/60 to-cyan-300/40";
+  // Handler for barcode/QR scan decoded text
+  const onDecoded = React.useCallback(
+    (text) => {
+      if (!text) return;
+      // Try to find product by SKU or id
+      let found =
+        results.find((p) => p.sku && p.sku === text) ||
+        results.find((p) => p.id === text) ||
+        allResults.find((p) => p.sku === text || p.id === text);
+      if (found) {
+        addToCart(found);
+        setScanOpen(false);
+      } else {
+        setNotice("Product not found");
+        setTimeout(() => setNotice(""), 1200);
+      }
+    },
+    [results, allResults]
+  );
 
   // Handler used by ScanModal to push scanned item(s) straight into the cart
   const handleScanAddToCart = React.useCallback(async (payload) => {
@@ -262,8 +361,11 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
     // Case 2: scanner gives a SKU/ID string { sku } or raw string
     const code = typeof payload === 'string' ? payload : (payload.sku || payload.id || payload.code || '');
     if (!code) return;
-    // Try to resolve locally first
-    let found = results.find(p => (p.sku && p.sku === code) || p.id === code);
+    // Try to resolve locally first (both current results and cached defaults)
+    let found =
+      results.find(p => (p.sku && p.sku === code) || p.id === code) ||
+      allResults.find(p => (p.sku && p.sku === code) || p.id === code);
+    // Fallback: hit backend search
     if (!found && inventory.searchProducts) {
       try {
         const r = await inventory.searchProducts(code);
@@ -277,7 +379,7 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
       setNotice('Product not found');
       setTimeout(() => setNotice(''), 1200);
     }
-  }, [results, inventory]);
+  }, [results, allResults, inventory]);
 
   // Animation variants
   const fadeVariants = {
@@ -296,7 +398,6 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
   // Filtered menu items (for menu full listing)
   const menuFullList = React.useMemo(() => {
     if (!menuItems || menuItems.length === 0) return [];
-    // menuItems may not have id, so use name+price as key
     return menuItems;
   }, [menuItems]);
 
@@ -375,37 +476,113 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
                         style={{ boxShadow: "0 2px 18px 0 rgba(16, 185, 129, 0.06)" }}
                       />
                     </div>
-                    <button onClick={() => { setQ(""); setResults([]); }} className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">Clear</button>
+                    <button
+                      onClick={() => {
+                        if (searchTimer.current) clearTimeout(searchTimer.current);
+                        setQ("");
+                        setActiveCat(undefined);
+                        setResults(allResults);
+                        setLoading(false);
+                      }}
+                      className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                    >Clear</button>
                   </div>
 
-                  {/* Cafe categories (inventory) */}
-                  {mode === 'cafe' && !!categories.length && (
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pt-1">
-                      {categories.map(c => {
-                        // Pick an emoji or fallback
-                        const icons = ["🍔", "🥤", "🍕", "🍟", "🍜", "🍱", "🍩", "🥗", "🍰", "🍛", "☕️", "🍣", "🍲", "🍦"];
-                        const icon = c.icon || icons[(c.id?.length || 0) % icons.length] || "🍴";
-                        // Gradient colors for category chips
+                  {/* Category suggestions under search when query matches category names */}
+                  {q?.trim() && (() => {
+                    const source = (categories && categories.length) ? categories : derivedCats;
+                    const t = q.toLowerCase();
+                    const matches = (source || []).filter(c => c?.name?.toLowerCase?.().includes(t)).slice(0, 8);
+                    return matches.length ? (
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-xs text-slate-500">Categories:</span>
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                  {matches.map(c => (
+                    <button
+                      key={"sugg-" + c.id}
+                      onClick={async () => {
+                        setActiveCat(c.id);
+                        setQ("");
+                        if (inventory.listByCategory) {
+                          setLoading(true);
+                          try {
+                            const r = await inventory.listByCategory(c.id);
+                            setResults(r || []);
+                          } finally { setLoading(false); }
+                        } else {
+                          setResults(allResults.filter(p => (getCatId(p) === c.id) || (getCatName(p) === c.name)));
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs rounded-full border bg-white/70 dark:bg-slate-900/70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+                      type="button"
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+
+                  {/* Categories (ALL + chips) */}
+                  {useInventory && (
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-2">
+                      {/* ALL chip */}
+                      <button
+                        onClick={async () => { setActiveCat(undefined); setQ(""); await loadDefaultListing(); }}
+                        className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold transition-all
+                          bg-gradient-to-r from-slate-300 via-slate-200 to-slate-300 text-slate-800
+                          ${!activeCat ? "ring-2 ring-emerald-400/80 scale-105" : "opacity-90 hover:opacity-100 hover:shadow-lg"}
+                        `}
+                        style={{ boxShadow: !activeCat ? "0 0 0 3px rgba(16,185,129,0.19)" : undefined }}
+                        type="button"
+                      >
+                        <span className="text-base mr-1">✨</span> All
+                        <span className="ml-2 text-[10px] font-bold bg-white/70 dark:bg-slate-900/70 rounded-full px-2 py-0.5">{allResults?.length || 0}</span>
+                      </button>
+
+                      {(
+                        (categories && categories.length ? categories : (derivedCats && derivedCats.length ? derivedCats : catAgg))
+                      ).map((c) => {
+                        const icons = ["🍔","🥤","🍕","🍟","🍜","🍱","🍩","🥗","🍰","🍛","☕️","🍣","🍲","🍦"]; 
+                        const icon = c.icon || icons[(c.id?.length || 0) % icons.length] || "🧾";
                         const gradients = [
                           "from-pink-400 via-fuchsia-500 to-indigo-400",
                           "from-orange-400 via-yellow-400 to-lime-400",
                           "from-cyan-400 via-teal-400 to-emerald-400",
                           "from-purple-400 via-blue-400 to-green-400",
-                          "from-rose-400 via-pink-400 to-violet-400"
+                          "from-rose-400 via-pink-400 to-violet-400",
                         ];
                         const grad = gradients[(c.id?.length || 0) % gradients.length];
+                        const count = (catAgg.find((x) => x.id === (c.id || c.name) || x.name === c.name)?.count) ?? undefined;
                         return (
                           <button
-                            key={c.id}
-                            onClick={() => pickCategory(c.id)}
+                            key={c.id || c.name}
+                            onClick={async () => {
+                              setActiveCat(c.id || c.name);
+                              setQ("");
+                              if (inventory.listByCategory && c.id) {
+                                setLoading(true);
+                                try {
+                                  const r = await inventory.listByCategory(c.id);
+                                  setResults(r || []);
+                                } finally { setLoading(false); }
+                              } else {
+                                setResults(allResults.filter(p => (getCatId(p) === (c.id || c.name)) || (getCatName(p) === c.name)));
+                              }
+                            }}
                             className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold transition-all
                               bg-gradient-to-r ${grad} text-white shadow-md border-0
-                              ${activeCat === c.id ? "ring-2 ring-emerald-400/80 scale-105" : "opacity-90 hover:opacity-100 hover:shadow-lg"}
+                              ${activeCat === (c.id || c.name) ? "ring-2 ring-emerald-400/80 scale-105" : "opacity-90 hover:opacity-100 hover:shadow-lg"}
                             `}
-                            style={{ boxShadow: activeCat === c.id ? "0 0 0 3px rgba(16,185,129,0.19)" : undefined }}
+                            style={{ boxShadow: activeCat === (c.id || c.name) ? "0 0 0 3px rgba(16,185,129,0.19)" : undefined }}
+                            type="button"
                           >
                             <span className="text-base mr-1">{icon}</span>
                             {c.name}
+                            {typeof count === 'number' && (
+                              <span className="ml-2 text-[10px] font-bold bg-white/30 rounded-full px-2 py-0.5">{count}</span>
+                            )}
                           </button>
                         );
                       })}
@@ -420,11 +597,12 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
                         const displayPrice = p.mrp || p.sellingPrice || p.basePrice || p.price || 0;
                         const displayImg = p.imageUrl || p.img;
                         // Find category name if available
-                        const catObj = categories?.find?.(c => c.id === p.categoryId);
-                        const catName = catObj?.name || "";
+                        const pid = getCatId(p);
+                        const catObj = (categories && categories.length ? categories : derivedCats).find?.(c => c.id === pid || c.name === pid);
+                        const catName = catObj?.name || getCatName(p);
                         // Category icon
                         const icons = ["🍔", "🥤", "🍕", "🍟", "🍜", "🍱", "🍩", "🥗", "🍰", "🍛", "☕️", "🍣", "🍲", "🍦"];
-                        const icon = catObj?.icon || icons[(p.categoryId?.length || 0) % icons.length] || "🍴";
+                        const icon = catObj?.icon || icons[((pid?.length || 0)) % icons.length] || "🍴";
                         return (
                           <motion.div
                             key={p.id}
@@ -558,7 +736,7 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
                           <motion.div
                             key={m.id || m.name + m.price + idx}
                             whileHover={{ scale: 1.03, boxShadow: "0 2px 24px 0 rgba(16, 185, 129, 0.10)" }}
-                            className={`rounded-2xl ${cardBorderGradient} bg-white/70 dark:bg-slate-900/60 p-3 text-left flex flex-col transition-all`}
+                            className={`rounded-2xl border bg-white/70 dark:bg-slate-900/60 p-3 text-left flex flex-col transition-all`}
                           >
                             <div className="flex-1">
                               <div className="font-medium truncate text-sm">{m.name}</div>
@@ -594,7 +772,7 @@ export default function POSBilling({ inventory = {}, billing = {}, mode = "retai
               <AnimatePresence>
                 {cart.map(line => {
                   const cartDisplayName = line.product.productName || line.product.name;
-                  const cartDisplayPrice = line.product.mrp || line.product.sellingPrice || line.product.basePrice || line.product.price;
+                  const cartDisplayPrice = line.product.mrp || line.product.sellingPrice || line.product.basePrice || line.product.price || 0;
                   const cartImg = line.product.imageUrl || line.product.img;
                   return (
                     <motion.div
