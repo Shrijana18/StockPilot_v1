@@ -1,9 +1,78 @@
-import React, { useState, useRef, useEffect } from "react";
+function MultiResultsTable({ rows, onAutofill, onAddSelected }) {
+  const [selected, setSelected] = React.useState({});
+  const toggle = (i) => setSelected((s)=>({ ...s, [i]: !s[i] }));
+  const allOn = rows.length > 0 && rows.every((_, i) => selected[i]);
+  const selectedRows = rows.filter((_, i) => selected[i]);
+
+  return (
+    <>
+      <div className="overflow-auto rounded-lg border border-white/10">
+        <table className="w-full text-sm">
+          <thead className="bg-white/10">
+            <tr>
+              <th className="p-2">
+                <input
+                  type="checkbox"
+                  checked={allOn}
+                  onChange={(e)=>{
+                    const all = {}; rows.forEach((_,i)=> all[i] = e.target.checked); setSelected(all);
+                  }}
+                />
+              </th>
+              <th className="p-2">Preview</th>
+              <th className="p-2 text-left">Product</th>
+              <th className="p-2">Unit</th>
+              <th className="p-2">Barcode</th>
+              <th className="p-2">Conf.</th>
+              <th className="p-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r,i)=> (
+              <tr key={i} className="border-t border-white/10 hover:bg-white/5">
+                <td className="p-2 text-center">
+                  <input type="checkbox" checked={!!selected[i]} onChange={()=>toggle(i)} />
+                </td>
+                <td className="p-2">
+                  {r.thumbBase64 && <img src={r.thumbBase64} alt="thumb" className="h-12 w-12 object-cover rounded" />}
+                </td>
+                <td className="p-2">
+                  <div className="font-medium">{r.brand ? `${r.brand} ` : ""}{r.productName}</div>
+                  <div className="text-xs text-white/70">{r.category}</div>
+                </td>
+                <td className="p-2 text-center">{r.unit || '-'}</td>
+                <td className="p-2 text-center">{r.barcode || '-'}</td>
+                <td className="p-2 text-center">{Math.round((r.confidence || 0) * 100)}%</td>
+                <td className="p-2 text-right">
+                  <button className="text-xs px-2 py-1 rounded bg-emerald-400/20 hover:bg-emerald-400/30" onClick={()=>onAutofill(r)}>Autofill</button>
+                </td>
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr><td colSpan={7} className="p-4 text-center text-white/70">No items detected</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        <div className="text-xs text-white/70">{selectedRows.length} selected</div>
+        <button
+          disabled={!selectedRows.length}
+          onClick={()=>onAddSelected(selectedRows)}
+          className="px-3 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 disabled:opacity-50"
+        >
+          Add Selected
+        </button>
+      </div>
+    </>
+  );
+}
+import React, { useState } from "react";
 import { db, storage } from "../../firebase/firebaseConfig";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { collection, doc, setDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
 import { lookupBarcode } from "../../utils/barcodeLookup";
-import { identifyProductFromImage, fileToBase64 } from "../../utils/imageIdentify";
+import { identifyProductFromImage, identifyProductsFromImage, fileToBase64 } from "../../utils/imageIdentify";
 import { useAuth, getCurrentUserId } from "../../context/AuthContext";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -12,14 +81,13 @@ import PricingModeFields from "./PricingModeFields";
 import { PRICING_MODES, buildPricingSave } from "../../utils/pricing";
 import ProductBarcode from "./ProductBarcode";
 
+import MagicScanDisplay from "../../components/inventory/MagicScanDisplay";
 
 const ManualEntryForm = () => {
   const { currentUser } = useAuth();
-  // Magic Scan (Live) state and refs
+  // Magic Scan (Live) state
   const [magicLiveOpen, setMagicLiveOpen] = useState(false);
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
+
   const [formData, setFormData] = useState({
     productName: "",
     sku: "",
@@ -52,11 +120,14 @@ const ManualEntryForm = () => {
   const [scanOpen, setScanOpen] = useState(false);
   const [isBarcodeLoading, setIsBarcodeLoading] = useState(false);
   const [isMagicScanLoading, setIsMagicScanLoading] = useState(false);
+  // Batch (multi-detect) mode
+  const [batchMode, setBatchMode] = useState(false);
+  const [multiOpen, setMultiOpen] = useState(false);
+  const [multiResults, setMultiResults] = useState({ items: [], count: 0 });
   const [imageSuggestions, setImageSuggestions] = useState([]);
   const [autoSource, setAutoSource] = useState(""); // e.g., "vision", "openfoodfacts", "digit-eyes"
-  // Prefill product fields using scanned barcode:
-  // 1) Check this business's inventory for an existing product with the same barcode (prevents duplicates; fast).
-  // 2) If not found, call the Cloud Function to fetch public metadata (best-effort).
+
+  // Prefill product fields using scanned barcode
   const prefillFromCode = async (scanned) => {
     const code = String(scanned || "").trim();
     if (!code) return;
@@ -115,7 +186,6 @@ const ManualEntryForm = () => {
     }
   };
 
-
   // Apply normalized autofill payload coming from the Cloud Function
   const applyAutofill = (autofill = {}) => {
     setFormData((v) => ({
@@ -134,7 +204,7 @@ const ManualEntryForm = () => {
     if (autofill.gst !== undefined && autofill.gst !== null && autofill.gst !== "") {
       setPricingValues((prev) => ({ ...prev, taxRate: autofill.gst }));
     }
-    // Pricing fields (prefer priceMRP for MRP, price for legacy selling)
+    // Pricing fields
     if (autofill.priceMRP !== undefined && autofill.priceMRP !== null && autofill.priceMRP !== "") {
       setPricingValues((prev) => ({ ...prev, mrp: autofill.priceMRP }));
     } else if (autofill.mrp !== undefined && autofill.mrp !== null && autofill.mrp !== "") {
@@ -145,15 +215,9 @@ const ManualEntryForm = () => {
     }
   };
 
-  // Magic Scan handler
-  // Helper to apply "best" result from magic scan
-  const applyMagicBest = async (best) => {
+  // Magic Scan handler — apply best result (Gemini-enriched: prefer autofill over best)
+  const applyMagicBest = async (best, autofill) => {
     setAutoSource(best.source || "vision");
-    // Cloud Function now returns a normalized `autofill` payload too
-    if (best.autofill) {
-      applyAutofill(best.autofill);
-    }
-
     // Suggestions/labels fallback logic
     let suggestionsArr = [];
     if (Array.isArray(best.suggestions) && best.suggestions.length > 0) {
@@ -161,7 +225,6 @@ const ManualEntryForm = () => {
     } else if (Array.isArray(best.labels) && best.labels.length > 0) {
       suggestionsArr = best.labels;
     }
-    // Merge unique with any current suggestions
     setImageSuggestions((prev) => {
       const merged = Array.from(new Set([...(prev || []), ...(suggestionsArr || [])]));
       return merged;
@@ -173,15 +236,15 @@ const ManualEntryForm = () => {
       setBarcode(best.code);
     }
 
-    // Apply any fields we got without overwriting what user already typed.
+    // Apply any fields we got, preferring autofill > best > user values.
     setFormData((v) => ({
       ...v,
-      productName: best.productName || v.productName,
-      brand: best.brand || v.brand,
-      category: best.category || best.category || v.category,
-      sku: best.sku || v.sku,
-      unit: best.unit || best.size || v.unit,
-      description: best.description || v.description,
+      productName: (autofill?.productName || best.productName || v.productName),
+      brand: (autofill?.brand || best.brand || v.brand),
+      category: (autofill?.category ?? best.category ?? v.category),
+      sku: (autofill?.sku || best.sku || v.sku),
+      unit: (autofill?.unit || best.unit || best.size || v.unit),
+      description: (autofill?.description || best.description || v.description),
     }));
     // HSN/GST
     if (best.hsn) {
@@ -190,18 +253,15 @@ const ManualEntryForm = () => {
     if (best.gst !== undefined) {
       setPricingValues((prev) => ({ ...prev, taxRate: best.gst }));
     }
-    // MRP/price fields (prefer priceMRP/mrp for mrp, price for legacy)
-    if (
-      best.priceMRP !== undefined &&
-      best.priceMRP !== null &&
-      best.priceMRP !== ""
-    ) {
+    // Map confidence string to number if present
+    const confMap = { high: 0.9, medium: 0.7, low: 0.5 };
+    if (typeof best.confidence === 'string' && confMap[best.confidence]) {
+      setPricingValues((prev) => ({ ...prev, taxConfidence: confMap[best.confidence] }));
+    }
+    // MRP/price fields
+    if (best.priceMRP !== undefined && best.priceMRP !== null && best.priceMRP !== "") {
       setPricingValues((prev) => ({ ...prev, mrp: best.priceMRP }));
-    } else if (
-      best.mrp !== undefined &&
-      best.mrp !== null &&
-      best.mrp !== ""
-    ) {
+    } else if (best.mrp !== undefined && best.mrp !== null && best.mrp !== "") {
       setPricingValues((prev) => ({ ...prev, mrp: best.mrp }));
     }
     if (
@@ -222,19 +282,69 @@ const ManualEntryForm = () => {
     }
   };
 
-  // Magic Scan (photo upload)
+  // Magic Scan (Live) — receives base64, burst frames, and potentially barcode from MagicScanDisplay
+  const handleMagicLiveCapture = async ({ base64, framesBase64, barcode }) => {
+    try {
+      setIsMagicScanLoading(true);
+      if (barcode) setBarcode(barcode);
+
+      // If batch mode is on, call multi-detect endpoint and open picker
+      if (batchMode) {
+        const out = await identifyProductsFromImage({ base64, maxProducts: 12 });
+        setMultiResults(out || { items: [], count: 0 });
+        setMultiOpen(true);
+        setMagicLiveOpen(false);
+        if ((out?.count ?? 0) === 0) {
+          toast.info("No products detected. Try a closer photo.");
+        } else {
+          toast.success(`Found ${out.count} products`);
+        }
+        return;
+      }
+
+      // Single-item path (existing flow)
+      const result = await identifyProductFromImage({ base64, framesBase64: Array.isArray(framesBase64) ? framesBase64 : undefined, barcode });
+      const autofill = result?.autofill;
+      if (autofill) applyAutofill(autofill);
+      const best = result?.best || {};
+      await applyMagicBest({ ...best, suggestions: result?.suggestions }, autofill);
+      toast.success("✨ Magic Scan completed! Fields auto-filled.");
+      setMagicLiveOpen(false);
+    } catch (err) {
+      console.error("Magic Scan live error:", err);
+      toast.warn("Could not identify the image. Please enter details manually.");
+    } finally {
+      setIsMagicScanLoading(false);
+    }
+  };
+
+  // Magic Scan (photo upload) - batch-aware
   const handleMagicScan = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       setIsMagicScanLoading(true);
-      // Convert file to base64 (no data: prefix)
-      const base64 = await fileToBase64(file);
+      const base64 = await fileToBase64(file); // raw, no data: prefix
+
+      // Batch mode: use multi-detect and open the table (do not autofill automatically)
+      if (batchMode) {
+        const out = await identifyProductsFromImage({ base64, maxProducts: 20 });
+        setMultiResults(out || { items: [], count: 0 });
+        setMultiOpen(true);
+        if ((out?.count ?? 0) === 0) {
+          toast.info("No products detected. Try a closer photo.");
+        } else {
+          toast.success(`Found ${out.count} products`);
+        }
+        return;
+      }
+
+      // Single-item path (existing flow)
       const result = await identifyProductFromImage({ base64 });
       const autofill = result?.autofill;
       if (autofill) applyAutofill(autofill);
       const best = result?.best || {};
-      await applyMagicBest({ ...best, suggestions: result?.suggestions });
+      await applyMagicBest({ ...best, suggestions: result?.suggestions }, autofill);
       toast.success("✨ Magic Scan completed! Fields auto-filled.");
     } catch (err) {
       console.error("Magic Scan image identify error:", err);
@@ -246,72 +356,6 @@ const ManualEntryForm = () => {
     }
   };
 
-  // Magic Scan (Live camera capture)
-  const handleMagicCapture = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    try {
-      setIsMagicScanLoading(true);
-      // Draw current video frame to canvas
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      // Convert to base64 (no data: prefix)
-      const base64 = canvas.toDataURL("image/jpeg").replace(/^data:image\/jpeg;base64,/, "");
-      const result = await identifyProductFromImage({ base64 });
-      const autofill = result?.autofill;
-      if (autofill) applyAutofill(autofill);
-      const best = result?.best || {};
-      await applyMagicBest({ ...best, suggestions: result?.suggestions });
-      toast.success("✨ Magic Scan completed! Fields auto-filled.");
-      setMagicLiveOpen(false);
-    } catch (err) {
-      console.error("Magic Scan live camera error:", err);
-      toast.warn("Could not identify the image. Please enter details manually.");
-    } finally {
-      setIsMagicScanLoading(false);
-    }
-  };
-
-  // Camera lifecycle for Magic Scan (Live)
-  useEffect(() => {
-    if (!magicLiveOpen) {
-      // Stop camera if open
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-      return;
-    }
-    // Open camera
-    let active = true;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-      .then((stream) => {
-        if (!active) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      })
-      .catch((err) => {
-        toast.error("Could not access camera: " + (err?.message || err));
-        setMagicLiveOpen(false);
-      });
-    return () => {
-      active = false;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-    };
-    // eslint-disable-next-line
-  }, [magicLiveOpen]);
 
   const handleChange = (e) => {
     const { name, value, files } = e.target;
@@ -529,7 +573,7 @@ const ManualEntryForm = () => {
               <span className="text-lg">✨</span> FLYP Magic Scan
             </div>
             <p className="text-xs text-white/80 mt-1">
-              Point your camera or upload a photo — we’ll magically read the product and auto‑fill details.
+              Point your camera or upload a photo — we’ll magically read the product and auto-fill details.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -557,10 +601,21 @@ const ManualEntryForm = () => {
               className="hidden"
               onChange={handleMagicScan}
             />
+            <label className="ml-1 inline-flex items-center gap-2 text-[11px] text-white/85 px-2 py-1 rounded-lg border border-white/15 bg-white/5">
+              <input
+                type="checkbox"
+                checked={batchMode}
+                onChange={(e) => setBatchMode(e.target.checked)}
+                className="accent-emerald-400"
+              />
+              Batch mode
+            </label>
           </div>
         </div>
       </div>
+
       <h2 className="text-lg font-semibold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">Add Inventory Manually</h2>
+
       <form
         onSubmit={handleSubmit}
         className="grid grid-cols-1 gap-4 md:grid-cols-2"
@@ -599,6 +654,7 @@ const ManualEntryForm = () => {
           onChange={handleChange}
           className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
+
         {/* Barcode / QR */}
         <div className="md:col-span-1">
           <input
@@ -636,7 +692,7 @@ const ManualEntryForm = () => {
           )}
           {autoSource && !isBarcodeLoading && !isMagicScanLoading && (
             <p className="mt-1 text-xs text-emerald-300/90">
-              Auto‑filled from{" "}
+              Auto-filled from{" "}
               <span className="font-semibold">
                 {(() => {
                   // Normalize source labels
@@ -651,6 +707,7 @@ const ManualEntryForm = () => {
                   if (src === "your-inventory") return "your inventory";
                   if (src === "openfoodfacts") return "OpenFoodFacts";
                   if (src === "digit-eyes") return "Digit-Eyes";
+                  if (src === "vision-batch") return "vision (batch)";
                   return autoSource;
                 })()}
               </span>
@@ -676,6 +733,7 @@ const ManualEntryForm = () => {
             </div>
           )}
         </div>
+
         <input
           type="number"
           name="quantity"
@@ -694,7 +752,8 @@ const ManualEntryForm = () => {
           required
           className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
-        {/* Pricing Block (replaces single Selling Price field) */}
+
+        {/* Pricing Block */}
         <div className="col-span-2 rounded-xl border border-white/15 bg-white/5 p-3">
           <div className="text-sm font-medium text-white/90 mb-2">Pricing</div>
           <PricingModeFields
@@ -707,7 +766,7 @@ const ManualEntryForm = () => {
           />
         </div>
 
-        {/* HSN & GST Auto-Suggest Section (clean layout) */}
+        {/* HSN & GST Auto-Suggest Section */}
         <div className="col-span-2 rounded-xl border border-white/15 bg-white/5 p-3">
           <div className="text-sm font-medium text-white/90 mb-2">Tax Details</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
@@ -722,13 +781,13 @@ const ManualEntryForm = () => {
               <input
                 type="text"
                 name="hsnCode"
-                placeholder="Enter HSN (leave blank to Auto‑Suggest)"
+                placeholder="Enter HSN (leave blank to Auto-Suggest)"
                 value={pricingValues.hsnCode}
                 onChange={(e) => setPricingValues((v) => ({ ...v, hsnCode: e.target.value }))}
                 className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
               />
               <div className="flex items-center justify-between mt-1">
-                <p className="text-xs text-white/50">Not sure? Click <span className="font-medium">Auto‑Suggest</span>.</p>
+                <p className="text-xs text-white/50">Not sure? Click <span className="font-medium">Auto-Suggest</span>.</p>
                 {pricingValues.hsnCode?.toString().trim() && (
                   <button
                     type="button"
@@ -769,7 +828,7 @@ const ManualEntryForm = () => {
                 }
                 className="w-full md:w-auto px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSuggesting ? 'Suggesting…' : 'Auto‑Suggest'}
+                {isSuggesting ? 'Suggesting…' : 'Auto-Suggest'}
               </button>
             </div>
           </div>
@@ -822,6 +881,85 @@ const ManualEntryForm = () => {
           }}
         />
       </form>
+
+      {multiOpen && (
+        <div className="fixed inset-0 z-[1150] bg-black/70 backdrop-blur-sm flex items-center justify-center">
+          <div className="w-[min(760px,95vw)] max-h-[85vh] overflow-auto rounded-2xl border border-white/15 bg-white/10 p-4 text-white">
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-semibold">Detected Products {multiResults?.count ? `(${multiResults.count})` : ''}</div>
+              <button onClick={() => setMultiOpen(false)} className="text-white/70 hover:text-white">✕</button>
+            </div>
+            <MultiResultsTable
+              rows={multiResults?.items || []}
+              onAutofill={(row) => {
+                applyAutofill({
+                  productName: row.productName,
+                  brand: row.brand,
+                  category: row.category,
+                  unit: row.unit,
+                  mrp: row.mrp,
+                  priceMRP: row.mrp,
+                  sku: row.barcode || "",
+                });
+                setAutoSource("vision-batch");
+                if (!previewUrl && (row.imageUrl || row.thumbBase64)) {
+                  setPreviewUrl(row.imageUrl || row.thumbBase64);
+                }
+                if (row.barcode) setBarcode(row.barcode);
+                toast.success("Added to form");
+                setMultiOpen(false);
+              }}
+              onAddSelected={async (selectedRows) => {
+                if (!selectedRows.length) return;
+                try {
+                  const userId = getCurrentUserId();
+                  for (const r of selectedRows) {
+                    const productRef = doc(collection(db, "businesses", userId, "products"));
+                    const generatedSku = (r.barcode && String(r.barcode).trim()) || `SKU-${Date.now()}-${Math.random().toString(36).slice(2,7).toUpperCase()}`;
+                    const mrpNum = Number(r.mrp || 0) || 0;
+
+                    const newDoc = {
+                      id: productRef.id,
+                      productName: r.productName || "",
+                      sku: generatedSku,
+                      brand: r.brand || "",
+                      category: r.category || "",
+                      quantity: 0,
+                      costPrice: 0,
+                      sellingPrice: mrpNum,
+                      pricingMode: PRICING_MODES.LEGACY,
+                      mrp: mrpNum,
+                      unit: r.unit || "",
+                      ...(r.barcode ? { barcode: r.barcode } : {}),
+                      createdAt: serverTimestamp(),
+                      addedBy: userId,
+                    };
+
+                    await setDoc(productRef, newDoc);
+
+                    // log inventory change for analytics/audit
+                    await logInventoryChange({
+                      productId: productRef.id,
+                      sku: newDoc.sku,
+                      previousData: {},
+                      updatedData: newDoc,
+                      action: "created",
+                      source: "magic-batch",
+                    });
+                  }
+                  toast.success(`Added ${selectedRows.length} products`);
+                  setMultiOpen(false);
+                } catch (e) {
+                  console.error(e);
+                  toast.error("Failed adding selected products.");
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+
       {/* Fullscreen animated overlay during Magic Scan */}
       {isMagicScanLoading && (
         <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-sm flex items-center justify-center">
@@ -837,53 +975,29 @@ const ManualEntryForm = () => {
           </div>
         </div>
       )}
+
       <style>{`
         @keyframes scan {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(100%); }
         }
+        @keyframes scanline {
+          0% { transform: translateY(-50%); opacity: 0.0; }
+          10% { opacity: 1; }
+          100% { transform: translateY(50%); opacity: 0.0; }
+        }
       `}</style>
+
       {/* Magic Scan (Live) Modal */}
-      {magicLiveOpen && (
-        <div className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-sm flex items-center justify-center">
-          <div className="w-[min(420px,95vw)] rounded-2xl border border-white/20 bg-white/10 p-6 text-center shadow-2xl relative">
-            <div className="font-bold text-lg text-white flex items-center justify-center gap-2 mb-2">
-              <span className="text-2xl">📷</span> Magic Scan (Live)
-            </div>
-            <div className="text-xs text-white/80 mb-3">Align the product in the camera view. Tap <b>Scan Now</b> to capture and analyze.</div>
-            <div className="relative rounded-xl overflow-hidden border border-white/20 bg-black/40 mb-4 flex items-center justify-center min-h-[220px]">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-[220px] object-contain bg-black"
-                style={{ background: "#000" }}
-              />
-              {/* Hidden canvas for capture */}
-              <canvas ref={canvasRef} style={{ display: "none" }} />
-            </div>
-            <div className="flex items-center justify-center gap-4">
-              <button
-                type="button"
-                onClick={handleMagicCapture}
-                className="px-5 py-2 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-500 via-pink-400 to-orange-400 shadow-lg hover:shadow-xl text-base flex items-center gap-2"
-                disabled={isMagicScanLoading}
-              >
-                {isMagicScanLoading ? "Scanning..." : "Scan Now"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMagicLiveOpen(false)}
-                className="px-4 py-2 rounded-xl font-semibold text-white bg-white/10 border border-white/20 hover:bg-white/20 text-base"
-                disabled={isMagicScanLoading}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <MagicScanDisplay
+        open={magicLiveOpen}
+        onClose={() => setMagicLiveOpen(false)}
+        onCapture={handleMagicLiveCapture}
+        busy={isMagicScanLoading}
+        title="Magic Scan (Live)"
+        subtitle={batchMode ? "Capture once to detect multiple products." : "Align the product, hold steady, then tap Scan. We'll capture a quick burst for accuracy."}
+        badge={batchMode ? "Batch mode" : undefined}
+      />
     </div>
   );
 };

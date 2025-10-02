@@ -1,4 +1,76 @@
+// ---- OpenAI GPT JSON helper ----
+/**
+ * Call OpenAI chat API with a prompt and return strict JSON object.
+ * @param {string} prompt
+ * @returns {Promise<object|null>}
+ */
+async function callOpenAiJSON(prompt) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  const model = process.env.OPENAI_MODEL_NORM || process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const endpoint = "https://api.openai.com/v1/chat/completions";
+  const payload = {
+    model,
+    messages: [
+      { role: "system", content: "You are a retail product identification AI for Indian market. Given OCR text from a product photo, a detected brand (from logo), and several candidate titles from the web, return ONLY a strict JSON object in this exact schema (no markdown, no commentary):\\n{\\n  \"productName\": \"...\",\\n  \"brand\": \"...\",\\n  \"variant\": \"...\",\\n  \"category\": \"...\",\\n  \"unit\": \"...\",\\n  \"hsn\": \"\",\\n  \"gst\": null,\\n  \"mrp\": \"\",\\n  \"confidence\": \"high|medium|low\"\\n}\\nRules:\\n- productName should be short and canonical: Brand + Title (+ strength if applicable), no SEO tails, no \"Uses/Side Effects\" phrases.\\n- unit must include quantity and container if visible (e.g., \"750mg Tablet Strip\", \"200 ml Bottle\").\\n- If you are confident about HSN and GST, suggest them; if unsure, leave hsn empty string and gst null.\\n- Never include markdown or explanations, return JSON only." },
+      { role: "user", content: prompt }
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.2
+  };
+  let response;
+  let retries = 2;
+  while (retries > 0) {
+    try {
+      response = await axios.post(endpoint, payload, {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        timeout: 20000
+      });
+      break;
+    } catch (apiError) {
+      const status = apiError.response && apiError.response.status;
+      if ((status === 429 || status === 503) && retries > 1) {
+        retries--;
+        await new Promise(r => setTimeout(r, 1200));
+      } else {
+        console.error("OpenAI API Request Failed:", apiError.message);
+        return null;
+      }
+    }
+  }
+  let reply = "";
+  try {
+    reply =
+      response &&
+      response.data &&
+      response.data.choices &&
+      response.data.choices[0] &&
+      response.data.choices[0].message &&
+      response.data.choices[0].message.content
+        ? response.data.choices[0].message.content.trim()
+        : "";
+  } catch (e) {
+    console.error("Failed to extract OpenAI response text", e);
+    return null;
+  }
+  // Remove code fences if present
+  if (reply.startsWith("```")) {
+    reply = reply.replace(/```(json|txt)?/gi, "").replace(/```/g, "").trim();
+  }
+  let parsed = null;
+  try {
+    parsed = JSON.parse(reply);
+  } catch (e) {
+    console.warn("Failed to parse OpenAI JSON response:", reply);
+    return null;
+  }
+  return parsed;
+}
 require("dotenv").config();
+
 const { onCall, onRequest } = require("firebase-functions/v2/https");
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { HttpsError } = require("firebase-functions/v2/https");
@@ -166,17 +238,18 @@ exports.generateAssistantReply = onDocumentCreated("assistantQueries/{docId}", a
 
 
 const axios = require("axios");
+const sharp = require("sharp");
 
 // Feature flags to control enrichment strategies
-const USE_GPT_ENRICH = (process.env.USE_GPT_ENRICH || "true").toLowerCase() === "true";  // GPT normalization ON by default
+const USE_GPT_ENRICH = (process.env.USE_GPT_ENRICH || "false").toLowerCase() === "true";  // GPT disabled by default
 // ---------- External search providers ----------
 const KG_API_KEY = process.env.GOOGLE_KG_API_KEY || "";
 const CSE_KEY = process.env.GOOGLE_CSE_KEY || "";
 const CSE_CX  = process.env.GOOGLE_CSE_CX  || "";
 
 // OpenAI model controls
-const OPENAI_MODEL_VISION = process.env.OPENAI_MODEL_VISION || process.env.OPENAI_MODEL || "gpt-4o-mini";
-const OPENAI_MODEL_NORM   = process.env.OPENAI_MODEL_NORM   || "gpt-4o-mini";
+const OPENAI_MODEL_VISION = process.env.OPENAI_MODEL_VISION || process.env.OPENAI_MODEL || "gpt-4o"; // UPDATED to use full GPT-4o
+const OPENAI_MODEL_NORM   = process.env.OPENAI_MODEL_NORM   || "gpt-4o"; // UPDATED to use full GPT-4o
 // Only call GPT normalization if confidence is below this value
 const GPT_NORM_CONF_THRESHOLD = Number(process.env.GPT_NORM_CONF_THRESHOLD || 0.75);
 
@@ -216,11 +289,151 @@ function scoreConfidence({ ocrText = "", brand = "", size = "" }, candidate) {
   return +(brandScore + overlapScore + sizeScore).toFixed(2);
 }
 
+/** ---------- Magic Scan Helpers: title clean, unit parsing, CSE bias, quick HSN/GST ---------- */
+// Expanded whitelist of trusted commerce/brand domains
+const HOST_WHITELIST = new Set([
+  // Brand / Beauty
+  "[www.bathandbodyworks.com](https://www.bathandbodyworks.com)","www.bathandbodyworks.in","[www.nykaa.com](https://www.nykaa.com)","[www.sephora.com](https://www.sephora.com)","[www.ulta.com](https://www.ulta.com)",
+  // Indian pharmacy / beauty
+  "[www.1mg.com](https://www.1mg.com)","pharmeasy.in","[www.netmeds.com](https://www.netmeds.com)","[www.apollo247.com](https://www.apollo247.com)","[www.medplusmart.com](https://www.medplusmart.com)",
+  // Grocery / quick commerce
+  "[www.bigbasket.com](https://www.bigbasket.com)","[www.blinkit.com](https://www.blinkit.com)","www.dmart.in","[www.instamart.com](https://www.instamart.com)","www.spencers.in","www.reliancesmart.in",
+  // Marketplaces / retail
+  "www.amazon.in","[www.amazon.com](https://www.amazon.com)","[www.flipkart.com](https://www.flipkart.com)","[www.walmart.com](https://www.walmart.com)","[www.target.com](https://www.target.com)","[www.kroger.com](https://www.kroger.com)"
+]);
+
+// NEW: stronger title cleaner
+function cleanTitle(t = "") {
+  let x = String(t || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/[™®©]/g, "")
+    // Kill common medical-page phrases (1mg/PharmEasy etc.)
+    .replace(/\b(View\s*)?(Uses?|Side\s*Effects?|Price\s*(And)?\s*Substitutes?|Substitutes?)\b.*$/gi, "")
+    // Drop everything after " | ... "
+    .replace(/\s*\|\s*.*$/g, "")
+    // Kill classic marketing suffixes after dash or en/em dash
+    .replace(/\s*[-–—]\s*(Buy\s*Online|Buy|Shop\s*Online|Shop|Online|Best\s*Price|Price\s*in\s*India|With.*|at.*|Offers?.*|Deals?.*|Reviews?|Ratings?)\b.*$/gi, "")
+    // Remove trailing marketing suffixes even without dash
+    .replace(/\b(Online|at\s+\w+.*|Price\s*in\s*India|Best\s*Price|With\s+.*|Offers?.*|Deals?.*|Reviews?|Ratings?)\b.*$/gi, "")
+    // Remove leading "Order/Buy/Shop"
+    .replace(/^\s*(Order|Buy|Shop)\s+/i, "")
+    // Remove marketplace/site mentions and any tail after them
+    .replace(/\b(Amazon(\.in)?|Flipkart|JioMart|Meesho|BigBasket|Nykaa|Pharm?easy|1mg|Dmart|Reliance\s*Smart|Spencers)\b.*$/ig, "")
+    // Collapse spaces
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Smart Title Case but keep short acronyms fully uppercased
+  const keepCaps = (w) => w.length <= 4 && /^[A-Z0-9]+$/.test(w);
+  x = x
+    .split(" ")
+    .map(w => keepCaps(w) ? w : (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(" ");
+
+  // Prefer trimming right after a complete size phrase (drops SEO tails we missed)
+  const sizeCut = x.match(/(.+?\b\d+(?:\.\d+)?\s?(?:ml|l|g|kg|pcs|tablets?|capsules?)\b(?:\s*(?:bottle|jar|tube|strip|sachet|box|pouch|can|carton|pack))?)/i);
+  if (sizeCut) x = sizeCut[1].trim();
+
+  // As a last resort, cut at dash/pipe/bullet if still very long
+  if (x.length > 90) x = x.split(/[-–—|•]/)[0].trim();
+
+  return x;
+}
+
+// Helper: filter out medical-page junk titles
+function isMedicalJunk(t = "") {
+  return /(uses?|side\s*effects?|substitutes?)/i.test(String(t));
+}
+
+// NEW: canonical naming (Brand + Title [+ Size])
+function canonicalizeName(brand = "", title = "") {
+  let b = String(brand || "").trim();
+  let t = String(title || "").trim();
+
+  // Remove duplicated brand at start of title
+  if (b) {
+    const reBrand = new RegExp("^" + b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s+", "i");
+    t = t.replace(reBrand, "");
+  }
+
+  // Collapse spaces
+  t = t.replace(/\s+/g, " ").trim();
+
+  // Compose: Brand + Title (keep brand in title case)
+  let out = (b ? `${titleCase(b)} ` : "") + t;
+
+  // If a size phrase exists, trim after it
+  const m = out.match(/(.+?\b\d+(?:\.\d+)?\s?(?:ml|l|g|kg|pcs|tablets?|capsules?)\b(?:\s*(?:bottle|jar|tube|strip|sachet|box|pouch|can|carton|pack))?)/i);
+  if (m) out = m[1].trim();
+
+  // Final fallback shorten
+  if (out.length > 90) out = out.split(/[-–—|•]/)[0].trim();
+
+  return out;
+}
+
+function parseCanonicalUnit(text = "", fallbackContainer = "") {
+  const s = String(text || "").replace(/\s+/g, " ");
+  // 2x200ml, 6 x 75 g
+  const multi = s.match(/\b(\d{1,2})\s*[xX]\s*(\d+(?:\.\d+)?)\s*(ml|l|g|kg|pcs|tablets?|capsules?)\b/i);
+  if (multi) {
+    const count = multi[1], qty = multi[2], u = multi[3].toLowerCase();
+    const unit = (u === "l") ? "L" : (u === "kg" ? "kg" : u);
+    return `${count} x ${qty} ${unit}`;
+  }
+  const single = s.match(/\b(\d+(?:\.\d+)?)\s*(ml|l|g|kg|pcs|tablets?|capsules?)\b/i);
+  let qtyPart = "";
+  if (single) {
+    let n = single[1], u = single[2].toLowerCase();
+    u = (u === "l") ? "L" : (u === "tablets" ? "tablets" : u);
+    qtyPart = `${n} ${u}`;
+  }
+  const cont = (s.match(/\b(bottle|jar|tube|strip|sachet|box|pouch|can|carton|pack)\b/i)?.[1] || fallbackContainer || "").toLowerCase();
+  return [qtyPart, cont].filter(Boolean).join(" ").trim();
+}
+
+// --- Fast perceptual hash (aHash) for near-duplicate matching and reuse ---
+async function computeAHash(buf){
+  try{
+    const img = await sharp(buf).resize(8,8, { fit: 'fill' }).greyscale().raw().toBuffer();
+    const mean = img.reduce((a,b)=>a+b,0)/img.length;
+    let bits = "";
+    for (const v of img) bits += v > mean ? "1":"0";
+    // convert to hex
+    return bits.match(/.{1,4}/g).map(n=>parseInt(n,2).toString(16)).join("");
+  }catch(e){
+    console.warn("aHash failed:", e?.message || e);
+    return "";
+  }
+}
+
+function biasQuery(q) {
+  const allow = [
+    "site:bathandbodyworks.com","site:bathandbodyworks.in","site:nykaa.com","site:sephora.com","site:ulta.com",
+    "site:1mg.com","site:pharmeasy.in","site:netmeds.com","site:apollo247.com","site:medplusmart.com",
+    "site:bigbasket.com","site:blinkit.com","site:dmart.in","site:instamart.com","site:spencers.in","site:reliancesmart.in",
+    "site:amazon.in","site:amazon.com","site:flipkart.com","site:walmart.com","site:target.com","site:kroger.com"
+  ].join(" OR ");
+  return `${q} (${allow})`;
+}
+
+function quickHsnGst(name = "", cat = "") {
+  const t = `${name} ${cat}`.toLowerCase();
+  const hit = (re) => re.test(t);
+  if (hit(/\b(shampoo|lotion|cream|cosmetic|serum|makeup|lipstick|kajal)\b/)) return {hsn:"3304", gst:18};
+  if (hit(/\b(soap|detergent|handwash)\b/)) return {hsn:"3401", gst:18};
+  if (hit(/\b(ors|rehydration|oral rehydration)\b/)) return {hsn:"3004", gst:5};
+  if (hit(/\b(tablets?|capsules?|syrup|medic(ine|ament)|ointment)\b/)) return {hsn:"3004", gst:12};
+  if (hit(/\b(protein|nutrition|nutraceutical|health mix|meal replacement)\b/)) return {hsn:"2106", gst:18};
+  if (hit(/\b(juice|drink|beverage|electrolyte|isotonic)\b/)) return {hsn:"2202", gst:12};
+  return null;
+}
+
 // Google Knowledge Graph API enrichment
 async function fetchKGEntities(query) {
   if (!KG_API_KEY || !query) return null;
   try {
-    const r = await axios.get("https://kgsearch.googleapis.com/v1/entities:search", {
+    const r = await axios.get("[https://kgsearch.googleapis.com/v1/entities:search](https://kgsearch.googleapis.com/v1/entities:search)", {
       params: { query, key: KG_API_KEY, limit: 5, indent: true },
       timeout: 8000
     });
@@ -265,7 +478,7 @@ async function fetchKGEntities(query) {
     }
 
     return {
-      productName: name,
+      productName: cleanTitle(name),
       brand,
       category,
       size,
@@ -283,7 +496,7 @@ async function fetchKGEntities(query) {
 async function fetchCSE(query, num = 3) {
   try {
     if (!CSE_KEY || !CSE_CX) return [];
-    const url = "https://www.googleapis.com/customsearch/v1";
+    const url = "[https://www.googleapis.com/customsearch/v1](https://www.googleapis.com/customsearch/v1)";
     const r = await axios.get(url, {
       params: { key: CSE_KEY, cx: CSE_CX, q: query, num }
     });
@@ -356,7 +569,7 @@ exports.lookupBarcode = onRequest(async (req, res) => {
       }) {
         return {
           code,
-          productName,
+          productName: cleanTitle(productName),
           brand,
           category,
           size,
@@ -503,8 +716,8 @@ exports.employeeLogin = onCall(async (request) => {
   };
 });
 
-// AI Inventory generation from a single brand (region: us-central1)
-exports.generateInventoryByBrand = onRequest({ region: "us-central1" }, (req, res) => {
+// AI Inventory generation from a single brand (region: us-central1, 1GiB, 120s)
+exports.generateInventoryByBrand = onRequest({ region: "us-central1", memory: "1GiB", timeoutSeconds: 120 }, (req, res) => {
   corsHandler(req, res, async () => {
     try {
       const { prompt, brand, brandName, category, knownTypes, quantity, description } = req.body || {};
@@ -549,7 +762,7 @@ Rules:
       const userMsg = `Make a product list for this prompt and output exactly the table described:
 ${userPrompt}`;
 
-      const endpoint = "https://api.openai.com/v1/chat/completions";
+      const endpoint = "[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)";
       const payload = {
         model: openaiModel,
         messages: [
@@ -609,7 +822,7 @@ ${userPrompt}`;
           let jsonParsed = null;
           try { jsonParsed = JSON.parse(rawText); } catch {}
           if (!Array.isArray(jsonParsed)) {
-            const m = rawText.match(/\[\s*\{[\s\S]*?\}\s*\]/);
+            const m = rawText.match(/$begin:math:display$\\s*\\{[\\s\\S]*?\\}\\s*$end:math:display$/);
             if (m) { try { jsonParsed = JSON.parse(m[0]); } catch {} }
           }
           if (Array.isArray(jsonParsed)) {
@@ -853,7 +1066,7 @@ Unit: ${unit || ""}`;
       if (!openaiApiKey) {
         return res.status(500).json({ error: "OpenAI API key not configured" });
       }
-      const endpoint = "https://api.openai.com/v1/chat/completions";
+      const endpoint = "[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)";
       const payload = {
         model,
         messages: [
@@ -1073,23 +1286,107 @@ exports.resyncRetailerProfile = onCall(async (request) => {
 
   return { updated };
 });
-// ---------- Product Identification from Image (visual-first + KG + CSE) ----------
+
+// =================================================================================================
+// ===== NEW, REWRITTEN identifyProductFromImage FOR MAX ACCURACY =====
+// =================================================================================================
+/**
+ * NEW: Calls OpenAI's GPT-4o multimodal model for product identification.
+ * This is a streamlined helper function for the main logic.
+ */
+async function callMultimodalAI(imageBase64, textContext) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.error("Missing OPENAI_API_KEY for multimodal call.");
+    return null;
+  }
+
+  const model = "gpt-4o"; // Using the full, most capable model
+  const endpoint = "https://api.openai.com/v1/chat/completions";
+
+  const systemPrompt = `You are an expert product identification AI for the Indian retail market. Analyze the product image and the provided text context. Return ONLY a strict JSON object with this exact schema: { "name": "...", "brand": "...", "unit": "...", "category": "...", "sku": "...", "mrp": "...", "hsn": "...", "gst": null }.
+Rules:
+- 'name' should be the canonical product name.
+- 'unit' must include quantity and container (e.g., "250 ml Bottle").
+- 'sku' should be the barcode if available.
+- 'mrp' is the Maximum Retail Price.
+- Guess HSN/GST if confident, otherwise leave as empty string or null.
+- Be brief and accurate. No commentary or markdown.`;
+
+  const userPrompt = `Identify the product in the image using this context:
+${textContext}`;
+
+  const payload = {
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userPrompt },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:image/jpeg;base64,${imageBase64}`,
+              detail: "low" // Use "low" for cost-efficiency, can be "high" if needed
+            },
+          },
+        ],
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.1, // Low temperature for factual, deterministic output
+    max_tokens: 2048,
+  };
+
+  try {
+    const response = await axios.post(endpoint, payload, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      timeout: 30000, // Increased timeout for multimodal model
+    });
+
+    const reply = response?.data?.choices?.[0]?.message?.content?.trim();
+    if (reply) {
+      return JSON.parse(reply);
+    }
+    return null;
+  } catch (apiError) {
+    console.error("OpenAI Multimodal API Request Failed:", apiError.message);
+    if (apiError.response) console.error("Response data:", apiError.response.data);
+    return null;
+  }
+}
+
 exports.identifyProductFromImage = onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
     try {
-      let { imageBase64, imageUrl } = req.body || {};
+      // --- Phase 0: Input Handling & Boilerplate (Largely Unchanged) ---
+      let { imageBase64, imageUrl, barcode: clientBarcode, framesBase64 } = req.body || {};
       if (!imageBase64 && typeof req.body === "string") {
-        try {
-          const parsed = JSON.parse(req.body);
-          imageBase64 = parsed.imageBase64;
-          imageUrl = parsed.imageUrl;
-        } catch {}
+        try { const parsed = JSON.parse(req.body); imageBase64 = parsed.imageBase64; imageUrl = parsed.imageUrl; clientBarcode = parsed.barcode || clientBarcode; framesBase64 = parsed.framesBase64 || framesBase64; } catch {}
       }
-      if (!imageBase64 && !imageUrl) {
-        return res.status(400).json({ ok: false, error: "Provide imageBase64 or imageUrl in body." });
+      if (!imageBase64 && !imageUrl && !(Array.isArray(framesBase64) && framesBase64.length)) {
+        return res.status(400).json({ ok: false, error: "Provide imageBase64, imageUrl or framesBase64[] in body." });
       }
 
-      // ---- Image content ----
+      // Best Frame Selection from Burst
+      if (Array.isArray(framesBase64) && framesBase64.length) {
+        const burst = framesBase64.slice(0, 5);
+        let bestIdx = 0, bestScore = -1;
+        for (let i = 0; i < burst.length; i++) {
+          try {
+            const [anno] = await client.annotateImage({ image: { content: burst[i] }, features: [{ type: "TEXT_DETECTION" }, { type: "LOGO_DETECTION" }] });
+            const score = (anno?.textAnnotations?.[0]?.description || "").length + ((anno?.logoAnnotations?.[0]?.score || 0) * 300);
+            if (score > bestScore) { bestScore = score; bestIdx = i; }
+          } catch {}
+        }
+        imageBase64 = burst[bestIdx];
+      }
+
+      // Image content loading & hashing
       let imageContent = imageBase64;
       if (!imageContent && imageUrl) {
         const imgResp = await axios.get(imageUrl, { responseType: "arraybuffer" });
@@ -1097,177 +1394,282 @@ exports.identifyProductFromImage = onRequest(async (req, res) => {
       }
       if (!imageContent) return res.status(400).json({ ok: false, error: "Failed to read image data." });
 
-      // ---- Cache by image hash ----
       const crypto = require("crypto");
       const hash = crypto.createHash("sha256").update(imageContent).digest("hex");
       const db = admin.firestore();
       const cacheRef = db.collection("productVisionCache").doc(`hash:${hash}`);
+      
       const cached = await cacheRef.get();
       if (cached.exists) {
         return res.status(200).json({ ok: true, cached: true, ...cached.data() });
       }
 
-      // ---- A) Visual-first guess (OpenAI Vision) ----
-      let visionGuess = null;
-      try {
-        const openaiApiKey = process.env.OPENAI_API_KEY;
-        if (openaiApiKey) {
-          const endpoint = "https://api.openai.com/v1/chat/completions";
-          const sys = `You are a retail product identifier. Look at the image and identify exact product (brand → variant). 
-Return ONLY JSON: { "productName": "...", "brand": "...", "category": "...", "size": "", "confidence": 0.0 }`;
-          const userContent = [
-            { type: "text", text: "Identify this product and return JSON." },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageContent}` } }
-          ];
-          const resp = await axios.post(endpoint, {
-            model: OPENAI_MODEL_VISION,
-            messages: [
-              { role: "system", content: sys },
-              { role: "user", content: userContent }
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1
-          }, {
-            headers: { "Authorization": `Bearer ${openaiApiKey}` },
-            timeout: 15000
-          });
-          const txt = resp?.data?.choices?.[0]?.message?.content?.trim() || "{}";
-          visionGuess = JSON.parse(txt);
-        }
-      } catch (e) {
-        console.warn("[identifyProductFromImage] Vision failed:", e.message);
-      }
+      // --- Phase 1: Gather All Text-Based Evidence ---
 
-      // ---- B) OCR for size/barcode ----
-      const [docText] = await client.documentTextDetection({ image: { content: imageContent } });
-      let lines = [];
-      if (docText?.fullTextAnnotation?.text) {
-        lines = docText.fullTextAnnotation.text.split(/\n+/).map(t => t.trim()).filter(Boolean);
-      }
-
-      const RE_SIZE = /\b(\d+(?:\.\d+)?\s?(ml|g|kg|l|oz|capsules|tablets|pcs|pack))\b/i;
+      // 1a. Get Raw OCR Text using Google Vision
+      const [textResult] = await client.textDetection({ image: { content: imageContent } });
+      const ocrJoined = textResult?.textAnnotations?.[0]?.description?.replace(/\n/g, " ") || "";
+      
+      // 1b. Extract Barcode from OCR text or use client-provided
       const RE_BARCODE = /\b(\d{8}|\d{12,14})\b/g;
-      let sizeFromOCR = "";
-      for (const l of lines) { const m = l.match(RE_SIZE); if (m) { sizeFromOCR = m[0]; break; } }
-      let scannedCode = "";
-      const joined = lines.join(" ");
-      let m; while ((m = RE_BARCODE.exec(joined)) !== null) { scannedCode = m[1]; }
+      let scannedCode = clientBarcode || "";
+      if (!scannedCode) {
+        let m; while ((m = RE_BARCODE.exec(ocrJoined)) !== null) scannedCode = m[1];
+      }
 
-      // ---- C) Merge base ----
-      let best = {
-        brand: visionGuess?.brand || "",
-        productName: visionGuess?.productName || "",
-        category: visionGuess?.category || "",
-        size: visionGuess?.size || sizeFromOCR,
-        code: scannedCode,
-        source: "vision-ai",
-        confidence: visionGuess?.confidence || 0.6
-      };
-
-      // ---- D) Barcode lookup ----
-      if (best.code) {
+      // 1c. (Unconditional) Barcode Lookup
+      let barcodeInfo = null;
+      if (scannedCode) {
         try {
           const PROJECT = process.env.GCLOUD_PROJECT || "stockpilotv1";
           const REGION_HOST = `https://asia-south1-${PROJECT}.cloudfunctions.net`;
-          const barcodeResp = await axios.post(`${REGION_HOST}/lookupBarcode`, { code: best.code }, { timeout: 10000 });
+          const barcodeResp = await axios.post(`${REGION_HOST}/lookupBarcode`, { code: scannedCode }, { timeout: 10000 });
           if (barcodeResp.data?.ok && barcodeResp.data.data) {
-            best = { ...best, ...barcodeResp.data.data, source: "barcode" };
+            barcodeInfo = barcodeResp.data.data;
+          }
+        } catch (e) { console.warn("Barcode lookup failed:", e.message); }
+      }
+      
+      // 1d. (Unconditional) Whitelisted Web Search (CSE)
+      let webResults = [];
+      if (CSE_KEY && CSE_CX) {
+        const searchQuery = biasQuery(ocrJoined.slice(0, 180));
+        try {
+          const cseRes = await fetchCSE(searchQuery, 2); // Fetch top 2 results
+          webResults = cseRes.map(r => ({ title: r.title, snippet: r.snippet }));
+        } catch (e) { console.warn("CSE fetch failed:", e.message); }
+      }
+
+      // --- Phase 2: Consolidated Multimodal AI Call ---
+
+      // Construct a single, context-rich prompt for GPT-4o
+      const textContext = `
+      Raw OCR Text: "${ocrJoined}"
+      Detected Barcode: ${scannedCode || "None"}
+      Barcode Lookup Data: ${barcodeInfo ? JSON.stringify(barcodeInfo) : "None"}
+      Web Search Results: ${webResults.length > 0 ? JSON.stringify(webResults) : "None"}
+      `;
+
+      const aiResult = await callMultimodalAI(imageContent, textContext);
+
+      if (!aiResult || !aiResult.name) {
+        // Fallback or error
+        return res.status(500).json({ ok: false, error: "AI failed to identify the product." });
+      }
+
+      // --- Phase 3: Post-Processing, Caching, and Response ---
+
+      // The AI result is now our primary source of truth
+      let best = {
+        productName: aiResult.name || "",
+        brand: aiResult.brand || "",
+        variant: aiResult.variant || "", // Model might not return this, defaults to empty
+        category: aiResult.category || "",
+        unit: aiResult.unit || "",
+        code: aiResult.sku || scannedCode || "", // Prioritize AI's SKU, fallback to scanned
+        mrp: aiResult.mrp || "",
+        hsn: aiResult.hsn || "",
+        gst: aiResult.gst !== undefined ? aiResult.gst : null,
+        source: "gpt-4o",
+        confidence: 0.9 // High confidence as it's from the best model
+      };
+
+      // Run final cleanup and canonicalization on the AI's output
+      best.productName = cleanTitle(best.productName);
+      best.brand = titleCase(best.brand);
+      best.productName = canonicalizeName(best.brand, best.productName);
+      best.unit = parseCanonicalUnit(best.unit || best.productName); // Ensure unit is parsed well
+
+      // Save a compressed copy for telemetry
+      try {
+        const bucket = admin.storage().bucket();
+        const imgBuf = Buffer.from(imageContent, "base64");
+        const small = await sharp(imgBuf).rotate().resize({ width: 800, withoutEnlargement: true }).jpeg({ quality: 72 }).toBuffer();
+        await bucket.file(`scans/${hash}.jpg`).save(small, { contentType: "image/jpeg", resumable: false });
+      } catch (e) { console.warn("Scan save failed:", e?.message); }
+      
+      // Cache the final, cleaned result
+      await cacheRef.set({ best, imagePath: `scans/${hash}.jpg`, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+
+      // Prepare the final response for the client
+      const autofill = {
+        productName: best.productName,
+        brand: best.brand,
+        variant: best.variant,
+        category: best.category,
+        sku: best.code,
+        unit: best.unit,
+        hsn: best.hsn,
+        gst: best.gst,
+        mrp: best.mrp,
+      };
+
+      return res.status(200).json({ ok: true, best, autofill });
+
+    } catch (err) {
+      console.error("identifyProductFromImage error:", err);
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+});
+
+// -------- Multi-product detection from single image (boxes -> crops -> reuse single-product pipeline) --------
+// -------- Multi-product detection from single image (Google-only) --------
+exports.identifyProductsFromImage = onRequest(async (req, res) => {
+  corsHandler(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      const origin = req.get("Origin") || "*";
+      res.set("Access-Control-Allow-Origin", origin);
+      res.set("Vary", "Origin");
+      res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+      res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.set("Access-Control-Max-Age", "3600");
+      return res.status(204).send("");
+    }
+
+    const origin = req.get("Origin") || "*";
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Vary", "Origin");
+
+    try {
+      let { imageBase64, imageUrl, maxProducts = 12 } = req.body || {};
+      if (!imageBase64 && typeof req.body === "string") {
+        try { const parsed = JSON.parse(req.body); imageBase64 = parsed.imageBase64; imageUrl = parsed.imageUrl; maxProducts = parsed.maxProducts ?? maxProducts; } catch {}
+      }
+      if (!imageBase64 && !imageUrl) {
+        return res.status(400).json({ ok: false, error: "Provide imageBase64 or imageUrl" });
+      }
+
+      let imgBuf;
+      if (imageBase64) {
+        imgBuf = Buffer.from(imageBase64, "base64");
+      } else {
+        const r = await axios.get(imageUrl, { responseType: "arraybuffer" });
+        imgBuf = Buffer.from(r.data);
+      }
+
+      const meta = await sharp(imgBuf).metadata();
+      const iw = meta.width || 0;
+      const ih = meta.height || 0;
+      if (!iw || !ih) {
+        return res.status(400).json({ ok: false, error: "Unsupported image" });
+      }
+
+      const b64 = imgBuf.toString("base64");
+      const [objResp] = await client.objectLocalization({ image: { content: b64 } });
+      const [logoResp] = await client.logoDetection({ image: { content: b64 } });
+
+      function normalizedPolyToRect(vertices, W, H) {
+        const xs = vertices.map(v => Math.max(0, Math.min(1, v.x || 0)));
+        const ys = vertices.map(v => Math.max(0, Math.min(1, v.y || 0)));
+        const minX = Math.min(...xs) * W, maxX = Math.max(...xs) * W;
+        const minY = Math.min(...ys) * H, maxY = Math.max(...ys) * H;
+        return { left: Math.round(minX), top: Math.round(minY), width: Math.round(maxX - minX), height: Math.round(maxY - minY) };
+      }
+
+      // Object candidates
+      const objBoxes = (objResp?.localizedObjectAnnotations || [])
+        .filter(o => {
+          const n = (o.name || "").toLowerCase();
+          return ["bottle","jar","box","can","carton","pack","food","drink","cosmetics","product","container"].some(k => n.includes(k));
+        })
+        .map(o => normalizedPolyToRect(o.boundingPoly.normalizedVertices || [], iw, ih));
+
+      // Logo candidates (slightly expanded)
+      const logoBoxes = (logoResp?.logoAnnotations || [])
+        .filter(l => (l.boundingPoly?.vertices?.length))
+        .map(l => {
+          const v = l.boundingPoly.vertices;
+          const minX = Math.min(...v.map(p => p.x || 0));
+          const maxX = Math.max(...v.map(p => p.x || 0));
+          const minY = Math.min(...v.map(p => p.y || 0));
+          const maxY = Math.max(...v.map(p => p.y || 0));
+          return { left: Math.max(0, minX - 30), top: Math.max(0, minY - 30), width: (maxX - minX) + 60, height: (maxY - minY) + 60 };
+        });
+
+      // Coarse grid to not miss products
+      const gridBoxes = [];
+      const cols = 3, rows = 2;
+      const cw = Math.floor(iw / cols), ch = Math.floor(ih / rows);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          gridBoxes.push({ left: c*cw, top: r*ch, width: cw, height: ch });
+        }
+      }
+
+      // Merge and lightly filter
+      const minArea = iw * ih * 0.01;
+      let boxes = [...objBoxes, ...logoBoxes, ...gridBoxes]
+        .filter(b => b.width * b.height >= minArea);
+
+      // Non-maximum suppression
+      function iou(a, b) {
+        const ax2 = a.left + a.width, ay2 = a.top + a.height;
+        const bx2 = b.left + b.width, by2 = b.top + b.height;
+        const x1 = Math.max(a.left, b.left), y1 = Math.max(a.top, b.top);
+        const x2 = Math.min(ax2, bx2), y2 = Math.min(ay2, by2);
+        const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+        const uni = a.width * a.height + b.width * b.height - inter;
+        return uni <= 0 ? 0 : inter / uni;
+      }
+      function nms(list, thr = 0.45) {
+        const out = [];
+        list.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+        for (const b of list) {
+          if (!out.some(o => iou(o, b) >= thr)) out.push(b);
+        }
+        return out;
+      }
+      boxes = nms(boxes, 0.45);
+
+      const MAX_BOXES = Number(process.env.MAX_BATCH_BOXES || 8);
+      boxes = boxes.slice(0, Math.max(1, Math.min(MAX_BOXES, boxes.length)));
+
+      // Process crops sequentially (safe); you can parallelize if needed
+      const PROJECT = process.env.GCLOUD_PROJECT || admin.app().options.projectId || "stockpilotv1";
+      const REGION_HOST = `https://asia-south1-${PROJECT}.cloudfunctions.net`;
+      const items = [];
+
+      for (const b of boxes) {
+        try {
+          const crop = await sharp(imgBuf).extract({ left: b.left, top: b.top, width: b.width, height: b.height }).jpeg({ quality: 85 }).toBuffer();
+          const base64 = crop.toString("base64");
+          const resp = await axios.post(`${REGION_HOST}/identifyProductFromImage`, { imageBase64: base64 }, { timeout: 22000 });
+          const best = resp.data?.best || {};
+          if (best.productName || best.brand || best.code) {
+            items.push({
+              productName: best.productName || "",
+              brand: best.brand || "",
+              unit: best.unit || best.size || "",
+              category: best.category || "",
+              barcode: best.code || "",
+              mrp: best.mrp || "",
+              confidence: best.confidence || 0.6,
+              source: best.source || "vision",
+              _bx: `${b.left},${b.top},${b.width},${b.height}`,
+            });
           }
         } catch {}
       }
 
-      // ---- E) KG enrichment ----
-      try {
-        if (KG_API_KEY) {
-          const query = [best.brand, best.productName, best.size].filter(Boolean).join(" ");
-          const kg = await fetchKGEntities(query);
-          if (kg) best = { ...best, ...kg, source: best.source ? `${best.source}+kg` : "kg" };
-        }
-      } catch (e) {}
-
-      // ---- F) CSE enrichment ----
-      try {
-        if (CSE_KEY && CSE_CX) {
-          const q = [best.brand, best.productName, best.size].filter(Boolean).join(" ");
-          const results = await fetchCSE(q, 3);
-          if (results.length) {
-            const top = results[0];
-            const ogMeta = await fetchOG(top.link);
-            const title = (ogMeta["og:title"] || top.title || "").replace(/Amazon\.in|Flipkart|Buy Online/gi, "").trim();
-            const snippet = ogMeta["og:description"] || top.snippet || "";
-            best.productName = title.replace(/\|.*$/, "").trim();
-            const mrpMatch = (snippet.match(/₹\s*([0-9]{2,6})/));
-            if (mrpMatch) best.mrp = mrpMatch[1];
-            best.description = ""; // avoid long desc to save tokens
-            best.source = best.source ? `${best.source}+cse` : "cse";
-          }
-        }
-      } catch (e) {}
-
-      // ---- G) GPT normalization (only if missing key fields) ----
-      if (USE_GPT_ENRICH && process.env.OPENAI_API_KEY) {
-        const needNormalization = !(best.productName && best.brand && best.size);
-        if (needNormalization) {
-          try {
-            const compact = `product=${best.productName}; brand=${best.brand}; size=${best.size}`;
-            const usr = `Correct/complete product fields. OCR hints:\n${lines.slice(0,3).join("\n")}\nDetected:\n${compact}`;
-            const payload = {
-              model: OPENAI_MODEL_NORM,
-              messages: [
-                { role: "system", content: `Return ONLY JSON: { "productName": string, "brand": string, "category": string, "size": string, "unit": string }` },
-                { role: "user", content: usr }
-              ],
-              response_format: { type: "json_object" },
-              temperature: 0.1
-            };
-            const gptResp = await axios.post("https://api.openai.com/v1/chat/completions", payload, {
-              headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
-              timeout: 10000
-            });
-            const txt = gptResp?.data?.choices?.[0]?.message?.content?.trim() || "{}";
-            const gptJson = JSON.parse(txt);
-            best.productName = gptJson.productName || best.productName;
-            best.brand = gptJson.brand || best.brand;
-            best.category = gptJson.category || best.category;
-            best.size = gptJson.size || best.size;
-            best.unit = gptJson.unit || best.unit;
-          } catch (e) {}
-        }
+      // De-dupe by barcode, then by (brand+name+unit)
+      const map = new Map();
+      for (const r of items) {
+        const key = r.barcode
+          ? `code:${r.barcode}`
+          : `${(r.brand||'').toLowerCase()}|${(r.productName||'').toLowerCase()}|${(r.unit||'').toLowerCase()}`;
+        const prev = map.get(key);
+        if (!prev || (r.confidence || 0) > (prev.confidence || 0)) map.set(key, r);
       }
 
-      // ---- H) Strong unit building ----
-      const NUM_UNIT_RE = /\b\d+(?:\.\d+)?\s?(ml|g|kg|l|oz|capsules|tablets|pcs|pack)\b/i;
-      const amount = (best.size && (best.size.match(NUM_UNIT_RE)?.[0])) || "";
-      const containerMatch = (best.productName.match(/\b(bottle|jar|pack|tube|strip|carton|pouch)\b/i));
-      const container = containerMatch ? containerMatch[1] : "";
-      best.unit = [amount, container].filter(Boolean).join(" ").trim();
+      const deduped = Array.from(map.values())
+        .sort((a,b) => (b.confidence||0) - (a.confidence||0))
+        .slice(0, Math.max(1, Math.min(50, Number(maxProducts) || 12)));
 
-      // ---- HSN/GST (rule-based quick fallback) ----
-      if (!best.hsn || !best.gst) {
-        if (/shampoo|lotion|cream|cosmetic/i.test(best.productName)) {
-          best.gst = 18;
-          best.hsn = "3304";
-        }
-      }
-
-      // ---- Save cache ----
-      await cacheRef.set({ best, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-
-      // ---- Response ----
-      const autofill = {
-        productName: best.productName || "",
-        brand: best.brand || "",
-        category: best.category || "",
-        sku: best.code || "",
-        unit: best.unit || "",
-        hsn: best.hsn || "",
-        gst: best.gst || "",
-        mrp: best.mrp || ""
-      };
-      return res.status(200).json({ ok: true, best, autofill });
+      return res.status(200).json({ ok: true, count: deduped.length, items: deduped });
     } catch (err) {
-      console.error("identifyProductFromImage error:", err);
-      return res.status(500).json({ ok: false, error: err.message });
+      console.error("identifyProductsFromImage error:", err?.message || err);
+      return res.status(500).json({ ok: false, error: "Multi-scan failed" });
     }
   });
 });
