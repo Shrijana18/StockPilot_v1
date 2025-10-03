@@ -2,70 +2,72 @@ import React, { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { BrowserMultiFormatReader } from "@zxing/library";
 
-/**
- * MagicScanDisplay (v2)
- * - Polished, animated scanner UI
- * - Owns camera lifecycle
- * - Flip & Torch controls (where supported)
- * - Emits base64 JPEG (no data: prefix) through onCapture(base64)
- *
- * Props:
- *  - open: boolean
- *  - onClose: () => void
- *  - onCapture: ({ base64: string, barcode?: string }) => void
- *  - busy?: boolean
- *  - title?: string
- *  - subtitle?: string
- *  - badge?: string // e.g., "Batch mode"
- */
+// This function remains the same
+function calculateFrameQuality(ctx, width, height) {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  let totalBrightness = 0;
+  let sharpness = 0;
+  const laplacianKernel = [0, 1, 0, 1, -4, 1, 0, 1, 0];
+  for (let y = 1; y < height - 1; y += 4) {
+    for (let x = 1; x < width - 1; x += 4) {
+      const i = (y * width + x) * 4;
+      const brightness = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+      totalBrightness += brightness;
+      let laplace = 0;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const kernelIndex = (ky + 1) * 3 + (kx + 1);
+          const pixelIndex = ((y + ky) * width + (x + kx)) * 4;
+          const pixelBrightness = (data[pixelIndex] * 0.299) + (data[pixelIndex+1] * 0.587) + (data[pixelIndex+2] * 0.114);
+          laplace += pixelBrightness * laplacianKernel[kernelIndex];
+        }
+      }
+      sharpness += laplace * laplace;
+    }
+  }
+  const numPixelsAnalyzed = (width / 4) * (height / 4);
+  return {
+    brightness: totalBrightness / numPixelsAnalyzed,
+    sharpness: sharpness / numPixelsAnalyzed,
+  };
+}
 
-function ScanningOverlay({ busy, statusText = "Scanning…" }) {
+// The overlay is updated with new animation classes and the laser reticle
+function ScanningOverlay({ busy, statusText = "Scanning…", frameQuality = 'poor', statusHint = 'Align product', scanState = 'idle' }) {
+  const isGood = frameQuality === 'good';
+  const isIdle = scanState === 'idle';
+  const isAnalyzing = scanState === 'analyzing';
+
+  let borderColorClass = 'border-red-400 animate-pulse-red';
+  if (isIdle) borderColorClass = 'border-white/50';
+  if (isGood) borderColorClass = 'border-emerald-300 animate-pulse-green';
+
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
-      {/* vignette */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/10 to-black/35" />
+      <div className={`absolute inset-4 md:inset-6 rounded-2xl overflow-hidden ring-2 ring-white/20 transition-all duration-300`}>
+        
+        {/* --- NEW: Sweeping Laser Reticle --- */}
+        {isAnalyzing && (
+          <div className="absolute top-0 left-0 w-full h-full overflow-hidden">
+            <div className="laser-line"></div>
+          </div>
+        )}
 
-      {/* scan window */}
-      <div className="absolute inset-4 md:inset-6 rounded-2xl overflow-hidden ring-2 ring-emerald-300/40 shadow-[0_0_40px_rgba(16,185,129,0.15)_inset]">
-        {/* parallax grid */}
-        <svg className="absolute inset-0 w-full h-full opacity-25" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
-              <path d="M 24 0 L 0 0 0 24" fill="none" stroke="currentColor" strokeWidth="0.5"/>
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#grid)" className="text-white" />
-        </svg>
-
-        {/* neon corners */}
-        <div className="absolute top-0 left-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-l-4 border-emerald-300 rounded-tl-2xl shadow-[0_0_22px_rgba(16,185,129,.55)]" />
-        <div className="absolute top-0 right-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-r-4 border-emerald-300 rounded-tr-2xl shadow-[0_0_22px_rgba(16,185,129,.55)]" />
-        <div className="absolute bottom-0 left-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-l-4 border-emerald-300 rounded-bl-2xl shadow-[0_0_22px_rgba(16,185,129,.55)]" />
-        <div className="absolute bottom-0 right-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-r-4 border-emerald-300 rounded-br-2xl shadow-[0_0_22px_rgba(16,185,129,.55)]" />
-
-        {/* sweep line */}
-        <div className={`absolute inset-x-0 h-0.5 md:h-[3px] bg-gradient-to-r from-transparent via-white to-transparent ${busy ? 'animate-scanLine' : ''}`} />
-
-        {/* reticle */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-16 h-16 rounded-full border border-white/40 backdrop-blur-[1px]" />
-          <div className="absolute w-8 h-px bg-white/50" />
-          <div className="absolute h-8 w-px bg-white/50" />
-        </div>
+        {/* Corners now have animation classes */}
+        <div className={`absolute top-0 left-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-l-4 rounded-tl-2xl transition-all duration-300 ${borderColorClass}`} />
+        <div className={`absolute top-0 right-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-r-4 rounded-tr-2xl transition-all duration-300 ${borderColorClass}`} />
+        <div className={`absolute bottom-0 left-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-l-4 rounded-bl-2xl transition-all duration-300 ${borderColorClass}`} />
+        <div className={`absolute bottom-0 right-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-r-4 rounded-br-2xl transition-all duration-300 ${borderColorClass}`} />
       </div>
 
-      {/* status chip */}
       <div className="absolute bottom-3 inset-x-0 flex items-center justify-center">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur text-white text-xs font-medium shadow-lg">
-          <span className={`inline-block w-2 h-2 rounded-full ${busy ? 'bg-amber-300 animate-pulse' : 'bg-emerald-300'}`} />
-          {busy ? statusText : "Ready"}
+          <span className={`inline-block w-2 h-2 rounded-full transition-colors ${busy ? 'bg-amber-300 animate-pulse' : (isGood ? 'bg-emerald-300' : (isIdle ? 'bg-white/50' : 'bg-red-400'))}`} />
+          {busy ? statusText : statusHint}
         </div>
       </div>
-
-      <style>{`
-        @keyframes scanLine { 0% { transform: translateY(12%); opacity:.9 } 50%{ opacity:.7 } 100% { transform: translateY(88%); opacity:.9 } }
-        .animate-scanLine { animation: scanLine 2.1s linear infinite; }
-      `}</style>
     </div>
   );
 }
@@ -73,10 +75,10 @@ function ScanningOverlay({ busy, statusText = "Scanning…" }) {
 export default function MagicScanDisplay({
   open,
   onClose,
-  onCapture,   // (base64NoPrefix: string) => void
+  onCapture,
   busy = false,
   title = "Magic Scan (Live)",
-  subtitle = "Align the product, hold steady, then tap Scan. We'll capture a quick burst for accuracy.",
+  subtitle = "Align the product in the frame. The scan will trigger automatically when the image is clear.",
   badge,
   batchMode = false,
   statusText = "Scanning…",
@@ -86,8 +88,16 @@ export default function MagicScanDisplay({
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const trackRef = useRef(null);
-  const zxingRef = useRef(null);
   const capturingRef = useRef(false);
+  
+  const [scanState, setScanState] = useState('idle');
+  
+  // --- NEW: State to trigger the capture flash animation ---
+  const [showCaptureFlash, setShowCaptureFlash] = useState(false);
+  
+  const [frameQuality, setFrameQuality] = useState('poor');
+  const [statusHint, setStatusHint] = useState('Ready to scan');
+  const goodFramesCountRef = useRef(0);
 
   const [ready, setReady] = useState(false);
   const [camError, setCamError] = useState("");
@@ -100,6 +110,7 @@ export default function MagicScanDisplay({
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(true);
 
+  // ... (startCamera, stopCamera etc. are unchanged)
   const stopCamera = () => {
     try {
       if (streamRef.current) {
@@ -107,37 +118,19 @@ export default function MagicScanDisplay({
       }
       streamRef.current = null;
       trackRef.current = null;
-      if (zxingRef.current && typeof zxingRef.current.reset === 'function') {
-        try { zxingRef.current.reset(); } catch {}
-      }
     } catch {}
   };
 
   const startCamera = async () => {
-    // stop old
     stopCamera();
     setReady(false);
     setCamError("");
-    const constraints = {
-      video: {
-        facingMode,
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30 },
-      },
-      audio: false,
-    };
+    const constraints = { video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false };
     let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (e) {
-      setCamError("Camera access failed. Please allow camera permissions.");
-      throw e;
-    }
+    try { stream = await navigator.mediaDevices.getUserMedia(constraints); } catch (e) { setCamError("Camera access failed. Please allow camera permissions."); throw e; }
     streamRef.current = stream;
     const t = stream.getVideoTracks()[0];
     trackRef.current = t;
-
     try {
       const caps = t?.getCapabilities?.() || {};
       setTorchSupported(!!("torch" in caps));
@@ -148,235 +141,209 @@ export default function MagicScanDisplay({
         zoomMinRef.current = min;
         zoomMaxRef.current = max;
         setZoom(Math.max(1, min));
-      } else {
-        setZoomSupported(false);
-      }
+      } else { setZoomSupported(false); }
     } catch { setTorchSupported(false); setZoomSupported(false); }
-
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
-      // wait for metadata so videoWidth/Height are non-zero
       const waitMeta = new Promise((resolve) => {
         const v = videoRef.current;
-        if (!v) return resolve();
-        if (v.readyState >= 2) return resolve();
+        if (!v || v.readyState >= 2) return resolve();
         const onLoaded = () => { v.removeEventListener('loadedmetadata', onLoaded); resolve(); };
         v.addEventListener('loadedmetadata', onLoaded);
       });
-      await Promise.race([
-        waitMeta,
-        new Promise((r) => setTimeout(r, 800)), // safety timeout
-      ]);
-      await videoRef.current.play().catch(() => {});
+      await Promise.race([ waitMeta, new Promise((r) => setTimeout(r, 800)) ]);
+      await videoRef.current.play().catch((err) => {
+        console.warn("Initial video play failed, will retry on user interaction.", err)
+      });
       setReady(true);
     }
     setTorchOn(false);
-
-    if (!zxingRef.current) {
-      try { zxingRef.current = new BrowserMultiFormatReader(); } catch {}
-    }
   };
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setScanState('idle');
+      setStatusHint('Ready to scan');
+      (async () => {
+        try { await startCamera(); } catch (e) { onClose?.(); }
+      })();
+    } else {
       stopCamera();
-      return;
     }
-    (async () => {
-      try { await startCamera(); } catch (e) { onClose?.(); }
-    })();
-    return () => {
-      stopCamera();
-    };
+    return () => stopCamera();
     // eslint-disable-next-line
   }, [open, facingMode]);
 
-  const handleFlip = () => setFacingMode((m) => (m === "environment" ? "user" : "environment"));
+  useEffect(() => {
+    if (open && ready && !busy && scanState === 'analyzing') {
+      const stuckTimer = setTimeout(() => {
+        setStatusHint('Scan difficult. Try uploading a photo instead.');
+      }, 8000);
 
-  const handleTorch = async () => {
-    try {
-      const track = trackRef.current;
-      if (!track?.getCapabilities) return;
-      const caps = track.getCapabilities();
-      if (!("torch" in caps)) return;
-      const next = !torchOn;
-      await track.applyConstraints({ advanced: [{ torch: next }] });
-      setTorchOn(next);
-    } catch {}
-  };
+      const analysisInterval = setInterval(() => {
+        if (!videoRef.current || !canvasRef.current || capturingRef.current) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-  const handleZoom = async (val) => {
-    setZoom(val);
-    try {
-      const track = trackRef.current;
-      if (!track?.applyConstraints) return;
-      await track.applyConstraints({ advanced: [{ zoom: Number(val) }] });
-    } catch {}
-  };
+        const quality = calculateFrameQuality(ctx, canvas.width, canvas.height);
+        const BRIGHTNESS_THRESHOLD = 50;
+        const SHARPNESS_THRESHOLD = 20;
+        
+        let isGood = true;
+        if (quality.brightness < BRIGHTNESS_THRESHOLD) {
+          setStatusHint('More light needed');
+          isGood = false;
+        } else if (quality.sharpness < SHARPNESS_THRESHOLD) {
+          setStatusHint('Hold steady, image is blurry');
+          isGood = false;
+        }
+
+        if (isGood) {
+          setFrameQuality('good');
+          setStatusHint('Perfect, hold it!');
+          goodFramesCountRef.current++;
+          if (goodFramesCountRef.current >= 3) {
+            handleCapture();
+          }
+        } else {
+          setFrameQuality('poor');
+          goodFramesCountRef.current = 0;
+        }
+      }, 300);
+
+      return () => {
+        clearInterval(analysisInterval);
+        clearTimeout(stuckTimer);
+      };
+    }
+  }, [open, ready, busy, scanState]);
 
   const handleCapture = async () => {
-    if (capturingRef.current) return; // debounce
-    if (!videoRef.current || !canvasRef.current) return;
-    if (!ready) return;
+    if (capturingRef.current || !ready) return;
     capturingRef.current = true;
+    setScanState('capturing');
+
+    // --- NEW: Trigger the capture flash animation ---
+    setShowCaptureFlash(true);
+    setTimeout(() => setShowCaptureFlash(false), 500); // Reset after animation duration
+
     try {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      const vw = video.videoWidth || 1280;
-      const vh = video.videoHeight || 720;
-      canvas.width = vw;
-      canvas.height = vh;
       const ctx = canvas.getContext("2d");
-
-      // Capture a short burst (3 frames, ~180ms apart)
       const framesBase64 = [];
       for (let i = 0; i < 3; i++) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-        const b64 = dataUrl.replace(/^data:image\/jpeg;base64,/, "");
+        const b64 = canvas.toDataURL("image/jpeg", 0.92).replace(/^data:image\/jpeg;base64,/, "");
         framesBase64.push(b64);
-        // allow autofocus/exposure to settle slightly
-        // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => setTimeout(r, 180));
       }
-
-      // Optional: try to decode barcode from the middle frame
-      let detectedBarcode = "";
-      try {
-        if (zxingRef.current && framesBase64.length) {
-          const midFrame = framesBase64[Math.min(1, framesBase64.length - 1)];
-          const img = new Image();
-          await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = `data:image/jpeg;base64,${midFrame}`; });
-          const result = await zxingRef.current.decodeFromImageElement(img);
-          if (result && result.text) detectedBarcode = String(result.text).trim();
-        }
-      } catch {}
-
-      // Emit burst + first frame for backward compatibility
-      onCapture?.({ base64: framesBase64[0], framesBase64, barcode: detectedBarcode });
+      onCapture?.({ base64: framesBase64[0], framesBase64 });
     } finally {
       capturingRef.current = false;
     }
   };
 
-  if (!open) {
-    stopCamera();
-    return null;
-  }
+  const handleFlip = () => setFacingMode((m) => (m === "environment" ? "user" : "environment"));
+  const handleTorch = async () => { try { await trackRef.current.applyConstraints({ advanced: [{ torch: !torchOn }] }); setTorchOn(!torchOn); } catch {} };
+  const handleZoom = async (val) => { setZoom(val); try { await trackRef.current.applyConstraints({ advanced: [{ zoom: Number(val) }] }); } catch {} };
+
+  const handleStartAnalysis = () => {
+    if (videoRef.current && videoRef.current.paused) {
+      videoRef.current.play().catch(err => console.warn("Video play failed on click:", err));
+    }
+    setScanState('analyzing');
+  };
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-sm flex items-center justify-center">
       <div className="w-[min(500px,95vw)] rounded-2xl border border-white/15 bg-white/10 shadow-2xl relative overflow-hidden">
-        {/* Header */}
         <div className="px-5 pt-5 pb-3">
-          <div className="flex items-center justify-between">
-            <div className="font-bold text-lg text-white flex items-center gap-2">
-              <span className="text-2xl">🧠</span>
-              <span>{title}</span>
-            </div>
-            {(badge || batchMode) && (
-              <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/40">
-                {badge || "Batch mode"}
-              </span>
-            )}
-          </div>
+          <div className="font-bold text-lg text-white">{title}</div>
           <div className="text-[11px] text-white/80 mt-1">{subtitle}</div>
         </div>
 
-        {(camError || error) && (
-          <div className="mx-5 -mt-2 mb-3 px-3 py-2 rounded-lg bg-red-600/80 text-white text-xs shadow">
-            {camError || error}
-          </div>
-        )}
-
-        {/* Video stage */}
         <div className="relative mx-5 rounded-2xl overflow-hidden border border-white/20 bg-black/70 mb-4 flex items-center justify-center min-h-[260px]">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-[280px] object-cover"
-            style={{ background: "#000" }}
-          />
-          <ScanningOverlay busy={busy} statusText={statusText} />
-          {!ready && (
-            <div className="absolute bottom-3 left-3 text-[11px] px-2 py-1 rounded bg-black/60 text-white/80">Starting camera…</div>
+          <video ref={videoRef} autoPlay playsInline muted className="w-full h-[280px] object-cover" />
+          <ScanningOverlay busy={busy} statusText={statusText} frameQuality={frameQuality} statusHint={statusHint} scanState={scanState} />
+          
+          {/* --- NEW: Capture Flash Overlay --- */}
+          {showCaptureFlash && (
+            <div className="absolute inset-0 z-30 animate-flash-green pointer-events-none"></div>
           )}
+
           <canvas ref={canvasRef} className="hidden" />
 
-          {/* Torch badge if unsupported */}
-          {!torchSupported && (
-            <div className="absolute top-2 right-2 text-[10px] px-2 py-1 rounded bg-black/60 text-white/80">
-              Torch unavailable on this device
+          {scanState === 'idle' && ready && !busy && (
+            <div className="absolute inset-0 flex items-center justify-center z-30">
+              <button
+                type="button"
+                onClick={handleStartAnalysis}
+                className="px-6 py-3 rounded-xl font-semibold text-white bg-emerald-500/80 hover:bg-emerald-500 shadow-lg backdrop-blur-sm border border-emerald-400/50"
+              >
+                Start Scanning
+              </button>
             </div>
           )}
         </div>
 
-        {/* Controls */}
         <div className="px-5 pb-5 flex items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={handleCapture}
-            className="px-5 py-2 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-500 via-pink-400 to-orange-400 shadow-lg hover:shadow-xl text-base flex items-center gap-2 disabled:opacity-50"
-            disabled={busy || !ready}
-          >
-            {busy ? "Scanning..." : "Scan Now"}
-          </button>
-          <button
-            type="button"
-            onClick={handleFlip}
-            className="px-3 py-2 rounded-xl font-semibold text-white/90 bg-white/10 border border-white/20 hover:bg-white/20 text-sm"
-            disabled={busy || !ready}
-            title="Flip camera"
-          >
-            🔁 Flip
-          </button>
-          <button
-            type="button"
-            onClick={handleTorch}
-            className="px-3 py-2 rounded-xl font-semibold text-white/90 bg-white/10 border border-white/20 hover:bg-white/20 text-sm disabled:opacity-50"
-            disabled={busy || !torchSupported || !ready}
-            title={torchSupported ? (torchOn ? 'Turn torch off' : 'Turn torch on') : 'Torch not supported'}
-          >
-            🔦 Torch
-          </button>
-          {zoomSupported && (
-            <div className="flex items-center gap-2 text-white/80 text-xs ml-1">
-              <span>Zoom</span>
-              <input
-                type="range"
-                min={zoomMinRef.current}
-                max={zoomMaxRef.current}
-                step={0.1}
-                value={zoom}
-                onChange={(e) => handleZoom(e.target.value)}
-              />
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-2 rounded-xl font-semibold text-white/80 bg-white/10 border border-white/20 hover:bg-white/20 text-sm"
-            disabled={busy || !ready}
-          >
-            Cancel
-          </button>
+           {scanState === 'analyzing' && (
+             <button
+               type="button"
+               onClick={handleCapture}
+               disabled={busy || !ready}
+               className="px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 to-cyan-400 shadow-lg"
+             >
+               Scan Now
+             </button>
+           )}
+           <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl font-semibold text-white/80 bg-white/10 border border-white/20 hover:bg-white/20 text-sm" disabled={busy}>
+             Cancel
+           </button>
+           <button type="button" onClick={handleFlip} className="px-3 py-2 rounded-xl text-sm" disabled={busy || !ready}>🔁</button>
+           <button type="button" onClick={handleTorch} className="px-3 py-2 rounded-xl text-sm" disabled={busy || !torchSupported || !ready}>🔦</button>
         </div>
       </div>
+      
+      {/* --- NEW: CSS Animations for the magical effects --- */}
+      <style>{`
+        @keyframes pulse-red {
+          0%, 100% { box-shadow: 0 0 18px rgba(239, 68, 68, 0.45); }
+          50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.7); }
+        }
+        @keyframes pulse-green {
+          0%, 100% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.55); }
+          50% { box-shadow: 0 0 35px rgba(16, 185, 129, 0.8); }
+        }
+        .animate-pulse-red { animation: pulse-red 2.5s infinite; }
+        .animate-pulse-green { animation: pulse-green 1.5s infinite; }
+
+        @keyframes sweep {
+          0% { transform: translateY(-10%); }
+          100% { transform: translateY(110%); }
+        }
+        .laser-line {
+          position: absolute;
+          left: 0;
+          width: 100%;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, rgba(110, 231, 183, 0.8), transparent);
+          box-shadow: 0 0 10px rgba(110, 231, 183, 0.9);
+          animation: sweep 2.2s infinite ease-in-out;
+        }
+
+        @keyframes flash-green {
+          0%, 100% { background-color: transparent; }
+          50% { background-color: rgba(16, 185, 129, 0.3); }
+        }
+        .animate-flash-green {
+          animation: flash-green 0.5s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
-
-MagicScanDisplay.propTypes = {
-  open: PropTypes.bool.isRequired,
-  onClose: PropTypes.func,
-  onCapture: PropTypes.func,
-  busy: PropTypes.bool,
-  title: PropTypes.string,
-  subtitle: PropTypes.string,
-  badge: PropTypes.string,
-  batchMode: PropTypes.bool,
-  statusText: PropTypes.string,
-  error: PropTypes.string,
-};

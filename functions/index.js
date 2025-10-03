@@ -1515,161 +1515,98 @@ exports.identifyProductFromImage = onRequest(async (req, res) => {
 
 // -------- Multi-product detection from single image (boxes -> crops -> reuse single-product pipeline) --------
 // -------- Multi-product detection from single image (Google-only) --------
+// =================================================================================================
+// ===== NEW, REWRITTEN identifyProductsFromImage FOR MAX ACCURACY (BATCH MODE) =====
+// =================================================================================================
 exports.identifyProductsFromImage = onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
-    if (req.method === "OPTIONS") {
-      const origin = req.get("Origin") || "*";
-      res.set("Access-Control-Allow-Origin", origin);
-      res.set("Vary", "Origin");
-      res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-      res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-      res.set("Access-Control-Max-Age", "3600");
-      return res.status(204).send("");
-    }
-
-    const origin = req.get("Origin") || "*";
-    res.set("Access-Control-Allow-Origin", origin);
-    res.set("Vary", "Origin");
-
     try {
-      let { imageBase64, imageUrl, maxProducts = 12 } = req.body || {};
+      let { imageBase64, imageUrl } = req.body || {};
       if (!imageBase64 && typeof req.body === "string") {
-        try { const parsed = JSON.parse(req.body); imageBase64 = parsed.imageBase64; imageUrl = parsed.imageUrl; maxProducts = parsed.maxProducts ?? maxProducts; } catch {}
+        try { const parsed = JSON.parse(req.body); imageBase64 = parsed.imageBase64; imageUrl = parsed.imageUrl; } catch {}
       }
       if (!imageBase64 && !imageUrl) {
         return res.status(400).json({ ok: false, error: "Provide imageBase64 or imageUrl" });
       }
 
-      let imgBuf;
-      if (imageBase64) {
-        imgBuf = Buffer.from(imageBase64, "base64");
-      } else {
-        const r = await axios.get(imageUrl, { responseType: "arraybuffer" });
-        imgBuf = Buffer.from(r.data);
+      let imageContent = imageBase64;
+      if (!imageContent && imageUrl) {
+        const imgResp = await axios.get(imageUrl, { responseType: "arraybuffer" });
+        imageContent = Buffer.from(imgResp.data, "binary").toString("base64");
+      }
+      if (!imageContent) {
+        return res.status(400).json({ ok: false, error: "Failed to read image data." });
       }
 
-      const meta = await sharp(imgBuf).metadata();
-      const iw = meta.width || 0;
-      const ih = meta.height || 0;
-      if (!iw || !ih) {
-        return res.status(400).json({ ok: false, error: "Unsupported image" });
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        console.error("Missing OPENAI_API_KEY for multi-product call.");
+        return res.status(500).json({ ok: false, error: "OpenAI API key not configured." });
       }
+      
+      const model = "gpt-4o";
+      const endpoint = "https://api.openai.com/v1/chat/completions";
 
-      const b64 = imgBuf.toString("base64");
-      const [objResp] = await client.objectLocalization({ image: { content: b64 } });
-      const [logoResp] = await client.logoDetection({ image: { content: b64 } });
+      const systemPrompt = `You are an expert multi-product detection AI for Indian retail. Analyze the image and identify every distinct product visible. Return ONLY a strict JSON object with a single key "items" which is an array of product objects.
+      Schema for each product object: { "productName": "...", "brand": "...", "unit": "...", "category": "...", "barcode": "...", "mrp": "...", "confidence": 0.0 }.
+      Rules:
+      - Be accurate. If you can't identify a detail, leave it as an empty string.
+      - Confidence is a score from 0.0 (low) to 1.0 (high) representing your certainty.
+      - Do not include products that are blurry, unidentifiable, or not actual retail items.
+      - Do not return commentary or markdown. Return only the JSON object.`;
 
-      function normalizedPolyToRect(vertices, W, H) {
-        const xs = vertices.map(v => Math.max(0, Math.min(1, v.x || 0)));
-        const ys = vertices.map(v => Math.max(0, Math.min(1, v.y || 0)));
-        const minX = Math.min(...xs) * W, maxX = Math.max(...xs) * W;
-        const minY = Math.min(...ys) * H, maxY = Math.max(...ys) * H;
-        return { left: Math.round(minX), top: Math.round(minY), width: Math.round(maxX - minX), height: Math.round(maxY - minY) };
-      }
+      const payload = {
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Identify all retail products in this image." },
+              {
+                type: "image_url",
+                image_url: { 
+                  url: `data:image/jpeg;base64,${imageContent}`,
+                  // High detail is necessary for the AI to distinguish multiple small items
+                  detail: "high" 
+                },
+              },
+            ],
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+      };
 
-      // Object candidates
-      const objBoxes = (objResp?.localizedObjectAnnotations || [])
-        .filter(o => {
-          const n = (o.name || "").toLowerCase();
-          return ["bottle","jar","box","can","carton","pack","food","drink","cosmetics","product","container"].some(k => n.includes(k));
-        })
-        .map(o => normalizedPolyToRect(o.boundingPoly.normalizedVertices || [], iw, ih));
+      const response = await axios.post(endpoint, payload, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        // This is a complex task, so we need a longer timeout
+        timeout: 45000, 
+      });
 
-      // Logo candidates (slightly expanded)
-      const logoBoxes = (logoResp?.logoAnnotations || [])
-        .filter(l => (l.boundingPoly?.vertices?.length))
-        .map(l => {
-          const v = l.boundingPoly.vertices;
-          const minX = Math.min(...v.map(p => p.x || 0));
-          const maxX = Math.max(...v.map(p => p.x || 0));
-          const minY = Math.min(...v.map(p => p.y || 0));
-          const maxY = Math.max(...v.map(p => p.y || 0));
-          return { left: Math.max(0, minX - 30), top: Math.max(0, minY - 30), width: (maxX - minX) + 60, height: (maxY - minY) + 60 };
-        });
-
-      // Coarse grid to not miss products
-      const gridBoxes = [];
-      const cols = 3, rows = 2;
-      const cw = Math.floor(iw / cols), ch = Math.floor(ih / rows);
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          gridBoxes.push({ left: c*cw, top: r*ch, width: cw, height: ch });
-        }
-      }
-
-      // Merge and lightly filter
-      const minArea = iw * ih * 0.01;
-      let boxes = [...objBoxes, ...logoBoxes, ...gridBoxes]
-        .filter(b => b.width * b.height >= minArea);
-
-      // Non-maximum suppression
-      function iou(a, b) {
-        const ax2 = a.left + a.width, ay2 = a.top + a.height;
-        const bx2 = b.left + b.width, by2 = b.top + b.height;
-        const x1 = Math.max(a.left, b.left), y1 = Math.max(a.top, b.top);
-        const x2 = Math.min(ax2, bx2), y2 = Math.min(ay2, by2);
-        const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-        const uni = a.width * a.height + b.width * b.height - inter;
-        return uni <= 0 ? 0 : inter / uni;
-      }
-      function nms(list, thr = 0.45) {
-        const out = [];
-        list.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-        for (const b of list) {
-          if (!out.some(o => iou(o, b) >= thr)) out.push(b);
-        }
-        return out;
-      }
-      boxes = nms(boxes, 0.45);
-
-      const MAX_BOXES = Number(process.env.MAX_BATCH_BOXES || 8);
-      boxes = boxes.slice(0, Math.max(1, Math.min(MAX_BOXES, boxes.length)));
-
-      // Process crops sequentially (safe); you can parallelize if needed
-      const PROJECT = process.env.GCLOUD_PROJECT || admin.app().options.projectId || "stockpilotv1";
-      const REGION_HOST = `https://asia-south1-${PROJECT}.cloudfunctions.net`;
-      const items = [];
-
-      for (const b of boxes) {
+      const reply = response?.data?.choices?.[0]?.message?.content?.trim();
+      let parsed = { items: [] };
+      if (reply) {
         try {
-          const crop = await sharp(imgBuf).extract({ left: b.left, top: b.top, width: b.width, height: b.height }).jpeg({ quality: 85 }).toBuffer();
-          const base64 = crop.toString("base64");
-          const resp = await axios.post(`${REGION_HOST}/identifyProductFromImage`, { imageBase64: base64 }, { timeout: 22000 });
-          const best = resp.data?.best || {};
-          if (best.productName || best.brand || best.code) {
-            items.push({
-              productName: best.productName || "",
-              brand: best.brand || "",
-              unit: best.unit || best.size || "",
-              category: best.category || "",
-              barcode: best.code || "",
-              mrp: best.mrp || "",
-              confidence: best.confidence || 0.6,
-              source: best.source || "vision",
-              _bx: `${b.left},${b.top},${b.width},${b.height}`,
-            });
-          }
-        } catch {}
+          parsed = JSON.parse(reply);
+        } catch (e) {
+          console.error("Failed to parse multi-product AI response:", e);
+          return res.status(500).json({ ok: false, error: "AI returned invalid data." });
+        }
       }
 
-      // De-dupe by barcode, then by (brand+name+unit)
-      const map = new Map();
-      for (const r of items) {
-        const key = r.barcode
-          ? `code:${r.barcode}`
-          : `${(r.brand||'').toLowerCase()}|${(r.productName||'').toLowerCase()}|${(r.unit||'').toLowerCase()}`;
-        const prev = map.get(key);
-        if (!prev || (r.confidence || 0) > (prev.confidence || 0)) map.set(key, r);
-      }
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      
+      // Add a 'source' field for consistency with the frontend expectations.
+      const finalItems = items.map(item => ({ ...item, source: "gpt-4o-batch" }));
 
-      const deduped = Array.from(map.values())
-        .sort((a,b) => (b.confidence||0) - (a.confidence||0))
-        .slice(0, Math.max(1, Math.min(50, Number(maxProducts) || 12)));
+      return res.status(200).json({ ok: true, count: finalItems.length, items: finalItems });
 
-      return res.status(200).json({ ok: true, count: deduped.length, items: deduped });
     } catch (err) {
-      console.error("identifyProductsFromImage error:", err?.message || err);
-      return res.status(500).json({ ok: false, error: "Multi-scan failed" });
+      console.error("identifyProductsFromImage error:", err);
+      // Provide a more helpful error message to the frontend if possible
+      const errorMessage = err.response?.data?.error?.message || err.message || "Multi-product scan failed";
+      return res.status(500).json({ ok: false, error: errorMessage });
     }
   });
 });

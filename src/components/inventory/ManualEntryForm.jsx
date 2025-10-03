@@ -1,72 +1,3 @@
-function MultiResultsTable({ rows, onAutofill, onAddSelected }) {
-  const [selected, setSelected] = React.useState({});
-  const toggle = (i) => setSelected((s)=>({ ...s, [i]: !s[i] }));
-  const allOn = rows.length > 0 && rows.every((_, i) => selected[i]);
-  const selectedRows = rows.filter((_, i) => selected[i]);
-
-  return (
-    <>
-      <div className="overflow-auto rounded-lg border border-white/10">
-        <table className="w-full text-sm">
-          <thead className="bg-white/10">
-            <tr>
-              <th className="p-2">
-                <input
-                  type="checkbox"
-                  checked={allOn}
-                  onChange={(e)=>{
-                    const all = {}; rows.forEach((_,i)=> all[i] = e.target.checked); setSelected(all);
-                  }}
-                />
-              </th>
-              <th className="p-2">Preview</th>
-              <th className="p-2 text-left">Product</th>
-              <th className="p-2">Unit</th>
-              <th className="p-2">Barcode</th>
-              <th className="p-2">Conf.</th>
-              <th className="p-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r,i)=> (
-              <tr key={i} className="border-t border-white/10 hover:bg-white/5">
-                <td className="p-2 text-center">
-                  <input type="checkbox" checked={!!selected[i]} onChange={()=>toggle(i)} />
-                </td>
-                <td className="p-2">
-                  {r.thumbBase64 && <img src={r.thumbBase64} alt="thumb" className="h-12 w-12 object-cover rounded" />}
-                </td>
-                <td className="p-2">
-                  <div className="font-medium">{r.brand ? `${r.brand} ` : ""}{r.productName}</div>
-                  <div className="text-xs text-white/70">{r.category}</div>
-                </td>
-                <td className="p-2 text-center">{r.unit || '-'}</td>
-                <td className="p-2 text-center">{r.barcode || '-'}</td>
-                <td className="p-2 text-center">{Math.round((r.confidence || 0) * 100)}%</td>
-                <td className="p-2 text-right">
-                  <button className="text-xs px-2 py-1 rounded bg-emerald-400/20 hover:bg-emerald-400/30" onClick={()=>onAutofill(r)}>Autofill</button>
-                </td>
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr><td colSpan={7} className="p-4 text-center text-white/70">No items detected</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="mt-3 flex items-center justify-between">
-        <div className="text-xs text-white/70">{selectedRows.length} selected</div>
-        <button
-          disabled={!selectedRows.length}
-          onClick={()=>onAddSelected(selectedRows)}
-          className="px-3 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 disabled:opacity-50"
-        >
-          Add Selected
-        </button>
-      </div>
-    </>
-  );
-}
 import React, { useState } from "react";
 import { db, storage } from "../../firebase/firebaseConfig";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
@@ -80,8 +11,104 @@ import { logInventoryChange } from "../../utils/logInventoryChange";
 import PricingModeFields from "./PricingModeFields";
 import { PRICING_MODES, buildPricingSave } from "../../utils/pricing";
 import ProductBarcode from "./ProductBarcode";
-
 import MagicScanDisplay from "../../components/inventory/MagicScanDisplay";
+
+// --- NEW, UPGRADED MultiResultsTable ---
+// This entire component is replaced to make the table interactive.
+function MultiResultsTable({ rows, onAutofill, onAddSelected }) {
+  const [selected, setSelected] = React.useState(() => {
+    const initialState = {};
+    rows.forEach((_, i) => initialState[i] = true); // Select all by default
+    return initialState;
+  });
+
+  // State to hold the new, editable values for quantity and cost
+  const [editedRows, setEditedRows] = React.useState({});
+
+  // Function to update the state when a user types in an input box
+  const handleEdit = (index, field, value) => {
+    setEditedRows(prev => ({
+      ...prev,
+      [index]: {
+        ...prev[index],
+        [field]: value,
+      },
+    }));
+  };
+
+  const toggle = (i) => setSelected((s)=>({ ...s, [i]: !s[i] }));
+  const allOn = rows.length > 0 && rows.every((_, i) => selected[i]);
+  const selectedRows = rows.filter((_, i) => selected[i]);
+
+  return (
+    <>
+      <div className="overflow-auto rounded-lg border border-white/10 max-h-[60vh]">
+        <table className="w-full text-sm">
+          <thead className="bg-white/10 sticky top-0 backdrop-blur-sm">
+            <tr>
+              <th className="p-2 w-12"><input type="checkbox" checked={allOn} onChange={(e)=>{ const all = {}; rows.forEach((_,i)=> all[i] = e.target.checked); setSelected(all); }} /></th>
+              <th className="p-2 text-left">Product</th>
+              <th className="p-2 w-32">Quantity</th>
+              <th className="p-2 w-32">Cost Price</th>
+              <th className="p-2 w-24">MRP</th>
+              <th className="p-2 w-24">Unit</th>
+              <th className="p-2 w-16">Conf.</th>
+              <th className="p-2 w-20"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className={`border-t border-white/10 ${selected[i] ? 'bg-white/5' : 'opacity-60'}`}>
+                <td className="p-2 text-center"><input type="checkbox" checked={!!selected[i]} onChange={()=>toggle(i)} /></td>
+                <td className="p-2">
+                  <div className="font-medium">{r.brand ? `${r.brand} ` : ""}{r.productName}</div>
+                  <div className="text-xs text-white/70">{r.category}</div>
+                </td>
+                {/* --- EDITABLE QUANTITY INPUT --- */}
+                <td className="p-2">
+                  <input
+                    type="number"
+                    placeholder="Qty"
+                    className="w-full p-1.5 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
+                    onChange={(e) => handleEdit(i, 'quantity', e.target.value)}
+                  />
+                </td>
+                {/* --- EDITABLE COST PRICE INPUT --- */}
+                <td className="p-2">
+                   <input
+                    type="number"
+                    placeholder="Cost"
+                    className="w-full p-1.5 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
+                    onChange={(e) => handleEdit(i, 'costPrice', e.target.value)}
+                  />
+                </td>
+                <td className="p-2 text-center">{r.mrp ? `₹${r.mrp}`: '-'}</td>
+                <td className="p-2 text-center">{r.unit || '-'}</td>
+                <td className="p-2 text-center">{Math.round((r.confidence || 0) * 100)}%</td>
+                <td className="p-2 text-right">
+                  <button className="text-xs px-2 py-1 rounded bg-emerald-400/20 hover:bg-emerald-400/30" onClick={()=>onAutofill(r)}>Fill Form</button>
+                </td>
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr><td colSpan={8} className="p-4 text-center text-white/70">No items detected</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        <div className="text-xs text-white/70">{selectedRows.length} of {rows.length} products selected</div>
+        <button
+          disabled={!selectedRows.length}
+          onClick={()=>onAddSelected(selectedRows, editedRows)}
+          className="px-3 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 disabled:opacity-50"
+        >
+          Add Selected Products to Inventory
+        </button>
+      </div>
+    </>
+  );
+}
 
 const ManualEntryForm = () => {
   const { currentUser } = useAuth();
