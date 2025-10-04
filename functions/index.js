@@ -1309,7 +1309,7 @@ Rules:
 - 'name' should be the canonical product name.
 - 'unit' must include quantity and container (e.g., "250 ml Bottle").
 - 'sku' should be the barcode if available.
-- 'mrp' is the Maximum Retail Price.
+- 'mrp' is the Maximum Retail Price. If "MRP" is explicitly written, use that value. If not, use any other visible selling price. Extract only the numeric value (e.g., for "MRP ₹120.00", return "120"). If no price is visible, leave it as an empty string.
 - Guess HSN/GST if confident, otherwise leave as empty string or null.
 - Be brief and accurate. No commentary or markdown.`;
 
@@ -1350,7 +1350,12 @@ ${textContext}`;
 
     const reply = response?.data?.choices?.[0]?.message?.content?.trim();
     if (reply) {
-      return JSON.parse(reply);
+      // Minor correction: The model sometimes returns numbers for MRP. Let's ensure it's a string.
+      const parsed = JSON.parse(reply);
+      if (typeof parsed.mrp === 'number') {
+        parsed.mrp = String(parsed.mrp);
+      }
+      return parsed;
     }
     return null;
   } catch (apiError) {
@@ -1550,6 +1555,7 @@ exports.identifyProductsFromImage = onRequest(async (req, res) => {
       const systemPrompt = `You are an expert multi-product detection AI for Indian retail. Analyze the image and identify every distinct product visible. Return ONLY a strict JSON object with a single key "items" which is an array of product objects.
       Schema for each product object: { "productName": "...", "brand": "...", "unit": "...", "category": "...", "barcode": "...", "mrp": "...", "confidence": 0.0 }.
       Rules:
+      - For each item, 'mrp' should be the Maximum Retail Price (MRP) if visible. If not, use any other visible selling price. Extract only the numeric value (e.g., for "MRP ₹120.00", return "120"). If no price is visible, leave it as an empty string.
       - Be accurate. If you can't identify a detail, leave it as an empty string.
       - Confidence is a score from 0.0 (low) to 1.0 (high) representing your certainty.
       - Do not include products that are blurry, unidentifiable, or not actual retail items.
@@ -1597,8 +1603,12 @@ exports.identifyProductsFromImage = onRequest(async (req, res) => {
 
       const items = Array.isArray(parsed.items) ? parsed.items : [];
       
-      // Add a 'source' field for consistency with the frontend expectations.
-      const finalItems = items.map(item => ({ ...item, source: "gpt-4o-batch" }));
+      // Add a 'source' field and ensure 'mrp' is a string for consistency
+      const finalItems = items.map(item => ({
+         ...item,
+         mrp: String(item.mrp || ''), // Ensure mrp is always a string
+         source: "gpt-4o-batch"
+      }));
 
       return res.status(200).json({ ok: true, count: finalItems.length, items: finalItems });
 

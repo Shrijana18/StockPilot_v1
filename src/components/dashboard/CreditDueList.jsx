@@ -3,12 +3,74 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 // --- utils ---
 const parseDate = (dateStr) => {
   if (!dateStr) return null;
-  let date = new Date(`${dateStr}T00:00:00`);
-  if (isNaN(date.getTime())) {
-    const [dd, mm, yyyy] = (dateStr || '').split('-');
-    if (dd && mm && yyyy) date = new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+  const raw = String(dateStr).trim();
+
+  // If already a Date
+  if (raw instanceof Date && !isNaN(raw)) return raw;
+
+  // If Firestore timestamp-like object
+  if (typeof dateStr === 'object' && dateStr?.seconds) {
+    const d = new Date(dateStr.seconds * 1000);
+    return isNaN(d) ? null : d;
   }
-  return isNaN(date.getTime()) ? null : date;
+
+  // Normalize separators
+  const sep = raw.includes('/') ? '/' : (raw.includes('-') ? '-' : '');
+  const parts = sep ? raw.split(sep).map(p => p.trim()) : [];
+
+  // Helper to build Date safely
+  const build = (y, m, d) => {
+    const dt = new Date(Number(y), Number(m) - 1, Number(d));
+    return isNaN(dt) ? null : dt;
+  };
+
+  // 1) India-first with separators: dd/mm/yyyy or dd-mm-yyyy
+  if (parts.length === 3) {
+    let [p1, p2, p3] = parts;
+    // Detect which is year
+    if (p3.length === 4) {
+      // Prefer dd/mm/yyyy
+      let d = Number(p1), m = Number(p2), y = Number(p3);
+      if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        const dt = build(y, m, d);
+        if (dt) return dt;
+      }
+      // Fallback: mm/dd/yyyy
+      d = Number(p2); m = Number(p1); y = Number(p3);
+      if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        const dt = build(y, m, d);
+        if (dt) return dt;
+      }
+    } else if (p1.length === 4) {
+      // yyyy/mm/dd
+      const y = Number(p1), m = Number(p2), d = Number(p3);
+      const dt = build(y, m, d);
+      if (dt) return dt;
+    }
+  }
+
+  // 2) 8-digit compact – assume Indian ddmmyyyy first
+  if (!sep && /^\d{8}$/.test(raw)) {
+    let d = Number(raw.slice(0, 2));
+    let m = Number(raw.slice(2, 4));
+    let y = Number(raw.slice(4));
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      const dt = build(y, m, d);
+      if (dt) return dt;
+    }
+    // Fallback: mmddyyyy
+    m = Number(raw.slice(0, 2));
+    d = Number(raw.slice(2, 4));
+    y = Number(raw.slice(4));
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      const dt = build(y, m, d);
+      if (dt) return dt;
+    }
+  }
+
+  // 3) ISO or native parseable
+  const isoTry = new Date(raw);
+  return isNaN(isoTry) ? null : isoTry;
 };
 
 const formatINR = (n) => `₹${Number(n || 0).toFixed(2)}`;
@@ -124,7 +186,7 @@ const CreditDueList = ({
     const name = inv.customer?.name || inv.name || 'Customer';
     const invoiceId = inv.invoiceId || inv.id || 'N/A';
     const purchaseDate = inv.createdAt?.toDate?.() || new Date(inv.createdAt);
-    const formattedDate = purchaseDate ? purchaseDate.toLocaleDateString() : 'N/A';
+    const formattedDate = purchaseDate ? purchaseDate.toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' }) : 'N/A';
 
     const itemList = inv.items?.map((item) => `• ${item.productName || item.name} (${item.quantity || 1} x ₹${item.price || 0})`).join('\n') || 'No items listed.';
 
@@ -217,7 +279,7 @@ const CreditDueList = ({
           </div>
           <button
             onClick={() => {
-              const rows = [['Customer','Invoice','Due Date','Status','Amount']].concat(sorted.map(x => [x.name, x.id, x.due ? x.due.toLocaleDateString() : 'Invalid Date', x.status, x.amount]));
+              const rows = [['Customer','Invoice','Due Date','Status','Amount']].concat(sorted.map(x => [x.name, x.id, x.due ? x.due.toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' }) : 'Invalid Date', x.status, x.amount]));
               const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
               const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
               const url = URL.createObjectURL(blob);
@@ -293,7 +355,7 @@ const CreditDueList = ({
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-white/80 mt-0.5">
                         <span>{x.id}</span>
-                        <span>{x.due ? x.due.toLocaleDateString() : 'Invalid Date'}</span>
+                        <span>{x.due ? x.due.toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' }) : 'Invalid Date'}</span>
                       </div>
                       <div className="text-[15px] font-bold text-white mt-1">{formatINR(x.amount)}</div>
                       <div className="mt-2 flex gap-2">
@@ -335,7 +397,7 @@ const CreditDueList = ({
                 <div className="text-sm font-semibold bg-clip-text text-transparent bg-gradient-to-r from-emerald-200 to-sky-300 truncate">{x.name}</div>
               </td>
               <td className="px-3 py-2 text-white/70">{x.id}</td>
-              <td className="px-3 py-2 text-white/70">{x.due ? x.due.toLocaleDateString() : 'Invalid Date'}</td>
+              <td className="px-3 py-2 text-white/70">{x.due ? x.due.toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' }) : 'Invalid Date'}</td>
               <td className="px-3 py-2"><StatusPill status={x.status} /></td>
               <td className="px-3 py-2 font-semibold text-white">
                 <div className="text-[15px] font-bold text-white mt-1">{formatINR(x.amount)}</div>
