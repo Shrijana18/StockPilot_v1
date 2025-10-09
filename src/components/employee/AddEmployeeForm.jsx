@@ -1,34 +1,41 @@
 import React, { useState } from 'react';
 import { httpsCallable } from 'firebase/functions';
+import { auth, functions } from '../../firebase/firebaseConfig';
 import { toast } from 'react-toastify';
-import { doc, setDoc } from 'firebase/firestore';
-
-// ✅ Shared Firebase instance
-import { auth, db, functions } from '../../firebase/firebaseConfig';
 
 const AddEmployeeForm = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    password: '',
-    role: 'Staff',
     phone: '',
+    role: 'Staff',
+    pin: '',
+    confirmPin: ''
   });
-
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const onChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+  const genPin = () => {
+    const pin = String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
+    setFormData(prev => ({ ...prev, pin, confirmPin: pin }));
   };
 
-  const generateFlypId = () => {
-    return 'FLYP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+  const validate = () => {
+    const { name, phone, pin, confirmPin } = formData;
+    if (!name?.trim()) return 'Name is required';
+    if (!phone?.trim()) return 'Phone is required';
+    const normalizedPhone = phone.replace(/\D/g, '');
+    if (normalizedPhone.length !== 10) return 'Phone number must have exactly 10 digits';
+    if (!/^\d{6}$/.test(String(pin))) return 'PIN must be exactly 6 digits';
+    if (pin !== confirmPin) return 'PIN and Confirm PIN must match';
+    return null;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { name, email, password, role, phone } = formData;
-    if (!name || !email || !password || !phone) return toast.error('Please fill all fields');
+    const err = validate();
+    if (err) { toast.error(err); return; }
 
     try {
       setLoading(true);
@@ -38,97 +45,129 @@ const AddEmployeeForm = () => {
         return;
       }
 
-      const flypId = generateFlypId();
+      const { name, email, phone, role, pin } = formData;
+      const normalizedPhone = phone.replace(/\D/g, '').slice(-10); // keep last 10 digits
+      const formattedPhone = `+91${normalizedPhone}`;
       const createEmployee = httpsCallable(functions, 'createEmployee');
 
-      try {
-        const result = await createEmployee({
-          name,
-          email,
-          password,
-          role,
-          retailerId: currentUser.uid,
-          phone,
-          flypId,
-        });
+      const res = await createEmployee({ name, email, phone: formattedPhone, role, pin });
+      const data = res?.data;
 
-        if (!result.data.success) {
-          throw new Error(result.data.message || 'Failed to create employee');
-        }
+      if (!data?.success) throw new Error(data?.message || 'Failed to create employee');
 
-        // ✅ Write to employeeIndex collection for login mapping
-        await setDoc(doc(db, 'employeeIndex', flypId), {
-          uid: result.data.uid,
-          retailerId: currentUser.uid,
-          email: email,
-        });
-
-        // ✅ Also add employee under the business' Firestore path for login lookups
-        await setDoc(
-          doc(db, `businesses/${currentUser.uid}/employees/${result.data.uid}`),
-          {
-            name,
-            email,
-            phone,
-            role,
-            createdAt: new Date(),
-            flypId,
-            uid: result.data.uid,
-            status: 'active',
-          }
-        );
-      } catch (funcErr) {
-        console.error('Callable function error:', funcErr);
-        toast.error(funcErr.message || 'Failed to create employee via function');
-        return;
-      }
-
-
-      toast.success('Employee created successfully!');
-      setFormData({ name: '', email: '', password: '', role: 'Staff', phone: '' });
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Failed to create employee');
+      toast.success(`Employee created: ${data.flypEmployeeId} | PIN: ${data.pin}`);
+      setFormData({ name: '', email: '', phone: '', role: 'Staff', pin: '', confirmPin: '' });
+    } catch (e2) {
+      console.error('Create employee error:', e2);
+      toast.error(e2?.message || 'Failed to create employee');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white shadow p-6 rounded-lg w-full max-w-md">
-      <h2 className="text-xl font-semibold mb-4">Add Employee</h2>
-
-      <div className="mb-3">
-        <label className="block text-sm font-medium">Name</label>
-        <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full border px-3 py-2 rounded" required />
+    <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
+      <div>
+        <label className="block text-sm text-gray-300 mb-1">Name</label>
+        <input
+          name="name"
+          value={formData.name}
+          onChange={onChange}
+          className="w-full bg-white/10 border border-white/20 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
+          placeholder="Employee name"
+        />
       </div>
 
-      <div className="mb-3">
-        <label className="block text-sm font-medium">Email</label>
-        <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full border px-3 py-2 rounded" required />
+      <div>
+        <label className="block text-sm text-gray-300 mb-1">Email (optional)</label>
+        <input
+          type="email"
+          name="email"
+          value={formData.email}
+          onChange={onChange}
+          className="w-full bg-white/10 border border-white/20 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
+          placeholder="name@example.com"
+        />
       </div>
 
-      <div className="mb-3">
-        <label className="block text-sm font-medium">Password</label>
-        <input type="password" name="password" value={formData.password} onChange={handleChange} className="w-full border px-3 py-2 rounded" required />
+      <div>
+        <label className="block text-sm text-gray-300 mb-1">Phone Number</label>
+        <input
+          name="phone"
+          value={formData.phone}
+          onChange={onChange}
+          className="w-full bg-white/10 border border-white/20 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
+          placeholder="+91XXXXXXXXXX"
+        />
       </div>
 
-      <div className="mb-3">
-        <label className="block text-sm font-medium">Phone Number</label>
-        <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full border px-3 py-2 rounded" placeholder="+91XXXXXXXXXX" required />
-      </div>
-
-      <div className="mb-3">
-        <label className="block text-sm font-medium">Role</label>
-        <select name="role" value={formData.role} onChange={handleChange} className="w-full border px-3 py-2 rounded">
-          <option value="Staff">Staff</option>
-          <option value="Manager">Manager</option>
+      <div>
+        <label className="block text-sm text-gray-300 mb-1">Role</label>
+        <select
+          name="role"
+          value={formData.role}
+          onChange={onChange}
+          className="w-full bg-white/10 border border-white/20 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"
+        >
+          <option>Staff</option>
+          <option>Billing</option>
+          <option>Inventory</option>
+          <option>Analytics</option>
+          <option>Manager</option>
         </select>
       </div>
 
-      <button type="submit" disabled={loading} className="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700">
-        {loading ? 'Creating...' : 'Create Employee'}
+      {/* PIN + Confirm PIN */}
+      <div className="grid grid-cols-3 gap-2 items-end">
+        <div className="col-span-1">
+          <label className="block text-sm text-gray-300 mb-1">PIN (6 digits)</label>
+          <input
+            name="pin"
+            value={formData.pin}
+            onChange={(e) => {
+              // Keep only digits and trim to 6
+              const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+              setFormData(prev => ({ ...prev, pin: v }));
+            }}
+            className="w-full bg-white/10 border border-white/20 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
+            placeholder="******"
+            inputMode="numeric"
+          />
+        </div>
+        <div className="col-span-1">
+          <label className="block text-sm text-gray-300 mb-1">Confirm PIN</label>
+          <input
+            name="confirmPin"
+            value={formData.confirmPin}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+              setFormData(prev => ({ ...prev, confirmPin: v }));
+            }}
+            className="w-full bg-white/10 border border-white/20 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
+            placeholder="******"
+            inputMode="numeric"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={genPin}
+          className="col-span-1 h-[42px] bg-white/10 hover:bg-white/15 border border-white/20 rounded-md text-sm text-white"
+        >
+          Generate PIN
+        </button>
+      </div>
+
+      <button
+        type="submit"
+        disabled={loading}
+        className={`w-full bg-gradient-to-r from-blue-600 to-teal-500 text-white py-2 rounded-md ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+      >
+        {loading ? 'Creating…' : 'Create Employee'}
       </button>
+
+      <p className="text-xs text-gray-400 mt-2">
+        The Employee ID will be generated after creation and shown in the success toast.
+      </p>
     </form>
   );
 };

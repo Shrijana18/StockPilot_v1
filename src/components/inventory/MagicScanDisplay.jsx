@@ -118,6 +118,7 @@ export default function MagicScanDisplay({
       }
       streamRef.current = null;
       trackRef.current = null;
+      if (canvasRef.current) { canvasRef.current.width = 0; canvasRef.current.height = 0; }
     } catch {}
   };
 
@@ -131,6 +132,18 @@ export default function MagicScanDisplay({
     streamRef.current = stream;
     const t = stream.getVideoTracks()[0];
     trackRef.current = t;
+
+    // Try enabling continuous focus/exposure/white-balance if supported
+    try {
+      await t.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+    } catch {}
+    try {
+      await t.applyConstraints({ advanced: [{ exposureMode: "continuous" }] });
+    } catch {}
+    try {
+      await t.applyConstraints({ advanced: [{ whiteBalanceMode: "continuous" }] });
+    } catch {}
+
     try {
       const caps = t?.getCapabilities?.() || {};
       setTorchSupported(!!("torch" in caps));
@@ -152,6 +165,16 @@ export default function MagicScanDisplay({
         v.addEventListener('loadedmetadata', onLoaded);
       });
       await Promise.race([ waitMeta, new Promise((r) => setTimeout(r, 800)) ]);
+
+      // Ensure canvas matches the real video resolution for crisp OCR frames
+      if (canvasRef.current && videoRef.current) {
+        const dpr = window.devicePixelRatio || 1;
+        const vw = Math.max(1, videoRef.current.videoWidth || 1280);
+        const vh = Math.max(1, videoRef.current.videoHeight || 720);
+        canvasRef.current.width = Math.round(vw * dpr);
+        canvasRef.current.height = Math.round(vh * dpr);
+      }
+
       await videoRef.current.play().catch((err) => {
         console.warn("Initial video play failed, will retry on user interaction.", err)
       });
@@ -180,23 +203,49 @@ export default function MagicScanDisplay({
         setStatusHint('Scan difficult. Try uploading a photo instead.');
       }, 8000);
 
-      const analysisInterval = setInterval(() => {
-        if (!videoRef.current || !canvasRef.current || capturingRef.current) return;
+      let rafId = 0;
+      let vfcb = null;
+      let lowLightStreak = 0;
+
+      const BRIGHTNESS_MIN = 55;   // slightly higher than before
+      const SHARPNESS_MIN  = 18;   // slightly more forgiving for handheld
+
+      const analyze = () => {
+        if (!videoRef.current || !canvasRef.current || capturingRef.current) {
+          vfcb = videoRef.current && videoRef.current.requestVideoFrameCallback
+            ? videoRef.current.requestVideoFrameCallback(analyze)
+            : (rafId = requestAnimationFrame(analyze));
+          return;
+        }
+
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-
         const quality = calculateFrameQuality(ctx, canvas.width, canvas.height);
-        const BRIGHTNESS_THRESHOLD = 50;
-        const SHARPNESS_THRESHOLD = 20;
-        
+
+        // Adaptive hints & thresholds
         let isGood = true;
-        if (quality.brightness < BRIGHTNESS_THRESHOLD) {
+        if (quality.brightness < BRIGHTNESS_MIN) {
           setStatusHint('More light needed');
           isGood = false;
-        } else if (quality.sharpness < SHARPNESS_THRESHOLD) {
+          lowLightStreak++;
+        } else if (quality.sharpness < SHARPNESS_MIN) {
           setStatusHint('Hold steady, image is blurry');
           isGood = false;
+          lowLightStreak = 0;
+        } else {
+          lowLightStreak = 0;
+        }
+
+        // Auto-torch if repeatedly too dark and supported
+        if (lowLightStreak >= 6 && torchSupported && !torchOn) {
+          (async () => {
+            try {
+              await trackRef.current?.applyConstraints({ advanced: [{ torch: true }] });
+              setTorchOn(true);
+            } catch {}
+          })();
+          lowLightStreak = 0;
         }
 
         if (isGood) {
@@ -210,10 +259,24 @@ export default function MagicScanDisplay({
           setFrameQuality('poor');
           goodFramesCountRef.current = 0;
         }
-      }, 300);
+
+        vfcb = videoRef.current && videoRef.current.requestVideoFrameCallback
+          ? videoRef.current.requestVideoFrameCallback(analyze)
+          : (rafId = requestAnimationFrame(analyze));
+      };
+
+      // Kick off the loop
+      if (videoRef.current && videoRef.current.requestVideoFrameCallback) {
+        vfcb = videoRef.current.requestVideoFrameCallback(analyze);
+      } else {
+        rafId = requestAnimationFrame(analyze);
+      }
 
       return () => {
-        clearInterval(analysisInterval);
+        if (vfcb && videoRef.current && videoRef.current.cancelVideoFrameCallback) {
+          try { videoRef.current.cancelVideoFrameCallback(vfcb); } catch {}
+        }
+        if (rafId) cancelAnimationFrame(rafId);
         clearTimeout(stuckTimer);
       };
     }
@@ -246,7 +309,13 @@ export default function MagicScanDisplay({
   };
 
   const handleFlip = () => setFacingMode((m) => (m === "environment" ? "user" : "environment"));
-  const handleTorch = async () => { try { await trackRef.current.applyConstraints({ advanced: [{ torch: !torchOn }] }); setTorchOn(!torchOn); } catch {} };
+  const handleTorch = async () => {
+    try {
+      const next = !torchOn;
+      await trackRef.current.applyConstraints({ advanced: [{ torch: next }] });
+      setTorchOn(next);
+    } catch {}
+  };
   const handleZoom = async (val) => { setZoom(val); try { await trackRef.current.applyConstraints({ advanced: [{ zoom: Number(val) }] }); } catch {} };
 
   const handleStartAnalysis = () => {
@@ -275,7 +344,7 @@ export default function MagicScanDisplay({
             <div className="absolute inset-0 z-30 animate-flash-green pointer-events-none"></div>
           )}
 
-          <canvas ref={canvasRef} className="hidden" />
+          <canvas ref={canvasRef} className="hidden" data-role="capture-canvas" />
 
           {scanState === 'idle' && ready && !busy && (
             <div className="absolute inset-0 flex items-center justify-center z-30">
@@ -342,6 +411,12 @@ export default function MagicScanDisplay({
         }
         .animate-flash-green {
           animation: flash-green 0.5s ease-out;
+        }
+
+        canvas[data-role="capture-canvas"] {
+          display: none;
+          width: 0 !important;
+          height: 0 !important;
         }
       `}</style>
     </div>

@@ -1,5 +1,5 @@
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth, setPersistence, inMemoryPersistence } from "firebase/auth";
 import { getFirestore, initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
@@ -15,12 +15,31 @@ const firebaseConfig = {
   measurementId: "G-SENFJ2HSBW"
 };
 
-export const app = initializeApp(firebaseConfig);
+// --- Default Firebase App (for Retailer/Distributor) ---
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+export const storage = getStorage(app);
+export const functions = getFunctions(app, "us-central1");
 
-// --- App Check temporarily disabled ---
-// Phone OTP is stabilised using Firebase Auth's built-in Invisible v2 reCAPTCHA.
-// If you want to re-enable App Check later, set VITE_ENABLE_APPCHECK="true" and
-// provide VITE_RECAPTCHA_V3_SITE_KEY in your .env file.
+// --- Secondary Firebase App (for Employee Session, isolated) ---
+let empApp;
+const existingEmpApp = getApps().find(a => a.name === "employeeApp");
+if (existingEmpApp) {
+  empApp = existingEmpApp;
+} else {
+  empApp = initializeApp(firebaseConfig, "employeeApp");
+}
+
+export const empDB = initializeFirestore(empApp, { experimentalForceLongPolling: true });
+export const empAuth = getAuth(empApp);
+
+// Disable persistence to avoid interference with Retailer login
+setPersistence(empAuth, inMemoryPersistence)
+  .then(() => console.info("[Employee Firebase] In-memory auth persistence enabled"))
+  .catch(err => console.warn("[Employee Firebase] Persistence setup failed:", err));
+
+// --- Optional App Check logic remains unchanged ---
 if (typeof window !== 'undefined' && import.meta?.env?.VITE_ENABLE_APPCHECK === 'true') {
   (async () => {
     try {
@@ -40,8 +59,3 @@ if (typeof window !== 'undefined' && import.meta?.env?.VITE_ENABLE_APPCHECK === 
     }
   })();
 }
-
-export const auth = getAuth(app);
-export const db = initializeFirestore(app, { experimentalForceLongPolling: true });
-export const storage = getStorage(app);
-export const functions = getFunctions(app, "asia-south1");

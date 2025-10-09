@@ -11,6 +11,8 @@ import Billing from './pages/Billing.jsx';
 import AllInvoices from './pages/AllInvoices.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import EmployeeLogin from './components/employee/EmployeeLogin.jsx';
+import EmployeeDashboard from './components/employee/EmployeeDashboard.jsx';
+import { getEmployeeSession, isEmployeePath } from './utils/employeeSession.js';
 
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute.jsx';
@@ -73,6 +75,7 @@ const App = () => {
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
+          <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
 
             {/* Protected Routes */}
             <Route
@@ -144,6 +147,7 @@ const App = () => {
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
+          <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
 
             {/* Protected Routes */}
             <Route

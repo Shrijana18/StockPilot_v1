@@ -17,6 +17,7 @@ import RetailerConnectedDistributors from "../components/retailer/RetailerConnec
 import ConnectedDistributorPanel from "../components/distributor/ConnectedDistributorPanel";
 import SearchDistributor from "../components/distributor/SearchDistributor";
 import ViewSentRequests from "../components/distributor/ViewSentRequests";
+import ManageEmployee from "../components/employee/ManageEmployee";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek } from 'date-fns';
 import { FaUser, FaSignOutAlt, FaHome, FaBoxes, FaFileInvoice, FaChartLine, FaUsers, FaUserPlus, FaBuilding } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -362,11 +363,11 @@ const RetailerDashboardInner = () => {
                   </div>
                   {/* Right: Business info and avatar */}
                   <div className="flex items-center gap-3 md:gap-4 min-w-0 relative z-10">
-                    <div className="text-right mr-2 hidden sm:block">
-                      <p className="font-medium text-white truncate max-w-[160px]">
+                    <div className="text-right mr-2 hidden sm:flex flex-col items-end max-w-[200px] md:max-w-[260px] lg:max-w-[320px]">
+                      <p className="font-medium text-white truncate md:whitespace-normal md:break-words text-sm md:text-base leading-tight">
                         {userData?.businessName || 'Business Name'}
                       </p>
-                      <p className="text-xs text-white/70 truncate max-w-[180px]">
+                      <p className="text-xs text-white/70 truncate md:whitespace-normal md:break-words leading-tight">
                         {userData?.ownerName || 'Owner'} | ID: {userData?.flypId || userData?.userId || 'UserID'}
                       </p>
                     </div>
@@ -418,42 +419,44 @@ const RetailerDashboardInner = () => {
                 {activeTab === 'home' && (
                   <div>
                     <div className="space-y-4 md:space-y-6">
-                      <HomeSnapshot filterDates={filterDates} />
-                      <div className="px-4 md:px-6 mt-3 mb-4">
-                        <div className="flex flex-wrap items-center gap-4">
-                          <label htmlFor="filter" className="font-medium">Filter by:</label>
-                          <select
-                            id="filter"
-                            value={selectedFilter}
-                            onChange={(e) => setSelectedFilter(e.target.value)}
-                            className="px-3 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                          >
-                            <option value="today">Today</option>
-                            <option value="all">All Time</option>
-                            <option value="month">This Month</option>
-                            <option value="week">This Week</option>
-                            <option value="custom">Custom Range</option>
-                          </select>
-                          {(selectedFilter === 'custom') && (
-                            <>
-                              <input
-                                type="date"
-                                onChange={(e) =>
-                                  setFilterDates((prev) => ({ ...prev, start: new Date(e.target.value) }))
-                                }
-                                className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                              />
-                              <input
-                                type="date"
-                                onChange={(e) =>
-                                  setFilterDates((prev) => ({ ...prev, end: new Date(e.target.value) }))
-                                }
-                                className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                              />
-                            </>
-                          )}
-                        </div>
-                      </div>
+                      {(() => {
+                        const filterControl = (
+                          <div className="flex items-center gap-2 md:gap-3">
+                            <label htmlFor="filter" className="font-medium text-sm md:text-base">Filter:</label>
+                            <select
+                              id="filter"
+                              value={selectedFilter}
+                              onChange={(e) => setSelectedFilter(e.target.value)}
+                              className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
+                            >
+                              <option value="today">Today</option>
+                              <option value="all">All Time</option>
+                              <option value="month">This Month</option>
+                              <option value="week">This Week</option>
+                              <option value="custom">Custom</option>
+                            </select>
+                            {selectedFilter === 'custom' && (
+                              <>
+                                <input
+                                  type="date"
+                                  onChange={(e) =>
+                                    setFilterDates((prev) => ({ ...prev, start: new Date(e.target.value) }))
+                                  }
+                                  className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
+                                />
+                                <input
+                                  type="date"
+                                  onChange={(e) =>
+                                    setFilterDates((prev) => ({ ...prev, end: new Date(e.target.value) }))
+                                  }
+                                  className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
+                                />
+                              </>
+                            )}
+                          </div>
+                        );
+                        return <HomeSnapshot filterDates={filterDates} headerRight={filterControl} />;
+                      })()}
                       <motion.div
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}

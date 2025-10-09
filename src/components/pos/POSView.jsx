@@ -4,7 +4,7 @@ import { useMode } from "../mode/ModeProvider";
 import { useNavigate } from "react-router-dom";
 import POSBilling from "./panel/POSBilling";
 import KitchenDisplay from "./panel/KitchenDisplay";
-import { collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, getDocs, orderBy, limit, startAfter } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 
 /**
@@ -30,15 +30,34 @@ export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables
   };
 
   const inventory = {
+    listAll: async () => {
+      if (!auth.currentUser) return [];
+      const uid = auth.currentUser.uid;
+      const baseRef = collection(db, "businesses", uid, "products");
+      const pageSize = 500;
+      let q = query(baseRef, orderBy("createdAt", "desc"), limit(pageSize));
+      const all = [];
+      let lastDoc = null;
+      let guard = 0;
+      while (guard++ < 50) {
+        const snap = await getDocs(q);
+        if (!snap.size) break;
+        all.push(...snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const ld = snap.docs[snap.docs.length - 1];
+        if (!ld || (lastDoc && ld.id === lastDoc.id)) break;
+        lastDoc = ld;
+        q = query(baseRef, orderBy("createdAt", "desc"), startAfter(ld), limit(pageSize));
+      }
+      return all;
+    },
     searchProducts: async (qText) => {
       if (!auth.currentUser) return [];
       const uid = auth.currentUser.uid;
       const productsRef = collection(db, "businesses", uid, "products");
 
-      // If empty query, just return latest products
+      // If empty query, return the full list (paged)
       if (!qText || !qText.trim()) {
-        const snap = await getDocs(query(productsRef, orderBy("createdAt", "desc"), limit(24)));
-        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        return await inventory.listAll();
       }
 
       // Try search by productName, then by name (fallback)

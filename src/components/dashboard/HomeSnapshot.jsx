@@ -162,7 +162,7 @@ const LocalStyles = () => (
   `}</style>
 );
 
-const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
+const HomeSnapshot = ({ filterDates, filterType: selectedFilterType, headerRight }) => {
   const [invoiceData, setInvoiceData] = useState([]);
   const [userId, setUserId] = useState(null);
   const [filterType, setFilterType] = useState(selectedFilterType || 'All');
@@ -444,12 +444,19 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType }) => {
         )}
       </motion.div>
       {/* Each major element is now an animated item. */}
-      <motion.h2
-        variants={itemVariants}
-        className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200"
-      >
-        📊 Home Snapshot: Today’s KPIs
-      </motion.h2>
+      <div className="flex items-center justify-between">
+        <motion.h2
+          variants={itemVariants}
+          className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200"
+        >
+          📊 Home Snapshot: Today’s KPIs
+        </motion.h2>
+        {headerRight ? (
+          <div className="shrink-0 ml-3" data-slot="homesnapshot-header-right">
+            {headerRight}
+          </div>
+        ) : null}
+      </div>
       <div className="subtle-divider mb-3" />
 
       <motion.div variants={itemVariants}>
