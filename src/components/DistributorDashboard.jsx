@@ -18,6 +18,8 @@ const DistributorDashboard = () => {
   const [inventoryCount, setInventoryCount] = useState(0);
   const [shipmentsCount, setShipmentsCount] = useState(0);
   const [activeTab, setActiveTab] = useState("dashboard");
+  // Sidebar visibility state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Utility: ignore global shortcuts while typing in inputs/fields
   const isTypingTarget = (e) => {
@@ -242,13 +244,13 @@ const DistributorDashboard = () => {
 
       {/* MAIN CONTAINER */}
       <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#0B1220] via-[#0F1A2A] to-[#0B1220] text-white font-sans transition-all duration-300 ease-in-out page-noise">
-        {/* Sidebar */}
-        <aside className="w-64 bg-gradient-to-b from-[#0D1524] via-[#0B1220] to-[#0B1220] backdrop-blur-md text-white shadow-lg p-5 flex flex-col justify-between">
+        {/* Sidebar as hidden drawer */}
+        <aside className={`fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-[#0D1524] via-[#0B1220] to-[#0B1220] backdrop-blur-md text-white shadow-2xl p-5 flex flex-col justify-between transform transition-transform duration-300 z-30 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div>
             <h2 className="text-3xl font-extrabold tracking-wide text-white mb-6">FLYP</h2>
             <nav className="space-y-4 mt-20">
               <button
-                onClick={() => setTabAndHash("dashboard")}
+                onClick={() => { setTabAndHash("dashboard"); setIsSidebarOpen(false); }}
                 className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
                   activeTab === "dashboard"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
@@ -258,7 +260,7 @@ const DistributorDashboard = () => {
                 🏠 Dashboard
               </button>
               <button
-                onClick={() => setTabAndHash("retailerRequests")}
+                onClick={() => { setTabAndHash("retailerRequests"); setIsSidebarOpen(false); }}
                 className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
                   activeTab === "retailerRequests"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
@@ -268,7 +270,7 @@ const DistributorDashboard = () => {
                 📋 Retailer Panel
               </button>
               <button
-                onClick={() => setTabAndHash("inventory")}
+                onClick={() => { setTabAndHash("inventory"); setIsSidebarOpen(false); }}
                 className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
                   activeTab === "inventory"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
@@ -278,7 +280,7 @@ const DistributorDashboard = () => {
                 📦 Inventory
               </button>
               <button
-                onClick={() => setTabAndHash("dispatch")}
+                onClick={() => { setTabAndHash("dispatch"); setIsSidebarOpen(false); }}
                 className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
                   activeTab === "dispatch"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
@@ -288,7 +290,7 @@ const DistributorDashboard = () => {
                 🚚 Dispatch Tracker
               </button>
               <button
-                onClick={() => setTabAndHash("analytics")}
+                onClick={() => { setTabAndHash("analytics"); setIsSidebarOpen(false); }}
                 className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
                   activeTab === "analytics"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
@@ -306,10 +308,17 @@ const DistributorDashboard = () => {
             Sign Out
           </button>
         </aside>
+        {/* Sidebar backdrop */}
+        {isSidebarOpen && (
+          <div
+            className="fixed inset-0 z-20 bg-black/45"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto transition-all duration-300 ease-in-out flex flex-col glass-scroll motion-reduce:transform-none motion-reduce:transition-none">
-          <header className="sticky top-0 z-10 bg-slate-900/70 backdrop-blur-md border-b border-slate-800 text-white px-5 py-3 shadow-sm flex items-center justify-between">
+          <header className="sticky top-0 z-10 bg-slate-900/70 backdrop-blur-md border-b border-slate-800 text-white px-5 py-2 shadow-sm flex items-center justify-between">
             <div>
               <div className="relative">
                 <h1 className="text-white font-semibold text-xl">Distributor Dashboard</h1>
@@ -324,12 +333,7 @@ const DistributorDashboard = () => {
           </header>
 
           {/* Main Content */}
-          <main className="relative p-4 md:p-6 m-4">
-            {showGreeting && (
-              <div className="absolute top-3 right-6 bg-white/10 text-white px-4 py-2 rounded-lg shadow backdrop-blur-md z-20 animate-fade-in-out">
-                👋 Welcome back, {userData?.ownerName || "Partner"}
-              </div>
-            )}
+          <main className="relative pt-2 md:pt-3 px-3 md:px-5 pb-5 mx-3 mt-1 mb-3">
             <AnimatePresence mode="wait">
               {activeTab === "dashboard" && (
                 <motion.div
@@ -339,10 +343,8 @@ const DistributorDashboard = () => {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <div className="grid grid-cols-1 gap-4">
-                    <GlassCard className="p-6">
-                      <DistributorHome />
-                    </GlassCard>
+                  <div className="w-full">
+                    <DistributorHome />
                   </div>
                 </motion.div>
               )}
@@ -354,7 +356,9 @@ const DistributorDashboard = () => {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <RetailerPanel />
+                  <div className="w-full">
+                    <RetailerPanel />
+                  </div>
                 </motion.div>
               )}
               {activeTab === "inventory" && (
@@ -365,7 +369,9 @@ const DistributorDashboard = () => {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <DistributorInventory db={db} auth={auth} />
+                  <div className="w-full">
+                    <DistributorInventory db={db} auth={auth} />
+                  </div>
                 </motion.div>
               )}
               {activeTab === "dispatch" && (
@@ -376,7 +382,9 @@ const DistributorDashboard = () => {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <DispatchTracker db={db} auth={auth} />
+                  <div className="w-full">
+                    <DispatchTracker db={db} auth={auth} />
+                  </div>
                 </motion.div>
               )}
               {activeTab === "analytics" && auth?.currentUser && (
@@ -387,7 +395,9 @@ const DistributorDashboard = () => {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <DistributorAnalytics distributorId={auth.currentUser.uid} />
+                  <div className="w-full">
+                    <DistributorAnalytics distributorId={auth.currentUser.uid} />
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -413,6 +423,15 @@ const DistributorDashboard = () => {
                 </div>
               </div>
             )}
+
+            {/* Floating FLYP badge to toggle sidebar */}
+            <button
+              onClick={() => setIsSidebarOpen(v => !v)}
+              className="fixed bottom-6 left-6 z-40 rounded-full px-4 py-3 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-extrabold tracking-wide shadow-lg shadow-emerald-700/30 ring-1 ring-white/20"
+              aria-label="Toggle FLYP Menu"
+            >
+              FLYP
+            </button>
           </main>
         </div>
       </div>

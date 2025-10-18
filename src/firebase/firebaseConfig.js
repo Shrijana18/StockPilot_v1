@@ -3,6 +3,17 @@ import { getAuth, setPersistence, inMemoryPersistence } from "firebase/auth";
 import { getFirestore, initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
+import { Capacitor } from '@capacitor/core';
+
+// Detect Capacitor native (iOS/Android) WebView vs Web browser
+const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
+
+// On native, enable App Check debug token and avoid loading Google web scripts that can be blocked by WKWebView/CORS
+if (IS_NATIVE && typeof self !== 'undefined') {
+  // This prevents reCAPTCHA v3 from trying to load gapi in the iOS WebView and lets us run without App Check in dev
+  // (Make sure you do NOT ship with this set for production builds)
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
 
 const firebaseConfig = {
   apiKey: "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE",
@@ -15,9 +26,32 @@ const firebaseConfig = {
   measurementId: "G-SENFJ2HSBW"
 };
 
+// On native WebView, drop authDomain to prevent Firebase Auth from loading gapi
+const configForPlatform = IS_NATIVE
+  ? (() => {
+      const { authDomain, ...rest } = firebaseConfig;
+      return rest;
+    })()
+  : firebaseConfig;
+
 // --- Default Firebase App (for Retailer/Distributor) ---
-export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const app = getApps().length ? getApp() : initializeApp(configForPlatform);
 export const auth = getAuth(app);
+if (IS_NATIVE) {
+  // Prevent Firebase Auth from attempting gapi-based popup/redirect flows in WKWebView
+  try { auth._popupRedirectResolver = null; } catch (_) {}
+  try { auth._errorFactory = { create: () => ({ message: "suppressed" }) }; } catch (_) {}
+}
+(async () => {
+  try {
+    if (IS_NATIVE) {
+      await setPersistence(auth, inMemoryPersistence);
+      console.info('[Firebase] Using in-memory persistence on native WebView');
+    }
+  } catch (e) {
+    console.warn('[Firebase] Failed to set persistence:', e?.message || e);
+  }
+})();
 export const db = initializeFirestore(app, { experimentalForceLongPolling: true });
 export const storage = getStorage(app);
 export const functions = getFunctions(app, "us-central1");
@@ -33,14 +67,17 @@ if (existingEmpApp) {
 
 export const empDB = initializeFirestore(empApp, { experimentalForceLongPolling: true });
 export const empAuth = getAuth(empApp);
+if (IS_NATIVE) {
+  try { empAuth._popupRedirectResolver = null; } catch (_) {}
+}
 
 // Disable persistence to avoid interference with Retailer login
 setPersistence(empAuth, inMemoryPersistence)
   .then(() => console.info("[Employee Firebase] In-memory auth persistence enabled"))
   .catch(err => console.warn("[Employee Firebase] Persistence setup failed:", err));
 
-// --- Optional App Check logic remains unchanged ---
-if (typeof window !== 'undefined' && import.meta?.env?.VITE_ENABLE_APPCHECK === 'true') {
+// Only run web reCAPTCHA App Check on browser; skip on Capacitor native to avoid gapi/CORS issues
+if (!IS_NATIVE && typeof window !== 'undefined' && import.meta?.env?.VITE_ENABLE_APPCHECK === 'true') {
   (async () => {
     try {
       const { initializeAppCheck, ReCaptchaV3Provider } = await import('firebase/app-check');
@@ -53,9 +90,9 @@ if (typeof window !== 'undefined' && import.meta?.env?.VITE_ENABLE_APPCHECK === 
         provider: new ReCaptchaV3Provider(siteKey),
         isTokenAutoRefreshEnabled: true,
       });
-      console.info('[AppCheck] Initialized with reCAPTCHA v3');
+      console.info('[AppCheck] Initialized with reCAPTCHA v3 (web only)');
     } catch (e) {
-      console.warn('App Check init skipped:', e?.message || e);
+      console.warn('[AppCheck] init skipped:', e?.message || e);
     }
   })();
 }

@@ -12,8 +12,13 @@ import AssignDefaultsModal from "../distributor/proforma/AssignDefaultsModal";
  *  • A compact toolbar for Bulk Assign + Review Overrides
  *  • Overrides are shown in a modal so the main page stays clean
  */
-export default function OrderSettings() {
+export default function OrderSettings(props = {}) {
   const distributorId = auth?.currentUser?.uid || null;
+  // --- scope awareness (retailer vs global) ---
+  const scope = props.scope || (props.retailerId ? "retailer" : "global");
+  const isRetailer = scope === "retailer";
+  const hideGlobalCtas = !!props.hideGlobalCtas;
+
   const [assignOpen, setAssignOpen] = useState(false);
   const [overridesOpen, setOverridesOpen] = useState(false);
 
@@ -36,43 +41,63 @@ export default function OrderSettings() {
   }, [overridesOpen, assignOpen]);
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="order-settings-root p-4 md:p-6 lg:p-8">
+      <style>{`
+        .order-settings-root .card { border-radius: 12px; }
+        .order-settings-root .section-title { margin-bottom: 0.5rem; }
+        .order-settings-root .muted { color: rgba(255,255,255,0.6); }
+      `}</style>
       {/* Header */}
       <header className="mb-4 md:mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold text-white">Order Settings</h1>
-          <p className="mt-1 text-sm text-white/70">
-            Define your <strong>default</strong> taxes &amp; charges for proformas. Use <strong>Bulk Assign</strong> for many retailers and <strong>Review Overrides</strong> to fine‑tune individual retailers. Clean, simple, and you can’t break anything.
-          </p>
+          {isRetailer ? (
+            <p className="mt-1 text-sm text-white/70">
+              Define defaults for <strong>this retailer only</strong>. These values override your global defaults when creating proformas or orders for this retailer.
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-white/70">
+              Define your <strong>default</strong> taxes &amp; charges for proformas. Use <strong>Bulk Assign</strong> for many retailers and <strong>Review Overrides</strong> to fine‑tune individual retailers.
+            </p>
+          )}
         </div>
 
         {/* Toolbar */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setOverridesOpen(true)}
-            className="rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 px-3 py-2 text-sm font-medium text-white"
-          >
-            Review Overrides
-          </button>
-          <button
-            onClick={() => setAssignOpen(true)}
-            className="rounded-lg bg-indigo-600 hover:bg-indigo-700 px-3 py-2 text-sm font-medium text-white"
-          >
-            Bulk Assign Defaults
-          </button>
-        </div>
+        {!isRetailer && !hideGlobalCtas && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setOverridesOpen(true)}
+              className="rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 px-3 py-2 text-sm font-medium text-white"
+            >
+              Review Overrides
+            </button>
+            <button
+              onClick={() => setAssignOpen(true)}
+              className="rounded-lg bg-indigo-600 hover:bg-indigo-700 px-3 py-2 text-sm font-medium text-white"
+            >
+              Bulk Assign Defaults
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* Global Defaults (single, clean card) */}
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6 shadow-xl vignette">
-        <div className="mb-3 flex items-center justify-between">
+      {/* Retailer/Global Defaults — Clean, two-column layout */}
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6 elevate">
+        <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
-            Global Defaults
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 border border-white/15 text-white/70">Applies to all</span>
+            {isRetailer ? "Retailer Defaults" : "Global Defaults"}
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 border border-white/15 text-white/70">
+              {isRetailer ? "Retailer Specific" : "Applies to all"}
+            </span>
           </h2>
-          <span className="text-xs text-white/50">Baseline for new proformas; individual overrides take precedence</span>
+          <span className="text-xs subtle">Baseline for new proformas; individual overrides take precedence</span>
         </div>
-        <ProformaDefaults distributorId={distributorId} />
+        <div className="space-y-4 compact-form">
+          <ProformaDefaults distributorId={distributorId} />
+          <div className="text-xs subtle pt-1">
+            Tip: Per‑retailer overrides take priority over global defaults. Turn on “Enabled” to activate default charges/percentages.
+          </div>
+        </div>
       </section>
 
       {/* Overrides Modal (kept out of the main flow for cleanliness) */}

@@ -1,15 +1,39 @@
 import React, { useEffect, useState } from "react";
 import { db, auth } from "../../firebase/firebaseConfig";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
-import { motion } from "framer-motion";
+import { collection, getDocs, getDoc, doc, updateDoc } from "firebase/firestore";
+import { motion, AnimatePresence } from "framer-motion";
 
 import DistributorCreditDue from "./DistributorCreditDue";
 
+// --- Anim Variants ---
+const fadeInUp = {
+  hidden: { opacity: 0, y: 14 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.35 } },
+};
+const stagger = {
+  hidden: { opacity: 1 },
+  show: {
+    opacity: 1,
+    transition: { delayChildren: 0.05, staggerChildren: 0.06 },
+  },
+};
+const cardVariant = {
+  hidden: { opacity: 0, scale: 0.98 },
+  show: { opacity: 1, scale: 1, transition: { duration: 0.35 } },
+};
+
 // --- UI-ONLY helpers (no logic changed) ---
 const GlassCard = ({ className = "", children }) => (
-  <div className={`rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl hover:shadow-emerald-400/10 hover:scale-[1.005] transition duration-300 vignette ${className}`}>
+  <motion.div
+    variants={cardVariant}
+    whileHover={{ scale: 1.01 }}
+    whileTap={{ scale: 0.995 }}
+    className={`relative rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl transition duration-300 vignette overflow-hidden ${className}`}
+  >
+    {/* subtle animated edge glow */}
+    <span className="pointer-events-none absolute -inset-px rounded-xl opacity-0 group-hover:opacity-100 transition duration-300" />
     {children}
-  </div>
+  </motion.div>
 );
 
 const StatCard = ({ label, value, note, tone = "default" }) => {
@@ -21,10 +45,21 @@ const StatCard = ({ label, value, note, tone = "default" }) => {
     purple: "text-fuchsia-300",
   };
   return (
-    <GlassCard className="p-4">
-      <p className="text-xs uppercase tracking-wide text-white/70">{label}</p>
-      <div className={`mt-1 text-2xl font-semibold ${toneMap[tone] || toneMap.default}`}>{value}</div>
-      {note && <div className="mt-2 text-[11px] text-white/70 space-y-1">{note}</div>}
+    <GlassCard className="p-4 group">
+      <motion.p className="text-xs uppercase tracking-wide text-white/70" variants={fadeInUp}>
+        {label}
+      </motion.p>
+      <motion.div
+        variants={fadeInUp}
+        className={`mt-1 text-2xl font-semibold ${toneMap[tone] || toneMap.default}`}
+      >
+        {value}
+      </motion.div>
+      {note && (
+        <motion.div variants={fadeInUp} className="mt-2 text-[11px] text-white/70 space-y-1">
+          {note}
+        </motion.div>
+      )}
     </GlassCard>
   );
 };
@@ -42,10 +77,21 @@ const Pill = ({ children, tone = "neutral" }) => {
 };
 
 const SectionHeader = ({ title, icon }) => (
-  <h3 className="font-semibold text-lg mb-2 flex items-center gap-2">
-    <span className="text-xl">{icon}</span>
-    <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">{title}</span>
-  </h3>
+  <div className="mb-2">
+    <div className="flex items-center gap-2">
+      <span className="text-xl">{icon}</span>
+      <h3 className="font-semibold text-lg bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">
+        {title}
+      </h3>
+    </div>
+    <motion.div
+      initial={{ scaleX: 0, opacity: 0 }}
+      whileInView={{ scaleX: 1, opacity: 1 }}
+      viewport={{ once: true, amount: 0.6 }}
+      transition={{ duration: 0.5 }}
+      className="h-px w-24 origin-left bg-gradient-to-r from-emerald-300/60 to-transparent mt-1"
+    />
+  </div>
 );
 
 const DistributorHome = () => {
@@ -71,6 +117,8 @@ const DistributorHome = () => {
 
   const [filters, setFilters] = useState({ bucket: 'ALL', sort: 'dueDate', dir: 'asc', query: '' });
   const [expanded, setExpanded] = useState({}); // orderId -> boolean
+
+  const [userInfo, setUserInfo] = useState({ ownerName: "", businessName: "" });
 
   const toggleRow = (id) => setExpanded((p) => ({ ...p, [id]: !p[id] }));
 
@@ -104,6 +152,26 @@ const DistributorHome = () => {
     const diff = Math.round((end.getTime() - start.getTime()) / (1000*60*60*24));
     return diff; // negative = overdue
   };
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+      try {
+        const snap = await getDoc(doc(db, "businesses", uid));
+        if (snap.exists()) {
+          const d = snap.data();
+          setUserInfo({
+            ownerName: d.ownerName || d.name || d.userName || "",
+            businessName: d.businessName || d.distributorName || d.name || "",
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load distributor profile", e);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -369,18 +437,41 @@ const DistributorHome = () => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      className="p-6 space-y-6 text-white"
+      variants={stagger}
+      initial="hidden"
+      animate="show"
+      className="space-y-4 text-white relative"
     >
-      <div className="relative">
-        <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">📦 Distributor Business Snapshot</h2>
-        <div className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent" />
+
+      {/* Hero: date + welcome + quick pills (Home only) */}
+      <div className="mb-2">
+        <div className="text-sm text-white/60">
+          {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short" })}
+        </div>
+        <h2 className="mt-1 text-3xl md:text-4xl font-extrabold tracking-tight drop-shadow">
+          Welcome back, <span className="text-emerald-300">{userInfo.ownerName || "Distributor"}</span> ✦
+        </h2>
+        <div className="mt-2 text-sm flex flex-wrap gap-2">
+          <Pill>Business: {userInfo.businessName || "—"}</Pill>
+          <Pill>ID: {auth.currentUser?.uid?.slice(0, 8)}…</Pill>
+          <Pill>Email: {auth.currentUser?.email || "—"}</Pill>
+        </div>
+      </div>
+
+      <div className="relative mt-1">
+        <motion.h2 variants={fadeInUp} className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">
+          📦 Distributor Business Snapshot
+        </motion.h2>
+        <motion.div
+          initial={{ scaleX: 0, opacity: 0 }}
+          animate={{ scaleX: 1, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.05 }}
+          className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent"
+        />
       </div>
 
       {/* Top KPI Stats (glass) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <motion.div variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard label="Total Orders" value={stats.totalOrders} />
         <StatCard
           label="Pending Orders"
@@ -396,10 +487,10 @@ const DistributorHome = () => {
         <StatCard label="Completed Orders" value={stats.completedOrders} tone="green" />
         <StatCard label="Total Revenue (Paid)" value={`₹${stats.totalRevenue.toFixed(2)}`} tone="blue" />
         <StatCard label="Due Credit Total" value={`₹${stats.dueCreditTotal.toFixed(2)}`} tone="purple" />
-      </div>
+      </motion.div>
 
       <GlassCard className="p-5 mt-2">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <motion.div variants={fadeInUp} className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="font-semibold text-lg">🧾 Credit Due Snapshot</h3>
           <div className="flex flex-wrap gap-2 text-xs">
             <Pill tone="danger">Overdue: ₹{creditBuckets.totals.overdue.toLocaleString()}</Pill>
@@ -408,10 +499,10 @@ const DistributorHome = () => {
             <Pill tone="info">Upcoming: ₹{creditBuckets.totals.upcoming.toLocaleString()}</Pill>
             <Pill tone="purple">Total: ₹{creditBuckets.totals.allDue.toLocaleString()}</Pill>
           </div>
-        </div>
+        </motion.div>
 
         {/* Controls */}
-        <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
+        <div className="sticky top-0 z-10 px-4 py-2 mb-3 text-sm bg-[#0b1220]/70 backdrop-blur supports-[backdrop-filter]:backdrop-blur-xl border-b border-white/10 flex flex-wrap items-center gap-2 rounded-t-lg">
           <select
             className="rounded-lg bg-white/10 border border-white/20 text-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
             value={filters.bucket}
@@ -453,7 +544,7 @@ const DistributorHome = () => {
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto border border-white/10 rounded-lg">
+        <div className="w-full overflow-x-hidden border border-white/10 rounded-lg">
           <table className="min-w-full table-auto">
             <thead className="bg-white/10">
               <tr>
@@ -465,95 +556,123 @@ const DistributorHome = () => {
               </tr>
             </thead>
             <tbody>
-              {(() => {
-                const rows = buildCreditRows().slice(0, 12);
-                if (rows.length === 0) {
-                  return (
-                    <tr>
-                      <td colSpan={5} className="px-3 py-6 text-center text-white/60">No credit dues found.</td>
-                    </tr>
-                  );
-                }
-                return rows.map((r) => (
-                  <React.Fragment key={r.id}>
-                    <tr className="border-t border-white/10 hover:bg-white/5">
-                      <td className="px-3 py-2 text-sm font-medium text-white">
-                        <button onClick={() => toggleRow(r.id)} className="text-emerald-300 hover:underline mr-2">
-                          {expanded[r.id] ? 'Hide' : 'Show'}
-                        </button>
-                        {r.retailer}
-                        <div className="text-[11px] text-white/60">#{r.id.slice(0,8)}</div>
-                      </td>
-                      <td className="px-3 py-2 text-sm text-right">₹{Number(r.amount||0).toLocaleString()}</td>
-                      <td className="px-3 py-2 text-sm">{r.dueDate ? new Date(r.dueDate).toLocaleDateString('en-GB') : '—'}</td>
-                      <td className="px-3 py-2 text-sm">
-                        {r.daysLeft < 0 && (
-                          <span className="px-2 py-1 rounded-full bg-red-400/15 text-red-300 text-xs font-semibold">{Math.abs(r.daysLeft)} day(s) overdue</span>
-                        )}
-                        {r.daysLeft === 0 && (
-                          <span className="px-2 py-1 rounded-full bg-orange-400/15 text-orange-300 text-xs font-semibold">Due today</span>
-                        )}
-                        {r.daysLeft === 1 && (
-                          <span className="px-2 py-1 rounded-full bg-amber-400/15 text-amber-300 text-xs font-semibold">Due tomorrow</span>
-                        )}
-                        {r.daysLeft > 1 && (
-                          <span className="px-2 py-1 rounded-full bg-sky-400/15 text-sky-300 text-xs font-semibold">{r.daysLeft} days left</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-sm text-right">
-                        <div className="inline-flex gap-2">
-                          <button onClick={() => markCreditPaid(r)} className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60">Mark Paid</button>
-                          <button onClick={() => extendCredit(r)} className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-900 bg-gradient-to-r from-sky-400 to-indigo-500 hover:shadow-[0_8px_24px_rgba(56,189,248,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/60">Extend</button>
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded[r.id] && (
-                      <tr className="border-t border-white/10 bg-white/5">
-                        <td colSpan={5} className="px-4 py-3 text-sm">
-                          <div className="flex flex-wrap gap-6">
-                            <div>
-                              <div className="text-white/70 text-xs">Delivered</div>
-                              <div className="font-medium">{r.deliveredAt ? new Date(r.deliveredAt).toLocaleDateString('en-GB') : '—'}</div>
-                            </div>
-                            <div>
-                              <div className="text-white/70 text-xs">Credit Days</div>
-                              <div className="font-medium">{r.creditDays || '—'}</div>
-                            </div>
-                            <div>
-                              <div className="text-white/70 text-xs">Payment Mode</div>
-                              <div className="font-medium">{r.paymentMode}</div>
-                            </div>
-                            <div>
-                              <button onClick={goToPaymentDue} className="text-emerald-300 hover:underline">Open in Track Orders</button>
-                            </div>
+              <AnimatePresence initial={false}>
+                {(() => {
+                  const rows = buildCreditRows().slice(0, 12);
+                  if (rows.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-white/60">No credit dues found.</td>
+                      </tr>
+                    );
+                  }
+                  return rows.map((r) => (
+                    <React.Fragment key={r.id}>
+                      <motion.tr
+                        layout
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        className="border-t border-white/10 hover:bg-white/5"
+                      >
+                        <td className="px-3 py-2 text-sm font-medium text-white">
+                          <button onClick={() => toggleRow(r.id)} className="text-emerald-300 hover:underline mr-2">
+                            {expanded[r.id] ? 'Hide' : 'Show'}
+                          </button>
+                          {r.retailer}
+                          <div className="text-[11px] text-white/60">#{r.id.slice(0,8)}</div>
+                        </td>
+                        <td className="px-3 py-2 text-sm text-right">₹{Number(r.amount||0).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-sm">{r.dueDate ? new Date(r.dueDate).toLocaleDateString('en-GB') : '—'}</td>
+                        <td className="px-3 py-2 text-sm">
+                          {r.daysLeft < 0 && (
+                            <span className="px-2 py-1 rounded-full bg-red-400/15 text-red-300 text-xs font-semibold">{Math.abs(r.daysLeft)} day(s) overdue</span>
+                          )}
+                          {r.daysLeft === 0 && (
+                            <span className="px-2 py-1 rounded-full bg-orange-400/15 text-orange-300 text-xs font-semibold">Due today</span>
+                          )}
+                          {r.daysLeft === 1 && (
+                            <span className="px-2 py-1 rounded-full bg-amber-400/15 text-amber-300 text-xs font-semibold">Due tomorrow</span>
+                          )}
+                          {r.daysLeft > 1 && (
+                            <span className="px-2 py-1 rounded-full bg-sky-400/15 text-sky-300 text-xs font-semibold">{r.daysLeft} days left</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-sm text-right">
+                          <div className="inline-flex gap-2">
+                            <button onClick={() => markCreditPaid(r)} className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60">Mark Paid</button>
+                            <button onClick={() => extendCredit(r)} className="px-3 py-1.5 rounded-full text-xs font-medium text-slate-900 bg-gradient-to-r from-sky-400 to-indigo-500 hover:shadow-[0_8px_24px_rgba(56,189,248,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/60">Extend</button>
                           </div>
                         </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ));
-              })()}
+                      </motion.tr>
+                      {expanded[r.id] && (
+                        <motion.tr
+                          layout
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="border-t border-white/10 bg-white/5"
+                        >
+                          <td colSpan={5} className="px-4 py-3 text-sm">
+                            <div className="flex flex-wrap gap-6">
+                              <div>
+                                <div className="text-white/70 text-xs">Delivered</div>
+                                <div className="font-medium">{r.deliveredAt ? new Date(r.deliveredAt).toLocaleDateString('en-GB') : '—'}</div>
+                              </div>
+                              <div>
+                                <div className="text-white/70 text-xs">Credit Days</div>
+                                <div className="font-medium">{r.creditDays || '—'}</div>
+                              </div>
+                              <div>
+                                <div className="text-white/70 text-xs">Payment Mode</div>
+                                <div className="font-medium">{r.paymentMode}</div>
+                              </div>
+                              <div>
+                                <button onClick={goToPaymentDue} className="text-emerald-300 hover:underline">Open in Track Orders</button>
+                              </div>
+                            </div>
+                          </td>
+                        </motion.tr>
+                      )}
+                    </React.Fragment>
+                  ));
+                })()}
+              </AnimatePresence>
             </tbody>
           </table>
         </div>
 
         <div className="mt-3 text-right text-sm">
-          <button onClick={goToPaymentDue} className="text-emerald-300 hover:underline">Go to Track Orders → Payment Due</button>
+          <button onClick={goToPaymentDue} className="text-emerald-300 hover:underline hover:brightness-110 transition">Go to Track Orders → Payment Due</button>
         </div>
       </GlassCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
         <GlassCard className="p-4">
           <SectionHeader title="Order Trends" icon={<span>📊</span>} />
-          <div className="h-40 rounded bg-white/5 animate-pulse flex items-center justify-center text-white/50">
-            Loading chart...
-          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            className="h-40 rounded bg-white/5 flex items-center justify-center relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-[linear-gradient(110deg,rgba(255,255,255,0.06),rgba(255,255,255,0.14),rgba(255,255,255,0.06))] bg-[length:200%_100%] animate-[shimmer_1.8s_infinite]" />
+            <style>{`@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
+            <span className="text-white/60 text-sm relative z-10">Loading chart…</span>
+          </motion.div>
         </GlassCard>
         <GlassCard className="p-4">
           <SectionHeader title="Revenue Insights" icon={<span>💸</span>} />
-          <div className="h-40 rounded bg-white/5 animate-pulse flex items-center justify-center text-white/50">
-            Loading chart...
-          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            className="h-40 rounded bg-white/5 flex items-center justify-center relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-[linear-gradient(110deg,rgba(255,255,255,0.06),rgba(255,255,255,0.14),rgba(255,255,255,0.06))] bg-[length:200%_100%] animate-[shimmer_1.8s_infinite]" />
+            <style>{`@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
+            <span className="text-white/60 text-sm relative z-10">Loading chart…</span>
+          </motion.div>
         </GlassCard>
       </div>
 

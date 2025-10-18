@@ -301,9 +301,9 @@ async function setRetailerOverrideSafe(distributorId, retailerId, payload) {
 
   // UI
   return (
-    <div className={`grid grid-cols-1 ${compact ? "gap-4" : "gap-6"} md:grid-cols-12`}>
+    <div className={`grid grid-cols-1 ${compact ? "gap-4" : "gap-6"}`}>
       {/* Left: Form */}
-      <div className={`col-span-12 md:col-span-7 lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 ${compact ? "gap-3" : "gap-4"}`}>
+      <div className={`w-full grid grid-cols-1 sm:grid-cols-2 ${compact ? "gap-3" : "gap-4"} rounded-xl border border-white/10 bg-white/5 p-4 md:p-6 shadow-lg`}>
         <div className={`sm:col-span-2 flex items-center justify-between ${compact ? "mb-1" : "mb-0"}`}>
           <h3 className={compact ? "text-sm font-semibold text-white" : "text-sm md:text-base font-semibold text-white"}>
             {scope === "retailer" ? "Defaults (Retailer Override)" : "Global Defaults"}
@@ -367,50 +367,9 @@ async function setRetailerOverrideSafe(distributorId, retailerId, payload) {
             {saving ? "Saving..." : "Save Defaults"}
           </button>
         </div>
-      </div>
-
-      {/* Right: Live Preview */}
-      <div className="col-span-12 md:col-span-5 lg:col-span-4">
-        <div className={`rounded-lg border border-white/10 bg-white/5 ${compact ? "p-3" : "p-4"}`}>
-          <div className={`mb-3 flex items-center justify-between gap-3 ${compact ? "mb-2" : "mb-3"}`}>
-            <h3 className={compact ? "text-xs font-semibold text-white" : "text-sm font-semibold text-white"}>Live Preview</h3>
-            <div className={compact ? "w-36" : "w-40"}>
-              <NumberInput compact={compact} label="Sample Subtotal (₹)" name="sampleSubtotal" value={sampleSubTotal} onChange={(_, v) => setSampleSubTotal(safeNum(v))} step="1" min="0" />
-            </div>
-          </div>
-
-          {!enabled ? (
-            <p className="text-sm text-white/60">Defaults are disabled. Turn them on to preview.</p>
-          ) : preview ? (
-            <div className={compact ? "text-[13px]" : "text-sm"}>
-              <PreviewRow k="Tax Type" v={resolveTaxType({ defaults: defaultsObj })} compact={compact} />
-              <PreviewRow k="Subtotal" v={formatINR(preview.subTotal)} compact={compact} />
-              {Number(preview.discountAmt) > 0 && (
-                <PreviewRow k="Discount Applied" v={`- ${formatINR(preview.discountAmt)}`} compact={compact} />
-              )}
-              {Number(preview.delivery) > 0 && <PreviewRow k="Delivery" v={formatINR(preview.delivery)} compact={compact} />}
-              {Number(preview.packing) > 0 && <PreviewRow k="Packing" v={formatINR(preview.packing)} compact={compact} />}
-              {Number(preview.insurance) > 0 && <PreviewRow k="Insurance" v={formatINR(preview.insurance)} compact={compact} />}
-              {Number(preview.other) > 0 && <PreviewRow k="Other" v={formatINR(preview.other)} compact={compact} />}
-
-              <div className="my-2 border-t border-dashed border-white/15" />
-
-              <PreviewRow k="Taxable Base" v={formatINR(preview.taxableBase)} compact={compact} />
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                <MiniStat label="CGST" value={formatINR(preview.taxBreakup?.cgst || 0)} compact={compact} />
-                <MiniStat label="SGST" value={formatINR(preview.taxBreakup?.sgst || 0)} compact={compact} />
-                <MiniStat label="IGST" value={formatINR(preview.taxBreakup?.igst || 0)} compact={compact} />
-              </div>
-
-              <div className="my-2 border-t border-dashed border-white/15" />
-              <PreviewRow k="Taxes" v={formatINR(preview.taxes)} compact={compact} />
-              <PreviewRow k="Round Off" v={formatINR(preview.roundOff)} compact={compact} />
-              <PreviewRow k="Grand Total" v={formatINR(preview.grandTotal)} strong compact={compact} />
-            </div>
-          ) : (
-            <p className="text-sm text-white/60">No preview available.</p>
-          )}
-        </div>
+        <p className="text-xs text-white/50 text-right mt-1 sm:col-span-2">
+          Changes here affect only this retailer.
+        </p>
       </div>
     </div>
   );

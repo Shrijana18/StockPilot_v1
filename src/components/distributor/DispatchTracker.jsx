@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import OrderRequests from "./orders/OrderRequests";
 import PendingOrders from "./orders/PendingOrders";
 import TrackOrders from "./orders/TrackOrders";
+import PassiveOrders from "./orders/PassiveOrders";
 
 
 const DispatchTracker = () => {
@@ -11,11 +12,13 @@ const DispatchTracker = () => {
   // Map between our internal ids and URL tab names
   const idToUrlTab = {
     requests: 'order-requests',
+    create: 'create-order',
     pending: 'pending-orders',
     completed: 'track-orders',
   };
   const urlTabToId = {
     'order-requests': 'requests',
+    'create-order': 'create',
     'pending-orders': 'pending',
     'track-orders': 'completed',
   };
@@ -82,6 +85,9 @@ const DispatchTracker = () => {
           <TabButton id="requests" active={activeTab === "requests"} onClick={setTabAndHash}>
             Order Requests
           </TabButton>
+          <TabButton id="create" active={activeTab === "create"} onClick={setTabAndHash}>
+            Create Order
+          </TabButton>
           <TabButton id="pending" active={activeTab === "pending"} onClick={setTabAndHash}>
             Pending Orders
           </TabButton>
@@ -101,6 +107,17 @@ const DispatchTracker = () => {
             transition={{ duration: 0.3 }}
           >
             <OrderRequests />
+          </motion.div>
+        )}
+        {activeTab === "create" && (
+          <motion.div
+            key="create"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <PassiveOrders />
           </motion.div>
         )}
         {activeTab === "pending" && (

@@ -1,5 +1,22 @@
 {
-  "appId": "com.flypnow.app",
+  "appId": "com.flypnow.ios",
   "appName": "flyp",
-  "webDir": "dist"
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "iosScheme": "capacitor",
+    "allowNavigation": [
+      "apis.google.com",
+      "accounts.google.com",
+      "www.google.com",
+      "www.gstatic.com",
+      "*.googleapis.com",
+      "*.firebaseio.com",
+      "firestore.googleapis.com",
+      "firebasestorage.googleapis.com",
+      "securetoken.googleapis.com",
+      "identitytoolkit.googleapis.com"
+    ],
+    "cleartext": true
+  }
 }

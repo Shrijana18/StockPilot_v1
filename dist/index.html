@@ -7,31 +7,41 @@
     <meta name="google-signin-client_id" content="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com" />
     <meta name="google-signin-hosted_domain" content="flypnow.com" />
     <link rel="canonical" href="https://flypnow.com/" />
-    <!-- DEV CSP: allows Firebase Phone Auth (reCAPTCHA) + App Check + Vite tooling -->
     <meta http-equiv="Content-Security-Policy"
       content="
-        default-src 'self';
-        script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://www.google.com https://apis.google.com;
-        worker-src 'self' blob: https://www.gstatic.com https://www.google.com;
-        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-        font-src 'self' https://fonts.gstatic.com;
-        img-src 'self' data: https: blob:;
-        frame-src https://accounts.google.com https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/ https://www.google.com https://*.firebaseapp.com;
-        connect-src 'self'
-          https://asia-south1-stockpilotv1.cloudfunctions.net
-          https://us-central1-stockpilotv1.cloudfunctions.net
-          https://identitytoolkit.googleapis.com
-          https://securetoken.googleapis.com
-          https://content-firebaseappcheck.googleapis.com
-          https://firebaseinstallations.googleapis.com
-          https://firestore.googleapis.com
-          https://firebasestorage.googleapis.com
-          https://www.googleapis.com
-          https://www.google.com https://www.gstatic.com
-          https://flyp-voice-streamer-30934537475.asia-south1.run.app
-          https://cloud-fn-parse-rq2uh6cnqq-el.a.run.app
-          wss://flyp-voice-streamer-30934537475.asia-south1.run.app
-          ws://localhost:* wss://localhost:*;
+        default-src 'self' data: blob: capacitor: https:;
+        script-src  'self' 'unsafe-inline' 'unsafe-eval'
+                    https://www.gstatic.com
+                    https://www.google.com
+                    https://apis.google.com
+                    https://www.googletagmanager.com
+                    https://www.gstatic.cn;
+        worker-src  'self' blob:;
+        style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src    'self' https://fonts.gstatic.com;
+        img-src     'self' data: blob: https:;
+        frame-src   'self'
+                    https://accounts.google.com
+                    https://www.google.com
+                    https://apis.google.com
+                    https://recaptcha.google.com
+                    https://*.firebaseapp.com;
+        connect-src 'self' data: blob: ws: wss:
+                    https://asia-south1-stockpilotv1.cloudfunctions.net
+                    https://us-central1-stockpilotv1.cloudfunctions.net
+                    https://identitytoolkit.googleapis.com
+                    https://securetoken.googleapis.com
+                    https://content-firebaseappcheck.googleapis.com
+                    https://firebaseinstallations.googleapis.com
+                    https://firestore.googleapis.com
+                    https://firebasestorage.googleapis.com
+                    https://www.googleapis.com
+                    https://www.google.com
+                    https://www.gstatic.com
+                    https://flyp-voice-streamer-30934537475.asia-south1.run.app
+                    https://cloud-fn-parse-rq2uh6cnqq-el.a.run.app
+                    wss://flyp-voice-streamer-30934537475.asia-south1.run.app
+                    ws://localhost:* wss://localhost:*;
       ">
     <!--
       NOTE:
@@ -39,8 +49,9 @@
       Firebase Auth injects the correct reCAPTCHA (v2 Invisible) script when using RecaptchaVerifier.
       Manual inclusion (v3 or enterprise) can cause auth/invalid-app-credential or "already been rendered" errors.
     -->
-    <script type="module" crossorigin src="./assets/index-CS1XChew.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BPN2EPjp.css">
+    <script type="module" crossorigin src="./assets/index-DmGPsduQ.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/index.esm2017-DUqCSZNd.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-CC5znttc.css">
   </head>
   <body class="bg-white text-gray-900">
     <div id="root"></div>

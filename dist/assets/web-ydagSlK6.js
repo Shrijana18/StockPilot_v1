@@ -1,0 +1,1 @@
+import{W as a}from"./index-DmGPsduQ.js";import"./index.esm2017-DUqCSZNd.js";class i extends a{async show(t){if(typeof document<"u"){let o=2e3;t.duration&&(o=t.duration==="long"?3500:2e3);const e=document.createElement("pwa-toast");e.duration=o,e.message=t.text,document.body.appendChild(e)}}}export{i as ToastWeb};

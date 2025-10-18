@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import ChargesTaxesEditor from "../ChargesTaxesEditor";
+import PassiveOrderRequests from './PassiveOrderRequests';
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -21,6 +22,36 @@ const OrderRequests = () => {
   const [selectedRetailerId, setSelectedRetailerId] = useState('all');
   const [editChargesMap, setEditChargesMap] = useState({});   // { [orderId]: bool }
   const [chargesDraftMap, setChargesDraftMap] = useState({}); // { [orderId]: breakdown }
+  const [mode, setMode] = useState('active');
+  const renderModeTabs = () => (
+    <div className="p-4 pt-0">
+      <div className="mb-3 inline-flex rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow">
+        <button
+          type="button"
+          onClick={() => setMode('active')}
+          className={`px-4 py-2 text-sm rounded-l-xl transition ${
+            mode === 'active'
+              ? 'bg-emerald-500 text-slate-900 font-semibold'
+              : 'bg-transparent text-white hover:bg-white/10'
+          }`}
+        >
+          Active
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('passive')}
+          className={`px-4 py-2 text-sm rounded-r-xl transition border-l border-white/10 ${
+            mode === 'passive'
+              ? 'bg-emerald-500 text-slate-900 font-semibold'
+              : 'bg-transparent text-white hover:bg-white/10'
+          }`}
+        >
+          Passive
+        </button>
+      </div>
+    </div>
+  );
+
 
   // --- Reject modal state ---
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -306,6 +337,7 @@ const OrderRequests = () => {
     };
   }, []);
 
+
   // Build retailerOptions for dropdown from connectedRetailers state
   const retailerOptions = connectedRetailers.map((retailer) => ({
     value: retailer.retailerId,
@@ -526,7 +558,7 @@ const OrderRequests = () => {
     html2pdf().from(content).save(`order_${order.id}.pdf`);
   };
 
-if (loading) {
+if (mode !== 'passive' && loading) {
   return (
     <div className="p-4 text-white">
       <div className="space-y-3">
@@ -550,7 +582,7 @@ if (loading) {
   );
 }
 
-if (orders.length === 0) {
+if (mode !== 'passive' && !loading && orders.length === 0) {
   return (
     <div className="p-6">
       <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl text-white p-6 text-center shadow-xl">
@@ -563,7 +595,15 @@ if (orders.length === 0) {
 }
 
   return (
-    <div className="p-4 space-y-4 text-white">
+    <div className="p-0 space-y-4 text-white">
+      {/* Ensure all child elements are properly nested and closed */}
+      {renderModeTabs()}
+      {mode === 'passive' ? (
+        <div className="px-4">
+          <PassiveOrderRequests pageSize={25} />
+        </div>
+      ) : (
+      <div className="p-4 space-y-4">
       {/* Export buttons */}
       <div className="flex justify-end mb-4">
         <div className="flex gap-2">
@@ -581,7 +621,7 @@ if (orders.length === 0) {
           >
             Export Excel (visible)
           </button>
-        </div>
+      </div>
       </div>
 
       {/* Filters container */}
@@ -1082,6 +1122,8 @@ if (orders.length === 0) {
             </div>
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   );

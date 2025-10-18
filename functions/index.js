@@ -44,6 +44,12 @@ exports.ocrFromImage = require("./ocr/ocrFromImage");
 // Smart Assistant
 exports.generateAssistantReply = require("./assistant/generateAssistantReply");
 
+// Retailer Provisioning (Distributor → Retailer)
+const { createProvisionalRetailer } = require("./handlers/createProvisionalRetailer");
+exports.createProvisionalRetailer = createProvisionalRetailer;
+const { claimProvisionalRetailer } = require("./handlers/claimProvisionalRetailer");
+exports.claimProvisionalRetailer = claimProvisionalRetailer;
+
 // ============================
 // Utility Modules (Internal use)
 // ============================

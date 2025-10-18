@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import POSBilling from '../pos/panel/POSBilling.jsx';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { empDB as db } from '../../firebase/firebaseConfig';
 import { useNavigate } from 'react-router-dom';
@@ -30,6 +31,7 @@ const EmployeeDashboard = () => {
   }, [employee, retailerId]);
   const [activeTab, setActiveTab] = useState('');
   const [hasNavigated, setHasNavigated] = useState(false);
+  const [posFullscreen, setPosFullscreen] = useState(false);
 
   const navigate = useNavigate();
 
@@ -181,14 +183,59 @@ const EmployeeDashboard = () => {
       );
     }
     if (activeTab === 'billing') {
+      const emp = getEmployeeSession();
       return (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Panel title="Create Bill" icon={Icon.billing('w-4 h-4')}>
-            Start a new sale, add items, apply discounts, and select payment mode.
-          </Panel>
-          <Panel title="Recent Invoices" icon={Icon.billing('w-4 h-4')}>
-            Review your last bills and reprint or share with customers.
-          </Panel>
+        <div className="space-y-4">
+          {/* Section header chip */}
+          <div className="flex items-center justify-between">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300 text-xs">
+              {Icon.billing('w-4 h-4')} <span>Billing</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPosFullscreen((v) => !v)}
+                className="text-xs rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10"
+                aria-label={posFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              >
+                {posFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              </button>
+            </div>
+          </div>
+
+          <div className="text-sm text-slate-300">
+            You have access to create and manage invoices for this business.
+          </div>
+
+          {/* Embed the real POSBilling system with responsive container */}
+          <div
+            className={
+              posFullscreen
+                ? 'fixed inset-0 z-50 bg-slate-950/95 backdrop-blur px-2 sm:px-4 py-2 sm:py-4'
+                : 'rounded-2xl border border-white/10 bg-white/5 p-2 sm:p-4 shadow-sm'
+            }
+          >
+            {posFullscreen && (
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <div className="inline-flex items-center gap-2 text-slate-200 text-sm">
+                  {Icon.billing('w-4 h-4')} <span className="font-medium">Billing POS</span>
+                </div>
+                <button
+                  onClick={() => setPosFullscreen(false)}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+            )}
+            <div className={posFullscreen ? 'h-[calc(100vh-4.5rem)] sm:h-[calc(100vh-5.5rem)] overflow-auto rounded-xl' : 'rounded-xl'}>
+              <POSBilling
+                retailerId={emp?.retailerId}
+                employeeId={emp?.employeeId}
+                employeeName={employee?.name || 'Employee'}
+                role={employee?.role || 'Staff'}
+              />
+            </div>
+          </div>
         </div>
       );
     }
