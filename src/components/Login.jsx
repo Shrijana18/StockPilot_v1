@@ -36,38 +36,40 @@ const Login = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e.preventDefault?.();
+    console.log("[Login] submit clicked");
     setError('');
     setLoading(true);
-  
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      const email = (formData.email || '').trim();
+      const password = (formData.password || '').trim();
+      if (!email || !password) {
+        setError('Please enter email and password.');
+        return;
+      }
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-  
-      // Fetch user role from Firestore
+      console.log("[Login] firebase signIn OK, uid:", user.uid);
       const snap = await getDoc(doc(db, 'businesses', user.uid));
+      console.log("[Login] role doc exists:", snap.exists());
       if (!snap.exists()) {
         setError('⚠️ User data not found in Firestore.');
         return;
       }
-  
       const rawRole = snap.data()?.role ?? '';
       const role = String(rawRole).toLowerCase().replace(/\s|_/g, '');
-  
-      // ✅ Redirect based on normalized role
+      console.log("[Login] normalized role:", role);
       if (role === 'retailer') {
-        // Retailer main dashboard (confirmed route)
         navigate('/dashboard');
       } else if (role === 'distributor') {
         navigate('/distributor-dashboard');
       } else if (role === 'productowner') {
         navigate('/product-owner-dashboard');
       } else {
-        // Fallback to retailer dashboard if role unknown
         navigate('/dashboard');
       }
     } catch (err) {
-      // Surface concise, friendly errors
+      console.error("[Login] error", err?.code, err?.message);
       const code = err?.code || '';
       let message = err?.message || 'Sign in failed. Please try again.';
       if (code === 'auth/invalid-email') message = 'Invalid email address.';
@@ -127,7 +129,7 @@ const Login = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="px-7 sm:px-8 pb-8 space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="px-7 sm:px-8 pb-8 space-y-4">
             <div className="group">
               <input
                 type="email"
@@ -137,6 +139,7 @@ const Login = () => {
                 onChange={handleChange}
                 required
                 disabled={loading}
+                autoComplete="email"
                 className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition"
               />
             </div>
@@ -150,6 +153,7 @@ const Login = () => {
                 onChange={handleChange}
                 required
                 disabled={loading}
+                autoComplete="current-password"
                 className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition"
               />
               <div className="mt-2 text-right">
@@ -165,6 +169,7 @@ const Login = () => {
 
             <button
               type="submit"
+              onClick={handleSubmit}
               disabled={loading}
               className={`w-full py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
