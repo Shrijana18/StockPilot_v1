@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, setPersistence, inMemoryPersistence } from "firebase/auth";
+import { getAuth, setPersistence, inMemoryPersistence, indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence } from "firebase/auth";
 import { getFirestore, initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
@@ -9,7 +9,8 @@ import { Capacitor } from '@capacitor/core';
 const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
 
 // On native, enable App Check debug token and avoid loading Google web scripts that can be blocked by WKWebView/CORS
-if (IS_NATIVE && typeof self !== 'undefined') {
+if (IS_NATIVE && typeof self !== 'undefined' && import.meta?.env?.MODE !== 'production') {
+  // Enable App Check debug only in non-production native builds
   // This prevents reCAPTCHA v3 from trying to load gapi in the iOS WebView and lets us run without App Check in dev
   // (Make sure you do NOT ship with this set for production builds)
   self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
@@ -47,6 +48,20 @@ if (IS_NATIVE) {
     if (IS_NATIVE) {
       await setPersistence(auth, inMemoryPersistence);
       console.info('[Firebase] Using in-memory persistence on native WebView');
+    } else {
+      // Explicit web persistence with safe fallbacks
+      try {
+        await setPersistence(auth, indexedDBLocalPersistence);
+        console.info('[Firebase] Using IndexedDB persistence (web)');
+      } catch {
+        try {
+          await setPersistence(auth, browserLocalPersistence);
+          console.info('[Firebase] Using localStorage persistence (web)');
+        } catch {
+          await setPersistence(auth, browserSessionPersistence);
+          console.info('[Firebase] Using sessionStorage persistence (web)');
+        }
+      }
     }
   } catch (e) {
     console.warn('[Firebase] Failed to set persistence:', e?.message || e);

@@ -19,43 +19,52 @@ export const AuthProvider = ({ children }) => {
       // skip this auth tick to avoid race between signOut and dashboard mount.
       if (isEmployeeRedirect()) {
         try { clearEmployeeRedirect(); } catch (_) {}
+        // When we just switched into employee flow, keep primary app signed-out state.
+        setUser(null);
+        setRole(null);
         setLoading(false);
         return;
       }
+
       const empSession = getEmployeeSession();
       const isEmpArea = isEmployeePath(typeof window !== 'undefined' ? window.location.pathname : '');
 
       // ✅ Full bypass for employee flows (either in employee route OR an employee session exists)
       if (isEmpArea || empSession) {
+        // Ensure the primary app does not interfere with employee-only routes.
+        setUser(null);
+        setRole(null);
         setLoading(false);
         return;
       }
 
       setUser(firebaseUser);
-      if (firebaseUser) {
-        console.log('Authenticated user UID:', firebaseUser.uid);
 
-        // ✅ Keep token always fresh for callable functions
+      if (firebaseUser) {
         try {
+          // Optional: make sure token is fresh for backend calls
           await firebaseUser.getIdToken(true);
-          firebaseUser.onIdTokenChanged?.(async (updatedUser) => {
-            if (updatedUser) {
-              await updatedUser.getIdToken(true);
-            }
-          });
         } catch (err) {
-          console.warn('Failed to refresh ID token:', err);
+          console.warn('[Auth] Failed to refresh ID token:', err?.message || err);
         }
 
-        const docRef = doc(db, 'businesses', firebaseUser.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setRole(docSnap.data().role);
+        try {
+          const docRef = doc(db, 'businesses', firebaseUser.uid);
+          const docSnap = await getDoc(docRef);
+          const rawRole = docSnap.exists() ? docSnap.data()?.role : null;
+          const normalizedRole = rawRole
+            ? String(rawRole).toLowerCase().replace(/\s|_/g, '')
+            : null;
+          setRole(normalizedRole);
+        } catch (err) {
+          console.warn('[Auth] Role fetch failed for uid', firebaseUser.uid, err?.message || err);
+          setRole(null);
         }
       } else {
-        console.log('User signed out or no user authenticated.');
+        // Signed-out
         setRole(null);
       }
+
       setLoading(false);
     });
 
