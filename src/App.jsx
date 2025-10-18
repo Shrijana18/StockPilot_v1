@@ -78,54 +78,27 @@ const App = () => {
           <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
 
             {/* Protected Routes */}
-            <Route
-              path="/dashboard"
-              element={
-                <PrivateRoute>
-                  <RetailerDashboard />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/distributor-dashboard"
-              element={
-                <PrivateRoute>
-                  <DistributorDashboard />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/product-owner-dashboard"
-              element={
-                <PrivateRoute>
-                  <ProductOwnerDashboard />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/inventory"
-              element={
-                <PrivateRoute>
-                  <Inventory />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/billing"
-              element={
-                <PrivateRoute>
-                  <Billing />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/invoices"
-              element={
-                <PrivateRoute>
-                  <AllInvoices />
-                </PrivateRoute>
-              }
-            />
+            {/* Retailer (no explicit role required) */}
+            <Route element={<PrivateRoute />}>
+              <Route path="/dashboard" element={<RetailerDashboard />} />
+            </Route>
+            {/* Distributor */}
+            <Route element={<PrivateRoute requireRole="distributor" />}>
+              <Route path="/distributor-dashboard" element={<DistributorDashboard />} />
+            </Route>
+            {/* Product Owner */}
+            <Route element={<PrivateRoute requireRole="productowner" />}>
+              <Route path="/product-owner-dashboard" element={<ProductOwnerDashboard />} />
+            </Route>
+            <Route element={<PrivateRoute />}>
+              <Route path="/inventory" element={<Inventory />} />
+            </Route>
+            <Route element={<PrivateRoute />}>
+              <Route path="/billing" element={<Billing />} />
+            </Route>
+            <Route element={<PrivateRoute />}>
+              <Route path="/invoices" element={<AllInvoices />} />
+            </Route>
 
             {/* Future routes can be conditionally rendered based on role */}
             <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
@@ -150,54 +123,27 @@ const App = () => {
           <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
 
             {/* Protected Routes */}
-            <Route
-              path="/dashboard"
-              element={
-                <PrivateRoute>
-                  <RetailerDashboard />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/distributor-dashboard"
-              element={
-                <PrivateRoute>
-                  <DistributorDashboard />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/product-owner-dashboard"
-              element={
-                <PrivateRoute>
-                  <ProductOwnerDashboard />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/inventory"
-              element={
-                <PrivateRoute>
-                  <Inventory />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/billing"
-              element={
-                <PrivateRoute>
-                  <Billing />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/invoices"
-              element={
-                <PrivateRoute>
-                  <AllInvoices />
-                </PrivateRoute>
-              }
-            />
+            {/* Retailer (no explicit role required) */}
+            <Route element={<PrivateRoute />}>
+              <Route path="/dashboard" element={<RetailerDashboard />} />
+            </Route>
+            {/* Distributor */}
+            <Route element={<PrivateRoute requireRole="distributor" />}>
+              <Route path="/distributor-dashboard" element={<DistributorDashboard />} />
+            </Route>
+            {/* Product Owner */}
+            <Route element={<PrivateRoute requireRole="productowner" />}>
+              <Route path="/product-owner-dashboard" element={<ProductOwnerDashboard />} />
+            </Route>
+            <Route element={<PrivateRoute />}>
+              <Route path="/inventory" element={<Inventory />} />
+            </Route>
+            <Route element={<PrivateRoute />}>
+              <Route path="/billing" element={<Billing />} />
+            </Route>
+            <Route element={<PrivateRoute />}>
+              <Route path="/invoices" element={<AllInvoices />} />
+            </Route>
 
             {/* Future routes can be conditionally rendered based on role */}
             <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
