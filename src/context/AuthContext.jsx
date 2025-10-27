@@ -15,6 +15,8 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Defensive: ensure each auth tick starts in loading state to avoid stale UI when switching users
+      setLoading(true);
       // One-time guard: when employee flow just redirected to /employee-dashboard,
       // skip this auth tick to avoid race between signOut and dashboard mount.
       if (isEmployeeRedirect()) {
@@ -29,11 +31,18 @@ export const AuthProvider = ({ children }) => {
       const empSession = getEmployeeSession();
       const isEmpArea = isEmployeePath(typeof window !== 'undefined' ? window.location.pathname : '');
 
-      // ✅ Full bypass for employee flows (either in employee route OR an employee session exists)
+      // ✅ Employee-aware handling: if we are in employee area or have an employee session,
+      // allow Firebase-authenticated employee to proceed; otherwise keep bypass behavior.
       if (isEmpArea || empSession) {
-        // Ensure the primary app does not interfere with employee-only routes.
-        setUser(null);
-        setRole(null);
+        if (firebaseUser) {
+          // Employee now signs in via Custom Token, so honor this session
+          setUser(firebaseUser);
+          setRole('employee');
+        } else {
+          // Legacy/unauthenticated employee flow: keep bypassing
+          setUser(null);
+          setRole(null);
+        }
         setLoading(false);
         return;
       }
@@ -66,8 +75,11 @@ export const AuthProvider = ({ children }) => {
           setRole(null);
         }
       } else {
-        // Signed-out
+        // Signed-out: hard reset any employee hints/sessions to avoid stale redirects
+        setUser(null);
         setRole(null);
+        try { clearEmployeeSession(); } catch (_) {}
+        try { clearEmployeeRedirect(); } catch (_) {}
       }
 
       setLoading(false);

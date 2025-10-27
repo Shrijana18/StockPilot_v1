@@ -110,7 +110,19 @@ const EmployeeLogin = () => {
       }
 
       // Ensure owner Firebase session (if any) doesn't hijack employee routing
-      try { await auth.signOut(); } catch (_){}
+      try { await auth.signOut(); } catch (_) {}
+
+      // 🔐 Secure Firebase session for employee using custom token (if provided)
+      if (data.token) {
+        const { signInWithCustomToken } = await import('firebase/auth');
+        try {
+          await signInWithCustomToken(auth, data.token);
+        } catch (e) {
+          console.error('Custom token sign-in failed:', e);
+          toast.error('Secure sign-in failed. Please try again.');
+          return;
+        }
+      }
 
       // Persist a compact session for the employee dashboard using helper
       const session = setEmployeeSession({

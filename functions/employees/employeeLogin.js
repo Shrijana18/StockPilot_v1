@@ -104,6 +104,20 @@ exports.employeeLogin = onRequest({ region: "us-central1" }, (req, res) => {
       const resolvedRetailerId = retailerId || (parentPath ? parentPath.id : "");
       const employeePath = empDoc.ref.path; // for optional client-side presence updates
 
+      // Create a Firebase Custom Token so employee can sign in securely
+      let token;
+      try {
+        token = await admin.auth().createCustomToken(empId, {
+          businessId: resolvedRetailerId,
+          employeeId: emp.flypEmployeeId || empId,
+          role: emp.role || 'Staff',
+          permissions: emp.permissions || { billing: false, inventory: false, analytics: false }
+        });
+      } catch (err) {
+        console.error('Error creating custom token:', err);
+        return res.status(500).json({ success: false, message: 'Failed to generate login token' });
+      }
+
       return res.json({
         success: true,
         retailerId: resolvedRetailerId,
@@ -111,6 +125,7 @@ exports.employeeLogin = onRequest({ region: "us-central1" }, (req, res) => {
         role: emp.role || "Staff",
         permissions: emp.permissions || { billing: false, inventory: false, analytics: false },
         employeePath,
+        token,
       });
     } catch (error) {
       console.error("employeeLogin Error:", error);
