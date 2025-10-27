@@ -1,9 +1,10 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { getAuth, GoogleAuthProvider, signInWithPopup, sendEmailVerification, linkWithCredential, EmailAuthProvider, updateProfile, fetchSignInMethodsForEmail } from 'firebase/auth';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { getAuth, GoogleAuthProvider, signInWithPopup, sendEmailVerification, linkWithCredential, EmailAuthProvider, updateProfile, fetchSignInMethodsForEmail, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, query, collection, where, getDocs } from 'firebase/firestore';
+// import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from "../firebase/firebaseConfig";
-import ReactDOM from 'react-dom';
+// import ReactDOM from 'react-dom';
 
 const auth = getAuth(app);
 // ---- Local debug helper (optional): bypass app verification on localhost ----
@@ -24,6 +25,10 @@ try {
   // ignore if settings is undefined in older SDKs
 }
 const db = getFirestore(app);
+// Cloud Functions HTTPS base (adjust region/project if needed)
+
+const CF_BASE = import.meta.env?.VITE_FUNCTIONS_ORIGIN || 'https://us-central1-stockpilotv1.cloudfunctions.net';
+const MSG91_WIDGET_ID = import.meta.env?.VITE_MSG91_WIDGET_ID || '356a79684758348381353138';
 
 
 
@@ -110,6 +115,14 @@ const Icon = ({ name, className = "" }) => {
       </svg>
     );
   }
+  if (name === 'arrow-left') {
+    return (
+      <svg className={`${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M19 12H5" />
+        <path d="M11 19l-7-7 7-7" />
+      </svg>
+    );
+  }
   return null;
 };
 
@@ -127,10 +140,43 @@ const Register = ({ role = 'retailer' }) => {
   });
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({ error: '', success: '' });
+  // OTP state (MSG91 via Cloud Functions)
+  const [otp, setOtp] = useState('');
+  const [otpRequested, setOtpRequested] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpInfo, setOtpInfo] = useState('');
   // GPU-safe glow without React re-renders (prevents FirebaseUI unmount)
   const glowRef = useRef(null);
   const mouseRAF = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    // Load MSG91 OTP widget script once
+    if (typeof window !== 'undefined' && !window.initSendOTP) {
+      const s = document.createElement('script');
+      s.src = 'https://verify.msg91.com/otp-provider.js';
+      s.async = true;
+      s.onload = () => console.info('[MSG91] widget loaded');
+      s.onerror = () => console.warn('[MSG91] widget failed to load');
+      document.body.appendChild(s);
+    }
+  }, []);
+
+  // Role helpers
+  const normalizeRoleKey = (s = '') => String(s).toLowerCase().replace(/\s+/g, '');
+  const toCanonicalRole = (key = '') => {
+    const k = normalizeRoleKey(key);
+    if (k === 'distributor') return 'Distributor';
+    if (k === 'productowner') return 'Product Owner';
+    return 'Retailer';
+  };
+
+  // Read role from query (?role=Distributor/Product%20Owner/Retailer)
+  const params = new URLSearchParams(location.search);
+  const roleParam = params.get('role') || '';
+  const cameFromChooser = !!roleParam;
   const onMouseMove = (e) => {
     if (!glowRef.current) return;
     const r = e.currentTarget.getBoundingClientRect();
@@ -160,6 +206,82 @@ const Register = ({ role = 'retailer' }) => {
     });
 
 
+  // --- OTP flow via MSG91 Widget (client) + server verify ---
+  const startOtpFlow = useCallback(async () => {
+    const ten = sanitize10Digits(form.phone);
+    if (ten.length !== 10) {
+      setOtpInfo('Enter a valid 10-digit phone first.');
+      return;
+    }
+    if (!window.initSendOTP) {
+      setOtpInfo('OTP widget not loaded yet. Please wait a moment and try again.');
+      return;
+    }
+    setOtpInfo('');
+    setOtpBusy(true);
+    try {
+      const identifier = `+91${ten}`;
+      const configuration = {
+        widgetId: MSG91_WIDGET_ID,
+        tokenAuth: 'token',
+        identifier,
+        exposeMethods: false,
+        success: async (data) => {
+          // data may contain token under different keys based on SDK version
+          const token =
+            data?.access_token ||
+            data?.token ||
+            data?.data?.token ||
+            data?.response?.token;
+          if (!token) {
+            setOtpBusy(false);
+            setOtpInfo('Could not read access token from widget.');
+            return;
+          }
+          try {
+            const resp = await fetch(`${CF_BASE}/verifyOtp`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone: ten, access_token: token })
+            });
+            const out = await resp.json().catch(() => ({}));
+            if (resp.ok && (out?.ok || out?.status === 'ok')) {
+              setOtpVerified(true);
+              setOtpRequested(true);
+              setOtpInfo('Phone verified ✅');
+            } else {
+              setOtpVerified(false);
+              setOtpInfo(out?.error || out?.message || 'Verification failed. Please retry.');
+            }
+          } catch (err) {
+            console.error(err);
+            setOtpVerified(false);
+            setOtpInfo(err?.message || 'Verification failed.');
+          } finally {
+            setOtpBusy(false);
+          }
+        },
+        failure: (error) => {
+          console.warn('[MSG91] widget failure', error);
+          setOtpBusy(false);
+          setOtpInfo(error?.message || 'OTP flow cancelled or failed.');
+        }
+      };
+      window.initSendOTP(configuration);
+    } catch (e) {
+      console.error(e);
+      setOtpBusy(false);
+      setOtpInfo(e?.message || 'Failed to start OTP flow.');
+    }
+  }, [form.phone]);
+
+  useEffect(() => {
+    // reset OTP flow if user edits the phone number
+    setOtp('');
+    setOtpRequested(false);
+    setOtpVerified(false);
+    setOtpInfo('');
+  }, [form.phone]);
 
   const buildPayload = (userId) => {
     const nowIso = new Date().toISOString();
@@ -203,6 +325,34 @@ const Register = ({ role = 'retailer' }) => {
     };
   };
 
+  // Force-refresh the user's ID token (prevents first-write rule races after signup)
+  const ensureFreshToken = async (user) => {
+    try {
+      if (user?.getIdToken) {
+        await user.getIdToken(true);
+      }
+    } catch (_) {
+      // ignore; Firestore will still attempt with current token
+    }
+  };
+
+  // Bulletproof write with one retry on permission race
+  const safeCreateBusinessDoc = async (user, uid) => {
+    try {
+      await createBusinessDoc(uid);
+    } catch (err) {
+      const msg = String(err?.message || "");
+      if (msg.includes('Missing or insufficient permissions')) {
+        // wait, refresh token, and retry once
+        await new Promise((r) => setTimeout(r, 1200));
+        await ensureFreshToken(user);
+        await createBusinessDoc(uid);
+        return;
+      }
+      throw err;
+    }
+  };
+
   const createBusinessDoc = async (uid) => {
     const payload = buildPayload(uid);
     await setDoc(doc(db, 'businesses', uid), payload, { merge: true });
@@ -220,49 +370,67 @@ const Register = ({ role = 'retailer' }) => {
     if (!gstStatus.ok) return setMsg({ error: `GSTIN error: ${gstStatus.reason}`, success: '' });
     if (form.password !== form.confirmPassword) return setMsg({ error: 'Passwords do not match.', success: '' });
 
+    if (!otpVerified) {
+      return setMsg({ error: 'Please verify your phone number with OTP first.', success: '' });
+    }
     try {
       setLoading(true);
-      // Check if phone number is unique in Firestore
-      const phoneQuery = query(collection(db, 'businesses'), where('phone', '==', e164Phone));
-      const phoneSnap = await getDocs(phoneQuery);
-      if (!phoneSnap.empty) {
-        return setMsg({ error: 'Phone number already registered. Please sign in instead.', success: '' });
-      }
-
-      // Check if email is unique in Firestore
-      const emailQuery = query(collection(db, 'businesses'), where('email', '==', form.email.trim()));
-      const emailSnap = await getDocs(emailQuery);
-      if (!emailSnap.empty) {
-        return setMsg({ error: 'Email already registered. Please sign in instead.', success: '' });
-      }
-
       const userCred = await import('firebase/auth').then(({ createUserWithEmailAndPassword }) =>
         createUserWithEmailAndPassword(auth, form.email.trim(), form.password)
       );
       const user = userCred.user;
 
       await updateProfile(user, { displayName: (form.ownerName || '').trim() });
-      await createBusinessDoc(user.uid);
+
+      // Ensure auth state is fully active before Firestore write to avoid permission race
+      await new Promise((resolve) => {
+        const unsub = onAuthStateChanged(auth, (current) => {
+          if (current && current.uid === user.uid) {
+            unsub();
+            resolve();
+          }
+        });
+      });
+
+      // Now that we are authenticated (request.auth != null), check PHONE uniqueness in Firestore
+      const phoneQuery = query(collection(db, 'businesses'), where('phone', '==', e164Phone));
+      const phoneSnap = await getDocs(phoneQuery);
+      if (!phoneSnap.empty) {
+        // Phone already used: clean up the just-created auth user so we don't leave an orphan
+        try { await user.delete(); } catch (_) {}
+        try { await auth.signOut(); } catch (_) {}
+        return setMsg({ error: 'Phone number already registered. Please sign in instead.', success: '' });
+      }
+
+      // Safe to create the business profile document now (with token refresh + retry)
+      await ensureFreshToken(user);
+      await safeCreateBusinessDoc(user, user.uid);
       await sendEmailVerification(user);
 
       setMsg({ error: '', success: 'Account created. Redirecting to dashboard…' });
+      // OTP is enforced above; only allow navigation after verified
       // Use selected role from form, fallback to prop, fallback to "Retailer"
-      const selectedRole = (form.role || role || "Retailer").charAt(0).toUpperCase() + (form.role || role || "Retailer").slice(1);
+      const selectedRole = (form.role || role || 'Retailer');
+      const normalizedRole = selectedRole.toLowerCase();
+      sessionStorage.setItem('postSignupRole', normalizedRole);
       setTimeout(() => {
-        if (selectedRole === "Retailer") {
-          navigate("/dashboard");
-        } else if (selectedRole === "Distributor") {
-          navigate("/distributor-dashboard");
-        } else if (selectedRole === "Product Owner") {
-          navigate("/product-owner-dashboard");
+        if (normalizedRole === 'retailer') {
+          navigate('/dashboard');
+        } else if (normalizedRole === 'distributor') {
+          navigate('/distributor-dashboard');
+        } else if (normalizedRole === 'product owner') {
+          navigate('/product-owner-dashboard');
         } else {
-          navigate("/dashboard"); // Fallback in case role is missing
+          navigate('/dashboard');
         }
       }, 2000);
     } catch (err) {
       console.error(err);
       if (err?.code === 'auth/email-already-in-use') {
         return setMsg({ error: 'Email already registered. Please sign in.', success: '' });
+      }
+      if (typeof err?.message === 'string' && err.message.includes('Missing or insufficient permissions')) {
+        return setMsg({ error: 'Security rules temporarily blocked registration. Please retry in a few seconds.', success: '' });
       }
       setMsg({ error: err?.message || 'Signup failed', success: '' });
     } finally {
@@ -292,36 +460,64 @@ const Register = ({ role = 'retailer' }) => {
       const businessSnap = await getDoc(businessRef);
       // Use selected role from form state if present, fallback to prop, fallback to "Retailer"
       const selectedRole = (form.role || role || "Retailer").charAt(0).toUpperCase() + (form.role || role || "Retailer").slice(1);
+      // Ensure token is fresh before first Firestore write (post Google sign-in)
+      await ensureFreshToken(user);
       if (!businessSnap.exists()) {
-        await setDoc(businessRef, {
-          ownerId: user.uid,
-          ownerName: user.displayName || "",
-          email: user.email || "",
-          phone: user.phoneNumber || "",
-          role: selectedRole,
-          createdAt: serverTimestamp(),
-          profileVersion: 1,
-          whatsappAlerts: false,
-          state: "",
-          zipcode: "",
-          gstnumber: "",
-          invoicePreference: "Minimal",
-          logoUrl: "",
-        });
+        try {
+          await setDoc(businessRef, {
+            ownerId: user.uid,
+            ownerName: user.displayName || "",
+            email: user.email || "",
+            phone: user.phoneNumber || "",
+            role: selectedRole,
+            createdAt: serverTimestamp(),
+            profileVersion: 1,
+            whatsappAlerts: false,
+            state: "",
+            zipcode: "",
+            gstnumber: "",
+            invoicePreference: "Minimal",
+            logoUrl: "",
+          });
+        } catch (err) {
+          const msg = String(err?.message || "");
+          if (msg.includes('Missing or insufficient permissions')) {
+            await new Promise((r) => setTimeout(r, 1200));
+            await ensureFreshToken(user);
+            await setDoc(businessRef, {
+              ownerId: user.uid,
+              ownerName: user.displayName || "",
+              email: user.email || "",
+              phone: user.phoneNumber || "",
+              role: selectedRole,
+              createdAt: serverTimestamp(),
+              profileVersion: 1,
+              whatsappAlerts: false,
+              state: "",
+              zipcode: "",
+              gstnumber: "",
+              invoicePreference: "Minimal",
+              logoUrl: "",
+            });
+          } else {
+            throw err;
+          }
+        }
       }
       // ---- End Firestore logic ----
       setMsg({ error: '', success: 'Signed in with Google. Redirecting…' });
       // Use selected role from form, fallback to prop, fallback to "Retailer"
-      const roleToNavigate = selectedRole;
+      const normalizedRole = selectedRole.toLowerCase();
+      sessionStorage.setItem('postSignupRole', normalizedRole);
       setTimeout(() => {
-        if (roleToNavigate === "Retailer") {
-          navigate("/dashboard");
-        } else if (roleToNavigate === "Distributor") {
-          navigate("/distributor-dashboard");
-        } else if (roleToNavigate === "Product Owner") {
-          navigate("/product-owner-dashboard");
+        if (normalizedRole === 'retailer') {
+          navigate('/dashboard');
+        } else if (normalizedRole === 'distributor') {
+          navigate('/distributor-dashboard');
+        } else if (normalizedRole === 'product owner') {
+          navigate('/product-owner-dashboard');
         } else {
-          navigate("/dashboard"); // Fallback in case role is missing
+          navigate('/dashboard');
         }
       }, 1500);
     } catch (error) {
@@ -336,8 +532,9 @@ const Register = ({ role = 'retailer' }) => {
     }
   };
 
-  // Use selected role from form, fallback to prop
-  const roleName = (form.role || role || "Retailer").charAt(0).toUpperCase() + (form.role || role || "Retailer").slice(1);
+  // Use selected role from form, query param, fallback to prop
+  const roleSource = form.role || roleParam || role || 'Retailer';
+  const roleName = toCanonicalRole(roleSource);
   const hero = roleName === 'Retailer'
     ? [
         { title: 'Auto‑billing in seconds', text: 'Scan, bill, and auto‑deduct stock — no spreadsheet drama.' },
@@ -356,19 +553,28 @@ const Register = ({ role = 'retailer' }) => {
     } catch (_) {}
   };
 
+  // If user arrived from the role chooser, set role from URL param
+  useEffect(() => {
+    try {
+      const picked = normalizeRoleKey(roleParam);
+      if (!picked) return;
+      setForm((prev) => ({ ...prev, role: toCanonicalRole(picked) }));
+    } catch (_) {}
+  }, [roleParam]);
+
   return (
     <div className="min-h-screen w-full relative overflow-hidden">
       {/* Page background (single source of truth) */}
       <div className="absolute inset-0 -z-10">
         {/* base color */}
-        <div className="absolute inset-0 bg-[#0b1220]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14]" />
         {/* radial washes */}
-        <div className="absolute inset-0 [background:radial-gradient(60%_50%_at_15%_10%,rgba(56,189,248,0.12),transparent_60%)]" />
-        <div className="absolute inset-0 [background:radial-gradient(60%_50%_at_85%_90%,rgba(217,70,239,0.10),transparent_60%)]" />
+        <div className="absolute inset-0 [background:radial-gradient(60%_50%_at_15%_10%,rgba(16,185,129,0.10),transparent_60%)]" />
+        <div className="absolute inset-0 [background:radial-gradient(60%_50%_at_85%_90%,rgba(6,182,212,0.08),transparent_60%)]" />
         {/* vignette */}
-        <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_100%)] bg-black/30 pointer-events-none" />
+        <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_35%,transparent_100%)] bg-black/25 pointer-events-none" />
         {/* subtle noise */}
-        <div className="absolute inset-0 opacity-[0.05] bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22160%22%20height=%22160%22%20viewBox=%220%200%20160%20160%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%222%22/%3E%3C/filter%3E%3Crect%20width=%22160%22%20height=%22160%22%20filter=%22url(%23n)%22%20opacity=%220.6%22/%3E%3C/svg%3E')]" />
+        <div className="absolute inset-0 opacity-[0.03] bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22160%22%20height=%22160%22%20viewBox=%220%200%20160%20160%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%222%22/%3E%3C/filter%3E%3Crect%20width=%22160%22%20height=%22160%22%20filter=%22url(%23n)%22%20opacity=%220.6%22/%3E%3C/svg%3E')]" />
       </div>
 
       <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-10 px-6 py-10 lg:py-20 relative">
@@ -389,7 +595,7 @@ const Register = ({ role = 'retailer' }) => {
             <div className="mt-6 space-y-4">
               {hero.map((b, i) => (
                 <div key={i} className="flex items-start gap-3">
-                  <div className="mt-1 h-2.5 w-2.5 rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" />
+                  <div className="mt-1 h-2.5 w-2.5 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400" />
                   <div>
                     <div className="text-sm font-semibold text-white">{b.title}</div>
                     <div className="text-xs text-slate-300">{b.text}</div>
@@ -415,25 +621,59 @@ const Register = ({ role = 'retailer' }) => {
               </div>
             </div>
 
-            <button onClick={scrollToForm} className="mt-8 inline-flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-cyan-200 hover:text-white hover:bg-cyan-400/20 transition">
+            <button onClick={scrollToForm} className="mt-8 inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-emerald-200 hover:text-white hover:bg-emerald-400/20 transition">
               Go to registration
               <Icon name="arrow-right" className="h-5 w-5" />
             </button>
+            {/* Bottom action row: Back • Home • Sign In */}
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => navigate('/auth?type=register')}
+                className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-white/90 bg-white/5 border border-white/10 hover:bg-white/10"
+              >
+                <Icon name="arrow-left" className="h-4 w-4" />
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="rounded-lg px-3 py-1.5 text-cyan-200 bg-white/5 border border-white/10 hover:bg-white/10"
+              >
+                Home
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/auth?type=login')}
+                className="rounded-lg px-3 py-1.5 text-emerald-200 bg-white/5 border border-white/10 hover:bg-white/10"
+              >
+                Sign In
+              </button>
+            </div>
           </div>
         </div>
 
         {/* RIGHT: Register card (primary) */}
         <div className="flex items-center justify-center">
-          <div onMouseMove={onMouseMove} className="w-full max-w-md relative">
+          <div onMouseMove={(e) => {
+            if (!glowRef.current) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const xPct = ((e.clientX - r.left) / r.width) * 100;
+            const yPct = ((e.clientY - r.top) / r.height) * 100;
+            if (mouseRAF.current) cancelAnimationFrame(mouseRAF.current);
+            mouseRAF.current = requestAnimationFrame(() => {
+              glowRef.current.style.background = `radial-gradient(240px circle at ${xPct}% ${yPct}%, rgba(16,185,129,.18), transparent 60%)`;
+            });
+          }} className="w-full max-w-md relative">
             {/* Cursor‑reactive glow */}
             <div
               ref={glowRef}
               className="pointer-events-none absolute -inset-16 rounded-[32px] blur-3xl opacity-40 transition-opacity"
             />
             {/* Glow behind card */}
-            <div className="absolute -inset-1 rounded-[22px] bg-gradient-to-r from-cyan-500/30 via-blue-500/30 to-fuchsia-500/30 blur-2xl" />
+            <div className="absolute -inset-1 rounded-[22px] bg-gradient-to-r from-emerald-400/25 via-teal-300/25 to-cyan-400/25 blur-2xl" />
 
-            <div className="relative rounded-2xl border border-white/15 bg-white/10 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.45)]">
+            <div className="relative rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]">
               {/* Start here badge */}
               <div className="absolute -top-3 left-6 px-3 py-1 rounded-full text-[11px] font-semibold text-slate-900 bg-gradient-to-r from-emerald-300 to-cyan-300 shadow">
                 Start here
@@ -441,7 +681,7 @@ const Register = ({ role = 'retailer' }) => {
 
               {/* Header */}
               <div className="px-6 pt-6 text-center">
-                <h1 className="text-transparent bg-clip-text bg-gradient-to-r from-white via-cyan-200 to-white text-3xl font-extrabold tracking-tight">Create your FLYP account</h1>
+                <h1 className="text-2xl font-bold text-white">Create your FLYP account</h1>
                 <p className="text-slate-300 mt-1 text-sm">30‑second signup. Finish the rest later in Profile Settings.</p>
               </div>
 
@@ -450,20 +690,22 @@ const Register = ({ role = 'retailer' }) => {
                 <div className="text-slate-300">
                   Joining as{' '}
                   <span className="font-semibold text-white">{roleName}</span>
-                  {/* Role selection UI */}
-              <select
-                name="role"
-                value={form.role || roleName}
-                onChange={onChange}
-                className="ml-2 px-2 py-1 rounded bg-slate-900/60 border border-white/20 text-cyan-200 text-xs"
-                style={{ minWidth: 90 }}
-              >
-                <option value="Retailer">Retailer</option>
-                <option value="Distributor">Distributor</option>
-                <option value="Product Owner">Product Owner</option>
-              </select>
+                  {/* Role selection UI: hide when coming from chooser */}
+                  {cameFromChooser ? null : (
+                    <select
+                      name="role"
+                      value={form.role || toCanonicalRole(role)}
+                      onChange={onChange}
+                      className="ml-2 px-2 py-1 rounded bg-slate-900/60 border border-white/20 text-emerald-200 text-xs"
+                      style={{ minWidth: 110 }}
+                    >
+                      <option value="Retailer">Retailer</option>
+                      <option value="Distributor">Distributor</option>
+                      <option value="Product Owner">Product Owner</option>
+                    </select>
+                  )}
                 </div>
-                <div className="px-2 py-1 rounded-md bg-slate-900/40 border border-white/10 text-cyan-300 flex items-center gap-1">
+                <div className="px-2 py-1 rounded-md bg-slate-900/40 border border-white/10 text-emerald-300 flex items-center gap-1">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
                   <span>Protected by Firebase</span>
                 </div>
@@ -471,7 +713,7 @@ const Register = ({ role = 'retailer' }) => {
 
               {/* Google */}
               <div className="px-6 mt-4">
-                <button onClick={handleGoogle} disabled={loading} className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 bg-white text-slate-900 font-medium shadow hover:shadow-md transition active:scale-[0.99]">
+                <button onClick={handleGoogle} disabled={loading} className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 bg-white text-slate-900 font-medium shadow hover:shadow-lg transition active:scale-[0.99]">
                   <Icon name="google" className="h-5 w-5" />
                   Continue with Google
                 </button>
@@ -497,14 +739,14 @@ const Register = ({ role = 'retailer' }) => {
                   value={form.ownerName}
                   onChange={onChange}
                   required
-                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-cyan-400/80 focus:border-cyan-400/40 transition"
+                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
                 />
               </label>
 
                 {/* Phone */}
                 <div className="mt-3">
                   <label className="block text-sm mb-1 text-slate-200">Phone</label>
-                  <div className="flex items-center rounded-xl bg-white/10 text-white border border-white/15 focus-within:ring-2 focus-within:ring-cyan-400/80 focus-within:border-cyan-400/40">
+                  <div className="flex items-center rounded-xl bg-white/10 text-white border border-white/15 focus-within:ring-2 focus-within:ring-emerald-400/80 focus-within:border-emerald-300/40">
                     <span className="pl-3 pr-2 text-slate-300/90 select-none">+91</span>
                     <div className="h-6 w-px bg-white/10" />
                     <input
@@ -522,6 +764,23 @@ const Register = ({ role = 'retailer' }) => {
                       aria-label="10-digit Indian mobile number"
                     />
                   </div>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {!otpVerified ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={startOtpFlow}
+                          disabled={otpBusy || sanitize10Digits(form.phone).length !== 10}
+                          className="inline-flex w-fit items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-emerald-200 hover:bg-emerald-400/20 disabled:opacity-50"
+                        >
+                          Verify with OTP
+                        </button>
+                        {otpInfo && <div className="text-xs text-slate-300">{otpInfo}</div>}
+                      </>
+                    ) : (
+                      <div className="text-xs text-emerald-300">Phone verified ✅</div>
+                    )}
+                  </div>
                   <p className="mt-1 text-xs text-slate-400">Enter 10 digits. Country code is fixed to India (+91).</p>
                 </div>
 
@@ -535,7 +794,7 @@ const Register = ({ role = 'retailer' }) => {
                     value={form.email}
                     onChange={onChange}
                     required
-                    className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-cyan-400/80 focus:border-cyan-400/40 transition"
+                    className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
                   />
                 </label>
 
@@ -550,7 +809,7 @@ const Register = ({ role = 'retailer' }) => {
                   onChange={onChange}
                   required
                   minLength={6}
-                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-cyan-400/80 focus:border-cyan-400/40 transition"
+                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
                 />
               </label>
 
@@ -565,7 +824,7 @@ const Register = ({ role = 'retailer' }) => {
                   onChange={onChange}
                   required
                   minLength={6}
-                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-cyan-400/80 focus:border-cyan-400/40 transition"
+                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
                 />
               </label>
 
@@ -588,7 +847,7 @@ const Register = ({ role = 'retailer' }) => {
                       placeholder="E.g., 27ABCDE1234F1Z5"
                       value={form.gstin}
                       onChange={onChange}
-                      className="w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-cyan-400/80 focus:border-cyan-400/40 transition uppercase"
+                      className="w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition uppercase"
                     />
                   </div>
                 </div>
@@ -627,8 +886,8 @@ const Register = ({ role = 'retailer' }) => {
 
                 <button
                   type="submit"
-                  disabled={loading || sanitize10Digits(form.phone).length !== 10}
-                  className="mt-5 w-full relative overflow-hidden rounded-xl bg-gradient-to-r from-cyan-500 via-blue-500 to-fuchsia-500 py-3 font-semibold text-white shadow-lg transition [--shine:linear-gradient(120deg,transparent,rgba(255,255,255,.6),transparent)] hover:shadow-cyan-500/30 hover:-translate-y-0.5 transition-transform active:scale-[.99] disabled:opacity-60"
+                  disabled={loading || sanitize10Digits(form.phone).length !== 10 || !otpVerified}
+                  className="mt-5 w-full relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 py-3 font-semibold text-slate-900 shadow-lg transition [--shine:linear-gradient(120deg,transparent,rgba(255,255,255,.6),transparent)] hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] hover:-translate-y-0.5 transition-transform active:scale-[.99] disabled:opacity-60"
                 >
                   <span className="relative z-10">{loading ? 'Creating account…' : 'Create account'}</span>
                   <span className="absolute inset-0 opacity-0 hover:opacity-100 transition-opacity [background-image:var(--shine)] bg-[length:250%_100%] bg-[position:-100%_0] hover:animate-[shine_1.6s_ease-in-out_infinite]" />

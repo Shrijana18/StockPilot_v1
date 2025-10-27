@@ -50,6 +50,11 @@ exports.createProvisionalRetailer = createProvisionalRetailer;
 const { claimProvisionalRetailer } = require("./handlers/claimProvisionalRetailer");
 exports.claimProvisionalRetailer = claimProvisionalRetailer;
 
+// OTP (MSG91)
+const { sendOtp, verifyOtp } = require("./otp/flypotp");
+exports.sendOtp = sendOtp;
+exports.verifyOtp = verifyOtp;
+
 // ============================
 // Utility Modules (Internal use)
 // ============================

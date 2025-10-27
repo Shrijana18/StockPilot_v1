@@ -56,6 +56,11 @@ export const AuthProvider = ({ children }) => {
             ? String(rawRole).toLowerCase().replace(/\s|_/g, '')
             : null;
           setRole(normalizedRole);
+          // 🧩 Fallback: if Firestore role not ready yet, honor post-signup hint temporarily
+          if (!normalizedRole && typeof window !== 'undefined') {
+            const pending = sessionStorage.getItem('postSignupRole');
+            if (pending) setRole(pending.toLowerCase().replace(/\s+/g, ''));
+          }
         } catch (err) {
           console.warn('[Auth] Role fetch failed for uid', firebaseUser.uid, err?.message || err);
           setRole(null);

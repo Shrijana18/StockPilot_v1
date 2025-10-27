@@ -1108,23 +1108,45 @@ const removeLine = React.useCallback((pid) => {
 
 
   return (
-    <div className="relative flex flex-col h-screen min-h-0 bg-slate-50 dark:bg-slate-950">
+    <div className="relative flex flex-col min-h-screen text-slate-100">
+      {/* Base gradient (green–blue) */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10" style={{
+        backgroundImage:
+          'linear-gradient(180deg, #071a2b 0%, #0b2944 55%, #071a2b 100%)'
+      }} />
+
+      {/* Radial sky glow (top-right) */}
+      <div aria-hidden className="pointer-events-none absolute -z-10 right-[-12vw] top-[-10vh] h-[55vh] w-[55vw] rounded-full blur-3xl opacity-60"
+           style={{ background: 'radial-gradient(closest-side, rgba(56,189,248,0.25), rgba(56,189,248,0.08), rgba(7,26,43,0))' }} />
+
+      {/* Radial emerald glow (left) */}
+      <div aria-hidden className="pointer-events-none absolute -z-10 left-[-18vw] top-[5vh] h-[65vh] w-[60vw] rounded-full blur-3xl opacity-60"
+           style={{ background: 'radial-gradient(closest-side, rgba(16,185,129,0.24), rgba(16,185,129,0.08), rgba(7,26,43,0))' }} />
+
+      {/* Starfield sprinkle */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 opacity-60" style={{
+        backgroundImage:
+          'radial-gradient(2px 2px at 20% 15%, rgba(255,255,255,0.16) 0, rgba(255,255,255,0) 60%),\
+           radial-gradient(1.5px 1.5px at 70% 35%, rgba(255,255,255,0.12) 0, rgba(255,255,255,0) 60%),\
+           radial-gradient(1.5px 1.5px at 35% 75%, rgba(255,255,255,0.10) 0, rgba(255,255,255,0) 60%)',
+        maskImage: 'linear-gradient(to bottom, black, black, rgba(0,0,0,0.85) 60%, rgba(0,0,0,0.6))'
+      }} />
       {/* ... (Top Bar and other JSX remains the same) ... */}
-      <div className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur border-b border-slate-200 dark:border-slate-800">
+      <div className="sticky top-0 z-30 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
         <div className="px-4 py-3 flex gap-2 items-center">
           <button
             onClick={onBack}
-            className="rounded-lg px-4 py-2 text-sm font-semibold border hover:bg-slate-50 dark:hover:bg-slate-800"
+            className="rounded-lg px-4 py-2 text-sm font-semibold border border-white/10 bg-white/5 hover:bg-white/10"
           >← Back</button>
           <button
             onClick={() => setScanOpen(true)}
-            className="rounded-lg px-4 py-2 text-sm font-semibold border hover:bg-slate-50 dark:hover:bg-slate-800"
+            className="rounded-lg px-4 py-2 text-sm font-semibold border border-white/10 bg-white/5 hover:bg-white/10"
             type="button"
             style={{ marginLeft: "0.5rem" }}
           >Scan</button>
           <h2 className="text-lg font-semibold">Billing POS</h2>
           <div className="ml-auto">
-            <div className="inline-flex gap-1 rounded-full px-1 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <div className="inline-flex gap-1 rounded-full px-1 py-1 bg-white/5 border border-white/10">
               <button onClick={() => setPosMode('inventory')} className={`px-3 py-1 text-xs rounded-full ${posMode==='inventory' ? 'bg-emerald-500 text-white' : ''}`}>Inventory</button>
               <button onClick={() => setPosMode('scanner')} className={`px-3 py-1 text-xs rounded-full ${posMode==='scanner' ? 'bg-emerald-500 text-white' : ''}`}>Scanner</button>
             </div>
@@ -1133,14 +1155,15 @@ const removeLine = React.useCallback((pid) => {
       </div>
 
       <div
-        className="grid flex-1 min-h-0 h-full"
+        className="grid overflow-hidden"
         style={{
+          height: 'calc(100vh - 56px)',
           gridTemplateColumns: posMode === "expandedCart" ? "1fr" : (posMode === "scanner" ? "360px 1fr" : "1fr 420px")
         }}
       >
         {/* Product/Search/Scanner Column */}
         {posMode === 'expandedCart' ? null : (posMode === "scanner" ? (
-          <div className="flex flex-col min-h-0 border-r border-slate-200 dark:border-slate-800 overflow-y-auto">
+          <div className="flex flex-col min-h-0 border-r border-white/10 overflow-y-auto">
             <div className="p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold">Scanner Mode</div>
@@ -1174,11 +1197,11 @@ const removeLine = React.useCallback((pid) => {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col flex-1 min-h-0 border-r border-slate-200 dark:border-slate-800 overflow-y-auto">
+          <div className="flex flex-col flex-1 min-h-0 border-r border-white/10 overflow-y-auto">
             <div className="p-4 space-y-3">
               {/* Adaptive Mode Switcher */}
               <div className="flex flex-wrap items-center gap-2 justify-between w-full">
-                <div className="flex gap-1 rounded-full px-1.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm transition-all">
+                <div className="flex gap-1 rounded-full px-1.5 py-1 bg-white/5 border border-white/10 shadow-sm transition-all">
                   <button
                     onClick={() => setPosMode("inventory")}
                     className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all duration-150 ${posMode === "inventory" ? "bg-emerald-500 text-white shadow-sm" : "bg-transparent text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"}`}
@@ -1210,7 +1233,7 @@ const removeLine = React.useCallback((pid) => {
                 <div className="h-10 overflow-x-auto whitespace-nowrap flex items-center gap-2 pr-2" style={{ WebkitOverflowScrolling: 'touch' }}>
                   <button
                     onClick={async () => { setActiveCat(undefined); setQ(""); await loadDefaultListing(); }}
-                    className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold border ${!activeCat ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                    className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold border ${!activeCat ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white/10 hover:bg-white/20 border-white/10'}`}
                     type="button"
                   >All · {allResults?.length || 0}</button>
                   {allCategories.map((c) => {
@@ -1220,7 +1243,7 @@ const removeLine = React.useCallback((pid) => {
                       <button
                         key={`chip-${catId}`}
                         onClick={() => pickCategory(c)}
-                        className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold border ${activeCat === catId ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold border ${activeCat === catId ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white/10 hover:bg-white/20 border-white/10'}`}
                         type="button"
                       >{c.name}{typeof count === 'number' ? ` · ${count}` : ''}</button>
                     );
@@ -1242,11 +1265,11 @@ const removeLine = React.useCallback((pid) => {
                     }}
                     inputMode="search"
                     placeholder="Scan barcode or search products"
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-800/70 backdrop-blur px-9 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-300/40 transition-all" />
+                    className="w-full rounded-xl border border-white/10 bg-white/10 backdrop-blur px-9 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-300/40 transition-all" />
                 </div>
                 <button
                   onClick={() => { if (searchTimer.current) clearTimeout(searchTimer.current); setQ(""); setActiveCat(undefined); setResults(allResults); setLoading(false); } }
-                  className="rounded-xl border px-3 py-2.5 text-sm bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700">Clear</button>
+                  className="rounded-xl border border-white/10 bg-white/10 hover:bg-white/20 px-3 py-2.5 text-sm">Clear</button>
               </div>
               {/* keep the rest of the inventory grid exactly as it was */}
               {/* START of original inventory grid */}
@@ -1267,23 +1290,23 @@ const removeLine = React.useCallback((pid) => {
                             <motion.div
                               key={p.id} layout initial={{ opacity: 0, scale: 0.96, y: 24 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.92, y: -24 }} transition={{ duration: 0.18 }}
                               onClick={() => addToCart(p)}
-                              className={`group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 text-left relative flex flex-col transition-all cursor-pointer hover:shadow-lg hover:border-emerald-400 dark:hover:border-emerald-500`}>
+                              className={`group rounded-2xl border border-white/10 bg-white/5 p-3 text-left relative flex flex-col transition-all duration-200 cursor-pointer hover:translate-y-[-2px] hover:bg-white/10 hover:shadow-xl hover:border-emerald-400`}>
                               <div className="absolute top-2 left-2 z-20">
                                 <span className={`px-2 py-0.5 text-xs font-semibold text-white rounded-full ${stockStatus.color}`}>{stockStatus.text}</span>
                               </div>
                               <div className="relative">
-                                {displayImg ? (<img loading="lazy" src={displayImg} alt={displayName} className={`w-full h-32 object-cover rounded-xl mb-2 shadow-sm`} />) : (<div className={`w-full h-32 rounded-xl bg-slate-100 dark:bg-slate-800 mb-2`} />)}
+                                {displayImg ? (<img loading="lazy" src={displayImg} alt={displayName} className={`w-full h-32 object-cover rounded-xl mb-2 shadow-sm`} />) : (<div className={`w-full h-32 rounded-xl bg-white/10 mb-2`} />)}
                                 {isOutOfStock && (<div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center text-white font-bold text-lg">Out of Stock</div>)}
                               </div>
                               <div className="mt-1 text-sm font-semibold line-clamp-2 h-10">{displayName}</div>
-                              <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-300 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                              <div className="mt-1 text-[12px] text-white/70 grid grid-cols-2 gap-x-2 gap-y-0.5">
                                 <div className="truncate" title={`Brand: ${p.brand || '-'}`}>Brand: {p.brand || '—'}</div>
                                 <div className="truncate" title={`HSN: ${p.hsnCode || '-'}`}>HSN: {p.hsnCode || '—'}</div>
                                 <div className="truncate" title={`GST: ${Number(p.gstRate ?? p.taxRate ?? 0)}%`}>GST: {Number(p.gstRate ?? p.taxRate ?? 0)}%</div>
                                 <div className="truncate" title={`Stock: ${typeof p.quantity === 'number' ? p.quantity : '-'}`}>Stock: {typeof p.quantity === 'number' ? p.quantity : '—'}</div>
                                 <div className="truncate col-span-2" title={`Unit: ${p.unit || '-'}`}>Unit: {p.unit || '—'}</div>
                               </div>
-                              <div className="text-base font-bold text-slate-800 dark:text-slate-100 mt-auto pt-2">₹ {money(displayPrice)}</div>
+                              <div className="text-base font-bold text-slate-100 mt-auto pt-2">₹ {money(displayPrice)}</div>
                             </motion.div>
                           );
                         })}
@@ -1304,27 +1327,27 @@ const removeLine = React.useCallback((pid) => {
         ))}
 
         {/* Col 2: Cart */}
-        <div className={`${posMode === 'expandedCart' ? 'w-full' : 'w-[420px]'} bg-white dark:bg-slate-900 min-h-0 h-full`}>
+        <div className={`${posMode === 'expandedCart' ? 'w-full' : 'w-[420px]'} bg-transparent sticky top-[56px] self-start h-[calc(100vh-56px)]`}>
           <div className="flex flex-col h-full min-h-0">
-            <div className="p-4 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800">
+            <div className="p-4 flex items-center gap-2 border-b border-white/10">
               <div className="text-base font-semibold tracking-tight">Current Order</div>
               <div className="ml-auto flex items-center gap-2">
-                <button onClick={holdCurrentOrder} className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800" type="button">Hold</button>
+                <button onClick={holdCurrentOrder} className="text-xs rounded-lg border border-white/10 px-2 py-1 bg-white/5 hover:bg-white/10" type="button">Hold</button>
                 <div className="relative group">
-                  <button className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800" type="button">Drafts ({drafts.length})</button>
+                  <button className="text-xs rounded-lg border border-white/10 px-2 py-1 bg-white/5 hover:bg-white/10" type="button">Drafts ({drafts.length})</button>
                   <div className="absolute right-0 mt-1 hidden group-hover:block z-30 w-64 rounded-xl border bg-white dark:bg-slate-900 shadow-lg max-h-64 overflow-auto">
                     {drafts.length === 0 ? (
                       <div className="p-3 text-xs text-slate-500">No drafts</div>
                     ) : (
                       drafts.map(d => (
-                        <div key={d.id} className="flex items-center justify-between text-xs px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800">
+                        <div key={d.id} className="flex items-center justify-between text-xs px-3 py-2 hover:bg-white/10">
                           <div className="truncate">
                             <div className="font-semibold">{d.id}</div>
                             <div className="text-slate-500">{new Date(d.createdAt).toLocaleTimeString()}</div>
                           </div>
                           <div className="flex items-center gap-1">
-                            <button onClick={() => resumeDraft(d.id)} className="rounded border px-2 py-0.5">Resume</button>
-                            <button onClick={() => deleteDraft(d.id)} className="rounded border px-2 py-0.5 text-rose-600">×</button>
+                            <button onClick={() => resumeDraft(d.id)} className="rounded border border-white/10 bg-white/5 px-2 py-0.5">Resume</button>
+                            <button onClick={() => deleteDraft(d.id)} className="rounded border border-white/10 bg-white/5 px-2 py-0.5 text-rose-600">×</button>
                           </div>
                         </div>
                       ))
@@ -1332,9 +1355,9 @@ const removeLine = React.useCallback((pid) => {
                   </div>
                 </div>
                 {posMode !== 'expandedCart' ? (
-                  <button onClick={() => { setIsCartExpanded(true); setPosMode('expandedCart'); }} className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800" type="button">Expand</button>
+                  <button onClick={() => { setIsCartExpanded(true); setPosMode('expandedCart'); }} className="text-xs rounded-lg border border-white/10 px-2 py-1 bg-white/5 hover:bg-white/10" type="button">Expand</button>
                 ) : (
-                  <button onClick={() => { setIsCartExpanded(false); setPosMode('inventory'); }} className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800" type="button">Collapse</button>
+                  <button onClick={() => { setIsCartExpanded(false); setPosMode('inventory'); }} className="text-xs rounded-lg border border-white/10 px-2 py-1 bg-white/5 hover:bg-white/10" type="button">Collapse</button>
                 )}
               </div>
             </div>
@@ -1353,7 +1376,7 @@ const removeLine = React.useCallback((pid) => {
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.93, y: -18 }}
                       transition={{ duration: 0.18 }}
-                      className={`flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-800 p-2.5 bg-slate-50/70 dark:bg-slate-800/70`}>
+                      className={`flex items-start gap-3 rounded-xl border border-white/10 p-2.5 bg-white/5`}>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{cartDisplayName}</div>
                         <div className="text-xs text-slate-500">₹ {money(cartDisplayPrice)}</div>
@@ -1369,17 +1392,17 @@ const removeLine = React.useCallback((pid) => {
                         </button>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <button onClick={() => decQty(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all text-base font-bold" type="button">−</button>
+                        <button onClick={() => decQty(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/20 transition-all text-base font-bold" type="button">−</button>
                         <div className={`w-6 text-center text-sm font-semibold`}>{line.qty}</div>
-                        <button onClick={() => incQty(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all text-base font-bold" type="button">＋</button>
+                        <button onClick={() => incQty(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/20 transition-all text-base font-bold" type="button">＋</button>
                       </div>
                       <div className="w-20 text-right text-sm font-semibold pt-1">₹ {money(Math.max(0, (cartDisplayPrice * line.qty) - (line.discount ?? 0)))}</div>
-                      <button onClick={() => removeLine(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all text-base font-bold text-rose-600" type="button">×</button>
+                      <button onClick={() => removeLine(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border border-white/10 bg-white/5 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all text-base font-bold text-rose-600" type="button">×</button>
                     </motion.div>
                   );
                 })}
               </AnimatePresence>
-              {!cart.length && <div className="text-sm text-slate-500 text-center py-16">Your cart is empty</div>}
+              {!cart.length && <div className="text-sm text-white/60 text-center py-16">Your cart is empty</div>}
             </div>
 
             <DiscountEditor
@@ -1395,19 +1418,19 @@ const removeLine = React.useCallback((pid) => {
             />
 
             {/* Checkout Section - sticky at bottom */}
-            <div className="mt-auto p-4 border-t border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur space-y-3 sticky bottom-0">
+            <div className="mt-auto p-4 border-t border-white/10 bg-white/5 backdrop-blur space-y-3 sticky bottom-0">
               <div className="flex gap-2">
-                <div className="flex-1 rounded-xl border p-2.5 bg-white/80 dark:bg-slate-900/80">
+                <div className="flex-1 rounded-xl border border-white/10 p-2.5 bg-white/5">
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-semibold">Customer</div>
-                    <button onClick={() => setShowCustomer(s => !s)} className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800" type="button">{customer.name ? 'Edit' : "Add"}</button>
+                    <button onClick={() => setShowCustomer(s => !s)} className="text-xs rounded-lg border border-white/10 bg-white/5 px-2 py-1 hover:bg-white/10" type="button">{customer.name ? 'Edit' : "Add"}</button>
                   </div>
-                  {customer.name && !showCustomer && <p className="text-xs text-slate-500 truncate mt-1">{customer.name}</p>}
+                  {customer.name && !showCustomer && <p className="text-xs text-slate-100 truncate mt-1">{customer.name}</p>}
                 </div>
               </div>
 
               {showCustomer && (
-                <div className="rounded-xl border p-3 mt-2">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3 mt-2">
                   <CustomerForm customer={customer} setCustomer={setCustomer} />
                 </div>
               )}
@@ -1447,7 +1470,7 @@ const removeLine = React.useCallback((pid) => {
                     </button>
                 </div>
                 
-                <div className="flex justify-between text-lg font-semibold pt-1 border-t mt-1"><span>Total</span><span>₹ {money(totals.grandTotal)}</span></div>
+                <div className="flex justify-between text-lg font-semibold pt-1 border-t border-white/10 mt-1"><span>Total</span><span>₹ {money(totals.grandTotal)}</span></div>
               </div>
 
               {/* --- MODIFIED: Checkout Button now opens the Payment Modal --- */}

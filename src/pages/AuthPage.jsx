@@ -24,6 +24,13 @@ const AuthPage = () => {
   }, [type, navigate]);
 
   useEffect(() => {
+    // If a post-signup role hint exists, skip auto-redirects to avoid racing the initial navigation
+    const pending = (typeof window !== 'undefined' && sessionStorage.getItem('postSignupRole')) || null;
+    if (pending) {
+      setIsLoadingUser(false);
+      return;
+    }
+
     const checkUserRoleAndRedirect = async () => {
       if (!user) {
         setIsLoadingUser(false);
@@ -35,12 +42,17 @@ const AuthPage = () => {
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const userData = docSnap.data();
-          const role = userData.role?.toLowerCase();
+          const normalized = (userData.role || '').toString().toLowerCase().replace(/\s+/g, '');
 
-          if (role === "retailer") navigate("/dashboard");
-          else if (role === "distributor") navigate("/distributor-dashboard");
-          else if (role === "productowner" || role === "product owner") navigate("/product-owner-dashboard");
-          else navigate("/");
+          if (normalized === "retailer") {
+            if (!location.pathname.includes("/dashboard")) navigate("/dashboard", { replace: true });
+          } else if (normalized === "distributor") {
+            if (!location.pathname.includes("/distributor-dashboard")) navigate("/distributor-dashboard", { replace: true });
+          } else if (normalized === "productowner") {
+            if (!location.pathname.includes("/product-owner-dashboard")) navigate("/product-owner-dashboard", { replace: true });
+          } else {
+            if (!location.pathname.includes("/")) navigate("/", { replace: true });
+          }
         } else {
           console.warn("No user profile found in Firestore.");
           navigate("/");
@@ -59,6 +71,37 @@ const AuthPage = () => {
       setIsLoadingUser(false);
     }
   }, [user, type]);
+
+  useEffect(() => {
+    const pending = (typeof window !== 'undefined' && sessionStorage.getItem('postSignupRole')) || null;
+    if (pending) return; // let the first post-signup navigation proceed without interference
+
+    // Block authenticated users from accessing the register page; redirect based on role
+    if (!user || type !== "register") return;
+    (async () => {
+      try {
+        const ref = doc(db, "businesses", user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const normalized = (snap.data().role || '').toString().toLowerCase().replace(/\s+/g, '');
+          if (normalized === "retailer") {
+            if (!location.pathname.includes("/dashboard")) navigate("/dashboard", { replace: true });
+          } else if (normalized === "distributor") {
+            if (!location.pathname.includes("/distributor-dashboard")) navigate("/distributor-dashboard", { replace: true });
+          } else if (normalized === "productowner") {
+            if (!location.pathname.includes("/product-owner-dashboard")) navigate("/product-owner-dashboard", { replace: true });
+          } else {
+            if (!location.pathname.includes("/")) navigate("/", { replace: true });
+          }
+        } else {
+          if (!location.pathname.includes("/")) navigate("/", { replace: true });
+        }
+      } catch (e) {
+        console.error("Error resolving role for register guard:", e);
+        if (!location.pathname.includes("/")) navigate("/", { replace: true });
+      }
+    })();
+  }, [user, type, navigate, location.pathname]);
 
   if (isLoadingUser) {
     return (

@@ -6,6 +6,18 @@ import { useAuth } from '../context/AuthContext';
 const PrivateRoute = ({ requireRole }) => {
   const { user, role, authLoading } = useAuth();
 
+  // Read a one-time post-signup role hint (set by Register.jsx) and normalize it
+  const pending = (typeof window !== 'undefined' && sessionStorage.getItem('postSignupRole')) || null;
+  const pendingNorm = (pending || '').toLowerCase().replace(/\s+/g, '');
+
+  // If AuthContext has now loaded a role that matches the hint, clear the hint
+  if (pending && role) {
+    const roleNorm = (role || '').toLowerCase().replace(/\s+/g, '');
+    if (roleNorm === pendingNorm) {
+      try { sessionStorage.removeItem('postSignupRole'); } catch (_) {}
+    }
+  }
+
   // 1) Wait for Firebase to finish restoring the session
   if (authLoading) {
     return <div className="text-center mt-20 text-gray-500">Loading...</div>;
@@ -19,8 +31,17 @@ const PrivateRoute = ({ requireRole }) => {
   // 3) If a specific role is required, enforce it against normalized role tokens
   //    (role is normalized in AuthContext to retailer | distributor | productowner)
   if (requireRole && role !== requireRole) {
-    // Send to a safe default dashboard if role doesn't match
-    return <Navigate to="/dashboard" replace />;
+    // If we just signed up and the pending role matches the required role, allow access once
+    if (pendingNorm && pendingNorm === requireRole) {
+      return <Outlet />;
+    }
+
+    // Otherwise redirect the user to their actual role dashboard
+    const normalizedRole = (role || "").toLowerCase().replace(/\s+/g, "");
+    let redirectTo = "/dashboard";
+    if (normalizedRole === "distributor") redirectTo = "/distributor-dashboard";
+    else if (normalizedRole === "productowner") redirectTo = "/product-owner-dashboard";
+    return <Navigate to={redirectTo} replace />;
   }
 
   // 4) All good -> render nested routes

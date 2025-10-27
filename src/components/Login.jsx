@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { getAuth, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
 import { useNavigate } from 'react-router-dom';
 
@@ -97,6 +96,53 @@ const Login = () => {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    try {
+      setError('');
+      setLoading(true);
+      // Keep session after refresh
+      await setPersistence(auth, browserLocalPersistence);
+
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      // Try to read role; if missing, create a minimal doc with a safe default role
+      const ref = doc(db, 'businesses', user.uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          ownerName: user.displayName || '',
+          email: user.email || '',
+          photoURL: user.photoURL || '',
+          role: 'Retailer',
+          createdAt: new Date(),
+          authProvider: 'google'
+        }, { merge: true });
+      }
+
+      const roleRaw = (snap.exists() ? snap.data()?.role : 'Retailer') || 'Retailer';
+      const role = String(roleRaw).toLowerCase().replace(/\s|_/g, '');
+
+      if (role === 'retailer') {
+        navigate('/dashboard');
+      } else if (role === 'distributor') {
+        navigate('/distributor-dashboard');
+      } else if (role === 'productowner') {
+        navigate('/product-owner-dashboard');
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('[Login] Google Sign-In Error:', error?.code, error?.message);
+      setError(error?.message || 'Google sign-in failed. Try again or use email login.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14]">
       <LoadBarKeyframes />
@@ -128,6 +174,22 @@ const Login = () => {
               {error}
             </div>
           )}
+          <div className="px-7 sm:px-8 pb-2">
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              className="w-full mb-4 flex items-center justify-center gap-3 py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 transition disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
+              Sign in with Google
+            </button>
+          </div>
+          <div className="flex items-center px-7 sm:px-8 pb-2">
+            <div className="flex-1 h-px bg-white/20"></div>
+            <span className="px-3 text-xs text-white/60">or</span>
+            <div className="flex-1 h-px bg-white/20"></div>
+          </div>
 
           <form onSubmit={handleSubmit} noValidate className="px-7 sm:px-8 pb-8 space-y-4">
             <div className="group">
