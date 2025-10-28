@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import LiveCaption from "../components/billing/LiveCaption";
 import { useSpeechStream } from "../hooks/useSpeechStream";
+import { auth } from "../firebase/firebaseConfig";
 
 /**
  * VoiceCapture
@@ -74,10 +75,16 @@ export default function VoiceCapture({ onFinalize, onParsedResult, autoStopSilen
 
           // 🔁 Send to parser function
           try {
+            const user = auth.currentUser;
+            const userId = user?.uid || null;
+            const token = user ? await user.getIdToken() : null;
             const res = await fetch("https://us-central1-stockpilotv1.cloudfunctions.net/parseVoice", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: t }),
+              headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify({ text: t, userId }),
             });
             const parsed = await res.json();
             console.log("🎯 Parsed result:", parsed);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../../../firebase/firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import jsPDF from 'jspdf';
@@ -109,11 +109,21 @@ const computeBreakdown = (order) => {
 };
 
 // Predicate for pending proforma actions (quoted or proforma sent)
-const isProformaPending = (order) => (
-  order?.statusCode === 'PROFORMA_SENT' ||
-  order?.statusCode === 'QUOTED' ||
-  order?.status === 'Quoted'
-);
+const isProformaPending = (order) => {
+  const statusCode = order?.statusCode;
+  const status = order?.status;
+  
+  // Check both statusCode and status fields for maximum compatibility
+  return (
+    statusCode === 'PROFORMA_SENT' ||
+    statusCode === 'QUOTED' ||
+    status === 'Quoted' ||
+    status === 'PROFORMA_SENT' ||
+    // Also check for proforma data presence
+    (order?.proforma && (statusCode === 'QUOTED' || status === 'Quoted')) ||
+    (order?.chargesSnapshot && (statusCode === 'QUOTED' || status === 'Quoted'))
+  );
+};
 
 const OrderStatusTab = () => {
   const [orders, setOrders] = useState([]);
@@ -127,28 +137,70 @@ const OrderStatusTab = () => {
   const [customToDate, setCustomToDate] = useState('');
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    let unsubAuth = null;
+    let unsubOrders = null;
+
+    unsubAuth = onAuthStateChanged(auth, (user) => {
+      // Cleanup previous orders listener when user changes
+      if (unsubOrders) {
+        try { unsubOrders(); } catch {}
+        unsubOrders = null;
+      }
+
       if (user) {
         setCurrentUser(user);
-        fetchOrders(user.uid);
+        const ref = collection(db, `businesses/${user.uid}/sentOrders`);
+        unsubOrders = onSnapshot(ref, (snapshot) => {
+          const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+          setOrders(list);
+          setFilteredOrders(list);
+        });
+      } else {
+        setCurrentUser(null);
+        setOrders([]);
+        setFilteredOrders([]);
       }
     });
-    return () => unsubscribe();
-  }, []);
 
-  const fetchOrders = async (uid) => {
-    const ref = collection(db, `businesses/${uid}/sentOrders`);
-    const snapshot = await getDocs(ref);
-    const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    setOrders(list);
-    setFilteredOrders(list);
-  };
+    return () => {
+      if (unsubOrders) {
+        try { unsubOrders(); } catch {}
+      }
+      if (unsubAuth) {
+        try { unsubAuth(); } catch {}
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let result = orders;
 
     if (statusFilter !== 'All') {
-      result = result.filter((order) => order.status === statusFilter);
+      result = result.filter((order) => {
+        // Check both status and statusCode for maximum compatibility
+        const orderStatus = order.status;
+        const orderStatusCode = order.statusCode;
+        
+        // Handle different status representations
+        if (statusFilter === 'Quoted') {
+          return orderStatus === 'Quoted' || orderStatusCode === 'QUOTED' || orderStatusCode === 'PROFORMA_SENT';
+        }
+        if (statusFilter === 'Requested') {
+          return orderStatus === 'Requested' || orderStatusCode === 'REQUESTED';
+        }
+        if (statusFilter === 'Accepted') {
+          return orderStatus === 'Accepted' || orderStatusCode === 'ACCEPTED';
+        }
+        if (statusFilter === 'Rejected') {
+          return orderStatus === 'Rejected' || orderStatusCode === 'REJECTED';
+        }
+        if (statusFilter === 'Modified') {
+          return orderStatus === 'Modified' || orderStatusCode === 'MODIFIED';
+        }
+        
+        // Fallback to exact match
+        return orderStatus === statusFilter;
+      });
     }
 
     if (searchTerm.trim()) {
@@ -423,13 +475,13 @@ const OrderStatusTab = () => {
                 </td>
                 <td className="p-2 border border-white/10">
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                    order.status === 'Accepted' ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-300/30' :
-                    order.status === 'Rejected' ? 'bg-rose-400/20 text-rose-300 border border-rose-300/30' :
-                    order.status === 'Modified' ? 'bg-amber-400/20 text-amber-300 border border-amber-300/30' :
-                    order.status === 'Quoted' ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-300/30' :
+                    (order.status === 'Accepted' || order.statusCode === 'ACCEPTED') ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-300/30' :
+                    (order.status === 'Rejected' || order.statusCode === 'REJECTED') ? 'bg-rose-400/20 text-rose-300 border border-rose-300/30' :
+                    (order.status === 'Modified' || order.statusCode === 'MODIFIED') ? 'bg-amber-400/20 text-amber-300 border border-amber-300/30' :
+                    (order.status === 'Quoted' || order.statusCode === 'QUOTED' || order.statusCode === 'PROFORMA_SENT') ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-300/30' :
                     'bg-white/10 text-white/70 border border-white/15'
                   }`}>
-                    {order.status}
+                    {order.status || order.statusCode || 'Unknown'}
                   </span>
                   {order.status === 'Rejected' && order.rejectionNote && (
                     <div className="text-xs text-rose-300 mt-1">Reason: {order.rejectionNote}</div>

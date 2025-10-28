@@ -18,7 +18,21 @@ const TrackOrderTab = () => {
 
   // ----- Helpers for DIRECT vs PROFORMA and charges snapshot -----
   const isDirect = (o) => o?.statusCode === 'DIRECT';
-  const isProformaPending = (o) => o?.statusCode === 'PROFORMA_SENT' || o?.statusCode === 'QUOTED' || o?.status === 'Quoted';
+  const isProformaPending = (o) => {
+    const statusCode = o?.statusCode;
+    const status = o?.status;
+    
+    // Check both statusCode and status fields for maximum compatibility
+    return (
+      statusCode === 'PROFORMA_SENT' ||
+      statusCode === 'QUOTED' ||
+      status === 'Quoted' ||
+      status === 'PROFORMA_SENT' ||
+      // Also check for proforma data presence
+      (o?.proforma && (statusCode === 'QUOTED' || status === 'Quoted')) ||
+      (o?.chargesSnapshot && (statusCode === 'QUOTED' || status === 'Quoted'))
+    );
+  };
   const getBreakdown = (o) => {
     const b = o?.chargesSnapshot?.breakdown || o?.proforma || {};
     const tb = b?.taxBreakup || {};
@@ -107,8 +121,30 @@ const TrackOrderTab = () => {
     fetchOrders();
   }, [auth]);
 
-  const filteredOrders =
-    filter === "All" ? orders : orders.filter((order) => order.status === filter);
+  const filteredOrders = filter === "All" ? orders : orders.filter((order) => {
+    const orderStatus = order.status;
+    const orderStatusCode = order.statusCode;
+    
+    // Handle different status representations
+    if (filter === 'Quoted') {
+      return orderStatus === 'Quoted' || orderStatusCode === 'QUOTED' || orderStatusCode === 'PROFORMA_SENT';
+    }
+    if (filter === 'Requested') {
+      return orderStatus === 'Requested' || orderStatusCode === 'REQUESTED';
+    }
+    if (filter === 'Accepted') {
+      return orderStatus === 'Accepted' || orderStatusCode === 'ACCEPTED';
+    }
+    if (filter === 'Rejected') {
+      return orderStatus === 'Rejected' || orderStatusCode === 'REJECTED';
+    }
+    if (filter === 'Modified') {
+      return orderStatus === 'Modified' || orderStatusCode === 'MODIFIED';
+    }
+    
+    // Fallback to exact match
+    return orderStatus === filter;
+  });
 
   const progressSteps = ['Requested', 'Quoted', 'Accepted', 'Modified', 'Shipped', 'Delivered'];
 
@@ -163,14 +199,14 @@ const TrackOrderTab = () => {
                   </td>
                   <td className="px-3 py-2 border border-white/10">{order.items?.length || 0}</td>
                   <td className="px-3 py-2 border border-white/10 font-medium">
-                    {order.status}
-                    {order.status === "Rejected" && order.rejectionNote && (
+                    {order.status || order.statusCode || 'Unknown'}
+                    {(order.status === "Rejected" || order.statusCode === "REJECTED") && order.rejectionNote && (
                       <div className="text-xs text-rose-300 mt-1">Reason: {order.rejectionNote}</div>
                     )}
                   </td>
                   <td className="px-3 py-2 border border-white/10">{formatETA(order.expectedDeliveryDate || order.eta)}</td>
                   <td className="px-3 py-2 border border-white/10">
-                    {order.status === "Rejected" ? (
+                    {(order.status === "Rejected" || order.statusCode === "REJECTED") ? (
                       <div className="flex gap-1 text-xs">
                         <span className="text-emerald-400 font-semibold">Requested</span>
                         <span>→</span>
@@ -179,7 +215,19 @@ const TrackOrderTab = () => {
                     ) : (
                       <div className="flex gap-1 text-xs">
                         {progressSteps.map((step, idx) => {
-                          const currentIndex = progressSteps.indexOf(order.status);
+                          // Map status to progress step index
+                          const getCurrentIndex = () => {
+                            const status = order.status || order.statusCode || '';
+                            if (status === 'Requested' || status === 'REQUESTED') return 0;
+                            if (status === 'Quoted' || status === 'QUOTED' || status === 'PROFORMA_SENT') return 1;
+                            if (status === 'Accepted' || status === 'ACCEPTED') return 2;
+                            if (status === 'Modified' || status === 'MODIFIED') return 3;
+                            if (status === 'Shipped' || status === 'SHIPPED') return 4;
+                            if (status === 'Delivered' || status === 'DELIVERED') return 5;
+                            return 0;
+                          };
+                          
+                          const currentIndex = getCurrentIndex();
                           return (
                             <React.Fragment key={idx}>
                               <span

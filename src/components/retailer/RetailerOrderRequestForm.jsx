@@ -176,6 +176,8 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           orderId,
           retailerId: retailerUid,
           distributorId,
+          createdBy: 'retailer',
+          creatorUid: retailerUid,
           items,
           itemsSubTotal,
           paymentMode,
@@ -191,6 +193,16 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           distributorState: distributorData.state || '',
           distributorPhone,
           distributorEmail,
+          // Add status timestamps for better tracking
+          statusTimestamps: {
+            requestedAt: serverTimestamp()
+          },
+          // Add retailer info for better tracking
+          retailerName: currentUser.displayName || distributorData.businessName || 'Retailer',
+          retailerEmail: currentUser.email || '',
+          retailerPhone: distributorData.phone || '',
+          retailerCity: distributorData.city || '',
+          retailerState: distributorData.state || '',
         };
 
         // Write full request to distributor's orderRequests
@@ -206,6 +218,8 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
         const docRef = await addDoc(distributorRef, {
           retailerId: currentUser.uid,
           distributorId: distributorId,
+          createdBy: 'retailer',
+          creatorUid: currentUser.uid,
           items,
           totalAmount,
           paymentMode,
@@ -227,6 +241,16 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             version: 1,
           },
           statusCode: ORDER_STATUSES.REQUESTED,
+          // Add status timestamps for better tracking
+          statusTimestamps: {
+            requestedAt: serverTimestamp()
+          },
+          // Add retailer info for better tracking
+          retailerName: currentUser.displayName || distributorData.businessName || 'Retailer',
+          retailerEmail: currentUser.email || '',
+          retailerPhone: distributorData.phone || '',
+          retailerCity: distributorData.city || '',
+          retailerState: distributorData.state || '',
         });
 
         const retailerRef = doc(db, `businesses/${currentUser.uid}/sentOrders/${docRef.id}`);
@@ -254,6 +278,16 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             version: 1,
           },
           statusCode: ORDER_STATUSES.REQUESTED,
+          // Add status timestamps for better tracking
+          statusTimestamps: {
+            requestedAt: serverTimestamp()
+          },
+          // Add retailer info for better tracking
+          retailerName: currentUser.displayName || distributorData.businessName || 'Retailer',
+          retailerEmail: currentUser.email || '',
+          retailerPhone: distributorData.phone || '',
+          retailerCity: distributorData.city || '',
+          retailerState: distributorData.state || '',
         });
 
         toast.success('Order request sent successfully!');

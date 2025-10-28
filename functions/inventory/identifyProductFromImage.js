@@ -1,5 +1,6 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const cors = require("cors")({ origin: true });
+const adminAuth = require("../shared/auth");
 const axios = require("axios");
 const admin = require("firebase-admin");
 
@@ -171,6 +172,25 @@ module.exports = onRequest(async (req, res) => {
     try {
       res.set("Access-Control-Allow-Origin", "*");
 
+      // Optional auth: if Authorization header is present, verify token.
+      // If you want to enforce auth, set REQUIRE_AUTH=true in env.
+      const requireAuth = process.env.REQUIRE_AUTH_IDENTIFY === "true";
+      const authHeader = req.get("Authorization") || "";
+      let uid = null;
+      if (authHeader.startsWith("Bearer ")) {
+        try {
+          const token = authHeader.slice(7);
+          const decoded = await admin.auth().verifyIdToken(token);
+          uid = decoded.uid || null;
+        } catch (_) {
+          if (requireAuth) {
+            return res.status(401).json({ ok: false, message: "Unauthorized" });
+          }
+        }
+      } else if (requireAuth) {
+        return res.status(401).json({ ok: false, message: "Unauthorized" });
+      }
+
       // Accept JSON or rawBody JSON string
       let { imageBase64, imageUrl, barcode: clientBarcode, framesBase64 } = req.body || {};
       if (!imageBase64 && typeof req.body === "string") {
@@ -340,6 +360,7 @@ module.exports = onRequest(async (req, res) => {
         success: true,
         best,
         autofill,
+        userId: uid || undefined,
         // new-key mirror for newer UI:
         product: best,
       });

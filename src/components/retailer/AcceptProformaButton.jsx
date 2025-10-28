@@ -75,11 +75,15 @@ export default function AcceptProformaButton({
         promotionReady: true,
       };
 
-      // Primary write: Retailer-owned doc (must succeed)
-      await updateDoc(doc(db, `businesses/${retailerId}/sentOrders/${orderId}`), patch);
+      // Update both collections to ensure proper synchronization
+      const retailerDocRef = doc(db, `businesses/${retailerId}/sentOrders/${orderId}`);
+      const distributorDocRef = doc(db, `businesses/${distributorId}/orderRequests/${orderId}`);
 
-      // Fire-and-forget mirror. Failure here should not affect UX.
-      updateDistributorMirror(patch);
+      // Update retailer's sentOrders (primary)
+      await updateDoc(retailerDocRef, patch);
+
+      // Update distributor's orderRequests (critical for sync)
+      await updateDoc(distributorDocRef, patch);
 
       // Optimistic UI update in parent
       onAccepted?.(orderId, { status: "Accepted", statusCode: ORDER_STATUSES.ACCEPTED, proformaLocked: true, acceptedAt: new Date() });

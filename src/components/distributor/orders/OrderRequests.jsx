@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import html2pdf from 'html2pdf.js';
 import * as XLSX from 'xlsx';
 import MenuItem from '@mui/material/MenuItem';
@@ -16,6 +16,8 @@ const OrderRequests = () => {
   const [expandedOrderIds, setExpandedOrderIds] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  // Debounced search term for smoother filtering on large lists
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   // New state for connected retailers
   const [connectedRetailers, setConnectedRetailers] = useState([]);
   // Remove fetching all retailers; use only connectedRetailers for dropdown
@@ -114,6 +116,18 @@ const OrderRequests = () => {
       });
     } catch { return 'N/A'; }
   };
+  // Prefer server-set timestamp; fallback to createdAt; final fallback to now for UI only
+  const getOrderTimestampMs = (order) => {
+    try {
+      if (order?.timestamp?.seconds) return order.timestamp.seconds * 1000;
+      if (order?.createdAt?.seconds) return order.createdAt.seconds * 1000;
+      if (typeof order?.createdAt === 'string') {
+        const t = Date.parse(order.createdAt);
+        if (!Number.isNaN(t)) return t;
+      }
+    } catch {}
+    return 0;
+  };
   const formatDate = (d) => {
     try {
       return new Date(d).toLocaleDateString('en-GB', {
@@ -146,9 +160,15 @@ const OrderRequests = () => {
     );
   };
 
+  // Debounce search input
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch((searchTerm || '').toLowerCase()), 250);
+    return () => clearTimeout(id);
+  }, [searchTerm]);
+
   // Build filtered orders list (used by UI and export handlers)
-  const getFilteredOrders = () => {
-    const term = (searchTerm || '').toLowerCase();
+  const filteredOrders = useMemo(() => {
+    const term = debouncedSearch;
     return (orders || []).filter(order => {
       const matchesSearch =
         (order.id || '').toLowerCase().includes(term) ||
@@ -162,11 +182,11 @@ const OrderRequests = () => {
       const matchesRetailer = selectedRetailerId === 'all' || order.retailerId === selectedRetailerId;
       return matchesSearch && matchesStatus && matchesRetailer;
     });
-  };
+  }, [orders, debouncedSearch, statusFilter, selectedRetailerId]);
 
   // Export all visible orders (CSV)
   const handleExportAllCSV = () => {
-    const visible = getFilteredOrders();
+    const visible = filteredOrders;
     if (!visible.length) {
       alert('No orders to export.');
       return;
@@ -195,7 +215,7 @@ const OrderRequests = () => {
 
   // Export all visible orders (Excel)
   const handleExportAllExcel = () => {
-    const visible = getFilteredOrders();
+    const visible = filteredOrders;
     if (!visible.length) {
       alert('No orders to export.');
       return;
@@ -221,121 +241,186 @@ const OrderRequests = () => {
   const auth = getAuth();
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
+    let unsubOrders = null;
+    let unsubAuth = null;
 
-    // Helper to enrich each order with retailer info and stock for each item
-    const enrichOrderWithRetailerAndStock = async (order) => {
-      const retailerRef = doc(db, 'businesses', order.retailerId);
-      let retailerInfo = {};
-      try {
-        const snap = await getDoc(retailerRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          retailerInfo = {
-            retailerName: data.businessName || data.ownerName || 'N/A',
-            retailerEmail: data.email || 'N/A',
-            retailerPhone: data.phone || 'N/A',
-            retailerCity: data.city || 'N/A',
-            retailerState: data.state || 'N/A',
-            retailerAddress: data.address || 'N/A',
-          };
-        }
-      } catch (err) {
-        console.warn('Retailer fetch failed:', err);
+    const subscribeForUser = (user) => {
+      // Cleanup any previous orders listener
+      if (unsubOrders) {
+        try { unsubOrders(); } catch {}
+        unsubOrders = null;
       }
 
-      const enrichedItems = await Promise.all(
-        (order.items || []).map(async (item) => {
-          if (!item.distributorProductId) return { ...item };
+      if (!user) {
+        // No signed-in user → clear and stop loading
+        setOrders([]);
+        setConnectedRetailers([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+
+      // Helper to enrich each order with retailer info and stock for each item
+      const enrichOrderWithRetailerAndStock = async (order) => {
+        let retailerInfo = {};
+        if (order?.retailerId && typeof order.retailerId === 'string') {
           try {
-            const prodSnap = await getDoc(doc(db, 'businesses', auth.currentUser.uid, 'products', item.distributorProductId));
-            if (prodSnap.exists()) {
-              const stock = prodSnap.data().quantity;
-              return { ...item, availableStock: stock };
+            const retailerRef = doc(db, 'businesses', order.retailerId);
+            const snap = await getDoc(retailerRef);
+            if (snap.exists()) {
+              const data = snap.data();
+              retailerInfo = {
+                retailerName: data.businessName || data.ownerName || 'N/A',
+                retailerEmail: data.email || 'N/A',
+                retailerPhone: data.phone || 'N/A',
+                retailerCity: data.city || 'N/A',
+                retailerState: data.state || 'N/A',
+                retailerAddress: data.address || 'N/A',
+              };
             }
           } catch (err) {
-            console.warn('Stock lookup failed:', err);
+            console.warn('Retailer fetch failed:', err);
           }
-          return { ...item };
-        })
+        }
+
+        const enrichedItems = await Promise.all(
+          (order.items || []).map(async (item) => {
+            if (!item?.distributorProductId || typeof item.distributorProductId !== 'string') {
+              return { ...item };
+            }
+            try {
+              const prodSnap = await getDoc(
+                doc(db, 'businesses', user.uid, 'products', item.distributorProductId)
+              );
+              if (prodSnap.exists()) {
+                const stock = prodSnap.data().quantity;
+                return { ...item, availableStock: stock };
+              }
+            } catch (err) {
+              console.warn('Stock lookup failed:', err);
+            }
+            return { ...item };
+          })
+        );
+
+        return {
+          ...order,
+          ...retailerInfo,
+          items: enrichedItems
+        };
+      };
+
+      // Keep distributor orderRequests/<orderId> in sync with retailer sentOrders/<orderId>
+      const ensureMirrorStatusSync = async (distOrder) => {
+        try {
+          if (!distOrder?.id || !distOrder?.retailerId) return;
+          if (distOrder.status === 'Accepted' || distOrder.statusCode === 'ACCEPTED') return;
+
+          // Read retailer mirror; may be blocked by rules (handled quietly)
+          const retailerRef = doc(db, 'businesses', distOrder.retailerId, 'sentOrders', distOrder.id);
+          const retailerSnap = await getDoc(retailerRef);
+          if (!retailerSnap.exists()) return;
+          const r = retailerSnap.data();
+
+          // Sync status changes from retailer to distributor
+          if (r?.status === 'Accepted' || r?.statusCode === 'ACCEPTED') {
+            const distRef = doc(db, 'businesses', user.uid, 'orderRequests', distOrder.id);
+            await updateDoc(distRef, {
+              status: 'Accepted',
+              statusCode: 'ACCEPTED',
+              statusTimestamps: { acceptedAt: serverTimestamp() },
+              updatedAt: serverTimestamp(),
+              proformaLocked: true,
+              acceptedBy: distOrder.retailerId,
+              acceptedSource: "RETAILER",
+              promotionReady: true,
+            });
+            distOrder.status = 'Accepted';
+            distOrder.statusCode = 'ACCEPTED';
+          }
+          
+          // Sync proforma data from distributor to retailer if needed
+          if ((distOrder.status === 'Quoted' || distOrder.statusCode === 'QUOTED') && 
+              (distOrder.proforma || distOrder.chargesSnapshot) && 
+              (!r?.proforma && !r?.chargesSnapshot)) {
+            const retailerUpdateRef = doc(db, 'businesses', distOrder.retailerId, 'sentOrders', distOrder.id);
+            await updateDoc(retailerUpdateRef, {
+              status: 'Quoted',
+              statusCode: 'QUOTED',
+              proforma: distOrder.proforma,
+              chargesSnapshot: distOrder.chargesSnapshot,
+              statusTimestamps: { quotedAt: serverTimestamp() },
+              updatedAt: serverTimestamp(),
+            });
+          }
+        } catch (e) {
+          if (e?.code === 'permission-denied') return;
+          console.debug('Mirror sync skipped:', e?.message || e);
+        }
+      };
+
+      // Real-time subscription to this distributor's order requests
+      const ordersRef = collection(db, 'businesses', user.uid, 'orderRequests');
+      unsubOrders = onSnapshot(
+        ordersRef,
+        (snapshot) => {
+          const dataPromises = snapshot.docs.map(d => enrichOrderWithRetailerAndStock({ id: d.id, ...d.data() }));
+          Promise.all(dataPromises).then(async (enriched) => {
+            // Attempt mirror sync only for those not yet accepted
+            await Promise.all(
+              enriched
+                .filter(o => o?.status !== 'Accepted' && o?.statusCode !== 'ACCEPTED')
+                .map(o => ensureMirrorStatusSync(o))
+            );
+            enriched.sort((a, b) => getOrderTimestampMs(b) - getOrderTimestampMs(a));
+            setOrders(enriched);
+            setLoading(false);
+            setChargesDraftMap((prev) => {
+              const next = { ...prev };
+              enriched.forEach((o) => {
+                if (isDirect(o) && !next[o.id]) next[o.id] = getSnapshot(o);
+              });
+              return next;
+            });
+          });
+        },
+        (error) => {
+          console.error('orderRequests onSnapshot error:', error);
+          setLoading(false);
+        }
       );
 
-      return {
-        ...order,
-        ...retailerInfo,
-        items: enrichedItems
-      };
-    };
-
-    // Keep distributor orderRequests/<orderId> in sync with retailer sentOrders/<orderId>
-    const ensureMirrorStatusSync = async (distOrder) => {
-      try {
-        // Only attempt when distributor still shows Quoted (or not Accepted)
-        if (!distOrder?.id || !distOrder?.retailerId) return;
-        if (distOrder.status === 'Accepted' || distOrder.statusCode === 'ACCEPTED') return;
-
-        // Read retailer mirror; this may be blocked by security rules for privacy.
-        const retailerRef = doc(db, 'businesses', distOrder.retailerId, 'sentOrders', distOrder.id);
-        const retailerSnap = await getDoc(retailerRef);
-        if (!retailerSnap.exists()) return;
-        const r = retailerSnap.data();
-
-        if (r?.status === 'Accepted' || r?.statusCode === 'ACCEPTED') {
-          const distRef = doc(db, 'businesses', auth.currentUser.uid, 'orderRequests', distOrder.id);
-          await updateDoc(distRef, {
-            status: 'Accepted',
-            statusCode: 'ACCEPTED',
-            statusTimestamps: { acceptedAt: serverTimestamp() },
-            updatedAt: serverTimestamp(),
-          });
-          distOrder.status = 'Accepted';
-          distOrder.statusCode = 'ACCEPTED';
+      // Fetch connected retailers once for this user
+      const fetchConnectedRetailers = async (uid) => {
+        try {
+          const connectedRetailersSnapshot = await getDocs(
+            collection(db, "businesses", uid, "connectedRetailers")
+          );
+          const retailers = connectedRetailersSnapshot.docs.map((doc) => ({ retailerId: doc.id, ...doc.data() }));
+          setConnectedRetailers(retailers);
+        } catch (e) {
+          console.warn('fetchConnectedRetailers failed:', e?.message || e);
         }
-      } catch (e) {
-        // If rules prevent reading retailer mirror, fail quietly (not an app error)
-        if (e?.code === 'permission-denied') return;
-        console.debug('Mirror sync skipped:', e?.message || e);
-      }
+      };
+      fetchConnectedRetailers(user.uid);
     };
 
-    const ordersRef = collection(db, 'businesses', user.uid, 'orderRequests');
-    const unsubscribe = onSnapshot(ordersRef, (snapshot) => {
-      const dataPromises = snapshot.docs.map(d => enrichOrderWithRetailerAndStock({ id: d.id, ...d.data() }));
-      Promise.all(dataPromises).then(async (enriched) => {
-        // Attempt mirror sync only for those not yet accepted
-        await Promise.all(
-          enriched
-            .filter(o => o?.status !== 'Accepted' && o?.statusCode !== 'ACCEPTED')
-            .map(o => ensureMirrorStatusSync(o))
-        );
-        enriched.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-        setOrders(enriched);
-        setLoading(false);
-        setChargesDraftMap((prev) => {
-          const next = { ...prev };
-          enriched.forEach((o) => {
-            if (isDirect(o) && !next[o.id]) next[o.id] = getSnapshot(o);
-          });
-          return next;
-        });
-      });
+    // Listen for auth changes and subscribe accordingly
+    unsubAuth = onAuthStateChanged(auth, (user) => {
+      subscribeForUser(user);
     });
 
-    // Fetch connected retailers once on mount
-    const fetchConnectedRetailers = async () => {
-      const connectedRetailersSnapshot = await getDocs(
-        collection(db, "businesses", user.uid, "connectedRetailers")
-      );
-      const retailers = connectedRetailersSnapshot.docs.map((doc) => doc.data());
-      setConnectedRetailers(retailers);
-    };
-    fetchConnectedRetailers();
-
+    // Cleanup
     return () => {
-      unsubscribe();
+      if (unsubOrders) {
+        try { unsubOrders(); } catch {}
+      }
+      if (unsubAuth) {
+        try { unsubAuth(); } catch {}
+      }
     };
-  }, []);
+  }, [auth, db]);
 
 
   // Build retailerOptions for dropdown from connectedRetailers state
@@ -638,7 +723,7 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
         </div>
         {/* Status Segmented Control */}
         <div className="flex items-center gap-2">
-          {['All', 'Requested', 'Accepted', 'Rejected'].map((status) => {
+          {['All', 'Requested', 'Quoted', 'Accepted', 'Rejected'].map((status) => {
             const active = statusFilter === status;
             const base = 'px-4 py-1 rounded-full text-xs border transition';
             const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
@@ -713,7 +798,7 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
 
       {/* Order List */}
       <div id="order-requests-content">
-        {getFilteredOrders().map((order, idx) => (
+        {filteredOrders.map((order, idx) => (
           <motion.div
             key={order.id}
             initial={{ opacity: 0, y: 16 }}
@@ -735,15 +820,27 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-white/50">
                   <span>
-                    {order.timestamp?.seconds
-                      ? `Requested on: ${formatDateTime(order.timestamp.seconds * 1000)}`
-                      : 'Requested on: N/A'}
+                  {(() => { const ms = getOrderTimestampMs(order); return ms ? `Requested on: ${formatDateTime(ms)}` : 'Requested on: N/A'; })()}
                   </span>
                   <span>
                     Items: {order.items?.length || 0}
                   </span>
                   <span>
                     Total: <span className="font-semibold text-emerald-300">₹{orderGrandTotal(order).toFixed(2)}</span>
+                  </span>
+                  {/* Aging/SLA badge */}
+                  <span className="ml-2 px-2 py-0.5 rounded-full bg-white/10 text-white/70">
+                    {(() => {
+                      const ts = order?.timestamp?.seconds ? order.timestamp.seconds * 1000 : null;
+                      if (!ts) return 'Age: N/A';
+                      const ms = Date.now() - ts;
+                      const m = Math.floor(ms / 60000);
+                      if (m < 60) return `Age: ${m}m`;
+                      const h = Math.floor(m / 60);
+                      if (h < 48) return `Age: ${h}h`;
+                      const d = Math.floor(h / 24);
+                      return `Age: ${d}d`;
+                    })()}
                   </span>
                 </div>
               </div>
@@ -769,6 +866,35 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
                 {isDirect(order) && (
                   <span className="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-400/20">Direct</span>
                 )}
+                {/* Quick actions in header */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); if (order.status === 'Requested') handleStatusUpdate(order.id, 'Accepted', null, isDirect(order), chargesDraftMap[order.id]); }}
+                    disabled={order.status !== 'Requested'}
+                    className={`rounded-full px-3 py-0.5 text-xs font-medium transition ${
+                      order.status !== 'Requested'
+                        ? 'bg-white/10 text-white/40 cursor-not-allowed'
+                        : 'bg-emerald-500/90 text-slate-900 hover:bg-emerald-400'
+                    }`}
+                    aria-label="Quick accept order"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); if (order.status === 'Requested') openRejectModal(order.id); }}
+                    disabled={order.status !== 'Requested'}
+                    className={`rounded-full px-3 py-0.5 text-xs font-medium transition ${
+                      order.status !== 'Requested'
+                        ? 'bg-white/10 text-white/40 cursor-not-allowed'
+                        : 'bg-rose-600 text-white hover:bg-rose-700'
+                    }`}
+                    aria-label="Quick reject order"
+                  >
+                    Reject
+                  </button>
+                </div>
                 <button
                   className="text-xs text-emerald-300 underline focus:outline-none"
                   aria-expanded={expandedOrderIds.includes(order.id)}

@@ -62,43 +62,7 @@ function stripDataPrefix(b64) {
   return String(b64).trim().replace(/^data:[^;]+;base64,/, "");
 }
 
-/**
- * POST JSON with timeout + small retry. Returns parsed JSON (or throws).
- */
-async function postJSON(url, data, { timeoutMs = 20000, retries = 1 } = {}) {
-  const attempt = async (signal) => {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-      signal,
-    });
-    let json = null;
-    try { json = await resp.json(); } catch (_) { json = null; }
-    if (!resp.ok) {
-      const msg = (json && (json.error || json.message)) || `HTTP ${resp.status}`;
-      throw new Error(msg);
-    }
-    return json;
-  };
-
-  let lastErr;
-  for (let i = 0; i <= retries; i++) {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const out = await attempt(controller.signal);
-      clearTimeout(t);
-      return out;
-    } catch (err) {
-      clearTimeout(t);
-      lastErr = err;
-      if (i === retries) break;
-      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
-    }
-  }
-  throw lastErr || new Error("Request failed");
-}
+import apiClient from "../lib/apiClient";
 
 // Cloud Functions host (configurable). Prefer runtime overrides, default to us-central1.
 const FN_REGION =
@@ -130,7 +94,7 @@ export async function identifyProductFromImage(input = {}) {
   const fnUrl = `${FN_HOST}/identifyProductFromImage`;
   const payload = { imageBase64: b64, contextPrompt };
 
-  const data = await postJSON(fnUrl, payload, { timeoutMs: 25000, retries: 1 });
+  const data = await apiClient.post(fnUrl, payload, { timeoutMs: 25000, retries: 1 });
   const ok = data?.ok ?? data?.success ?? false;
   if (!ok) {
     const msg = data?.message || data?.error || "Image identify failed";
@@ -167,7 +131,7 @@ export async function identifyProductsFromImage(input = {}) {
   const fnUrl = `${FN_HOST}/identifyProductsFromImage`;
   const payload = { imageBase64: b64, contextPrompt };
 
-  const data = await postJSON(fnUrl, payload, { timeoutMs: 40000, retries: 1 });
+  const data = await apiClient.post(fnUrl, payload, { timeoutMs: 40000, retries: 1 });
   const ok = data?.ok ?? data?.success ?? false;
   if (!ok) {
     const msg = data?.message || data?.error || "Multi identify failed";

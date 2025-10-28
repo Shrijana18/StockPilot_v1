@@ -46,7 +46,6 @@ const Login = () => {
         setError('Please enter email and password.');
         return;
       }
-      await setPersistence(auth, browserLocalPersistence);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       console.log("[Login] firebase signIn OK, uid:", user.uid);
@@ -59,17 +58,14 @@ const Login = () => {
       const rawRole = snap.data()?.role ?? '';
       const role = String(rawRole).toLowerCase().replace(/\s|_/g, '');
       console.log("[Login] normalized role:", role);
-      // Ensure AuthContext sees the fresh session before we navigate
-      try { await user.getIdToken(true); } catch (_) {}
-      const go = (path) => setTimeout(() => navigate(path), 300);
       if (role === 'retailer') {
-        go('/dashboard');
+        navigate('/dashboard');
       } else if (role === 'distributor') {
-        go('/distributor-dashboard');
+        navigate('/distributor-dashboard');
       } else if (role === 'productowner') {
-        go('/product-owner-dashboard');
+        navigate('/product-owner-dashboard');
       } else {
-        go('/dashboard');
+        navigate('/dashboard');
       }
     } catch (err) {
       console.error("[Login] error", err?.code, err?.message);
@@ -130,17 +126,14 @@ const Login = () => {
       const roleRaw = (snap.exists() ? snap.data()?.role : 'Retailer') || 'Retailer';
       const role = String(roleRaw).toLowerCase().replace(/\s|_/g, '');
 
-      // Ensure AuthContext sees the fresh session before we navigate
-      try { await user.getIdToken(true); } catch (_) {}
-      const go = (path) => setTimeout(() => navigate(path), 300);
       if (role === 'retailer') {
-        go('/dashboard');
+        navigate('/dashboard');
       } else if (role === 'distributor') {
-        go('/distributor-dashboard');
+        navigate('/distributor-dashboard');
       } else if (role === 'productowner') {
-        go('/product-owner-dashboard');
+        navigate('/product-owner-dashboard');
       } else {
-        go('/dashboard');
+        navigate('/dashboard');
       }
     } catch (error) {
       console.error('[Login] Google Sign-In Error:', error?.code, error?.message);
@@ -263,10 +256,7 @@ const Login = () => {
           <div className="px-7 sm:px-8 pb-6 text-right">
             <button
               onClick={async () => {
-                try { await signOut(auth); } catch (_) {}
-                try { localStorage.clear(); } catch (_) {}
-                try { sessionStorage.clear(); } catch (_) {}
-                try { indexedDB && indexedDB.deleteDatabase('firebaseLocalStorageDb'); } catch (_) {}
+                await signOut(auth);
                 navigate('/');
               }}
               disabled={loading}

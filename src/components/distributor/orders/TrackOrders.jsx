@@ -91,12 +91,9 @@ const TrackOrders = () => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) return;
 
-      const q = query(
-        collection(db, 'businesses', user.uid, 'orderRequests'),
-        where('status', 'in', ['Shipped', 'Out for Delivery', 'Delivered'])
-      );
+      const col = collection(db, 'businesses', user.uid, 'orderRequests');
 
-      const unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+      const unsubscribeFirestore = onSnapshot(col, (snapshot) => {
         const orderData = snapshot.docs
           .map(doc => ({ id: doc.id, ...doc.data() }))
           .sort((a, b) => {
@@ -325,6 +322,12 @@ const TrackOrders = () => {
     matchesSearch(order) && matchesDate(order)
   );
 
+  const quotedOrders = orders.filter((order) => 
+    (order.status === 'Quoted' || order.statusCode === 'QUOTED' || order.statusCode === 'PROFORMA_SENT') && 
+    matchesSearch(order) && 
+    matchesDate(order)
+  );
+
   let paymentDueOrders = orders.filter((order) => {
     if (order.paymentMethod !== 'Credit Cycle') return false;
     if (order.isPaid === true || order.paymentStatus === 'Paid') return false;
@@ -381,6 +384,9 @@ const TrackOrders = () => {
         </button>
         <button onClick={() => setSectionAndHash('Paid Orders')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " + (activeSection==='Paid Orders' ? "bg-sky-500/20 text-sky-200" : "text-white/70 hover:bg-white/5")}>
           Paid Orders ({paidOrders.length})
+        </button>
+        <button onClick={() => setSectionAndHash('Quoted')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " + (activeSection==='Quoted' ? "bg-amber-500/20 text-amber-200" : "text-white/70 hover:bg-white/5")}>
+          Quoted ({quotedOrders.length})
         </button>
       </div>
 
@@ -862,6 +868,29 @@ const TrackOrders = () => {
                         {/* No payment buttons here */}
                       </div>
                     )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* -------------------- Quoted -------------------- */}
+          {activeSection === 'Quoted' && (
+            <div>
+              <h3 className="text-lg font-semibold text-amber-200 mb-2">🧾 Quoted (Proforma Sent)</h3>
+              {quotedOrders.length === 0 ? (
+                <div className="text-white/60 mb-6">No quoted orders.</div>
+              ) : (
+                quotedOrders.map((order) => (
+                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
+                    <div className="flex justify-between items-center px-4 pt-4 pb-2">
+                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-200">{order.status}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
+                      <span><span className="font-medium text-white/80">Total:</span> ₹{(Array.isArray(order.items) ? order.items.reduce((s,it)=>s + (Number(it.quantity||0)*Number(it.price||it.unitPrice||0)),0) : 0).toFixed(2)}</span>
+                      <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 text-xs font-medium">Awaiting retailer acceptance</span>
+                    </div>
                   </div>
                 ))
               )}
