@@ -4,7 +4,7 @@ import apiClient from "../lib/apiClient";
 
 const isDev = import.meta.env?.DEV === true;
 
-const FN_REGION = (typeof window !== "undefined" && window._SP_FN_REGION) || (import.meta.env?.VITE_FN_REGION) || "asia-south1";
+const FN_REGION = (typeof window !== "undefined" && window._SP_FN_REGION) || (import.meta.env?.VITE_FN_REGION) || "us-central1";
 const PROJECT_ID = (typeof window !== "undefined" && window._SP_PROJECT_ID) || (import.meta.env?.VITE_PROJECT_ID) || "stockpilotv1";
 const BARCODE_LOOKUP_URL = isDev
   ? "/api/lookupBarcode"

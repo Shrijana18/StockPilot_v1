@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import useVoiceCapture from "../../../hooks/useVoiceCapture";
+import useEnhancedVoiceCapture from "../../../hooks/useEnhancedVoiceCapture";
 import { db } from "../../../firebase/firebaseConfig";
 import { collection, getDocs, doc, setDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -21,6 +21,8 @@ import {
   stripUndefinedDeep,
   findUndefinedPaths,
 } from "./logic";
+import { enhancedProductMatcher } from "../../../utils/enhancedProductMatcher";
+import { VoiceErrorHandler, ERROR_TYPES } from "../../../utils/voiceErrorHandler";
 
 // Local-only tiny helpers
 
@@ -271,10 +273,45 @@ export default function FastBillingMode({
   const [currentCustomer, setCurrentCustomer] = useState(null);
   const [pendingCustomerDraft, setPendingCustomerDraft] = useState(null);
 
-  // Voice capture hook
-  const speech = useVoiceCapture(inventoryData);
-  const pausedHook = !!speech?.paused;
-  const listeningHook = speech?.connectionState === "open" && !pausedHook;
+  // Enhanced voice capture with error handling
+  const errorHandler = useRef(new VoiceErrorHandler({
+    onError: (errorLog) => {
+      console.error('Voice Error:', errorLog);
+      toast.error(`Voice error: ${errorLog.message}`);
+    },
+    onRecovery: (errorType, retryCount, config) => {
+      console.log(`Recovering from ${errorType}, attempt ${retryCount}`);
+      toast.info(`Retrying... (${retryCount}/${config.maxRetries})`);
+    },
+    onFallback: (fallbackType) => {
+      console.log(`Switching to ${fallbackType}`);
+      toast.info(`Switching to ${fallbackType}...`);
+    },
+  }));
+
+  const speech = useEnhancedVoiceCapture({
+    autoStopSilenceMs: 2000,
+    onFinalize: (text) => {
+      console.log('Voice final transcript:', text);
+      applyTranscript(text);
+    },
+    onPartial: () => {},
+    onError: (error) => {
+      const errorResult = errorHandler.current.handleError(error, { context: 'voice_capture' });
+      if (errorResult.recovery === 'USER_INTERVENTION') {
+        toast.error(errorResult.message);
+      }
+    },
+    onStatusChange: (status) => {
+      console.log('Voice status changed:', status);
+    },
+    enableWebSocket: true,
+    enableWebSpeech: true,
+    language: 'en-IN',
+  });
+
+  const pausedHook = !!speech?.isPaused;
+  const listeningHook = speech?.isListening && !pausedHook;
 
   // Auto-stop UX
   const wasListeningRef = useRef(false);
@@ -739,11 +776,23 @@ export default function FastBillingMode({
       } catch {}
     } catch (e) {
       console.error("❌ Parse API Error", e);
-      pushChip("Didn’t catch that", "warn");
-      setHistory((p) => [{ text, ts: Date.now() }, ...p].slice(0, 20));
-      try {
-        speech?.clearFinalTranscript?.();
-      } catch {}
+      
+          // Enhanced fallback to local parsing when Cloud Function fails
+      console.log("Falling back to local parsing for:", text);
+      const localResult = parseLocalIntent(text);
+      console.log("Local parse result:", localResult);
+      
+      if (localResult.intent && localResult.intent !== "unknown") {
+        pushChip("Using local parser (Cloud Function unavailable)", "info");
+        routeIntent(localResult, text);
+        setHistory((p) => [{ text, ts: Date.now() }, ...p].slice(0, 20));
+        try { speech?.clearFinalTranscript?.(); } catch {}
+        return;
+      } else {
+        pushChip("Could not understand command", "warn");
+        setHistory((p) => [{ text, ts: Date.now() }, ...p].slice(0, 20));
+        try { speech?.clearFinalTranscript?.(); } catch {}
+      }
     }
   }
 
@@ -1247,7 +1296,7 @@ export default function FastBillingMode({
       }
     }
 
-    // ---------- Fallback fuzzy product resolver ----------
+    // ---------- Enhanced product resolver with learning and brand support ----------
     const rawLower = rawText.toLowerCase();
     const qtyMatch = rawLower.match(/\b\d+(?:\.\d+)?\b/);
     const qty = qtyMatch
@@ -1256,49 +1305,69 @@ export default function FastBillingMode({
         : parseInt(qtyMatch[0])
       : Number(entities.qty ?? 1) || 1;
 
-    const scored = (inventoryData || [])
-      .map((item) => {
-        const pn = item.productName || item.name || "";
-        const fields = [pn, item.brand, item.sku, item.category].filter(Boolean).join(" ");
-        const score = Math.max(
-          similarity(rawLower, pn.toLowerCase()),
-          similarity(rawLower, `${(item.brand || "").toLowerCase()} ${pn.toLowerCase()}`),
-          similarity(rawLower, String(item.sku || "").toLowerCase()),
-          similarity(rawLower, fields.toLowerCase())
-        );
-        return { ...item, score };
-      })
-      .filter((c) => c.score > 0.45)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 7);
+    // Check if this is a brand-only match that needs product selection
+    const { shouldShowBrandSelection } = await import('../../../utils/enhancedProductMatcher');
+    const brandSelection = shouldShowBrandSelection(rawText, inventoryData, {
+      minScore: 0.6,
+    });
 
-    // tokens
-    const tokenSet = new Set(
-      String(rawLower)
-        .split(/[^\p{L}\p{N}]+/u)
-        .filter((t) => t && t.length >= 2)
-    );
-    const baseFrom = (s = "") =>
-      String(s)
-        .toLowerCase()
-        .replace(
-          /\b(ml|ltr|liter|litre|gm|g|kg|pcs|piece|bag|box|bottle|pack|tube|jar|can|sachet|\d+\s*(ml|g|kg|ltr))\b/g,
-          ""
-        )
-        .replace(/\s{2,}/g, " ")
-        .trim();
+    if (brandSelection.shouldShow) {
+      const brandProducts = brandSelection.products.map(product => ({
+        key: product.id || product.sku,
+        displayName: product.productName || product.name,
+        unit: product.unit || product.packSize,
+        brand: product.brand,
+        sku: product.sku,
+        price: product.sellingPrice || product.price || product.mrp,
+        add: () => {
+          clearSuggestions();
+          safe.addItemByQuery?.({
+            productName: product.productName || product.name,
+            name: product.name,
+            sku: product.sku,
+            qty,
+            ...product,
+          });
+          pushChip(`+ ${qty} × ${product.productName || product.name}`, "ok");
+        },
+      }));
 
-    const variantsByBase = new Map();
-    for (const item of scored) {
-      const base = baseFrom(item.productName || item.name);
-      if (!base) continue;
-      const hasToken = [...tokenSet].some((t) => base.includes(t));
-      if (!hasToken) continue;
-      const arr = variantsByBase.get(base) || [];
-      arr.push(item);
-      variantsByBase.set(base, arr);
+      showSuggestions(brandSelection.message, brandProducts, qty);
+      return;
     }
 
+    // Use enhanced product matcher with learning
+    const suggestions = enhancedProductMatcher(rawText, inventoryData, {
+      maxResults: 7,
+      minScore: 0.3,
+      includeLearning: true,
+    });
+
+    if (suggestions.length === 0) {
+      pushChip("No products found. Try a different name or check spelling.", "warn");
+      return;
+    }
+
+    // Group by base product name to show variants
+    const variantsByBase = new Map();
+    for (const suggestion of suggestions) {
+      const product = suggestion.product;
+      const baseName = (product.productName || product.name || "").toLowerCase()
+        .replace(/\b(ml|ltr|liter|litre|gm|g|kg|pcs|piece|bag|box|bottle|pack|tube|jar|can|sachet|\d+\s*(ml|g|kg|ltr))\b/g, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      
+      if (!baseName) continue;
+      
+      const arr = variantsByBase.get(baseName) || [];
+      arr.push({
+        ...suggestion,
+        score: suggestion.confidence / 100, // Convert confidence to score
+      });
+      variantsByBase.set(baseName, arr);
+    }
+
+    // Show suggestions for variants or single best match
     for (const [, arr] of variantsByBase.entries()) {
       if (arr.length >= 2) {
         const topPicks = arr.sort((a, b) => b.score - a.score).slice(0, 5);
@@ -1307,55 +1376,37 @@ export default function FastBillingMode({
       }
     }
 
-    if (scored.length === 0) {
-      pushChip("Didn't find product", "warn");
-      return;
-    }
-
-    if (scored.length === 1 && scored[0].score >= 0.93) {
-      const m = scored[0];
-      safe.addItemByQuery?.({ productName: m.productName || m.name, name: m.name, sku: m.sku, qty });
-      pushChip(`+ ${qty} × ${m.productName || m.name}`, "ok");
-      return;
-    }
-
-    if (scored.length >= 2 && scored[0].score - scored[1].score < 0.08) {
-      showSuggestions("Did you mean…?", scored.slice(0, 4), qty);
-      return;
-    }
-
-    const norm = (s = "") =>
-      String(s)
-        .toLowerCase()
-        .replace(/\b(ml|ltr|liter|litre|gm|g|kg|pcs|piece|bag|box|bottle|pack|\d+\s*(ml|g|kg|ltr))\b/g, "")
-        .trim();
-    const groups = new Map();
-    for (const c of scored) {
-      const base = norm(c.productName || c.name);
-      if (!groups.has(base)) groups.set(base, []);
-      groups.get(base).push(c);
-    }
-
-    let bestGroup = null;
-    let bestScore = 0;
-    for (const arr of groups.values()) {
-      const top = arr[0];
-      if (top && top.score > bestScore) {
-        bestScore = top.score;
-        bestGroup = arr;
+    // Single best match - add directly
+    const bestMatch = suggestions[0];
+    if (bestMatch && bestMatch.confidence >= 80) {
+      clearSuggestions();
+      safe.addItemByQuery?.({
+        productName: bestMatch.product.productName || bestMatch.product.name,
+        name: bestMatch.product.name,
+        sku: bestMatch.product.sku,
+        qty,
+        ...bestMatch.product,
+      });
+      pushChip(`+ ${qty} × ${bestMatch.product.productName || bestMatch.product.name}`, "ok");
+      
+      // Learn from this successful match
+      if (bestMatch.isLearned) {
+        // This was a learned suggestion, so it's already in learning data
+      } else {
+        // This was a new match, add to learning data
+        try {
+          const { learnFromCorrection } = await import('../../../utils/enhancedProductMatcher');
+          learnFromCorrection(rawText, bestMatch.product, inventoryData);
+        } catch (e) {
+          console.warn('Failed to save learning data:', e);
+        }
       }
-    }
-    const topGroup = (bestGroup || scored).slice(0, 4);
-
-    if (topGroup.length > 1) {
-      showSuggestions("Which one did you mean?", topGroup, qty);
       return;
     }
 
-    const m = scored[0];
-    clearSuggestions();
-    safe.addItemByQuery?.({ productName: m.productName || m.name, name: m.name, sku: m.sku, qty });
-    pushChip(`+ ${qty} × ${m.productName || m.name}`, "ok");
+    // Show suggestions for manual selection
+    showSuggestions("Select product", suggestions, qty);
+
   }
 
   // Totals animation
@@ -1463,18 +1514,17 @@ export default function FastBillingMode({
             listening={listeningHook}
             paused={pausedHook}
             autoStopped={autoStopped}
-            wsState={wsState}
-            vu={Math.max(0, Math.min(1, speech?.vu ?? speech?.rms ?? speech?.volume ?? 0))}
+            wsState={speech?.connectionState || 'closed'}
+            vu={speech?.audioLevel || 0}
             lastPartial={speech?.lastPartial || ""}
             onToggleMic={() => {
               if (!speech) return;
-              const isRunning = speech.connectionState === "open" && !speech.paused;
+              const isRunning = speech.isListening && !speech.isPaused;
               if (isRunning) {
                 try {
                   speech.stop?.();
                 } catch {}
                 try {
-                  speech.clearFinalTranscript?.();
                   speech.clearSegments?.();
                 } catch {}
                 setAutoStopped(false);
@@ -1489,9 +1539,9 @@ export default function FastBillingMode({
             }}
             onClearTranscripts={() => {
               try {
-                speech?.clearFinalTranscript?.();
                 speech?.clearSegments?.();
               } catch {}
+              pushChip("Cleared", "info");
             }}
             activity={actionLog}
             chips={chips}

@@ -10,6 +10,7 @@ import DispatchTracker from "./distributor/DispatchTracker";
 import DistributorAnalytics from "./distributor/analytics/DistributorAnalytics";
 import DistributorHome from "./distributor/DistributorHome";
 import RetailerPanel from "./distributor/RetailerPanel";
+import DistributorViewEmployees from "./distributor/employees/DistributorViewEmployees";
 
 const DistributorDashboard = () => {
   const navigate = useNavigate();
@@ -299,6 +300,16 @@ const DistributorDashboard = () => {
               >
                 📊 Analytics
               </button>
+              <button
+                onClick={() => { setTabAndHash("employees"); setIsSidebarOpen(false); }}
+                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
+                  activeTab === "employees"
+                    ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
+                    : "text-white"
+                }`}
+              >
+                👥 Employee Management
+              </button>
             </nav>
           </div>
           <button
@@ -397,6 +408,19 @@ const DistributorDashboard = () => {
                 >
                   <div className="w-full">
                     <DistributorAnalytics distributorId={auth.currentUser.uid} />
+                  </div>
+                </motion.div>
+              )}
+              {activeTab === "employees" && auth?.currentUser && (
+                <motion.div
+                  key="employees"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="w-full">
+                    <DistributorViewEmployees />
                   </div>
                 </motion.div>
               )}

@@ -3,6 +3,7 @@ const cors = require("cors")({ origin: true });
 const adminAuth = require("../shared/auth");
 const axios = require("axios");
 const admin = require("firebase-admin");
+const HybridAI = require("../shared/hybridAI");
 
 // Safe firebase-admin initialization
 if (!admin.apps || admin.apps.length === 0) {
@@ -90,71 +91,26 @@ async function fetchCSE(query, num = 2) {
 }
 
 /**
- * Multimodal call with compact JSON output.
- * Uses gpt-4o by default (you can override via env OPENAI_MODEL).
+ * Hybrid AI call with Gemini primary and ChatGPT fallback
+ * Uses the new HybridAI system for better accuracy and reliability
  */
-async function callMultimodalAI(imageBase64, textContext) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.error("Missing OPENAI_API_KEY for multimodal call.");
-    return null;
-  }
-  const model = process.env.OPENAI_MODEL || "gpt-4o";
-  const endpoint = "https://api.openai.com/v1/chat/completions";
-
-  const systemPrompt = `You are an expert product identification AI for the Indian retail market. Analyze the product image and the provided text context. Return ONLY a strict JSON object with this exact schema: { "name": "", "brand": "", "unit": "", "category": "", "sku": "", "mrp": "", "hsn": "", "gst": null }.
-Rules:
-- 'name' should be the canonical product name.
-- 'unit' must include quantity and container (e.g., "250 ml Bottle").
-- 'sku' should be the barcode if available.
-- 'mrp' is the Maximum Retail Price. If "MRP" is explicitly written, use that value. If not, use any other visible selling price. Extract only the numeric value (e.g., for "MRP ₹120.00", return "120"). If no price is visible, leave it as an empty string.
-- Guess HSN/GST if confident, otherwise leave as empty string or null.
-- Be brief and accurate. No commentary or markdown.`;
-
-  const userPrompt = `Identify the product in the image using this context:\n${textContext || ""}`;
-
-  const payload = {
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userPrompt },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:image/jpeg;base64,${imageBase64}`,
-              detail: "low",
-            },
-          },
-        ],
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.1,
-    top_p: 0.2,
-    max_tokens: 600,
-  };
-
+async function callHybridAI(imageBase64, textContext) {
+  const hybridAI = new HybridAI();
+  
   try {
-    const response = await axios.post(endpoint, payload, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      timeout: 25000,
+    console.log("🚀 Starting hybrid AI product identification...");
+    const result = await hybridAI.identifyProduct(imageBase64, textContext);
+    
+    console.log(`✅ AI Success using ${result.used}:`, {
+      name: result.primary?.name || result.fallback?.name,
+      brand: result.primary?.brand || result.fallback?.brand,
+      source: result.primary?.source || result.fallback?.source
     });
-    const reply = response?.data?.choices?.[0]?.message?.content?.trim();
-    if (!reply) return null;
-
-    const parsed = JSON.parse(reply);
-    // ensure mrp is a string
-    if (typeof parsed.mrp === "number") parsed.mrp = String(parsed.mrp);
-    return parsed;
-  } catch (apiError) {
-    console.error("OpenAI Multimodal API Request Failed:", apiError.message);
-    if (apiError.response) console.error("Response data:", apiError.response.data);
+    
+    // Return the primary result or fallback if primary failed
+    return result.primary || result.fallback;
+  } catch (error) {
+    console.error("❌ Hybrid AI failed:", error.message);
     return null;
   }
 }
@@ -300,9 +256,9 @@ module.exports = onRequest(async (req, res) => {
         `Lookup:${barcodeInfo ? JSON.stringify(barcodeInfo) : "None"} | ` +
         `Top:${webResults.length ? JSON.stringify(webResults.map(r=>r.title).slice(0,2)) : "None"}`;
 
-      const aiResult = await callMultimodalAI(imageContent, textContext);
+      const aiResult = await callHybridAI(imageContent, textContext);
 
-      if (!aiResult || !aiResult.name) {
+      if (!aiResult || (!aiResult.name && !aiResult.productName)) {
         return res.status(200).json({ ok: false, success: false, message: "AI failed to identify the product." });
       }
 
@@ -317,8 +273,8 @@ module.exports = onRequest(async (req, res) => {
         mrp: aiResult.mrp || "",
         hsn: aiResult.hsn || "",
         gst: aiResult.gst !== undefined ? aiResult.gst : null,
-        source: "gpt-4o",
-        confidence: 0.9,
+        source: aiResult.source || "hybrid-ai",
+        confidence: aiResult.confidence || 0.9,
       };
 
       // Final cleanups using shared utils

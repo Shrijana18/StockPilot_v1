@@ -55,16 +55,25 @@ const Login = () => {
         setError('⚠️ User data not found in Firestore.');
         return;
       }
-      const rawRole = snap.data()?.role ?? '';
+      const userData = snap.data();
+      // Check for both 'role' and 'businessType' fields (some users have businessType)
+      const rawRole = userData?.role || userData?.businessType || '';
       const role = String(rawRole).toLowerCase().replace(/\s|_/g, '');
-      console.log("[Login] normalized role:", role);
-      if (role === 'retailer') {
+      console.log("[Login] raw role:", rawRole, "normalized role:", role);
+      console.log("[Login] Full user data:", userData);
+      
+      // More robust role detection
+      if (role.includes('retailer')) {
+        console.log("[Login] Redirecting to retailer dashboard");
         navigate('/dashboard');
-      } else if (role === 'distributor') {
+      } else if (role.includes('distributor')) {
+        console.log("[Login] Redirecting to distributor dashboard");
         navigate('/distributor-dashboard');
-      } else if (role === 'productowner') {
+      } else if (role.includes('productowner') || role.includes('product-owner')) {
+        console.log("[Login] Redirecting to product owner dashboard");
         navigate('/product-owner-dashboard');
       } else {
+        console.warn("[Login] Unknown role:", rawRole, "defaulting to retailer dashboard");
         navigate('/dashboard');
       }
     } catch (err) {
@@ -123,16 +132,25 @@ const Login = () => {
         }, { merge: true });
       }
 
-      const roleRaw = (snap.exists() ? snap.data()?.role : 'Retailer') || 'Retailer';
+      const userData = snap.exists() ? snap.data() : null;
+      // Check for both 'role' and 'businessType' fields (some users have businessType)
+      const roleRaw = userData?.role || userData?.businessType || 'Retailer';
       const role = String(roleRaw).toLowerCase().replace(/\s|_/g, '');
+      console.log("[Login] Google sign-in - raw role:", roleRaw, "normalized role:", role);
+      console.log("[Login] Google sign-in - Full user data:", userData);
 
-      if (role === 'retailer') {
+      // More robust role detection for Google sign-in
+      if (role.includes('retailer')) {
+        console.log("[Login] Google sign-in - Redirecting to retailer dashboard");
         navigate('/dashboard');
-      } else if (role === 'distributor') {
+      } else if (role.includes('distributor')) {
+        console.log("[Login] Google sign-in - Redirecting to distributor dashboard");
         navigate('/distributor-dashboard');
-      } else if (role === 'productowner') {
+      } else if (role.includes('productowner') || role.includes('product-owner')) {
+        console.log("[Login] Google sign-in - Redirecting to product owner dashboard");
         navigate('/product-owner-dashboard');
       } else {
+        console.warn("[Login] Google sign-in - Unknown role:", roleRaw, "defaulting to retailer dashboard");
         navigate('/dashboard');
       }
     } catch (error) {

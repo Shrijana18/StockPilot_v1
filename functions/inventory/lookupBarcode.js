@@ -1,6 +1,7 @@
 
 
-const { onCall } = require("firebase-functions/v2/https");
+const { onRequest } = require("firebase-functions/v2/https");
+const cors = require("cors")({ origin: true });
 const axios = require("axios");
 
 /**
@@ -120,51 +121,71 @@ async function digitEyesLookup(barcode) {
   }
 }
 
-module.exports = onCall(async (request) => {
-  try {
-    const { barcode } = request.data || {};
-    const code = (barcode || "").toString().replace(/[^\d]/g, "");
-    if (!code) {
-      throw new Error("Missing barcode");
-    }
-    if (code.length < 6) {
-      throw new Error("Barcode too short");
-    }
-
-    // Try OpenFoodFacts first, with a retry for transient 5xx.
-    let result = null;
-    let attempts = 2;
-    while (attempts-- > 0) {
-      try {
-        result = await openFoodFactsLookup(code);
-        if (result) break;
-      } catch (e) {
-        // Retry once for transient errors
-        if (attempts === 0) throw e;
-        await new Promise(r => setTimeout(r, 900));
-      }
-    }
-
-    // Fallback to Digit-Eyes if configured
-    if (!result) {
-      result = await digitEyesLookup(code);
-    }
-
-    if (!result) {
-      return {
-        success: false,
-        source: "fallback",
-        barcode: code,
-        message: "No product found for this barcode"
-      };
-    }
-
-    return result;
-  } catch (error) {
-    console.error("lookupBarcode Error:", error);
-    return {
-      success: false,
-      message: error.message || "Failed to lookup barcode"
-    };
+module.exports = onRequest(async (req, res) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    return res.status(204).send("");
   }
+
+  cors(req, res, async () => {
+    try {
+      res.set("Access-Control-Allow-Origin", "*");
+
+      const { barcode, code } = req.body || {};
+      const barcodeCode = (barcode || code || "").toString().replace(/[^\d]/g, "");
+      
+      if (!barcodeCode) {
+        return res.status(400).json({
+          success: false,
+          message: "Missing barcode"
+        });
+      }
+      
+      if (barcodeCode.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "Barcode too short"
+        });
+      }
+
+      // Try OpenFoodFacts first, with a retry for transient 5xx.
+      let result = null;
+      let attempts = 2;
+      while (attempts-- > 0) {
+        try {
+          result = await openFoodFactsLookup(barcodeCode);
+          if (result) break;
+        } catch (e) {
+          // Retry once for transient errors
+          if (attempts === 0) throw e;
+          await new Promise(r => setTimeout(r, 900));
+        }
+      }
+
+      // Fallback to Digit-Eyes if configured
+      if (!result) {
+        result = await digitEyesLookup(barcodeCode);
+      }
+
+      if (!result) {
+        return res.status(200).json({
+          success: false,
+          source: "fallback",
+          barcode: barcodeCode,
+          message: "No product found for this barcode"
+        });
+      }
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("lookupBarcode Error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to lookup barcode"
+      });
+    }
+  });
 });

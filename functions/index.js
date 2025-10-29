@@ -33,6 +33,9 @@ const { employeeLogin } = require("./employees/employeeLogin");
 exports.employeeLogin = employeeLogin;
 const { resetPin } = require("./employees/resetEmployeePin");
 exports.resetPin = resetPin;
+exports.resetDistributorEmployeePin = require("./employees/resetDistributorEmployeePin");
+exports.distributorEmployeeLogin = require("./employees/distributorEmployeeLogin");
+exports.migrateEmployeeIds = require("./employees/migrateEmployeeIds");
 
 // Retailer Profile Sync
 exports.resyncRetailerProfile = require("./profile/resyncRetailerProfile");
@@ -43,6 +46,9 @@ exports.ocrFromImage = require("./ocr/ocrFromImage");
 
 // Smart Assistant
 exports.generateAssistantReply = require("./assistant/generateAssistantReply");
+
+// AI Status and Configuration
+exports.aiStatus = require("./ai/aiStatus");
 
 // Retailer Provisioning (Distributor → Retailer)
 const { createProvisionalRetailer } = require("./handlers/createProvisionalRetailer");
@@ -63,6 +69,13 @@ exports.auth = require("./shared/auth");
 exports.constants = require("./shared/constants");
 exports.firestore = require("./shared/firestore");
 exports.utils = require("./shared/utils");
+
+// ============================
+// AI Modules (New Hybrid System)
+// ============================
+exports.geminiClient = require("./shared/geminiClient");
+exports.hybridAI = require("./shared/hybridAI");
+exports.aiConfig = require("./shared/aiConfig");
 
 // ============================
 // Notes

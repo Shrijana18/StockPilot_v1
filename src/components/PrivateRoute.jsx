@@ -31,8 +31,12 @@ const PrivateRoute = ({ requireRole }) => {
   // 3) If a specific role is required, enforce it against normalized role tokens
   //    (role is normalized in AuthContext to retailer | distributor | productowner)
   if (requireRole && role !== requireRole) {
+    console.log("[PrivateRoute] Role check - requireRole:", requireRole, "user role:", role);
+    console.log("[PrivateRoute] Pending role:", pendingNorm);
+    
     // If we just signed up and the pending role matches the required role, allow access once
     if (pendingNorm && pendingNorm === requireRole) {
+      console.log("[PrivateRoute] Allowing access based on pending role");
       return <Outlet />;
     }
 
@@ -41,6 +45,7 @@ const PrivateRoute = ({ requireRole }) => {
     let redirectTo = "/dashboard";
     if (normalizedRole === "distributor") redirectTo = "/distributor-dashboard";
     else if (normalizedRole === "productowner") redirectTo = "/product-owner-dashboard";
+    console.log("[PrivateRoute] Redirecting to:", redirectTo, "based on role:", normalizedRole);
     return <Navigate to={redirectTo} replace />;
   }
 

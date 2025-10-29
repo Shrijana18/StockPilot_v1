@@ -14,14 +14,10 @@ function setCors(req, res) {
 
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Origin", allowOrigin);
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  // Echo requested headers if present so complex requests succeed
-  const reqHeaders = req.headers["access-control-request-headers"];
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    reqHeaders && typeof reqHeaders === "string" ? reqHeaders : "Content-Type, Authorization"
-  );
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
   res.setHeader("Access-Control-Max-Age", "3600");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 }
 
 // --- normalize brand/product name (handle common misspellings) ---

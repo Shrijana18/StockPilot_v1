@@ -85,15 +85,17 @@ export function extractPhoneFromUtterance(raw = "") {
 export function parseLocalIntent(rawText = "") {
   const t = String(rawText).toLowerCase().trim();
 
-  // PAYMENT MODE (simple)
-  if (/\b(payment|pay|mode)\b/.test(t)) {
-    if (/\bupi|gpay|phonepe|google pay\b/.test(t)) return { intent: "set_payment", entities: { mode: "upi" } };
-    if (/\bcash|cash\s+payment|cash\b/.test(t)) return { intent: "set_payment", entities: { mode: "cash" } };
-    if (/\b(card|debit)\b/.test(t)) return { intent: "set_payment", entities: { mode: "card" } };
+  // Enhanced PAYMENT MODE with Indian accent support
+  if (/\b(payment|pay|mode|paise|पैसे|payment\s+mode|payment\s+kar|payment\s+karne|payment\s+karo)\b/.test(t)) {
+    if (/\bupi|gpay|phonepe|google pay|yupi|यूपीआई|यूपीआई\s+payment\b/.test(t)) return { intent: "set_payment", entities: { mode: "upi" } };
+    if (/\bcash|cash\s+payment|cash\b|nagad|नकद|नकद\s+payment|cash\s+kar|cash\s+karne|cash\s+karo\b/.test(t)) return { intent: "set_payment", entities: { mode: "cash" } };
+    if (/\b(card|debit|credit\s+card|debit\s+card|कार्ड|card\s+kar|card\s+karne|card\s+karo)\b/.test(t)) return { intent: "set_payment", entities: { mode: "card" } };
   }
-  if (/^payment\s+(upi|cash|card)$/.test(t)) {
+  if (/^(payment|pay|mode|paise|पैसे)\s+(upi|cash|card|yupi|nagad|कार्ड)$/.test(t)) {
     const mode = t.split(/\s+/)[1];
-    return { intent: "set_payment", entities: { mode } };
+    // Normalize mode names
+    const normalizedMode = mode === 'yupi' ? 'upi' : mode === 'nagad' ? 'cash' : mode === 'कार्ड' ? 'card' : mode;
+    return { intent: "set_payment", entities: { mode: normalizedMode } };
   }
 
   // SPLIT payment: e.g., "payment split 800 cash 500 upi 200 card"
@@ -146,6 +148,50 @@ export function parseLocalIntent(rawText = "") {
     if (/\bproforma\b/.test(t)) return { intent: "set_invoice_type", entities: { type: "Proforma" } };
     if (/\bestimate\b/.test(t)) return { intent: "set_invoice_type", entities: { type: "Estimate" } };
     if (/\bquote\b/.test(t)) return { intent: "set_invoice_type", entities: { type: "Quote" } };
+  }
+
+  // Simple invoice type detection (without "invoice" keyword)
+  if (/^retail\b/.test(t)) return { intent: "set_invoice_type", entities: { type: "Retail" } };
+  if (/^tax\b/.test(t)) return { intent: "set_invoice_type", entities: { type: "Tax" } };
+  if (/^proforma\b/.test(t)) return { intent: "set_invoice_type", entities: { type: "Proforma" } };
+
+  // Enhanced CUSTOMER detection with Indian accent support
+  if (/\b(customer|client|buyer|ग्राहक|customer\s+kar|customer\s+karne|customer\s+karo|client\s+kar|client\s+karne|client\s+karo)\b/.test(t)) {
+    const phoneMatch = t.match(/(\d{10,})/);
+    const nameMatch = t.match(/(?:customer|client|buyer|ग्राहक|customer\s+kar|customer\s+karne|customer\s+karo|client\s+kar|client\s+karne|client\s+karo)\s+(\w+)/);
+    return { 
+      intent: "set_customer", 
+      entities: { 
+        phone: phoneMatch ? phoneMatch[1] : undefined,
+        name: nameMatch ? nameMatch[1] : undefined
+      } 
+    };
+  }
+
+  // Enhanced PRODUCT addition detection with Indian accent support
+  if (/\b(add|put|include|dal|डाल|जोड़|add\s+kar|add\s+karne|add\s+karo)\b/.test(t) || 
+      (!/\b(payment|invoice|customer|mode|type|gst|payment|pay|mode|invoice|bill|customer|client|buyer)\b/.test(t) && t.length > 2)) {
+    const qtyMatch = t.match(/\b(\d+(?:\.\d+)?)\b/);
+    const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
+    
+    // Enhanced product name extraction with Indian accent support
+    const productName = t
+      .replace(/\b(add|put|include|the|a|an|some|please|plz|dal|डाल|जोड़|add\s+kar|add\s+karne|add\s+karo|kar|karne|karo)\b/g, '')
+      .replace(/\b\d+(?:\.\d+)?\b/g, '')
+      .replace(/\b(g|kg|ml|l|pcs|piece|pieces|gram|grams|kilo|kilogram|liter|litre|pcs|pieces|units|nos|number|numbers)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    if (productName && productName.length > 1) {
+      return { 
+        intent: "add_item", 
+        entities: { 
+          name: productName,
+          productName: productName,
+          qty: qty
+        } 
+      };
+    }
   }
 
   // GST FLAGS & RATE  (emit keys that CreateInvoice/settings expect)

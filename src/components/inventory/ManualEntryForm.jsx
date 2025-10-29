@@ -82,7 +82,12 @@ function MultiResultsTable({ rows, onAutofill, onAddSelected }) {
                     onChange={(e) => handleEdit(i, 'costPrice', e.target.value)}
                   />
                 </td>
-                <td className="p-2 text-center">{r.mrp ? `₹${r.mrp}`: '-'}</td>
+                <td className="p-2 text-center">
+                  {r.mrp ? `₹${r.mrp}`: '-'}
+                  {r.sellingPrice && r.sellingPrice !== r.mrp && (
+                    <div className="text-xs text-white/60">SP: ₹{r.sellingPrice}</div>
+                  )}
+                </td>
                 <td className="p-2 text-center">{r.unit || '-'}</td>
                 <td className="p-2 text-center">{Math.round((r.confidence || 0) * 100)}%</td>
                 <td className="p-2 text-right">
@@ -231,13 +236,16 @@ const ManualEntryForm = () => {
     if (autofill.gst !== undefined && autofill.gst !== null && autofill.gst !== "") {
       setPricingValues((prev) => ({ ...prev, taxRate: autofill.gst }));
     }
-    // Pricing fields
-    if (autofill.priceMRP !== undefined && autofill.priceMRP !== null && autofill.priceMRP !== "") {
-      setPricingValues((prev) => ({ ...prev, mrp: autofill.priceMRP }));
-    } else if (autofill.mrp !== undefined && autofill.mrp !== null && autofill.mrp !== "") {
+    // Enhanced pricing fields - prioritize AI-extracted values
+    if (autofill.mrp !== undefined && autofill.mrp !== null && autofill.mrp !== "") {
       setPricingValues((prev) => ({ ...prev, mrp: autofill.mrp }));
+    } else if (autofill.priceMRP !== undefined && autofill.priceMRP !== null && autofill.priceMRP !== "") {
+      setPricingValues((prev) => ({ ...prev, mrp: autofill.priceMRP }));
     }
-    if (autofill.price !== undefined && autofill.price !== null && autofill.price !== "") {
+    // Set selling price - prioritize sellingPrice, then price, then legacySellingPrice
+    if (autofill.sellingPrice !== undefined && autofill.sellingPrice !== null && autofill.sellingPrice !== "") {
+      setPricingValues((prev) => ({ ...prev, legacySellingPrice: autofill.sellingPrice }));
+    } else if (autofill.price !== undefined && autofill.price !== null && autofill.price !== "") {
       setPricingValues((prev) => ({ ...prev, legacySellingPrice: autofill.price }));
     }
   };
@@ -285,13 +293,16 @@ const ManualEntryForm = () => {
     if (typeof best.confidence === 'string' && confMap[best.confidence]) {
       setPricingValues((prev) => ({ ...prev, taxConfidence: confMap[best.confidence] }));
     }
-    // MRP/price fields
-    if (best.priceMRP !== undefined && best.priceMRP !== null && best.priceMRP !== "") {
-      setPricingValues((prev) => ({ ...prev, mrp: best.priceMRP }));
-    } else if (best.mrp !== undefined && best.mrp !== null && best.mrp !== "") {
+    // Enhanced MRP/price fields - prioritize AI-extracted values
+    if (best.mrp !== undefined && best.mrp !== null && best.mrp !== "") {
       setPricingValues((prev) => ({ ...prev, mrp: best.mrp }));
+    } else if (best.priceMRP !== undefined && best.priceMRP !== null && best.priceMRP !== "") {
+      setPricingValues((prev) => ({ ...prev, mrp: best.priceMRP }));
     }
-    if (
+    // Enhanced selling price - prioritize sellingPrice, then price
+    if (best.sellingPrice !== undefined && best.sellingPrice !== null && best.sellingPrice !== "") {
+      setPricingValues((prev) => ({ ...prev, legacySellingPrice: best.sellingPrice }));
+    } else if (
       best.price !== undefined &&
       best.price !== null &&
       best.price !== "" &&
@@ -724,6 +735,9 @@ const ManualEntryForm = () => {
                 {(() => {
                   // Normalize source labels
                   const src = (autoSource || "").toLowerCase();
+                  if (src.includes("gemini")) return "Gemini AI";
+                  if (src.includes("gpt-4o")) return "ChatGPT";
+                  if (src.includes("hybrid-ai")) return "Hybrid AI";
                   if (src.includes("vision+kg+search")) return "vision + KG + web";
                   if (src.includes("vision+kg")) return "vision + KG";
                   if (src.includes("vision+search")) return "vision + web";
@@ -925,6 +939,7 @@ const ManualEntryForm = () => {
                   category: row.category,
                   unit: row.unit,
                   mrp: row.mrp,
+                  sellingPrice: row.sellingPrice,
                   priceMRP: row.mrp,
                   sku: row.barcode || "",
                 });

@@ -38,11 +38,25 @@ const AuthPage = () => {
       }
 
       try {
+        // Check if this is a distributor employee (has custom claims)
+        if (user.customClaims?.isDistributorEmployee) {
+          // Only redirect if not already on distributor employee pages
+          if (!location.pathname.includes("/distributor-employee-dashboard") && 
+              !location.pathname.includes("/distributor-employee-login")) {
+            navigate("/distributor-employee-dashboard", { replace: true });
+          }
+          setIsLoadingUser(false);
+          return;
+        }
+
+        // Check if this is a regular business user
         const docRef = doc(db, "businesses", user.uid);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const userData = docSnap.data();
-          const normalized = (userData.role || '').toString().toLowerCase().replace(/\s+/g, '');
+          // Check for both 'role' and 'businessType' fields (some users have businessType)
+          const rawRole = userData.role || userData.businessType || '';
+          const normalized = rawRole.toString().toLowerCase().replace(/\s+/g, '');
 
           if (normalized === "retailer") {
             if (!location.pathname.includes("/dashboard")) navigate("/dashboard", { replace: true });
@@ -83,7 +97,10 @@ const AuthPage = () => {
         const ref = doc(db, "businesses", user.uid);
         const snap = await getDoc(ref);
         if (snap.exists()) {
-          const normalized = (snap.data().role || '').toString().toLowerCase().replace(/\s+/g, '');
+          const userData = snap.data();
+          // Check for both 'role' and 'businessType' fields (some users have businessType)
+          const rawRole = userData.role || userData.businessType || '';
+          const normalized = rawRole.toString().toLowerCase().replace(/\s+/g, '');
           if (normalized === "retailer") {
             if (!location.pathname.includes("/dashboard")) navigate("/dashboard", { replace: true });
           } else if (normalized === "distributor") {
