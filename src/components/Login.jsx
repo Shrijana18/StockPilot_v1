@@ -40,6 +40,13 @@ const Login = () => {
     console.log("[Login] submit clicked");
     setError('');
     setLoading(true);
+    
+    // Add production debugging
+    const isProduction = window.location.hostname !== 'localhost';
+    if (isProduction) {
+      console.log("[Login] Production environment detected");
+    }
+    
     try {
       const email = (formData.email || '').trim();
       const password = (formData.password || '').trim();
@@ -67,18 +74,32 @@ const Login = () => {
       console.log("[Login] Role detection - raw:", rawRole, "normalized:", role);
       
       // Direct navigation after successful login
+      let targetPath = '/dashboard';
       if (role.includes('retailer')) {
         console.log("[Login] Redirecting to retailer dashboard");
-        navigate('/dashboard', { replace: true });
+        targetPath = '/dashboard';
       } else if (role.includes('distributor')) {
         console.log("[Login] Redirecting to distributor dashboard");
-        navigate('/distributor-dashboard', { replace: true });
+        targetPath = '/distributor-dashboard';
       } else if (role.includes('productowner') || role.includes('product-owner')) {
         console.log("[Login] Redirecting to product owner dashboard");
-        navigate('/product-owner-dashboard', { replace: true });
+        targetPath = '/product-owner-dashboard';
       } else {
         console.warn("[Login] Unknown role:", rawRole, "normalized:", role, "defaulting to retailer dashboard");
-        navigate('/dashboard', { replace: true });
+        targetPath = '/dashboard';
+      }
+      
+      // Try React Router navigation first
+      navigate(targetPath, { replace: true });
+      
+      // Fallback for production: if navigation doesn't work, use window.location
+      if (isProduction) {
+        setTimeout(() => {
+          if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
+            console.log("[Login] React Router navigation failed, using window.location fallback");
+            window.location.href = targetPath;
+          }
+        }, 1000);
       }
     } catch (err) {
       console.error("[Login] error", err?.code, err?.message);
@@ -147,18 +168,32 @@ const Login = () => {
       console.log("[Login] Google sign-in - Role detection - raw:", roleRaw, "normalized:", role);
       
       // Direct navigation after successful Google sign-in
+      let targetPath = '/dashboard';
       if (role.includes('retailer')) {
         console.log("[Login] Google sign-in - Redirecting to retailer dashboard");
-        navigate('/dashboard', { replace: true });
+        targetPath = '/dashboard';
       } else if (role.includes('distributor')) {
         console.log("[Login] Google sign-in - Redirecting to distributor dashboard");
-        navigate('/distributor-dashboard', { replace: true });
+        targetPath = '/distributor-dashboard';
       } else if (role.includes('productowner') || role.includes('product-owner')) {
         console.log("[Login] Google sign-in - Redirecting to product owner dashboard");
-        navigate('/product-owner-dashboard', { replace: true });
+        targetPath = '/product-owner-dashboard';
       } else {
         console.warn("[Login] Google sign-in - Unknown role:", roleRaw, "normalized:", role, "defaulting to retailer dashboard");
-        navigate('/dashboard', { replace: true });
+        targetPath = '/dashboard';
+      }
+      
+      // Try React Router navigation first
+      navigate(targetPath, { replace: true });
+      
+      // Fallback for production: if navigation doesn't work, use window.location
+      if (isProduction) {
+        setTimeout(() => {
+          if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
+            console.log("[Login] Google sign-in React Router navigation failed, using window.location fallback");
+            window.location.href = targetPath;
+          }
+        }, 1000);
       }
     } catch (error) {
       console.error('[Login] Google Sign-In Error:', error?.code, error?.message);

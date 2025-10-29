@@ -24,6 +24,12 @@ export const AuthProvider = ({ children }) => {
         console.log("[AuthContext] User signed out");
       }
       
+      // Add production debugging
+      const isProduction = window.location.hostname !== 'localhost';
+      if (isProduction) {
+        console.log("[AuthContext] Production environment - Firebase user:", firebaseUser?.uid || "null");
+      }
+      
       // One-time guard: when employee flow just redirected to /employee-dashboard,
       // skip this auth tick to avoid race between signOut and dashboard mount.
       if (isEmployeeRedirect()) {

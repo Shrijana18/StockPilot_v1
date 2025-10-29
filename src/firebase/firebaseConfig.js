@@ -8,6 +8,11 @@ import { Capacitor } from '@capacitor/core';
 // Detect Capacitor native (iOS/Android) WebView vs Web browser
 const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
 
+// Detect production environment
+const IS_PRODUCTION = import.meta?.env?.MODE === 'production' || 
+                     import.meta?.env?.NODE_ENV === 'production' ||
+                     window.location.hostname !== 'localhost';
+
 // On native, enable App Check debug token and avoid loading Google web scripts that can be blocked by WKWebView/CORS
 if (IS_NATIVE && typeof self !== 'undefined' && import.meta?.env?.MODE !== 'production') {
   // Enable App Check debug only in non-production native builds
@@ -67,6 +72,27 @@ if (IS_NATIVE) {
     console.warn('[Firebase] Failed to set persistence:', e?.message || e);
   }
 })();
+
+// Add production-specific error handling
+if (IS_PRODUCTION) {
+  console.info('[Firebase] Production environment detected');
+  
+  // Add global error handler for production
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[Firebase] Unhandled promise rejection:', event.reason);
+  });
+  
+  // Add Firebase auth state change error handling
+  auth.onAuthStateChanged((user) => {
+    if (user) {
+      console.log('[Firebase] Production auth state: User signed in');
+    } else {
+      console.log('[Firebase] Production auth state: User signed out');
+    }
+  }, (error) => {
+    console.error('[Firebase] Production auth state error:', error);
+  });
+}
 export const db = initializeFirestore(app, { experimentalForceLongPolling: true });
 export const storage = getStorage(app);
 export const functions = getFunctions(app, "us-central1");
