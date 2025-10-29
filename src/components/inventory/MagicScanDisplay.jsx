@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { BrowserMultiFormatReader } from "@zxing/library";
 
 // This function remains the same
 function calculateFrameQuality(ctx, width, height) {
