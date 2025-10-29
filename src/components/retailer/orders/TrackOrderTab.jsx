@@ -149,13 +149,13 @@ const TrackOrderTab = () => {
   const progressSteps = ['Requested', 'Quoted', 'Accepted', 'Modified', 'Shipped', 'Delivered'];
 
   return (
-    <div className="p-4 text-white">
-      <div className="mb-4">
-        <label className="mr-2 font-semibold text-white/80">Filter by Status:</label>
+    <div className="p-3 sm:p-4 lg:p-6 text-white">
+      <div className="mb-3 sm:mb-4">
+        <label className="mr-2 font-semibold text-white/80 text-sm sm:text-base">Filter by Status:</label>
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="px-2 py-1 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+          className="w-full sm:w-auto px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm sm:text-base"
         >
           <option>All</option>
           <option>Requested</option>
@@ -169,21 +169,22 @@ const TrackOrderTab = () => {
       </div>
 
       {loading ? (
-        <p className="text-white/80">Loading orders...</p>
+        <p className="text-white/80 text-sm sm:text-base">Loading orders...</p>
       ) : filteredOrders.length === 0 ? (
-        <p className="text-white/70">No orders found for this filter.</p>
+        <p className="text-white/70 text-sm sm:text-base">No orders found for this filter.</p>
       ) : (
-        <table className="w-full table-auto rounded-xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10">
-          <thead>
-            <tr className="bg-white/10 text-white/80">
-              <th className="px-3 py-2 border border-white/10">Distributor</th>
-              <th className="px-3 py-2 border border-white/10">Order Date</th>
-              <th className="px-3 py-2 border border-white/10">Items</th>
-              <th className="px-3 py-2 border border-white/10">Status</th>
-              <th className="px-3 py-2 border border-white/10">Delivery ETA</th>
-              <th className="px-3 py-2 border border-white/10">Progress</th>
-            </tr>
-          </thead>
+        <div className="overflow-x-auto">
+          <table className="w-full table-auto rounded-xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 min-w-[800px]">
+            <thead>
+              <tr className="bg-white/10 text-white/80">
+                <th className="px-2 sm:px-3 py-2 border border-white/10 min-w-[120px]">Distributor</th>
+                <th className="px-2 sm:px-3 py-2 border border-white/10 min-w-[120px]">Order Date</th>
+                <th className="px-2 sm:px-3 py-2 border border-white/10 min-w-[80px]">Items</th>
+                <th className="px-2 sm:px-3 py-2 border border-white/10 min-w-[100px]">Status</th>
+                <th className="px-2 sm:px-3 py-2 border border-white/10 min-w-[120px]">Delivery ETA</th>
+                <th className="px-2 sm:px-3 py-2 border border-white/10 min-w-[200px]">Progress</th>
+              </tr>
+            </thead>
           <tbody>
             {filteredOrders.map((order) => (
               <React.Fragment key={order.id}>
@@ -193,19 +194,19 @@ const TrackOrderTab = () => {
                   }
                   className="cursor-pointer hover:bg-white/10"
                 >
-                  <td className="px-3 py-2 border border-white/10">{order.distributorName || "N/A"}</td>
-                  <td className="px-3 py-2 border border-white/10">
+                  <td className="px-2 sm:px-3 py-2 border border-white/10 text-xs sm:text-sm">{order.distributorName || "N/A"}</td>
+                  <td className="px-2 sm:px-3 py-2 border border-white/10 text-xs sm:text-sm">
                     {order.timestamp?.toDate().toLocaleString() || "N/A"}
                   </td>
-                  <td className="px-3 py-2 border border-white/10">{order.items?.length || 0}</td>
-                  <td className="px-3 py-2 border border-white/10 font-medium">
+                  <td className="px-2 sm:px-3 py-2 border border-white/10 text-xs sm:text-sm text-center">{order.items?.length || 0}</td>
+                  <td className="px-2 sm:px-3 py-2 border border-white/10 font-medium text-xs sm:text-sm">
                     {order.status || order.statusCode || 'Unknown'}
                     {(order.status === "Rejected" || order.statusCode === "REJECTED") && order.rejectionNote && (
                       <div className="text-xs text-rose-300 mt-1">Reason: {order.rejectionNote}</div>
                     )}
                   </td>
-                  <td className="px-3 py-2 border border-white/10">{formatETA(order.expectedDeliveryDate || order.eta)}</td>
-                  <td className="px-3 py-2 border border-white/10">
+                  <td className="px-2 sm:px-3 py-2 border border-white/10 text-xs sm:text-sm">{formatETA(order.expectedDeliveryDate || order.eta)}</td>
+                  <td className="px-2 sm:px-3 py-2 border border-white/10 text-xs sm:text-sm">
                     {(order.status === "Rejected" || order.statusCode === "REJECTED") ? (
                       <div className="flex gap-1 text-xs">
                         <span className="text-emerald-400 font-semibold">Requested</span>
@@ -432,7 +433,8 @@ const TrackOrderTab = () => {
               </React.Fragment>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
       {selectedOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center z-50">

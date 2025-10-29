@@ -494,19 +494,19 @@ const ViewInventory = ({ userId }) => {
   };
 
   return (
-    <div className="p-4 text-white">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-3 mb-4">
-        <div className="flex items-center w-full md:w-1/3">
+    <div className="p-2 sm:p-4 text-white">
+      <div className="flex flex-col lg:flex-row justify-between items-center gap-3 mb-3 sm:mb-4">
+        <div className="flex flex-col sm:flex-row items-center w-full lg:w-1/3 gap-2 sm:gap-3">
           <input
             type="text"
             placeholder="Search by name, brand, SKU..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="px-4 py-2 rounded-xl w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+            className="px-3 sm:px-4 py-2 rounded-xl w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
           />
           <button
             onClick={() => setShowImageModalAI(true)}
-            className="ml-2 py-2 px-4 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+            className="w-full sm:w-auto py-2 px-3 sm:px-4 rounded-xl font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] text-sm"
           >
             Search with AI
           </button>
@@ -597,10 +597,10 @@ const ViewInventory = ({ userId }) => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex mb-2">
+      <div className="flex mb-2 overflow-x-auto">
         <button
           onClick={() => setSelectedTab("view")}
-          className={`px-4 py-2 rounded-t-md transition ${
+          className={`px-3 sm:px-4 py-2 rounded-t-md transition text-sm whitespace-nowrap ${
             selectedTab === "view"
               ? "bg-emerald-500 text-slate-900 font-semibold"
               : "bg-white/10 text-white hover:bg-white/15"
@@ -610,7 +610,7 @@ const ViewInventory = ({ userId }) => {
         </button>
         <button
           onClick={() => setSelectedTab("recent")}
-          className={`px-4 py-2 rounded-t-md transition ${
+          className={`px-3 sm:px-4 py-2 rounded-t-md transition text-sm whitespace-nowrap ${
             selectedTab === "recent"
               ? "bg-emerald-500 text-slate-900 font-semibold"
               : "bg-white/10 text-white hover:bg-white/15"
@@ -651,7 +651,8 @@ const ViewInventory = ({ userId }) => {
             </button>
           </div>
               <div className="overflow-x-auto w-full">
-                <table className="table-fixed w-full text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="table-fixed w-full text-xs sm:text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden min-w-[800px]">
                   <thead className="bg-white/10 text-left sticky top-0">
                     <tr>
                       {columns.filter(c => !hiddenCols.has(c.id)).map(col => (
@@ -890,7 +891,8 @@ const ViewInventory = ({ userId }) => {
                       </tr>
                     ) : null}
                   </tbody>
-                </table>
+                  </table>
+                </div>
               </div>
               {showCustomColumnsModal && (
                 <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">

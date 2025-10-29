@@ -29,21 +29,21 @@ const DistributorDashboard = () => {
 
   // --- UI-only: small presentational components for polish ---
   const KPICard = ({ label, value, subtitle, loading }) => (
-    <div className="flex-1 min-w-[180px] rounded-xl bg-white/5 backdrop-blur-xl border border-white/10 p-3 shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
+    <div className="flex-1 min-w-[140px] sm:min-w-[180px] rounded-xl bg-white/5 backdrop-blur-xl border border-white/10 p-2 sm:p-3 shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
       <p className="text-xs uppercase tracking-wide text-white/70">{label}</p>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className={`text-2xl font-semibold ${loading ? 'animate-pulse text-white/40' : 'text-white'}`}>{value}</span>
+      <div className="mt-1 flex items-baseline gap-1 sm:gap-2">
+        <span className={`text-lg sm:text-xl lg:text-2xl font-semibold ${loading ? 'animate-pulse text-white/40' : 'text-white'}`}>{value}</span>
         {subtitle && <span className="text-xs text-emerald-300">{subtitle}</span>}
       </div>
     </div>
   );
 
   const SectionTitle = ({ title, desc, icon }) => (
-    <div className="mb-4 flex items-start gap-3">
-      <div className="text-2xl">{icon}</div>
+    <div className="mb-3 sm:mb-4 flex items-start gap-2 sm:gap-3">
+      <div className="text-xl sm:text-2xl">{icon}</div>
       <div>
-        <h3 className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">{title}</h3>
-        {desc && <p className="text-sm text-white/70 mt-0.5">{desc}</p>}
+        <h3 className="text-base sm:text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">{title}</h3>
+        {desc && <p className="text-xs sm:text-sm text-white/70 mt-0.5">{desc}</p>}
       </div>
     </div>
   );
@@ -245,13 +245,13 @@ const DistributorDashboard = () => {
       {/* MAIN CONTAINER */}
       <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#0B1220] via-[#0F1A2A] to-[#0B1220] text-white font-sans transition-all duration-300 ease-in-out page-noise">
         {/* Sidebar as hidden drawer */}
-        <aside className={`fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-[#0D1524] via-[#0B1220] to-[#0B1220] backdrop-blur-md text-white shadow-2xl p-5 flex flex-col justify-between transform transition-transform duration-300 z-30 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <aside className={`fixed left-0 top-0 h-full w-64 sm:w-72 bg-gradient-to-b from-[#0D1524] via-[#0B1220] to-[#0B1220] backdrop-blur-md text-white shadow-2xl p-4 sm:p-5 flex flex-col justify-between transform transition-transform duration-300 z-30 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div>
-            <h2 className="text-3xl font-extrabold tracking-wide text-white mb-6">FLYP</h2>
-            <nav className="space-y-4 mt-20">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-wide text-white mb-4 sm:mb-6">FLYP</h2>
+            <nav className="space-y-3 sm:space-y-4 mt-16 sm:mt-20">
               <button
                 onClick={() => { setTabAndHash("dashboard"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
+                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
                   activeTab === "dashboard"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -261,7 +261,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("retailerRequests"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
+                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
                   activeTab === "retailerRequests"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -271,7 +271,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("inventory"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
+                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
                   activeTab === "inventory"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -281,7 +281,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("dispatch"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
+                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
                   activeTab === "dispatch"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -291,7 +291,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("analytics"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 ${
+                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
                   activeTab === "analytics"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -333,7 +333,7 @@ const DistributorDashboard = () => {
           </header>
 
           {/* Main Content */}
-          <main className="relative pt-2 md:pt-3 px-3 md:px-5 pb-5 mx-3 mt-1 mb-3">
+          <main className="relative pt-2 sm:pt-3 px-2 sm:px-3 md:px-5 pb-3 sm:pb-5 mx-2 sm:mx-3 mt-1 mb-2 sm:mb-3">
             <AnimatePresence mode="wait">
               {activeTab === "dashboard" && (
                 <motion.div

@@ -353,24 +353,24 @@ const TrackOrders = () => {
   };
 
   return (
-    <div className="p-4 text-white">
+    <div className="p-3 sm:p-4 lg:p-6 text-white">
       <ToastContainer />
-      <h2 className="text-2xl font-bold mb-4">Track Orders</h2>
+      <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Track Orders</h2>
 
       {/* Filters */}
-      <div className="sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 supports-[backdrop-filter]:bg-[#0B0F14]/50 border border-white/15 rounded-xl p-4 mb-4 flex flex-col md:flex-row md:items-center gap-4">
+      <div className="sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 supports-[backdrop-filter]:bg-[#0B0F14]/50 border border-white/15 rounded-xl p-3 sm:p-4 mb-3 sm:mb-4 flex flex-col lg:flex-row lg:items-center gap-3 sm:gap-4">
         <input
           type="text"
           placeholder="Search by order ID, retailer, phone, email, etc."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="px-4 py-2 rounded-lg w-full md:w-1/2 bg-white/10 border border-white/15 placeholder-white/50 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
+          className="px-3 sm:px-4 py-2 rounded-lg w-full lg:w-1/2 bg-white/10 border border-white/15 placeholder-white/50 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/60 text-sm"
         />
         <input
           type="date"
           value={filterDate}
           onChange={(e) => setFilterDate(e.target.value)}
-          className="px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
+          className="px-3 sm:px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 text-sm"
         />
       </div>
 

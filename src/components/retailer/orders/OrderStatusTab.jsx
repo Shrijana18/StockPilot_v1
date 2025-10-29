@@ -395,50 +395,57 @@ const OrderStatusTab = () => {
 
   return (
     <div className="text-white">
-      <div className="flex gap-4 mb-4 justify-between items-center">
-        <div className="flex gap-4">
+      {/* Mobile-first responsive filters */}
+      <div className="flex flex-col lg:flex-row gap-4 mb-4">
+        {/* Search and filters - mobile stacked, desktop inline */}
+        <div className="flex flex-col sm:flex-row gap-3 flex-1">
           <input
             type="text"
             placeholder="Search by distributor or order ID"
-            className="px-3 py-2 rounded-xl w-1/3 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+            className="px-3 py-2 rounded-xl w-full sm:w-1/2 lg:w-1/3 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <select
-            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option>All</option>
-            <option>Requested</option>
-            <option>Quoted</option>
-            <option>Accepted</option>
-            <option>Rejected</option>
-            <option>Modified</option>
-          </select>
-          <select
-            className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-          >
-            <option>All Time</option>
-            <option>Today</option>
-            <option>This Week</option>
-            <option>Custom Range</option>
-          </select>
+          <div className="flex gap-2 sm:gap-3">
+            <select
+              className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm flex-1 sm:flex-none"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option>All</option>
+              <option>Requested</option>
+              <option>Quoted</option>
+              <option>Accepted</option>
+              <option>Rejected</option>
+              <option>Modified</option>
+            </select>
+            <select
+              className="px-3 py-2 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm flex-1 sm:flex-none"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+            >
+              <option>All Time</option>
+              <option>Today</option>
+              <option>This Week</option>
+              <option>Custom Range</option>
+            </select>
+          </div>
         </div>
-        <div className="flex gap-2">
+        {/* Export buttons - responsive */}
+        <div className="flex gap-2 flex-shrink-0">
           <button
             onClick={handleExportCSV}
-            className="px-3 py-2 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+            className="px-3 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] whitespace-nowrap"
           >
-            Export CSV
+            <span className="hidden sm:inline">Export CSV</span>
+            <span className="sm:hidden">CSV</span>
           </button>
           <button
             onClick={handleExportPDF}
-            className="px-3 py-2 rounded-xl text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+            className="px-3 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] whitespace-nowrap"
           >
-            Export PDF
+            <span className="hidden sm:inline">Export PDF</span>
+            <span className="sm:hidden">PDF</span>
           </button>
         </div>
       </div>
@@ -451,16 +458,18 @@ const OrderStatusTab = () => {
         </div>
       )}
 
-      <table className="min-w-full rounded-xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 text-sm">
-        <thead>
-          <tr className="bg-white/10 text-left text-white/80">
-            <th className="p-2 border border-white/10">Order ID</th>
-            <th className="p-2 border border-white/10">Distributor (Name)</th>
-            <th className="p-2 border border-white/10">Status</th>
-            <th className="p-2 border border-white/10">Amount</th>
-            <th className="p-2 border border-white/10">Date</th>
-          </tr>
-        </thead>
+      {/* Responsive table container */}
+      <div className="overflow-x-auto">
+        <table className="min-w-full rounded-xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 text-sm">
+          <thead>
+            <tr className="bg-white/10 text-left text-white/80">
+              <th className="p-2 border border-white/10 min-w-[120px]">Order ID</th>
+              <th className="p-2 border border-white/10 min-w-[200px]">Distributor (Name)</th>
+              <th className="p-2 border border-white/10 min-w-[100px]">Status</th>
+              <th className="p-2 border border-white/10 min-w-[100px]">Amount</th>
+              <th className="p-2 border border-white/10 min-w-[120px]">Date</th>
+            </tr>
+          </thead>
         <tbody>
           {filteredOrders.map((order) => (
             <React.Fragment key={order.id}>
@@ -622,7 +631,8 @@ const OrderStatusTab = () => {
             </React.Fragment>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
   );
 };

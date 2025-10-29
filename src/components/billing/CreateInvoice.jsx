@@ -809,13 +809,13 @@ const CreateInvoice = () => {
   /* ---------- Page ---------- */
   return (
     <>
-      <div className="space-y-6 px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)] text-white">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Billing</h2>
+      <div className="space-y-4 sm:space-y-6 px-2 sm:px-4 md:px-6 pb-32 pt-[env(safe-area-inset-top)] text-white">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+          <h2 className="text-lg sm:text-xl font-semibold">Billing</h2>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-white/70">Mode:</span>
-            <button className={`px-3 py-1 rounded-xl border ${!fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(false)}>Classic</button>
-            <button className={`px-3 py-1 rounded-xl border ${fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(true)}>Fast Billing</button>
+            <span className="text-xs sm:text-sm text-white/70">Mode:</span>
+            <button className={`px-2 sm:px-3 py-1 rounded-xl border text-sm ${!fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(false)}>Classic</button>
+            <button className={`px-2 sm:px-3 py-1 rounded-xl border text-sm ${fastMode ? "bg-white/10" : ""}`} onClick={() => setFastMode(true)}>Fast Billing</button>
           </div>
         </div>
 
@@ -823,10 +823,10 @@ const CreateInvoice = () => {
           (() => {
             const handleVoiceCommand = (text) => { console.log("Final Voice Command:", text); };
             return (
-              <div className="space-y-4 px-4 md:px-6 pb-24 text-white">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold">Fast Billing</h2>
-                  <button onClick={() => setFastMode(false)} className="px-3 py-1 rounded-xl border border-white/20">Exit</button>
+              <div className="space-y-4 px-2 sm:px-4 md:px-6 pb-24 text-white">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                  <h2 className="text-lg sm:text-xl font-semibold">Fast Billing</h2>
+                  <button onClick={() => setFastMode(false)} className="px-3 py-1 rounded-xl border border-white/20 text-sm">Exit</button>
                 </div>
                 <FastBillingMode
                   onExit={() => setFastMode(false)}
@@ -843,17 +843,17 @@ const CreateInvoice = () => {
         ) : (
           <>
             {/* Customer Info */}
-            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-              <h2 className="text-lg font-semibold mb-2 text-white">Customer Information</h2>
+            <div className="p-3 sm:p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+              <h2 className="text-base sm:text-lg font-semibold mb-2 text-white">Customer Information</h2>
               {userInfo && (
                 <CustomerForm customer={customer} onChange={handleCustomerChange} userId={userInfo.uid} />
               )}
             </div>
 
             {/* Product Search */}
-            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+            <div className="p-3 sm:p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="text-lg font-semibold text-white">Add Product</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-white">Add Product</h2>
               </div>
               <ProductSearch
                 onSelect={(product) => {
@@ -906,8 +906,8 @@ const CreateInvoice = () => {
             </div>
 
             {/* Cart */}
-            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-              <h2 className="text-lg font-semibold mb-2 text-white">Product Cart</h2>
+            <div className="p-3 sm:p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
+              <h2 className="text-base sm:text-lg font-semibold mb-2 text-white">Product Cart</h2>
               <BillingCart
                 selectedProducts={selectedProducts}
                 cartItems={cartItems}
@@ -926,10 +926,10 @@ const CreateInvoice = () => {
               </button>
             </div>
             {/* Mobile Floating Button */}
-            <div className="fixed bottom-4 inset-x-4 z-50 md:hidden">
+            <div className="fixed bottom-3 sm:bottom-4 inset-x-3 sm:inset-x-4 z-50 md:hidden">
               <button
                 onClick={handleSubmitInvoice}
-                className="w-full text-slate-900 py-3 rounded-xl shadow-lg text-lg font-semibold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
+                className="w-full text-slate-900 py-3 rounded-xl shadow-lg text-base sm:text-lg font-semibold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]"
               >
                 Create Bill
               </button>
@@ -939,12 +939,12 @@ const CreateInvoice = () => {
       </div>
       {isCreating && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
-          <div className="relative p-6 rounded-2xl border border-white/10 bg-white/10 shadow-2xl text-white w-[min(90vw,420px)]">
+          <div className="relative p-4 sm:p-6 rounded-2xl border border-white/10 bg-white/10 shadow-2xl text-white w-[min(90vw,420px)]">
             {/* Spinner */}
-            <div className="mx-auto mb-3 h-10 w-10 rounded-full border-4 border-white/30 border-t-emerald-300 animate-spin" />
+            <div className="mx-auto mb-3 h-8 w-8 sm:h-10 sm:w-10 rounded-full border-4 border-white/30 border-t-emerald-300 animate-spin" />
             <div className="text-center">
-              <div className="text-lg font-semibold">Creating invoice…</div>
-              <div className="text-sm text-white/80 mt-1">Preparing preview and totals</div>
+              <div className="text-base sm:text-lg font-semibold">Creating invoice…</div>
+              <div className="text-xs sm:text-sm text-white/80 mt-1">Preparing preview and totals</div>
             </div>
             {/* Shimmer bar */}
             <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/10">

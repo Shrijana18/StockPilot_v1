@@ -157,7 +157,7 @@ const RetailerDashboardInner = () => {
             onClick={() => setShowMobileSidebar(false)}
           >
             <motion.div
-              className="w-[80vw] max-w-[320px] h-full p-4 bg-white/10 backdrop-blur-2xl border border-white/15 shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
+              className="w-[85vw] sm:w-[80vw] max-w-[320px] h-full p-3 sm:p-4 bg-white/10 backdrop-blur-2xl border border-white/15 shadow-[0_8px_40px_rgba(0,0,0,0.45)]"
               initial={{ x: -60, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: -80, opacity: 0 }}
@@ -165,8 +165,8 @@ const RetailerDashboardInner = () => {
               style={{ willChange: "transform, opacity" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="text-xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
-              <div className="mb-4"><ModeToggle /></div>
+              <div className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
+              <div className="mb-3 sm:mb-4"><ModeToggle /></div>
               {sidebarItems.map((item) => (
                 <button
                   key={item.id}
@@ -174,7 +174,7 @@ const RetailerDashboardInner = () => {
                     setActiveTab(item.id);
                     setShowMobileSidebar(false);
                   }}
-                  className={`flex items-center gap-3 px-4 py-2 rounded-lg w-full text-left transition ${
+                  className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 rounded-lg w-full text-left transition text-sm sm:text-base ${
                     activeTab === item.id
                       ? 'bg-emerald-400/20 text-emerald-200 border border-emerald-300/30'
                       : 'hover:bg-white/10'
@@ -310,7 +310,7 @@ const RetailerDashboardInner = () => {
                   {/* Left: Brand capsule */}
                   <div className="flex items-center min-w-[90px] relative z-10">
                     <button
-                      className="md:hidden text-2xl text-gray-300"
+                      className="md:hidden text-xl sm:text-2xl text-gray-300 p-1 rounded-lg hover:bg-white/10 transition"
                       onClick={() => setShowMobileSidebar(true)}
                       aria-label="Open menu"
                     >
@@ -414,20 +414,20 @@ const RetailerDashboardInner = () => {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, ease: [0.16,1,0.3,1] }}
-                className="flex-1 px-4 md:px-6 py-4 md:py-6 overflow-y-auto pb-[env(safe-area-inset-bottom)] text-white"
+                className="flex-1 px-2 sm:px-4 md:px-6 py-3 sm:py-4 md:py-6 overflow-y-auto pb-[env(safe-area-inset-bottom)] text-white"
               >
                 {activeTab === 'home' && (
                   <div>
                     <div className="space-y-4 md:space-y-6">
                       {(() => {
                         const filterControl = (
-                          <div className="flex items-center gap-2 md:gap-3">
-                            <label htmlFor="filter" className="font-medium text-sm md:text-base">Filter:</label>
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                            <label htmlFor="filter" className="font-medium text-xs sm:text-sm md:text-base">Filter:</label>
                             <select
                               id="filter"
                               value={selectedFilter}
                               onChange={(e) => setSelectedFilter(e.target.value)}
-                              className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
+                              className="w-full sm:w-auto px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
                             >
                               <option value="today">Today</option>
                               <option value="all">All Time</option>
@@ -436,22 +436,22 @@ const RetailerDashboardInner = () => {
                               <option value="custom">Custom</option>
                             </select>
                             {selectedFilter === 'custom' && (
-                              <>
+                              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                                 <input
                                   type="date"
                                   onChange={(e) =>
                                     setFilterDates((prev) => ({ ...prev, start: new Date(e.target.value) }))
                                   }
-                                  className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
+                                  className="w-full sm:w-auto px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
                                 />
                                 <input
                                   type="date"
                                   onChange={(e) =>
                                     setFilterDates((prev) => ({ ...prev, end: new Date(e.target.value) }))
                                   }
-                                  className="px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
+                                  className="w-full sm:w-auto px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 text-sm"
                                 />
-                              </>
+                              </div>
                             )}
                           </div>
                         );
@@ -476,28 +476,28 @@ const RetailerDashboardInner = () => {
 
                 {activeTab === 'inventory' && (
                   <div>
-                    <div className="flex gap-4 mb-6 border-b pb-2">
+                    <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6 border-b pb-2">
                       <button
                         onClick={() => setInventoryTab('add')}
-                        className={`px-4 py-2 rounded transition ${inventoryTab === 'add' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'add' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                       >
                         ➕ Add Inventory
                       </button>
                       <button
                         onClick={() => setInventoryTab('view')}
-                        className={`px-4 py-2 rounded transition ${inventoryTab === 'view' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'view' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                       >
                         📋 View Inventory
                       </button>
                       <button
                         onClick={() => setInventoryTab('group')}
-                        className={`px-4 py-2 rounded transition ${inventoryTab === 'group' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'group' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                       >
                         🧩 Group Items
                       </button>
                       <button
                         onClick={() => setInventoryTab('lowstock')}
-                        className={`px-4 py-2 rounded transition ${inventoryTab === 'lowstock' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'lowstock' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                       >
                         🚨 Low Stock Alerts
                       </button>
@@ -505,8 +505,8 @@ const RetailerDashboardInner = () => {
 
                     {inventoryTab === 'add' && (
                       <div>
-                        <h3 className="text-lg font-semibold mb-4">Select Inventory Input Method</h3>
-                        <div className="flex flex-col md:flex-row gap-4">
+                        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Select Inventory Input Method</h3>
+                        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                           <button
                             onClick={() => setAddMethod('manual')}
                             className={`px-3 py-2 rounded border transition ${addMethod === 'manual' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15'}`}
@@ -552,22 +552,22 @@ const RetailerDashboardInner = () => {
 
                 {activeTab === 'distributors' && (
                   <div>
-                    <div className="flex gap-4 mb-4">
+                    <div className="flex flex-wrap gap-2 sm:gap-4 mb-3 sm:mb-4">
                       <button
                         onClick={() => setDistributorTab('search')}
-                        className={`px-4 py-2 rounded transition ${distributorTab === 'search' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${distributorTab === 'search' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                       >
                         🔍 Search Distributor
                       </button>
                       <button
                         onClick={() => setDistributorTab('sent')}
-                        className={`px-4 py-2 rounded transition ${distributorTab === 'sent' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${distributorTab === 'sent' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                       >
                         📤 Sent Requests
                       </button>
                       <button
                         onClick={() => setDistributorTab('connected')}
-                        className={`px-4 py-2 rounded transition ${distributorTab === 'connected' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${distributorTab === 'connected' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
                       >
                         🤝 View Distributors
                       </button>

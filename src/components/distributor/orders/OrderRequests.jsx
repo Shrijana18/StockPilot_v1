@@ -710,7 +710,7 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
       </div>
 
       {/* Filters container */}
-      <div className="sticky top-[72px] z-40 rounded-xl p-4 mb-4 flex flex-col md:flex-row md:items-center md:gap-4 gap-3 border border-white/10 bg-[#0B0F14]/90 supports-[backdrop-filter]:bg-[#0B0F14]/70 backdrop-blur-xl shadow-lg">
+      <div className="sticky top-[72px] z-40 rounded-xl p-3 sm:p-4 mb-4 flex flex-col lg:flex-row lg:items-center lg:gap-4 gap-3 border border-white/10 bg-[#0B0F14]/90 supports-[backdrop-filter]:bg-[#0B0F14]/70 backdrop-blur-xl shadow-lg">
         {/* Search */}
         <div className="flex-1">
           <input
@@ -722,10 +722,10 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
           />
         </div>
         {/* Status Segmented Control */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
           {['All', 'Requested', 'Quoted', 'Accepted', 'Rejected'].map((status) => {
             const active = statusFilter === status;
-            const base = 'px-4 py-1 rounded-full text-xs border transition';
+            const base = 'px-2 sm:px-4 py-1 rounded-full text-xs border transition whitespace-nowrap';
             const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
             const off = 'bg-white/10 text-white border-white/20 hover:bg-white/15';
             return (
@@ -741,7 +741,7 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
           })}
         </div>
         {/* Retailer dropdown */}
-        <div className="min-w-[200px]">
+        <div className="w-full sm:min-w-[200px]">
           <Select
             value={selectedRetailerId || 'all'}
             onChange={(e) => setSelectedRetailerId(e.target.value)}
@@ -759,6 +759,7 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
               '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(16,185,129,0.6)' },
               minWidth: '180px',
               height: '36px',
+              width: '100%',
             }}
             inputProps={{
               className: 'px-3 py-2 text-sm',
