@@ -31,6 +31,13 @@ const AuthPage = () => {
       return;
     }
 
+    // For login type, let Login.jsx handle navigation after successful authentication
+    // AuthPage should only handle post-signup redirects and register page guards
+    if (type === "login") {
+      setIsLoadingUser(false);
+      return;
+    }
+
     const checkUserRoleAndRedirect = async () => {
       if (!user) {
         setIsLoadingUser(false);
@@ -56,7 +63,7 @@ const AuthPage = () => {
           const userData = docSnap.data();
           // Check for both 'role' and 'businessType' fields (some users have businessType)
           const rawRole = userData.role || userData.businessType || '';
-          const normalized = rawRole.toString().toLowerCase().replace(/\s+/g, '');
+          const normalized = rawRole.toString().toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
 
           if (normalized === "retailer") {
             if (!location.pathname.includes("/dashboard")) navigate("/dashboard", { replace: true });
@@ -79,10 +86,9 @@ const AuthPage = () => {
       }
     };
 
-    if (type === "login") {
+    // Only run checkUserRoleAndRedirect for non-login types (like register)
+    if (type !== "login") {
       checkUserRoleAndRedirect();
-    } else {
-      setIsLoadingUser(false);
     }
   }, [user, type]);
 
@@ -100,7 +106,7 @@ const AuthPage = () => {
           const userData = snap.data();
           // Check for both 'role' and 'businessType' fields (some users have businessType)
           const rawRole = userData.role || userData.businessType || '';
-          const normalized = rawRole.toString().toLowerCase().replace(/\s+/g, '');
+          const normalized = rawRole.toString().toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
           if (normalized === "retailer") {
             if (!location.pathname.includes("/dashboard")) navigate("/dashboard", { replace: true });
           } else if (normalized === "distributor") {

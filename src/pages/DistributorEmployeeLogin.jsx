@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
 import { signInWithCustomToken } from 'firebase/auth';
-import { functions, auth } from '../firebase/firebaseConfig';
+import { functions, empAuth } from '../firebase/firebaseConfig';
 import { setDistributorEmployeeSession, clearDistributorEmployeeSession, setDistributorEmployeeRedirect } from '../utils/distributorEmployeeSession';
 import { toast } from 'react-toastify';
 
@@ -57,8 +57,8 @@ const DistributorEmployeeLogin = () => {
 
       const { employeeData, customToken } = result.data;
 
-      // Sign in with custom token
-      await signInWithCustomToken(auth, customToken);
+      // Sign in with custom token using employee auth instance
+      await signInWithCustomToken(empAuth, customToken);
 
       // Store session - use the actual Firestore document ID (which is now the Firebase Auth UID)
       setDistributorEmployeeSession({

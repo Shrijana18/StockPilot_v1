@@ -1,5 +1,5 @@
 import React, { createContext, useEffect, useState, useContext } from 'react';
-import { auth, db } from '../firebase/firebaseConfig';
+import { auth, db, empAuth } from '../firebase/firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { getEmployeeSession, isEmployeePath, clearEmployeeSession, isEmployeeRedirect, clearEmployeeRedirect } from '../utils/employeeSession';
@@ -13,28 +13,40 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Only log significant state changes
+      if (firebaseUser && !user) {
+        console.log("[AuthContext] User signed in:", firebaseUser.uid);
+      } else if (!firebaseUser && user) {
+        console.log("[AuthContext] User signed out");
+      }
+      
       // One-time guard: when employee flow just redirected to /employee-dashboard,
       // skip this auth tick to avoid race between signOut and dashboard mount.
       if (isEmployeeRedirect()) {
+        console.log("[AuthContext] Employee redirect detected, clearing and bypassing");
         try { clearEmployeeRedirect(); } catch (_) {}
         // When we just switched into employee flow, keep primary app signed-out state.
         setUser(null);
         setRole(null);
         setLoading(false);
+        setAuthLoading(false);
         return;
       }
 
       // One-time guard: when distributor employee flow just redirected to /distributor-employee-dashboard,
       // skip this auth tick to avoid race between signOut and dashboard mount.
       if (isDistributorEmployeeRedirect()) {
+        console.log("[AuthContext] Distributor employee redirect detected, clearing and bypassing");
         try { clearDistributorEmployeeRedirect(); } catch (_) {}
         // When we just switched into distributor employee flow, keep primary app signed-out state.
         setUser(null);
         setRole(null);
         setLoading(false);
+        setAuthLoading(false);
         return;
       }
 
@@ -44,34 +56,44 @@ export const AuthProvider = ({ children }) => {
       const isDistEmpArea = isDistributorEmployeePath(typeof window !== 'undefined' ? window.location.pathname : '');
 
       // ✅ Employee-aware handling: if we are in employee area or have an employee session,
-      // allow Firebase-authenticated employee to proceed; otherwise keep bypass behavior.
+      // use employee auth instance
       if (isEmpArea || empSession) {
-        if (firebaseUser) {
-          // Employee now signs in via Custom Token, so honor this session
-          setUser(firebaseUser);
-          setRole('employee');
+        if (empAuth.currentUser) {
+          // Check if this is an employee with custom claims
+          if (empAuth.currentUser.customClaims?.isEmployee) {
+            setUser(empAuth.currentUser);
+            setRole('employee');
+          } else {
+            setUser(null);
+            setRole(null);
+          }
         } else {
-          // Legacy/unauthenticated employee flow: keep bypassing
           setUser(null);
           setRole(null);
         }
         setLoading(false);
+        setAuthLoading(false);
         return;
       }
 
       // ✅ Distributor Employee-aware handling: if we are in distributor employee area or have a distributor employee session,
-      // allow Firebase-authenticated distributor employee to proceed; otherwise keep bypass behavior.
+      // use employee auth instance
       if (isDistEmpArea || distEmpSession) {
-        if (firebaseUser) {
-          // Distributor Employee now signs in via Custom Token, so honor this session
-          setUser(firebaseUser);
-          setRole('distributor-employee');
+        if (empAuth.currentUser) {
+          // Check if this is a distributor employee with custom claims
+          if (empAuth.currentUser.customClaims?.isDistributorEmployee) {
+            setUser(empAuth.currentUser);
+            setRole('distributor-employee');
+          } else {
+            setUser(null);
+            setRole(null);
+          }
         } else {
-          // Legacy/unauthenticated distributor employee flow: keep bypassing
           setUser(null);
           setRole(null);
         }
         setLoading(false);
+        setAuthLoading(false);
         return;
       }
 
@@ -86,28 +108,32 @@ export const AuthProvider = ({ children }) => {
         }
 
         try {
+          console.log("[AuthContext] Fetching user data from Firestore for UID:", firebaseUser.uid);
           const docRef = doc(db, 'businesses', firebaseUser.uid);
           const docSnap = await getDoc(docRef);
+          console.log("[AuthContext] Document exists:", docSnap.exists());
           const userData = docSnap.exists() ? docSnap.data() : null;
+          console.log("[AuthContext] User data:", userData);
           
           // Check for both 'role' and 'businessType' fields (some users have businessType)
           const rawRole = userData?.role || userData?.businessType || null;
           const normalizedRole = rawRole
-            ? String(rawRole).toLowerCase().replace(/\s|_/g, '')
+            ? String(rawRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '')
             : null;
           
-          console.log("[AuthContext] User UID:", firebaseUser.uid);
-          console.log("[AuthContext] Raw role:", rawRole);
-          console.log("[AuthContext] Normalized role:", normalizedRole);
-          console.log("[AuthContext] Full user data:", userData);
+          console.log("[AuthContext] User role detected:", rawRole, "->", normalizedRole);
           
-          // CRITICAL FIX: Ensure we don't set distributor-employee role for main users
+          // Set the normalized role for main users
+          // distributor-employee should only come from custom claims, not from Firestore role
           if (normalizedRole === 'distributor-employee') {
-            console.warn("[AuthContext] Detected distributor-employee role for main user, this should not happen");
-            setRole(null);
+            console.warn("[AuthContext] Detected distributor-employee role in Firestore, this should not happen for main users");
+            // If somehow a main user has distributor-employee role in Firestore, treat as distributor
+            setRole('distributor');
           } else {
             setRole(normalizedRole);
           }
+          
+          console.log("[AuthContext] Role set to:", normalizedRole);
           // 🧩 Fallback: if Firestore role not ready yet, honor post-signup hint temporarily
           if (!normalizedRole && typeof window !== 'undefined') {
             const pending = sessionStorage.getItem('postSignupRole');
@@ -117,20 +143,32 @@ export const AuthProvider = ({ children }) => {
           console.warn('[Auth] Role fetch failed for uid', firebaseUser.uid, err?.message || err);
           setRole(null);
         }
+        
+        setLoading(false);
+        setAuthLoading(false);
       } else {
         // Signed-out
         setRole(null);
+        setLoading(false);
+        setAuthLoading(false);
       }
-
-      setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, role, loading, setUser, setRole, setLoading }}>
-      {loading ? null : children}
+    <AuthContext.Provider value={{ user, role, loading: authLoading, setUser, setRole, setLoading }}>
+      {authLoading ? (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <p className="text-white text-lg">Loading...</p>
+          </div>
+        </div>
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 };

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 // Guard that waits for Firebase auth to resolve and (optionally) enforces a role
 const PrivateRoute = ({ requireRole }) => {
-  const { user, role, authLoading } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
 
   // Read a one-time post-signup role hint (set by Register.jsx) and normalize it
   const pending = (typeof window !== 'undefined' && sessionStorage.getItem('postSignupRole')) || null;
@@ -20,19 +20,24 @@ const PrivateRoute = ({ requireRole }) => {
 
   // 1) Wait for Firebase to finish restoring the session
   if (authLoading) {
+    console.log("[PrivateRoute] Auth loading...");
     return <div className="text-center mt-20 text-gray-500">Loading...</div>;
   }
 
   // 2) Not logged in -> go to login
   if (!user) {
+    console.log("[PrivateRoute] No user, redirecting to login");
     return <Navigate to="/auth?type=login" replace />;
   }
+
+  console.log("[PrivateRoute] User authenticated:", user.uid, "Role:", role, "RequireRole:", requireRole);
 
   // 3) If a specific role is required, enforce it against normalized role tokens
   //    (role is normalized in AuthContext to retailer | distributor | productowner)
   if (requireRole && role !== requireRole) {
     console.log("[PrivateRoute] Role check - requireRole:", requireRole, "user role:", role);
     console.log("[PrivateRoute] Pending role:", pendingNorm);
+    console.log("[PrivateRoute] User object:", user);
     
     // If we just signed up and the pending role matches the required role, allow access once
     if (pendingNorm && pendingNorm === requireRole) {
@@ -41,7 +46,7 @@ const PrivateRoute = ({ requireRole }) => {
     }
 
     // Otherwise redirect the user to their actual role dashboard
-    const normalizedRole = (role || "").toLowerCase().replace(/\s+/g, "");
+    const normalizedRole = (role || "").toLowerCase().replace(/\s+/g, "").replace(/_/g, "");
     let redirectTo = "/dashboard";
     if (normalizedRole === "distributor") redirectTo = "/distributor-dashboard";
     else if (normalizedRole === "productowner") redirectTo = "/product-owner-dashboard";

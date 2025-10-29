@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { getAuth, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
 import { useNavigate } from 'react-router-dom';
+import { logoutUser } from '../utils/authUtils';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -58,23 +59,26 @@ const Login = () => {
       const userData = snap.data();
       // Check for both 'role' and 'businessType' fields (some users have businessType)
       const rawRole = userData?.role || userData?.businessType || '';
-      const role = String(rawRole).toLowerCase().replace(/\s|_/g, '');
+      const role = String(rawRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
       console.log("[Login] raw role:", rawRole, "normalized role:", role);
       console.log("[Login] Full user data:", userData);
       
       // More robust role detection
+      console.log("[Login] Role detection - raw:", rawRole, "normalized:", role);
+      
+      // Direct navigation after successful login
       if (role.includes('retailer')) {
         console.log("[Login] Redirecting to retailer dashboard");
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       } else if (role.includes('distributor')) {
         console.log("[Login] Redirecting to distributor dashboard");
-        navigate('/distributor-dashboard');
+        navigate('/distributor-dashboard', { replace: true });
       } else if (role.includes('productowner') || role.includes('product-owner')) {
         console.log("[Login] Redirecting to product owner dashboard");
-        navigate('/product-owner-dashboard');
+        navigate('/product-owner-dashboard', { replace: true });
       } else {
-        console.warn("[Login] Unknown role:", rawRole, "defaulting to retailer dashboard");
-        navigate('/dashboard');
+        console.warn("[Login] Unknown role:", rawRole, "normalized:", role, "defaulting to retailer dashboard");
+        navigate('/dashboard', { replace: true });
       }
     } catch (err) {
       console.error("[Login] error", err?.code, err?.message);
@@ -135,23 +139,26 @@ const Login = () => {
       const userData = snap.exists() ? snap.data() : null;
       // Check for both 'role' and 'businessType' fields (some users have businessType)
       const roleRaw = userData?.role || userData?.businessType || 'Retailer';
-      const role = String(roleRaw).toLowerCase().replace(/\s|_/g, '');
+      const role = String(roleRaw).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
       console.log("[Login] Google sign-in - raw role:", roleRaw, "normalized role:", role);
       console.log("[Login] Google sign-in - Full user data:", userData);
 
       // More robust role detection for Google sign-in
+      console.log("[Login] Google sign-in - Role detection - raw:", roleRaw, "normalized:", role);
+      
+      // Direct navigation after successful Google sign-in
       if (role.includes('retailer')) {
         console.log("[Login] Google sign-in - Redirecting to retailer dashboard");
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       } else if (role.includes('distributor')) {
         console.log("[Login] Google sign-in - Redirecting to distributor dashboard");
-        navigate('/distributor-dashboard');
+        navigate('/distributor-dashboard', { replace: true });
       } else if (role.includes('productowner') || role.includes('product-owner')) {
         console.log("[Login] Google sign-in - Redirecting to product owner dashboard");
-        navigate('/product-owner-dashboard');
+        navigate('/product-owner-dashboard', { replace: true });
       } else {
-        console.warn("[Login] Google sign-in - Unknown role:", roleRaw, "defaulting to retailer dashboard");
-        navigate('/dashboard');
+        console.warn("[Login] Google sign-in - Unknown role:", roleRaw, "normalized:", role, "defaulting to retailer dashboard");
+        navigate('/dashboard', { replace: true });
       }
     } catch (error) {
       console.error('[Login] Google Sign-In Error:', error?.code, error?.message);
@@ -274,8 +281,13 @@ const Login = () => {
           <div className="px-7 sm:px-8 pb-6 text-right">
             <button
               onClick={async () => {
-                await signOut(auth);
-                navigate('/');
+                try {
+                  await logoutUser('all');
+                  navigate('/');
+                } catch (error) {
+                  console.error('Error during sign out:', error);
+                  navigate('/');
+                }
               }}
               disabled={loading}
               className="text-xs text-red-300/90 hover:text-red-200 underline underline-offset-4 transition"

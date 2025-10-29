@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import { setEmployeeSession, markEmployeeRedirect } from '../../utils/employeeSession';
-import { empDB as db, empAuth as auth } from '../../firebase/firebaseConfig';
+import { empDB as db, empAuth } from '../../firebase/firebaseConfig';
 
 /**
  * Employee Login
@@ -109,14 +109,13 @@ const EmployeeLogin = () => {
         throw new Error(data.message || 'Invalid credentials');
       }
 
-      // Ensure owner Firebase session (if any) doesn't hijack employee routing
-      try { await auth.signOut(); } catch (_) {}
+      // Note: Employee uses separate auth instance (empAuth) so no need to sign out main user
 
       // 🔐 Secure Firebase session for employee using custom token (if provided)
       if (data.token) {
         const { signInWithCustomToken } = await import('firebase/auth');
         try {
-          await signInWithCustomToken(auth, data.token);
+          await signInWithCustomToken(empAuth, data.token);
         } catch (e) {
           console.error('Custom token sign-in failed:', e);
           toast.error('Secure sign-in failed. Please try again.');
