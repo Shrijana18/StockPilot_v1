@@ -10,6 +10,13 @@ const PrivateRoute = ({ requireRole }) => {
   const pending = (typeof window !== 'undefined' && sessionStorage.getItem('postSignupRole')) || null;
   const pendingNorm = (pending || '').toLowerCase().replace(/\s+/g, '');
 
+  // If an employee/distributor employee redirect guard is present for this page load,
+  // avoid redirect loops by rendering a short loading state instead of bouncing to /auth.
+  const hasOneTimeRedirectGuard = typeof window !== 'undefined' && (
+    sessionStorage.getItem('flyp_distributor_employee_redirect') === 'true' ||
+    sessionStorage.getItem('employeeRedirect') === '1'
+  );
+
   // If AuthContext has now loaded a role that matches the hint, clear the hint
   if (pending && role) {
     const roleNorm = (role || '').toLowerCase().replace(/\s+/g, '');
@@ -26,6 +33,10 @@ const PrivateRoute = ({ requireRole }) => {
 
   // 2) Not logged in -> go to login
   if (!user) {
+    if (hasOneTimeRedirectGuard) {
+      console.log("[PrivateRoute] One-time redirect guard detected; waiting before redirect");
+      return <div className="text-center mt-20 text-gray-500">Loading...</div>;
+    }
     console.log("[PrivateRoute] No user, redirecting to login");
     return <Navigate to="/auth?type=login" replace />;
   }
