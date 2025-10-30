@@ -1,4 +1,5 @@
 const DISTRIBUTOR_EMPLOYEE_SESSION_KEY = 'flyp_distributor_employee_session';
+// Use sessionStorage for one-time redirect guard (avoid persisting across browser restarts)
 const DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY = 'flyp_distributor_employee_redirect';
 
 export const getDistributorEmployeeSession = () => {
@@ -30,7 +31,7 @@ export const clearDistributorEmployeeSession = () => {
 
 export const isDistributorEmployeeRedirect = () => {
   try {
-    return localStorage.getItem(DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY) === 'true';
+    return sessionStorage.getItem(DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY) === 'true';
   } catch (e) {
     return false;
   }
@@ -38,7 +39,7 @@ export const isDistributorEmployeeRedirect = () => {
 
 export const setDistributorEmployeeRedirect = () => {
   try {
-    localStorage.setItem(DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY, 'true');
+    sessionStorage.setItem(DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY, 'true');
   } catch (e) {
     console.warn('Failed to set distributor employee redirect flag:', e);
   }
@@ -46,7 +47,9 @@ export const setDistributorEmployeeRedirect = () => {
 
 export const clearDistributorEmployeeRedirect = () => {
   try {
-    localStorage.removeItem(DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY);
+    sessionStorage.removeItem(DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY);
+    // Backward compatibility: remove any old persistent flag
+    try { localStorage.removeItem(DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY); } catch (_e) {}
   } catch (e) {
     console.warn('Failed to clear distributor employee redirect flag:', e);
   }
