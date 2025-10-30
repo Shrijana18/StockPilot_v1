@@ -16,6 +16,16 @@ export const AuthProvider = ({ children }) => {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
+    // Migrate any legacy distributor-employee redirect flag from localStorage to sessionStorage
+    // This avoids a persistent stuck-login on some browsers/devices after a redirect.
+    try {
+      const legacyKey = 'flyp_distributor_employee_redirect';
+      if (localStorage.getItem(legacyKey) === 'true' && !sessionStorage.getItem(legacyKey)) {
+        sessionStorage.setItem(legacyKey, 'true');
+        localStorage.removeItem(legacyKey);
+      }
+    } catch (_) {}
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       // Only log significant state changes
       if (firebaseUser && !user) {
