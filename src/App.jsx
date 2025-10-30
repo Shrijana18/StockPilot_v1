@@ -19,6 +19,7 @@ import { getDistributorEmployeeSession, isDistributorEmployeePath } from './util
 
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute.jsx';
+import EmployeeRoute from './components/EmployeeRoute.jsx';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -78,9 +79,13 @@ const App = () => {
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
-            <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+            <Route element={<EmployeeRoute kind="retailer" />}>
+              <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+            </Route>
             <Route path="/distributor-employee-login" element={<DistributorEmployeeLogin />} />
-            <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
+            <Route element={<EmployeeRoute kind="distributor" />}>
+              <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
+            </Route>
 
             {/* Protected Routes */}
             {/* Retailer (no explicit role required) */}
@@ -125,9 +130,13 @@ const App = () => {
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
-            <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+            <Route element={<EmployeeRoute kind="retailer" />}>
+              <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+            </Route>
             <Route path="/distributor-employee-login" element={<DistributorEmployeeLogin />} />
-            <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
+            <Route element={<EmployeeRoute kind="distributor" />}>
+              <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
+            </Route>
 
             {/* Protected Routes */}
             {/* Retailer (no explicit role required) */}

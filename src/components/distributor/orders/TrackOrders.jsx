@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, getDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -165,7 +165,12 @@ const TrackOrders = () => {
     let updatePayload = {
       status: 'Delivered',
       deliveredAt: now.toISOString(),
-      'statusTimestamps.deliveredAt': serverTimestamp()
+      'statusTimestamps.deliveredAt': serverTimestamp(),
+      handledBy: {
+        ...(orderData?.handledBy || {}),
+        deliveredBy: { uid: user.uid, type: 'distributor' }
+      },
+      auditTrail: arrayUnion({ at: now.toISOString(), event: 'deliverOrder', by: { uid: user.uid, type: 'distributor' } })
     };
 
     // Handle Credit Cycle logic
@@ -187,7 +192,17 @@ const TrackOrders = () => {
     if (!user) return;
     const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
     const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
-    const payload = { isPaid: true, paymentStatus: 'Paid', paidAt: new Date().toISOString() };
+    const payload = {
+      isPaid: true,
+      paymentStatus: 'Paid',
+      paidAt: new Date().toISOString(),
+      'statusTimestamps.paidAt': serverTimestamp(),
+      handledBy: {
+        ...(order?.handledBy || {}),
+        paidBy: { uid: user.uid, type: 'distributor' }
+      },
+      auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'recordPayment', by: { uid: user.uid, type: 'distributor' }, meta: { method: 'COD' } })
+    };
     await updateDoc(distributorOrderRef, payload);
     await updateDoc(retailerOrderRef, payload);
     toast.success('💰 Payment received marked (COD)');

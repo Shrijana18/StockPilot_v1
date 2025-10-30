@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { addDoc, collection, serverTimestamp, getDocs } from "firebase/firestore";
-import { db } from "../../../firebase/firebaseConfig";
+import { db, empAuth } from "../../../firebase/firebaseConfig";
 import { toast } from "react-toastify";
 
 /**
@@ -335,6 +335,11 @@ export default function PassiveOrders() {
         createdBy: "distributor",
         creatorUid: user.uid,
         creatorEmail: user.email || null,
+        // Rich createdBy for auditing (employee/distributor)
+        ...(empAuth?.currentUser
+          ? { createdBy: { type: 'employee', uid: empAuth.currentUser.uid, name: empAuth.currentUser.displayName || null, flypEmployeeId: null } }
+          : { createdBy: { type: 'distributor', uid: user.uid, name: user.displayName || null } }
+        ),
         distributorId,
         retailerMode: selectedRetailer.type === "provisional" ? "passive" : "active",
         isProvisional: selectedRetailer.type === "provisional",

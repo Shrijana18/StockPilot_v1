@@ -34,6 +34,7 @@ export default function AddRetailerModal({
   onClose,
   distributorId,
   onCreated,
+  createdBy,
   useCloudFunction = true,
   toast,
   uiVariant = "centered",
@@ -51,6 +52,7 @@ export default function AddRetailerModal({
   const [error, setError] = useState("");
   const [inviteInfo, setInviteInfo] = useState(null);
 
+  const canCreateLocal = useMemo(() => form.businessName.trim() !== "" && !loading, [form, loading]);
   const canSubmit = useMemo(() => {
     const hasContact = form.email.trim() !== "" || form.phone.trim() !== "";
     return form.businessName.trim() !== "" && hasContact && !loading;
@@ -118,6 +120,54 @@ export default function AddRetailerModal({
       if (!gstOk) return "Enter a valid 15‑character GSTIN (alphanumeric).";
     }
     return "";
+  };
+
+  // Create locally without generating invite (primary action)
+  const handleCreateLocal = async () => {
+    setError("");
+    if (!distributorId) {
+      const msg = "Missing distributorId – cannot create retailer.";
+      setError(msg);
+      toast?.({ type: "error", message: msg });
+      return;
+    }
+    if (!form.businessName.trim()) {
+      const msg = "Business name is required.";
+      setError(msg);
+      toast?.({ type: "error", message: msg });
+      return;
+    }
+    setLoading(true);
+    try {
+      // Minimal local record in connectedRetailers; can invite later from panel
+      const connRef = doc(collection(db, "businesses", distributorId, "connectedRetailers"));
+      const payload = {
+        retailerName: form.businessName.trim(),
+        retailerEmail: form.email.trim() || null,
+        retailerPhone: normalizePhoneIN(form.phone),
+        status: "provisioned-local",
+        source: "provisioned-local",
+        addedBy: createdBy?.type && createdBy?.id ? {
+          type: createdBy.type,
+          id: createdBy.id,
+          name: createdBy.name || null,
+          flypEmployeeId: createdBy.flypEmployeeId || null,
+        } : { type: 'distributor', id: distributorId },
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      await setDoc(connRef, payload, { merge: true });
+      onCreated?.({ retailerId: connRef.id, payload });
+      toast?.({ type: "success", message: "Retailer created locally. Invite can be sent from panel." });
+      onClose?.();
+    } catch (e) {
+      console.error(e);
+      const msg = "Failed to create retailer.";
+      setError(msg);
+      toast?.({ type: "error", message: msg });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const copy = async (text) => {
@@ -196,8 +246,14 @@ export default function AddRetailerModal({
         retailerEmail: payload.retailerEmail,
         retailerPhone: payload.retailerPhone,
         retailerName: payload.businessName,
-        status: "accepted",
+        status: "provisioned",
         source: "provisioned",
+        addedBy: createdBy?.type && createdBy?.id ? {
+          type: createdBy.type,
+          id: createdBy.id,
+          name: createdBy.name || null,
+          flypEmployeeId: createdBy.flypEmployeeId || null,
+        } : { type: 'distributor', id: distributorId },
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -334,7 +390,7 @@ export default function AddRetailerModal({
 
                 <div className="pt-2 flex items-center justify-between">
                   <div className="text-[11px] text-white/55">
-                    * Provide either Email or Phone to proceed.
+                    * Email or Phone required only for "Create & Generate Invite". You can invite later from the panel.
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -345,10 +401,18 @@ export default function AddRetailerModal({
                       Cancel
                     </button>
                     <button
+                      type="button"
+                      disabled={!canCreateLocal}
+                      onClick={handleCreateLocal}
+                      className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-900 font-semibold disabled:opacity-50"
+                    >
+                      {loading ? "Creating…" : "Create"}
+                    </button>
+                    <button
                       id="add-retailer-submit"
                       type="submit"
                       disabled={!canSubmit}
-                      className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-900 font-semibold disabled:opacity-50"
+                      className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-white disabled:opacity-50"
                     >
                       {loading ? "Creating…" : "Create & Generate Invite"}
                     </button>

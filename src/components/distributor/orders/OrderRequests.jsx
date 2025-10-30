@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import html2pdf from 'html2pdf.js';
 import * as XLSX from 'xlsx';
@@ -506,6 +506,9 @@ const OrderRequests = () => {
           distributorId: auth.currentUser.uid,
           retailerId: order.retailerId,
           statusTimestamps: { ...(order.statusTimestamps || {}), acceptedAt: serverTimestamp() },
+          createdBy: order.createdBy || { type: 'distributor', uid: auth.currentUser.uid },
+          handledBy: { ...(order.handledBy || {}), acceptedBy: { uid: auth.currentUser.uid, type: 'distributor' } },
+          auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'acceptOrder', by: { uid: auth.currentUser.uid, type: 'distributor' } }),
           chargesSnapshot: finalCharges,
         }, { merge: true });
 
@@ -516,6 +519,9 @@ const OrderRequests = () => {
           statusTimestamps: {
             acceptedAt: serverTimestamp(),
           },
+          createdBy: order.createdBy || { type: 'distributor', uid: auth.currentUser.uid },
+          handledBy: { ...(order.handledBy || {}), acceptedBy: { uid: auth.currentUser.uid, type: 'distributor' } },
+          auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'acceptOrder', by: { uid: auth.currentUser.uid, type: 'distributor' } }),
           chargesSnapshot: finalCharges,
         });
 

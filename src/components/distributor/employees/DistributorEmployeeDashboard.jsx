@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-import { db, auth } from '../../../firebase/firebaseConfig';
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
+import { db, empAuth, functions } from '../../../firebase/firebaseConfig';
+import { httpsCallable } from 'firebase/functions';
 import { useNavigate } from 'react-router-dom';
 import { getDistributorEmployeeSession, clearDistributorEmployeeSession, isDistributorEmployeeRedirect, clearDistributorEmployeeRedirect } from '../../../utils/distributorEmployeeSession';
 
@@ -23,6 +24,8 @@ const DistributorEmployeeDashboard = () => {
   const [sections, setSections] = useState([]);
   const [activeTab, setActiveTab] = useState('');
   const [hasNavigated, setHasNavigated] = useState(false);
+  const [addRetailerOpen, setAddRetailerOpen] = useState(false);
+  const [activity, setActivity] = useState([]);
 
   const navigate = useNavigate();
 
@@ -49,8 +52,8 @@ const DistributorEmployeeDashboard = () => {
         return;
       }
 
-      // Check if user is properly authenticated with Firebase Auth
-      if (!auth.currentUser) {
+      // Check if user is properly authenticated with Employee Auth
+      if (!empAuth.currentUser) {
         clearDistributorEmployeeSession();
         if (!hasNavigated) {
           setHasNavigated(true);
@@ -61,8 +64,8 @@ const DistributorEmployeeDashboard = () => {
 
       (async () => {
         try {
-          // Use the Firebase Auth UID as the document ID (this is set in the custom token)
-          const empRef = doc(db, 'businesses', did, 'distributorEmployees', auth.currentUser.uid);
+          // Use the Employee Auth UID as the document ID (set in the custom token)
+          const empRef = doc(db, 'businesses', did, 'distributorEmployees', empAuth.currentUser.uid);
           const empSnap = await getDoc(empRef);
           if (!empSnap.exists()) {
             if (!hasNavigated) {
@@ -115,6 +118,17 @@ const DistributorEmployeeDashboard = () => {
     return () => unsub();
   }, [employee, distributorId]);
 
+  // Live activity feed (latest 20)
+  useEffect(() => {
+    if (!distributorId) return;
+    const col = collection(db, 'businesses', distributorId, 'employeeActivity');
+    const q = query(col, orderBy('createdAt', 'desc'), limit(20));
+    const unsub = onSnapshot(q, (snap) => {
+      setActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [distributorId]);
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -123,6 +137,15 @@ const DistributorEmployeeDashboard = () => {
   useEffect(() => {
     if (sections.length && !activeTab) setActiveTab(sections[0].key);
   }, [sections, activeTab]);
+
+  // Open the AddRetailer modal when switching into the tab; allow closing via onClose
+  useEffect(() => {
+    if (activeTab === 'addRetailers') {
+      setAddRetailerOpen(true);
+    } else {
+      setAddRetailerOpen(false);
+    }
+  }, [activeTab]);
 
   const handleLogout = async () => {
     if (distributorId && flypEmployeeId) {
@@ -224,10 +247,24 @@ const DistributorEmployeeDashboard = () => {
             You can add new retailers to the distributor network.
           </div>
           <AddRetailerModal
-            open={true}
-            onClose={() => {}}
+            open={addRetailerOpen}
+            onClose={() => setAddRetailerOpen(false)}
             distributorId={distributorId}
-            onCreated={() => {}}
+            createdBy={{ type: 'employee', id: employeeId, name: employee?.name || '', flypEmployeeId: employee?.flypEmployeeId || '' }}
+            onCreated={async (payload) => {
+              try {
+                const logFn = httpsCallable(functions, 'logDistributorActivity');
+                await logFn({
+                  distributorId,
+                  employeeId: employeeId,
+                  type: 'addRetailer',
+                  targetId: payload?.retailerId || null,
+                  meta: { name: payload?.businessName || payload?.name || '' }
+                });
+              } catch (e) {
+                console.warn('Activity log failed:', e?.message || e);
+              }
+            }}
             useCloudFunction={true}
             toast={(opts) => {
               if (opts.type === 'success') {
@@ -393,6 +430,27 @@ const DistributorEmployeeDashboard = () => {
             {renderActiveSection()}
           </div>
         </section>
+
+      {/* Activity feed */}
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div className="font-semibold text-sm mb-2">Recent Activity</div>
+        {activity.length === 0 ? (
+          <div className="text-xs text-slate-400">No activity yet.</div>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {activity.map(a => (
+              <li key={a.id} className="flex items-center justify-between rounded-lg bg-white/5 border border-white/10 px-3 py-2">
+                <div>
+                  <span className="font-medium capitalize">{a.type}</span>
+                  {a.meta?.name ? <span className="ml-2 text-slate-300">{a.meta.name}</span> : null}
+                  {a.employeeId ? <span className="ml-2 text-xs text-slate-400">by {a.employeeId}</span> : null}
+                </div>
+                <div className="text-xs text-slate-400">{a.createdAt?.toDate?.().toLocaleString?.() || ''}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
         {/* Contact/Help & Logout */}
         <section className="flex items-center justify-between">

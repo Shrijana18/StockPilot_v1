@@ -10,6 +10,7 @@ const AddDistributorEmployeeModal = ({ open, onClose, distributorId, onCreated }
     email: '',
     phone: '',
     role: '',
+    region: '',
     accessSections: {
       addRetailers: false,
       createOrders: false,
@@ -52,6 +53,7 @@ const AddDistributorEmployeeModal = ({ open, onClose, distributorId, onCreated }
         email: form.email.trim() || null,
         phone: form.phone.trim() || null,
         role: form.role || 'Employee',
+        region: form.region || null,
         accessSections: form.accessSections,
         status: 'active',
         online: false,
@@ -85,6 +87,7 @@ const AddDistributorEmployeeModal = ({ open, onClose, distributorId, onCreated }
       email: '',
       phone: '',
       role: '',
+      region: '',
       accessSections: {
         addRetailers: false,
         createOrders: false,
@@ -166,6 +169,17 @@ const AddDistributorEmployeeModal = ({ open, onClose, distributorId, onCreated }
                   </select>
                 </div>
                 
+                <div>
+                  <label className="block text-sm font-medium mb-2">Region (optional)</label>
+                  <input
+                    type="text"
+                    value={form.region}
+                    onChange={(e) => setForm(prev => ({ ...prev, region: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Zone / Area / City"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium mb-2">Email</label>
                   <input

@@ -1,29 +1,51 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { db } from "../../firebase/firebaseConfig";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { db, functions } from "../../firebase/firebaseConfig";
 import {
   collection,
   getDocs,
+  onSnapshot,
   query,
   where,
   doc,
   getDoc,
+  orderBy,
+  limit,
+  updateDoc
 } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import OrderSettings from "./OrderSettings";
 
-// Helper badge for status
+// Pretty helpers
+const toTitleCase = (s = "") =>
+  s.toString().trim().toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+const prettyStatus = (s = "") =>
+  s.toString().replace(/[-_]/g, " ").replace(/\b([a-z])/gi, (m) => m.toUpperCase()).trim();
+
+// Helper badge for status (accepted / provisioned / provisioned-local / others)
 function StatusBadge({ status }) {
-  const color =
-    status === "accepted"
-      ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-      : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200";
+  const st = (status || "").toString().toLowerCase();
+  let color = "bg-white/5 text-white/70 border border-white/15";
+  if (st === "accepted" || st === "active" || st === "approved") {
+    color = "bg-emerald-500/15 text-emerald-300 border border-emerald-400/30";
+  } else if (st === "provisioned" || st === "provisioned-local" || st === "pending" || st === "invited") {
+    color = "bg-amber-500/15 text-amber-300 border border-amber-400/30";
+  } else if (st === "rejected" || st === "blocked" || st === "disabled") {
+    color = "bg-rose-500/15 text-rose-300 border border-rose-400/30";
+  }
   return (
     <span
-      className={`inline-block px-3 py-1 text-xs font-semibold rounded-full ${color}`}
+      className={`inline-block px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${color}`}
+      title={prettyStatus(status) || "—"}
+      aria-label={`Status: ${prettyStatus(status) || "Unknown"}`}
     >
-      {status?.charAt(0)?.toUpperCase() + (status?.slice(1) || "")}
+      {prettyStatus(status) || "—"}
     </span>
   );
 }
+
+// String normalization utility
+const norm = (s = "") => s.toString().toLowerCase().trim();
+// Removed duplicate declaration of toTitleCase
 
 /**
  * ManageRetailers component
@@ -34,9 +56,12 @@ const ManageRetailers = ({ distributorId }) => {
   const [retailers, setRetailers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [employeeCache, setEmployeeCache] = useState({}); // { empUid: { name, flypEmployeeId } }
 
   // List controls
   const [queryText, setQueryText] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const searchRef = useRef(null);
   const [cityFilter, setCityFilter] = useState("all");
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "list"
   const [itemsPerPage, setItemsPerPage] = useState(18);
@@ -75,6 +100,11 @@ const ManageRetailers = ({ distributorId }) => {
 
   // Close on ESC
   const handleKeyDown = useCallback((e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'k')) {
+      e.preventDefault();
+      searchRef.current?.focus();
+      return;
+    }
     if (e.key === 'Escape') {
       if (showOrderSettings) setShowOrderSettings(false);
       if (activeRetailer) closeDrawer();
@@ -88,60 +118,69 @@ const ManageRetailers = ({ distributorId }) => {
   }, [handleKeyDown]);
 
   useEffect(() => {
-    let active = true;
-
-    const run = async () => {
-      if (!distributorId) return;
-      setLoading(true);
-      setError(null);
-      try {
-        // Read from Firestore: /businesses/{distributorId}/connectedRetailers where status == "accepted"
-        const collRef = collection(
-          db,
-          "businesses",
-          distributorId,
-          "connectedRetailers"
-        );
-        const q = query(collRef, where("status", "==", "accepted"));
-        const snap = await getDocs(q);
-
-        const rows = [];
-        for (const d of snap.docs) {
-          const data = d.data() || {};
-          const retailerId = data.retailerId || d.id; // use linked retailerId if claimed, else fallback to doc id
-
-          // Hydrate from retailer business profile for nicer cards
-          let profile = {};
-          try {
-            const profSnap = await getDoc(doc(db, "businesses", retailerId));
-            if (profSnap.exists()) profile = profSnap.data() || {};
-          } catch {}
-
-          rows.push({
-            id: retailerId,
-            status: data.status || "accepted",
-            businessName:
-              data.retailerName || profile.businessName || profile.name || "Retailer",
-            email: data.retailerEmail || profile.email || "",
-            city: data.city || profile.city || "",
-            phone: data.retailerPhone || profile.phone || "",
-            connectedAt: data.connectedAt || null,
-          });
-        }
-        if (active) setRetailers(rows);
-      } catch (e) {
-        console.error("Failed to fetch connectedRetailers:", e);
-        if (active) setError("Failed to fetch retailers.");
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    run();
-    return () => {
-      active = false;
-    };
+    if (!distributorId) return;
+    setLoading(true);
+    setError(null);
+    const collRef = collection(db, "businesses", distributorId, "connectedRetailers");
+    const qRef = query(collRef, where("status", "in", ["accepted", "provisioned", "provisioned-local"]));
+    const unsub = onSnapshot(qRef, async (snap) => {
+      const rows = snap.docs.map((d) => {
+        const data = d.data() || {};
+        const retailerId = data.retailerId || d.id;
+        return {
+          id: retailerId,
+          status: data.status || "provisioned",
+          businessName: data.retailerName || "Retailer",
+          email: data.retailerEmail || "",
+          city: data.city || "",
+          phone: data.retailerPhone || "",
+          connectedAt: data.connectedAt || null,
+          provisionalId: data.provisionalId || null,
+          addedBy: data.addedBy || null,
+          createdAt: data.createdAt || null,
+        };
+      });
+      setRetailers(rows);
+      setLoading(false);
+    }, (e) => {
+      console.error('connectedRetailers live query failed', e);
+      setError('Failed to fetch retailers.');
+      setLoading(false);
+    });
+    return () => unsub();
   }, [distributorId]);
+
+  // Warm employee cache when retailers change (prevents resubscribing the live query)
+  useEffect(() => {
+    if (!distributorId || !retailers.length) return;
+    const missingEmpIds = Array.from(new Set(
+      retailers
+        .map(r => r.addedBy?.type === 'employee' ? r.addedBy.id : null)
+        .filter(Boolean)
+        .filter(empId => !employeeCache[empId])
+    ));
+    if (!missingEmpIds.length) return;
+    (async () => {
+      const updates = {};
+      for (const eid of missingEmpIds) {
+        try {
+          const ref = doc(db, 'businesses', distributorId, 'distributorEmployees', eid);
+          const esnap = await getDoc(ref);
+          if (esnap.exists()) {
+            const ed = esnap.data() || {};
+            updates[eid] = { name: ed.name || '', flypEmployeeId: ed.flypEmployeeId || '' };
+          }
+        } catch {}
+      }
+      if (Object.keys(updates).length) setEmployeeCache(prev => ({ ...prev, ...updates }));
+    })();
+  }, [distributorId, retailers, employeeCache]);
+
+  // Debounce the search input so long lists don't re-filter on each keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(queryText), 250);
+    return () => clearTimeout(t);
+  }, [queryText]);
 
   // Derive options and filtered list
   const cityOptions = useMemo(() => {
@@ -152,16 +191,15 @@ const ManageRetailers = ({ distributorId }) => {
     return ["all", ...Array.from(set).sort((a,b)=>a.localeCompare(b))];
   }, [retailers]);
 
-  const normalized = (s="") => s.toString().toLowerCase().trim();
   const filtered = useMemo(() => {
-    const q = normalized(queryText);
+    const q = norm(debouncedQuery);
     return retailers.filter(r => {
-      const inCity = cityFilter === "all" || normalized(r.city) === normalized(cityFilter);
+      const inCity = cityFilter === "all" || norm(r.city) === norm(cityFilter);
       const hay = `${r.businessName} ${r.email} ${r.phone} ${r.city}`.toLowerCase();
       const inQuery = q === "" || hay.includes(q);
       return inCity && inQuery;
     });
-  }, [retailers, queryText, cityFilter]);
+  }, [retailers, debouncedQuery, cityFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const currentPage = Math.min(page, totalPages);
@@ -172,35 +210,154 @@ const ManageRetailers = ({ distributorId }) => {
 
   // Compact tile for grid/list (prevents inline settings UI from expanding)
   function CompactRetailerTile({ retailer, onManage }) {
-    const initials = (retailer.businessName || retailer.name || "R").split(" ").slice(0,2).map(s => s[0]?.toUpperCase()).join("");
+    const initials = ((retailer.businessName || retailer.name || "R")
+      .split(" ")
+      .filter(Boolean)
+      .slice(0,2)
+      .map(s => s[0]?.toUpperCase())
+      .join("")) || "R";
+    const [showAct, setShowAct] = useState(false);
+    const [actItems, setActItems] = useState([]);
+    const [actLoading, setActLoading] = useState(false);
+
+    const loadActivity = useCallback(async () => {
+      if (!distributorId) return;
+      setActLoading(true);
+      try {
+        const actCol = collection(db, "businesses", distributorId, "employeeActivity");
+        const q = query(actCol, where("targetId", "==", retailer.id), orderBy("createdAt", "desc"), limit(5));
+        const snap = await getDocs(q);
+        setActItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        setActItems([]);
+      } finally {
+        setActLoading(false);
+      }
+    }, [distributorId, retailer?.id]);
+
+    const toggleAct = () => {
+      const next = !showAct;
+      setShowAct(next);
+      if (next && actItems.length === 0) loadActivity();
+    };
     return (
-      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 relative min-h-[6.5rem]">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="h-9 w-9 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-sm font-bold">{initials || "R"}</div>
+          <div
+            className="h-9 w-9 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-sm font-bold"
+            aria-label={`Retailer avatar ${retailer.businessName || retailer.name || 'Retailer'}`}
+            role="img"
+          >
+            {initials || "R"}
+          </div>
           <div className="min-w-0">
-            <div className="text-white font-medium truncate">{retailer.businessName || retailer.name || "Retailer"}</div>
-            <div className="text-xs text-white/60 truncate">{retailer.city || "—"} • {retailer.email || retailer.phone || "—"}</div>
+            <div className="flex items-center gap-2 min-w-0">
+              <div
+                className="text-white font-semibold truncate"
+                title={retailer.businessName || retailer.name || "Retailer"}
+              >
+                {toTitleCase(retailer.businessName || retailer.name || "Retailer")}
+              </div>
+              <StatusBadge status={retailer.status || "provisioned"} />
+            </div>
+            <div
+              className="text-xs text-white/70 truncate"
+              title={`${toTitleCase(retailer.city || "—")} • ${(retailer.email || retailer.phone || "—")}`}
+            >
+              {toTitleCase(retailer.city || "—")} • {retailer.email || retailer.phone || "—"}
+            </div>
+            {retailer.addedBy?.type === 'employee' && (
+              <div className="text-[11px] text-white/50 truncate mt-0.5">
+                Added by: {retailer.addedBy.name || employeeCache[retailer.addedBy.id]?.name || 'Employee'}
+                { (retailer.addedBy.flypEmployeeId || employeeCache[retailer.addedBy.id]?.flypEmployeeId) &&
+                  ` (${retailer.addedBy.flypEmployeeId || employeeCache[retailer.addedBy.id]?.flypEmployeeId})`}
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <StatusBadge status={retailer.status || "accepted"} />
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end max-w-[45%]">
+          {/* StatusBadge removed here */}
+          {(/^provisioned/.test(retailer.status || '')) && (
+            <button
+              onClick={async () => {
+                try {
+                  const createFn = httpsCallable(functions, 'createProvisionalRetailer');
+                  const res = await createFn({
+                    distributorId,
+                    payload: {
+                      businessName: retailer.businessName,
+                      email: retailer.email || null,
+                      phone: retailer.phone || null,
+                    },
+                  });
+                  const { provisionalId, inviteUrl } = res?.data || {};
+                  if (provisionalId) {
+                    await updateDoc(doc(db, 'businesses', distributorId, 'connectedRetailers', retailer.id), {
+                      provisionalId,
+                      status: 'provisioned',
+                    });
+                    try { await navigator.clipboard.writeText(inviteUrl); } catch (_) {}
+                    alert('Invite link created and copied to clipboard');
+                  }
+                } catch (e) {
+                  console.error('Invite create failed', e);
+                  alert('Failed to create invite');
+                }
+              }}
+              className="rounded-md px-2.5 py-1 text-xs bg-amber-400/90 text-black hover:bg-amber-300 border border-amber-500/40 transition"
+              title="Send invite"
+            >
+              Send Invite
+            </button>
+          )}
+          <button
+            onClick={toggleAct}
+            title="Recent activity"
+            className="rounded-md px-2 py-1 text-xs bg-white/10 hover:bg-white/15 border border-white/15 text-white"
+            aria-label="View recent activity"
+          >
+            ⓘ
+          </button>
           <button
             onClick={onManage}
             className="rounded-md px-2.5 py-1.5 text-xs font-semibold bg-emerald-500 text-black hover:bg-emerald-400 shadow"
+            aria-label="Manage retailer"
           >
             Manage
           </button>
         </div>
+
+        {showAct && (
+          <div className="absolute right-0 top-full mt-2 w-72 rounded-lg border border-white/10 bg-[#0B0F14] shadow-xl z-10">
+            <div className="px-3 py-2 border-b border-white/10 text-xs text-white/70">Recent activity</div>
+            <div className="max-h-60 overflow-y-auto" aria-live="polite">
+              {actLoading ? (
+                <div className="p-3 text-xs text-white/60">Loading…</div>
+              ) : actItems.length === 0 ? (
+                <div className="p-3 text-xs text-white/60">No activity yet.</div>
+              ) : (
+                <ul className="p-2 space-y-1">
+                  {actItems.map(a => (
+                    <li key={a.id} className="text-xs text-white/80 flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-white/5">
+                      <span className="truncate"><span className="capitalize font-medium">{a.type}</span>{a.meta?.name ? ` – ${a.meta.name}` : ''}</span>
+                      <span className="text-white/50">{a.createdAt?.toDate?.().toLocaleDateString?.() || ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-8">
-      <div className="sticky top-0 z-10 -mx-4 md:-mx-8 px-4 md:px-8 py-3 mb-4 bg-[#0B0F14]/80 backdrop-blur supports-[backdrop-filter]:backdrop-blur-xl border-b border-white/10">
+    <div className="p-6 md:p-10">
+      <div className="mb-6 border-b border-white/10 pb-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-xl md:text-2xl font-bold text-white">Connected Retailers</h2>
+            <h2 className="text-2xl font-bold text-white">Connected Retailers</h2>
             <p className="text-xs text-white/60 mt-0.5">
               {filtered.length} of {retailers.length} retailers • Page {currentPage}/{totalPages}
             </p>
@@ -213,6 +370,8 @@ const ManageRetailers = ({ distributorId }) => {
                   onChange={(e)=>{ setQueryText(e.target.value); setPage(1); }}
                   placeholder="Search name, email, phone, city"
                   className="w-64 max-w-[70vw] rounded-lg bg-white/10 border border-white/20 px-3 py-2 pr-8 text-sm text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-emerald-400/40"
+                  ref={searchRef}
+                  aria-label="Search retailers"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-white/60 text-sm">⌘K</span>
               </div>
@@ -236,38 +395,51 @@ const ManageRetailers = ({ distributorId }) => {
             <div className="flex items-center gap-1 self-start sm:self-auto">
               <button
                 onClick={()=>setViewMode("grid")}
-                className={`px-3 py-2 rounded-l-lg text-sm border ${viewMode==="grid" ? "bg-emerald-500 text-black border-emerald-500" : "bg-white/10 text-white border-white/20 hover:bg-white/15"}`}
+                className={`px-3 py-2 rounded-l-lg text-sm border transition-all ${viewMode==="grid" ? "bg-emerald-500 text-black border-emerald-500" : "bg-white/10 text-white border-white/20 hover:bg-white/15"}`}
                 title="Grid view"
+                aria-pressed={viewMode==="grid"}
               >
                 ⬛⬛
               </button>
               <button
                 onClick={()=>setViewMode("list")}
-                className={`px-3 py-2 rounded-r-lg text-sm border ${viewMode==="list" ? "bg-emerald-500 text-black border-emerald-500" : "bg-white/10 text-white border-white/20 hover:bg-white/15"}`}
+                className={`px-3 py-2 rounded-r-lg text-sm border transition-all ${viewMode==="list" ? "bg-emerald-500 text-black border-emerald-500" : "bg-white/10 text-white border-white/20 hover:bg-white/15"}`}
                 title="List view"
+                aria-pressed={viewMode==="list"}
               >
                 ☰
               </button>
             </div>
+            <button
+              onClick={() => setShowOrderSettings(true)}
+              className="px-3 py-2 rounded-lg text-sm border bg-white/10 text-white border-white/20 hover:bg-white/15 flex items-center gap-2 transition-all"
+              title="Open global/bulk order settings"
+              aria-label="Open global and bulk order settings"
+            >
+              ⚙️ <span className="hidden sm:inline">Settings</span>
+            </button>
           </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex justify-center items-center h-40">
-          <div className="animate-spin rounded-full h-10 w-10 border-t-4 border-b-4 border-emerald-400"></div>
-          <span className="ml-4 text-white/80">Loading...</span>
+        <div className="flex flex-col items-center justify-center h-40 text-white/70">
+          <div className="animate-spin rounded-full h-10 w-10 border-t-4 border-emerald-400 mb-3"></div>
+          <span>Loading retailers...</span>
         </div>
       ) : error ? (
         <div className="text-red-400">{error}</div>
       ) : filtered.length === 0 ? (
-        <div className="text-white/60 text-center py-10">No retailers match your filters.</div>
+        <div className="text-white/60 text-center py-16 border border-dashed border-white/10 rounded-xl">
+          <p className="text-lg mb-1">No retailers found</p>
+          <p className="text-sm text-white/40">Try adjusting filters or adding new retailers.</p>
+        </div>
       ) : (
         <>
           {viewMode === "grid" ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {paginated.map((retailer) => (
-                <div key={retailer.id} className="rounded-xl border border-white/10 bg-white/5 p-4 hover:border-emerald-400/40 transition">
+                <div key={retailer.id} className="rounded-xl border border-white/10 bg-white/5 p-4 hover:border-emerald-400/50 hover:bg-white/10 transition transform hover:-translate-y-[2px]">
                   <CompactRetailerTile retailer={retailer} onManage={() => openDrawerFor(retailer)} />
                 </div>
               ))}
@@ -282,13 +454,14 @@ const ManageRetailers = ({ distributorId }) => {
             </div>
           )}
           {/* Pagination */}
-          <div className="mt-4 flex items-center justify-between text-sm text-white/70">
+          <div className="mt-6 flex items-center justify-between text-sm text-white/70 border-t border-white/10 pt-4">
             <div>Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length}</div>
             <div className="flex items-center gap-2">
               <button
                 onClick={()=> setPage(p => Math.max(1, p-1))}
                 disabled={currentPage === 1}
                 className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 disabled:opacity-50 hover:bg-white/15"
+                aria-label="Previous page"
               >
                 Prev
               </button>
@@ -297,6 +470,7 @@ const ManageRetailers = ({ distributorId }) => {
                 onClick={()=> setPage(p => Math.min(totalPages, p+1))}
                 disabled={currentPage === totalPages}
                 className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 disabled:opacity-50 hover:bg-white/15"
+                aria-label="Next page"
               >
                 Next
               </button>
@@ -361,12 +535,49 @@ const ManageRetailers = ({ distributorId }) => {
                     <div className="text-white/80 text-sm">{activeRetailer.email || "—"}</div>
                     <div className="text-white/80 text-sm">{activeRetailer.phone || "—"}</div>
                     <div className="text-white/60 text-xs mt-2">City: {activeRetailer.city || "—"}</div>
-                    <div className="text-white/60 text-xs">Status: <span className="uppercase">{activeRetailer.status || "accepted"}</span></div>
+                    <div className="text-white/60 text-xs">Status: <span className="uppercase">{activeRetailer.status || "provisioned"}</span></div>
+                    <div className="text-white/60 text-xs mt-1">Added: {activeRetailer.createdAt?.toDate?.().toLocaleString?.() || "—"}</div>
+                    <div className="text-white/60 text-xs">
+                      Added by: {activeRetailer.addedBy?.type || '—'}
+                      {activeRetailer.addedBy?.name ? ` ${activeRetailer.addedBy.name}` : ''}
+                      {activeRetailer.addedBy?.flypEmployeeId ? ` (${activeRetailer.addedBy.flypEmployeeId})` : (activeRetailer.addedBy?.id ? ` (${activeRetailer.addedBy.id})` : '')}
+                    </div>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                     <div className="text-sm text-white/60 mb-2">Quick Actions</div>
                     <div className="flex flex-wrap gap-2">
                       <button className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-white text-sm">Create Order</button>
+                      {(/^provisioned/.test(activeRetailer.status || '')) && (
+                        <button
+                          className="px-3 py-1.5 rounded-md bg-emerald-500 text-black hover:bg-emerald-400 text-sm"
+                          onClick={async () => {
+                            try {
+                              const createFn = httpsCallable(functions, 'createProvisionalRetailer');
+                              const res = await createFn({
+                                distributorId,
+                                payload: {
+                                  businessName: activeRetailer.businessName,
+                                  email: activeRetailer.email || null,
+                                  phone: activeRetailer.phone || null,
+                                },
+                              });
+                              const { provisionalId, inviteUrl } = res?.data || {};
+                              if (provisionalId) {
+                                await updateDoc(doc(db, 'businesses', distributorId, 'connectedRetailers', activeRetailer.id), {
+                                  provisionalId,
+                                  status: 'provisioned',
+                                });
+                                try { await navigator.clipboard.writeText(inviteUrl); } catch (_) {}
+                                alert('Invite link created and copied');
+                              }
+                            } catch (e) {
+                              alert('Failed to create invite');
+                            }
+                          }}
+                        >
+                          Send Invite
+                        </button>
+                      )}
                       <button className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-white text-sm">Send Reminder</button>
                       <button className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-white text-sm">View Payments</button>
                     </div>
@@ -460,11 +671,11 @@ const ManageRetailers = ({ distributorId }) => {
 
       {/* Global/Bulk Order Settings Modal */}
       {showOrderSettings && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-10" onKeyDown={handleKeyDown} tabIndex={-1}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-10" onKeyDown={handleKeyDown} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="order-settings-title">
           <div className="absolute inset-0 bg-black/60" onClick={() => setShowOrderSettings(false)} />
           <div className="relative w-[95%] max-w-6xl rounded-2xl border border-white/10 bg-[#0B0F14]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.55)] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
-              <div className="text-white font-semibold">Order Settings — Global & Bulk</div>
+              <div id="order-settings-title" className="text-white font-semibold">Order Settings — Global & Bulk</div>
               <button
                 onClick={() => setShowOrderSettings(false)}
                 className="rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 px-3 py-1.5 text-sm text-white"

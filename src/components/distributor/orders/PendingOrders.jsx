@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getFirestore, collection, onSnapshot, doc, getDoc, query, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, getDoc, query, where, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import ProformaSummary from "../../retailer/ProformaSummary";
 
@@ -65,7 +65,12 @@ const PendingOrders = () => {
       deliveryMode: order.deliveryMode,
       statusTimestamps: {
         shippedAt: serverTimestamp()
-      }
+      },
+      handledBy: {
+        ...(order?.handledBy || {}),
+        shippedBy: { uid: user.uid, type: 'distributor' }
+      },
+      auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'shipOrder', by: { uid: user.uid, type: 'distributor' }, meta: { deliveryMode: order.deliveryMode } })
     };
 
     await updateDoc(orderRef, updateData);

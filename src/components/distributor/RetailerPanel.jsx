@@ -1,9 +1,10 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../../firebase/firebaseConfig";
 import RetailerRequests from "./RetailerRequests";
 import ManageRetailer from "./ManageRetailers";
 import AddRetailerModal from "./AddRetailerModal";
+import { useAuth } from "../../context/AuthContext";
 
 /**
  * RetailerPanel.jsx (clean container)
@@ -36,23 +37,21 @@ function useQueryParamTab(defaultTab = "retailer-requests") {
   return [currentTab, setTab];
 }
 
-const TabButton = ({ active, onClick, children }) => (
-  <button
-    onClick={onClick}
-    className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
-      active
-        ? "bg-indigo-600 text-white shadow"
-        : "bg-white/5 text-gray-200 hover:bg-white/10"
-    }`}
-  >
-    {children}
-  </button>
-);
-
 export default function RetailerPanel() {
   const [tab, setTab] = useQueryParamTab("retailer-requests");
   const [openAddRetailer, setOpenAddRetailer] = useState(false);
-  const distributorId = auth?.currentUser?.uid || null;
+  const { user, initialized } = useAuth ? useAuth() : { user: null, initialized: true };
+  const distributorUid = user?.uid || auth?.currentUser?.uid || null;
+
+  const lastScrollYRef = useRef(0);
+  const setTabSafe = (t) => {
+    lastScrollYRef.current = window.scrollY || 0;
+    setTab(t);
+  };
+  useLayoutEffect(() => {
+    // restore scroll before paint to avoid visible jump
+    window.scrollTo({ top: lastScrollYRef.current, left: 0, behavior: "auto" });
+  }, [tab]);
 
   // Open Add Retailer with Cmd/Ctrl + N
   const handleKeyOpen = useCallback((e) => {
@@ -83,76 +82,78 @@ export default function RetailerPanel() {
         .no-scrollbar::-webkit-scrollbar{display:none}
         .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
       `}</style>
-      <div className="sticky top-[56px] z-10 bg-transparent">
-        <header className="mb-3 flex items-center justify-between bg-[#0B0F14]/60 backdrop-blur px-3 py-3 rounded-xl border border-white/10">
-          <div>
+      {/* Header with responsive tabs */}
+      <header className="mb-4 md:mb-6 bg-[#0B0F14]/60 backdrop-blur rounded-xl border border-white/10">
+        <div className="px-3 py-3 md:px-4 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div className="min-w-0">
             <h1 className="text-xl md:text-2xl font-semibold text-white">Retailers</h1>
-            <p className="mt-0.5 text-sm text-gray-300">Review incoming requests and manage accepted retailers.</p>
+            <p className="mt-0.5 text-xs md:text-sm text-gray-300 truncate">Review incoming requests and manage connected retailers.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Retailer panel tabs">
             <button
-              onClick={() => setOpenAddRetailer(true)}
-              className="rounded-lg px-3 py-2 text-sm font-semibold bg-emerald-500 text-black hover:bg-emerald-400 transition shadow"
-              aria-label="Add retailer (Cmd/Ctrl + N)"
-              title="Add retailer (Cmd/Ctrl + N)"
-            >
-              + Add Retailer
-            </button>
-          </div>
-        </header>
-
-        {/* Tabs: segmented control */}
-        <div className="mb-5">
-          <div className="inline-flex rounded-lg border border-white/10 bg-white/5 overflow-hidden">
-            <button
-              onClick={() => setTab("retailer-requests")}
-              className={`px-4 py-2 text-sm font-medium transition ${
-                tab === "retailer-requests"
-                  ? "bg-emerald-500 text-black"
-                  : "text-white hover:bg-white/10"
+              id="tab-retailer-requests"
+              role="tab"
+              aria-selected={tab === "retailer-requests"}
+              aria-controls="tab-panel-requests"
+              onClick={() => setTabSafe("retailer-requests")}
+              className={`px-3 md:px-4 py-2 text-sm rounded-lg border transition ${
+                tab === "retailer-requests" ? "bg-emerald-500 text-black border-emerald-400" : "bg-white/5 text-white border-white/10 hover:bg-white/10"
               }`}
             >
               Retailer Requests
             </button>
             <button
-              onClick={() => setTab("manage-retailers")}
-              className={`px-4 py-2 text-sm font-medium transition border-l border-white/10 ${
-                tab === "manage-retailers"
-                  ? "bg-emerald-500 text-black"
-                  : "text-white hover:bg-white/10"
+              id="tab-manage-retailers"
+              role="tab"
+              aria-selected={tab === "manage-retailers"}
+              aria-controls="tab-panel-manage"
+              onClick={() => setTabSafe("manage-retailers")}
+              className={`px-3 md:px-4 py-2 text-sm rounded-lg border transition ${
+                tab === "manage-retailers" ? "bg-emerald-500 text-black border-emerald-400" : "bg-white/5 text-white border-white/10 hover:bg-white/10"
               }`}
             >
-              Manage Retailer
+              Manage Retailers
             </button>
           </div>
         </div>
-      </div>
-
+      </header>
 
       {/* Panels */}
       {tab === "retailer-requests" ? (
-        <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6">
-          <RetailerRequests distributorId={distributorId} />
+        <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6" role="tabpanel" id="tab-panel-requests">
+          <RetailerRequests distributorId={distributorUid} />
         </section>
       ) : null}
 
       {tab === "manage-retailers" ? (
-        <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6">
-          <ManageRetailer distributorId={distributorId} />
+        <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6" role="tabpanel" id="tab-panel-manage">
+          <ManageRetailer distributorId={distributorUid} />
         </section>
       ) : null}
+
+      {/* Floating Add Retailer button (avoids sticky overlap) */}
+      <button
+        onClick={() => setOpenAddRetailer(true)}
+        className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 md:right-6 h-12 w-12 md:h-14 md:w-14 rounded-full shadow-xl bg-emerald-500 text-black hover:bg-emerald-400 ring-1 ring-emerald-400/40 transition focus:outline-none focus:ring-2 focus:ring-emerald-300"
+        aria-label="Add retailer (Cmd/Ctrl + N)"
+        title="Add retailer (Cmd/Ctrl + N)"
+        aria-haspopup="dialog"
+        style={{ zIndex: 60 }}
+      >
+        <span className="text-xl md:text-2xl leading-none">＋</span>
+      </button>
 
       <AddRetailerModal
         open={openAddRetailer}
         onClose={() => setOpenAddRetailer(false)}
-        distributorId={distributorId}
+        distributorId={distributorUid}
         useCloudFunction={true}
         uiVariant="centered"
         autofocus
         onCreated={() => {
           // Close modal, then switch tab so the new entry is visible
           setOpenAddRetailer(false);
-          setTab("manage-retailers");
+          setTabSafe("manage-retailers");
         }}
       />
     </div>
