@@ -1,23 +1,42 @@
-import React, { createContext, useEffect, useState, useContext } from 'react';
+import React, { createContext, useEffect, useState, useContext, useMemo } from 'react';
 import { auth, db, empAuth } from '../firebase/firebaseConfig';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, setPersistence, indexedDBLocalPersistence, getIdTokenResult } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { getEmployeeSession, isEmployeePath, clearEmployeeSession, isEmployeeRedirect, clearEmployeeRedirect } from '../utils/employeeSession';
-import { getDistributorEmployeeSession, isDistributorEmployeePath, clearDistributorEmployeeSession, isDistributorEmployeeRedirect, clearDistributorEmployeeRedirect } from '../utils/distributorEmployeeSession';
+import {
+  getEmployeeSession,
+  isEmployeePath,
+  clearEmployeeSession,
+  isEmployeeRedirect,
+  clearEmployeeRedirect
+} from '../utils/employeeSession';
+import {
+  getDistributorEmployeeSession,
+  isDistributorEmployeePath,
+  clearDistributorEmployeeSession,
+  isDistributorEmployeeRedirect,
+  clearDistributorEmployeeRedirect
+} from '../utils/distributorEmployeeSession';
 
 export const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 export const getCurrentUserId = () => auth.currentUser?.uid || null;
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [role, setRole] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [authLoading, setAuthLoading] = useState(true);
+  // Keep raw auth users separate
+  const [primaryUser, setPrimaryUser] = useState(null);
+  const [employeeUser, setEmployeeUser] = useState(null);
 
+  const [role, setRole] = useState(null);
+  const [initialized, setInitialized] = useState(false);   // <-- guards can wait on this
+  const [authLoading, setAuthLoading] = useState(true);    // kept for backward-compat with existing code
+
+  // --- One-time: ensure persistence for primary app auth only (employee app remains in-memory by design)
   useEffect(() => {
-    // Migrate any legacy distributor-employee redirect flag from localStorage to sessionStorage
-    // This avoids a persistent stuck-login on some browsers/devices after a redirect.
+    try { setPersistence(auth, indexedDBLocalPersistence); } catch (_) {}
+  }, []);
+
+  // --- Migrate legacy redirect flag once (prevents sticky redirect loops)
+  useEffect(() => {
     try {
       const legacyKey = 'flyp_distributor_employee_redirect';
       if (localStorage.getItem(legacyKey) === 'true' && !sessionStorage.getItem(legacyKey)) {
@@ -25,157 +44,153 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem(legacyKey);
       }
     } catch (_) {}
-
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      // Only log significant state changes
-      if (firebaseUser && !user) {
-        console.log("[AuthContext] User signed in:", firebaseUser.uid);
-      } else if (!firebaseUser && user) {
-        console.log("[AuthContext] User signed out");
-      }
-      
-      // Add production debugging
-      const isProduction = window.location.hostname !== 'localhost';
-      if (isProduction) {
-        console.log("[AuthContext] Production environment - Firebase user:", firebaseUser?.uid || "null");
-      }
-      
-      // One-time guard: when employee flow just redirected to /employee-dashboard,
-      // skip this auth tick to avoid race between signOut and dashboard mount.
-      if (isEmployeeRedirect()) {
-        console.log("[AuthContext] Employee redirect detected, clearing and bypassing");
-        try { clearEmployeeRedirect(); } catch (_) {}
-        // When we just switched into employee flow, keep primary app signed-out state.
-        setUser(null);
-        setRole(null);
-        setLoading(false);
-        setAuthLoading(false);
-        return;
-      }
-
-      // One-time guard: when distributor employee flow just redirected to /distributor-employee-dashboard,
-      // skip this auth tick to avoid race between signOut and dashboard mount.
-      if (isDistributorEmployeeRedirect()) {
-        console.log("[AuthContext] Distributor employee redirect detected, clearing and bypassing");
-        try { clearDistributorEmployeeRedirect(); } catch (_) {}
-        // When we just switched into distributor employee flow, keep primary app signed-out state.
-        setUser(null);
-        setRole(null);
-        setLoading(false);
-        setAuthLoading(false);
-        return;
-      }
-
-      const empSession = getEmployeeSession();
-      const distEmpSession = getDistributorEmployeeSession();
-      const isEmpArea = isEmployeePath(typeof window !== 'undefined' ? window.location.pathname : '');
-      const isDistEmpArea = isDistributorEmployeePath(typeof window !== 'undefined' ? window.location.pathname : '');
-
-      // ✅ Employee-aware handling: if we are in employee area or have an employee session,
-      // use employee auth instance
-      if (isEmpArea || empSession) {
-        if (empAuth.currentUser) {
-          // Check if this is an employee with custom claims
-          if (empAuth.currentUser.customClaims?.isEmployee) {
-            setUser(empAuth.currentUser);
-            setRole('employee');
-          } else {
-            setUser(null);
-            setRole(null);
-          }
-        } else {
-          setUser(null);
-          setRole(null);
-        }
-        setLoading(false);
-        setAuthLoading(false);
-        return;
-      }
-
-      // ✅ Distributor Employee-aware handling: if we are in distributor employee area or have a distributor employee session,
-      // use employee auth instance
-      if (isDistEmpArea || distEmpSession) {
-        if (empAuth.currentUser) {
-          // Check if this is a distributor employee with custom claims
-          if (empAuth.currentUser.customClaims?.isDistributorEmployee) {
-            setUser(empAuth.currentUser);
-            setRole('distributor-employee');
-          } else {
-            setUser(null);
-            setRole(null);
-          }
-        } else {
-          setUser(null);
-          setRole(null);
-        }
-        setLoading(false);
-        setAuthLoading(false);
-        return;
-      }
-
-      setUser(firebaseUser);
-
-      if (firebaseUser) {
-        try {
-          // Optional: make sure token is fresh for backend calls
-          await firebaseUser.getIdToken(true);
-        } catch (err) {
-          console.warn('[Auth] Failed to refresh ID token:', err?.message || err);
-        }
-
-        try {
-          console.log("[AuthContext] Fetching user data from Firestore for UID:", firebaseUser.uid);
-          const docRef = doc(db, 'businesses', firebaseUser.uid);
-          const docSnap = await getDoc(docRef);
-          console.log("[AuthContext] Document exists:", docSnap.exists());
-          const userData = docSnap.exists() ? docSnap.data() : null;
-          console.log("[AuthContext] User data:", userData);
-          
-          // Check for both 'role' and 'businessType' fields (some users have businessType)
-          const rawRole = userData?.role || userData?.businessType || null;
-          const normalizedRole = rawRole
-            ? String(rawRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '')
-            : null;
-          
-          console.log("[AuthContext] User role detected:", rawRole, "->", normalizedRole);
-          
-          // Set the normalized role for main users
-          // distributor-employee should only come from custom claims, not from Firestore role
-          if (normalizedRole === 'distributor-employee') {
-            console.warn("[AuthContext] Detected distributor-employee role in Firestore, this should not happen for main users");
-            // If somehow a main user has distributor-employee role in Firestore, treat as distributor
-            setRole('distributor');
-          } else {
-            setRole(normalizedRole);
-          }
-          
-          console.log("[AuthContext] Role set to:", normalizedRole);
-          // 🧩 Fallback: if Firestore role not ready yet, honor post-signup hint temporarily
-          if (!normalizedRole && typeof window !== 'undefined') {
-            const pending = sessionStorage.getItem('postSignupRole');
-            if (pending) setRole(pending.toLowerCase().replace(/\s+/g, ''));
-          }
-        } catch (err) {
-          console.warn('[Auth] Role fetch failed for uid', firebaseUser.uid, err?.message || err);
-          setRole(null);
-        }
-        
-        setLoading(false);
-        setAuthLoading(false);
-      } else {
-        // Signed-out
-        setRole(null);
-        setLoading(false);
-        setAuthLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
   }, []);
 
+  // --- Subscribe to primary user
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      setPrimaryUser(firebaseUser ?? null);
+    });
+    return () => unsub();
+  }, []);
+
+  // --- Subscribe to employee auth; we don't force persistence here
+  useEffect(() => {
+    const unsub = onAuthStateChanged(empAuth, (u) => {
+      setEmployeeUser(u ?? null);
+    });
+    return () => unsub();
+  }, []);
+
+  // --- Core selector + role resolver
+  useEffect(() => {
+    (async () => {
+      const path = typeof window !== 'undefined' ? window.location.pathname : '';
+      const inEmpArea = isEmployeePath(path);
+      const inDistEmpArea = isDistributorEmployeePath(path);
+
+      // Handle one-time redirect guards (same behavior you had)
+      if (isEmployeeRedirect()) {
+        try { clearEmployeeRedirect(); } catch (_) {}
+        setRole(null);
+        setInitialized(true);
+        setAuthLoading(false);
+        return;
+      }
+      if (isDistributorEmployeeRedirect()) {
+        try { clearDistributorEmployeeRedirect(); } catch (_) {}
+        setRole(null);
+        setInitialized(true);
+        setAuthLoading(false);
+        return;
+      }
+
+      // Decide which user to expose based on route
+      let effectiveUser = null;
+      let effectiveRole = null;
+
+      if (inEmpArea) {
+        // employee dashboard expects employee claims
+        if (employeeUser) {
+          try {
+            const { claims } = await getIdTokenResult(employeeUser);
+            if (claims?.isEmployee) {
+              effectiveUser = employeeUser;
+              effectiveRole = 'employee';
+            }
+          } catch (e) {
+            console.warn('[Auth] Failed to read employee claims:', e?.message || e);
+          }
+        }
+      } else if (inDistEmpArea) {
+        if (employeeUser) {
+          try {
+            const { claims } = await getIdTokenResult(employeeUser);
+            if (claims?.isDistributorEmployee) {
+              effectiveUser = employeeUser;
+              effectiveRole = 'distributor-employee';
+            }
+          } catch (e) {
+            console.warn('[Auth] Failed to read distributor-employee claims:', e?.message || e);
+          }
+        }
+      } else {
+        // main app area → use primary user
+        effectiveUser = primaryUser ?? null;
+
+        if (primaryUser) {
+          // refresh token once to keep claims fresh for CF calls
+          try { await primaryUser.getIdToken(true); } catch (err) {
+            console.warn('[Auth] Failed to refresh ID token:', err?.message || err);
+          }
+
+          // Fetch role from Firestore
+          try {
+            const docRef = doc(db, 'businesses', primaryUser.uid);
+            const docSnap = await getDoc(docRef);
+            const userData = docSnap.exists() ? docSnap.data() : null;
+
+            const rawRole = userData?.role || userData?.businessType || null;
+            const normalizedRole = rawRole
+              ? String(rawRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '')
+              : null;
+
+            // if a main user somehow has 'distributor-employee' in doc (shouldn't), treat as distributor
+            effectiveRole = normalizedRole === 'distributoremployee' ? 'distributor' : normalizedRole;
+
+            // fallback to post-signup hint if firestore hasn't populated yet
+            if (!effectiveRole && typeof window !== 'undefined') {
+              const pending = sessionStorage.getItem('postSignupRole');
+              if (pending) effectiveRole = pending.toLowerCase().replace(/\s+/g, '');
+            }
+          } catch (err) {
+            console.warn('[Auth] Role fetch failed for uid', primaryUser.uid, err?.message || err);
+            effectiveRole = null;
+          }
+        }
+      }
+
+      setRole(effectiveRole ?? null);
+      // Expose the selected user through context by mapping it into state
+      // We keep primaryUser/employeeUser internally but the context value will export one user.
+      // To keep API compatible, we won't add an extra state; instead we derive in value (see useMemo below).
+
+      // Initialized once both auth states have reported at least once (or when selection is determined)
+      setInitialized(true);
+      setAuthLoading(false);
+    })();
+  }, [primaryUser, employeeUser]);
+
+  const value = useMemo(() => {
+    // Recompute the effective user synchronously for consumers
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    const inEmpArea = isEmployeePath(path);
+    const inDistEmpArea = isDistributorEmployeePath(path);
+
+    let userToExpose = null;
+    if (inEmpArea) {
+      userToExpose = employeeUser ?? null;
+    } else if (inDistEmpArea) {
+      userToExpose = employeeUser ?? null;
+    } else {
+      userToExpose = primaryUser ?? null;
+    }
+
+    return {
+      user: userToExpose,
+      role,
+      initialized,
+      loading: !initialized,             // keep legacy flag semantics
+      // preserve setters in case some screens expect them
+      setUser: (u) => setPrimaryUser(u),
+      setRole,
+      setLoading: (v) => setAuthLoading(Boolean(v)),
+    };
+  }, [primaryUser, employeeUser, role, initialized]);
+
   return (
-    <AuthContext.Provider value={{ user, role, loading: authLoading, setUser, setRole, setLoading }}>
-      {authLoading ? (
+    <AuthContext.Provider value={value}>
+      {!initialized ? (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>

@@ -2,70 +2,68 @@ import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-// Guard that waits for Firebase auth to resolve and (optionally) enforces a role
+/**
+ * PrivateRoute
+ * - Waits for AuthContext to initialize (prevents "signed in but redirected" race).
+ * - Optionally enforces a specific role via `requireRole` ("retailer" | "distributor" | "productowner").
+ * - Honors a one-time post-signup role hint from sessionStorage to allow first entry before Firestore role write completes.
+ */
 const PrivateRoute = ({ requireRole }) => {
-  const { user, role, loading: authLoading } = useAuth();
+  const { user, role, initialized } = useAuth();
 
-  // Read a one-time post-signup role hint (set by Register.jsx) and normalize it
-  const pending = (typeof window !== 'undefined' && sessionStorage.getItem('postSignupRole')) || null;
-  const pendingNorm = (pending || '').toLowerCase().replace(/\s+/g, '');
-
-  // If an employee/distributor employee redirect guard is present for this page load,
-  // avoid redirect loops by rendering a short loading state instead of bouncing to /auth.
-  const hasOneTimeRedirectGuard = typeof window !== 'undefined' && (
-    sessionStorage.getItem('flyp_distributor_employee_redirect') === 'true' ||
-    sessionStorage.getItem('employeeRedirect') === '1'
-  );
-
-  // If AuthContext has now loaded a role that matches the hint, clear the hint
-  if (pending && role) {
-    const roleNorm = (role || '').toLowerCase().replace(/\s+/g, '');
-    if (roleNorm === pendingNorm) {
-      try { sessionStorage.removeItem('postSignupRole'); } catch (_) {}
-    }
-  }
-
-  // 1) Wait for Firebase to finish restoring the session
-  if (authLoading) {
-    console.log("[PrivateRoute] Auth loading...");
+  // 0) Do not decide until Auth has resolved once
+  if (!initialized) {
     return <div className="text-center mt-20 text-gray-500">Loading...</div>;
   }
 
-  // 2) Not logged in -> go to login
+  // Read a one-time post-signup role hint (set by Register.jsx) and normalize it
+  const pending = (typeof window !== 'undefined' && sessionStorage.getItem('postSignupRole')) || null;
+  const pendingNorm = pending ? pending.toLowerCase().replace(/\s+/g, '').replace(/_/g, '') : '';
+
+  // Optional: legacy single-load redirect guards (prevents loops on employee redirect flows)
+  const hasOneTimeRedirectGuard =
+    typeof window !== 'undefined' &&
+    (sessionStorage.getItem('flyp_distributor_employee_redirect') === 'true' ||
+      sessionStorage.getItem('employeeRedirect') === '1');
+
+  // Clear the pending hint once Auth role matches it
+  if (pending && role) {
+    const roleNorm = String(role).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
+    if (roleNorm === pendingNorm) {
+      try {
+        sessionStorage.removeItem('postSignupRole');
+      } catch {}
+    }
+  }
+
+  // 1) Not logged in -> go to login (unless a one-time redirect guard is active)
   if (!user) {
     if (hasOneTimeRedirectGuard) {
-      console.log("[PrivateRoute] One-time redirect guard detected; waiting before redirect");
       return <div className="text-center mt-20 text-gray-500">Loading...</div>;
     }
-    console.log("[PrivateRoute] No user, redirecting to login");
     return <Navigate to="/auth?type=login" replace />;
   }
 
-  console.log("[PrivateRoute] User authenticated:", user.uid, "Role:", role, "RequireRole:", requireRole);
+  // 2) If a specific role is required, enforce it against normalized tokens
+  if (requireRole) {
+    const roleNorm = (role || '').toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
+    const requireNorm = String(requireRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
 
-  // 3) If a specific role is required, enforce it against normalized role tokens
-  //    (role is normalized in AuthContext to retailer | distributor | productowner)
-  if (requireRole && role !== requireRole) {
-    console.log("[PrivateRoute] Role check - requireRole:", requireRole, "user role:", role);
-    console.log("[PrivateRoute] Pending role:", pendingNorm);
-    console.log("[PrivateRoute] User object:", user);
-    
-    // If we just signed up and the pending role matches the required role, allow access once
-    if (pendingNorm && pendingNorm === requireRole) {
-      console.log("[PrivateRoute] Allowing access based on pending role");
-      return <Outlet />;
+    if (roleNorm !== requireNorm) {
+      // Allow entry once if pending signup role matches required role
+      if (pendingNorm && pendingNorm === requireNorm) {
+        return <Outlet />;
+      }
+
+      // Otherwise redirect user to their actual dashboard
+      let redirectTo = '/dashboard';
+      if (roleNorm === 'distributor') redirectTo = '/distributor-dashboard';
+      else if (roleNorm === 'productowner') redirectTo = '/product-owner-dashboard';
+      return <Navigate to={redirectTo} replace />;
     }
-
-    // Otherwise redirect the user to their actual role dashboard
-    const normalizedRole = (role || "").toLowerCase().replace(/\s+/g, "").replace(/_/g, "");
-    let redirectTo = "/dashboard";
-    if (normalizedRole === "distributor") redirectTo = "/distributor-dashboard";
-    else if (normalizedRole === "productowner") redirectTo = "/product-owner-dashboard";
-    console.log("[PrivateRoute] Redirecting to:", redirectTo, "based on role:", normalizedRole);
-    return <Navigate to={redirectTo} replace />;
   }
 
-  // 4) All good -> render nested routes
+  // 3) All good -> render nested routes
   return <Outlet />;
 };
 
