@@ -18,36 +18,72 @@ const EmployeeRoute = ({ kind = 'retailer' }) => {
     );
 
     if (hasRedirectGuard) {
-      // Give auth time to complete (custom token sign-in is async)
+      // Wait for auth state with polling and listener
+      let resolved = false;
+      let timeoutId = null;
+      let unsubscribe = null;
+
+      const resolveAccess = (hasIt) => {
+        if (resolved) return;
+        resolved = true;
+        
+        if (timeoutId) clearTimeout(timeoutId);
+        if (unsubscribe) unsubscribe();
+        
+        // Clear redirect guard
+        if (sessionStorage.getItem('flyp_distributor_employee_redirect') === 'true') {
+          clearDistributorEmployeeRedirect();
+        }
+        
+        setHasAccess(hasIt);
+        setIsChecking(false);
+      };
+
+      // Set up auth state listener
+      unsubscribe = empAuth.onAuthStateChanged((user) => {
+        if (resolved) return;
+        
+        const employeeAuthed = Boolean(user);
+        const retailerEmpSession = getEmployeeSession();
+        const distEmpSession = getDistributorEmployeeSession();
+        const access = employeeAuthed || retailerEmpSession || distEmpSession;
+        
+        if (access) {
+          resolveAccess(true);
+        }
+      });
+
+      // Also poll as backup (for slow networks)
       const checkAuth = () => {
+        if (resolved) return;
+        
         const employeeAuthed = Boolean(empAuth?.currentUser);
         const retailerEmpSession = getEmployeeSession();
         const distEmpSession = getDistributorEmployeeSession();
         const access = employeeAuthed || retailerEmpSession || distEmpSession;
         
         if (access) {
-          // Clear redirect guard once we confirm access
-          if (sessionStorage.getItem('flyp_distributor_employee_redirect') === 'true') {
-            clearDistributorEmployeeRedirect();
-          }
-          setHasAccess(true);
-          setIsChecking(false);
-        } else {
-          // Keep checking for up to 2 seconds
-          setTimeout(() => {
-            setHasAccess(access);
-            setIsChecking(false);
-            if (sessionStorage.getItem('flyp_distributor_employee_redirect') === 'true') {
-              clearDistributorEmployeeRedirect();
-            }
-          }, 2000);
+          resolveAccess(true);
         }
       };
       
-      // Check immediately and then again after a short delay
+      // Check immediately and periodically
       checkAuth();
-      const timeout = setTimeout(checkAuth, 500);
-      return () => clearTimeout(timeout);
+      const interval = setInterval(checkAuth, 200);
+      
+      // Timeout after 5 seconds (should never happen, but safety net)
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          checkAuth(); // Final check
+          resolveAccess(false);
+        }
+      }, 5000);
+
+      return () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (interval) clearInterval(interval);
+        if (unsubscribe) unsubscribe();
+      };
     } else {
       // No redirect guard, check immediately
       const employeeAuthed = Boolean(empAuth?.currentUser);

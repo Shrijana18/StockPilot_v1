@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
-import { signInWithCustomToken } from 'firebase/auth';
+import { signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { functions, empAuth } from '../firebase/firebaseConfig';
 import { setDistributorEmployeeSession, clearDistributorEmployeeSession, setDistributorEmployeeRedirect } from '../utils/distributorEmployeeSession';
 import { toast } from 'react-toastify';
@@ -65,27 +65,76 @@ const DistributorEmployeeLogin = () => {
       // Sign in with custom token using employee auth instance
       await signInWithCustomToken(empAuth, customToken);
 
-      // Store session - use the actual Firestore document ID (which is now the Firebase Auth UID)
-      setDistributorEmployeeSession({
-        employeeId: employeeData.id, // Use the actual Firestore document ID
-        distributorId,
-        name: employeeData.name,
-        role: employeeData.role,
-        accessSections: employeeData.accessSections || {}
-      });
+      // Wait for auth state to be updated (critical for mobile/slow networks)
+      await new Promise((resolve, reject) => {
+        let unsubscribe = null;
+        const timeout = setTimeout(() => {
+          if (unsubscribe) unsubscribe();
+          reject(new Error('Auth state update timeout'));
+        }, 5000); // 5 second timeout
 
-      // Set redirect flag BEFORE navigation to allow EmployeeRoute to detect it
-      setDistributorEmployeeRedirect();
-      
-      // Small delay to ensure auth state is updated
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      toast.success('Login successful! Redirecting...');
-      navigate('/distributor-employee-dashboard', { replace: true });
+        const performRedirect = () => {
+          if (timeout) clearTimeout(timeout);
+          if (unsubscribe) unsubscribe();
+          
+          // Store session - use the actual Firestore document ID (which is now the Firebase Auth UID)
+          setDistributorEmployeeSession({
+            employeeId: employeeData.id, // Use the actual Firestore document ID
+            distributorId,
+            name: employeeData.name,
+            role: employeeData.role,
+            accessSections: employeeData.accessSections || {}
+          });
+
+          // Set redirect flag BEFORE navigation to allow EmployeeRoute to detect it
+          setDistributorEmployeeRedirect();
+          
+          toast.success('Login successful! Redirecting...');
+          
+          // Use setTimeout to ensure state is fully committed
+          setTimeout(() => {
+            navigate('/distributor-employee-dashboard', { replace: true });
+          }, 100);
+          
+          resolve();
+        };
+
+        // Set up auth state listener
+        unsubscribe = onAuthStateChanged(empAuth, (user) => {
+          if (user) {
+            performRedirect();
+          }
+        });
+
+        // Also check immediately in case auth is already updated
+        if (empAuth.currentUser) {
+          performRedirect();
+        }
+      }).catch((authError) => {
+        // If auth state doesn't update, try one more time with direct navigation
+        console.warn('Auth state wait timeout or error, trying fallback:', authError);
+        
+        // Store session anyway (might work)
+        setDistributorEmployeeSession({
+          employeeId: employeeData.id,
+          distributorId,
+          name: employeeData.name,
+          role: employeeData.role,
+          accessSections: employeeData.accessSections || {}
+        });
+
+        setDistributorEmployeeRedirect();
+        
+        toast.success('Login successful! Redirecting...');
+        // Try navigation anyway - EmployeeRoute will handle auth check
+        setTimeout(() => {
+          navigate('/distributor-employee-dashboard', { replace: true });
+        }, 200);
+      });
 
     } catch (err) {
       console.error('Login error:', err);
-      setError('Login failed. Please try again.');
+      setError(err.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
