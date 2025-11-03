@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
+import { usePlatform } from '../../hooks/usePlatform';
 
 const THRESHOLD = 5; // show when quantity <= THRESHOLD
 
 const LowStockAlertWidget = ({ userId }) => {
+  const { isNativeApp, isMobileViewport } = usePlatform();
   const [lowStockItems, setLowStockItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -62,9 +64,9 @@ const LowStockAlertWidget = ({ userId }) => {
       {/* subtle aurora wash for cohesion */}
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-fuchsia-400/6 via-sky-400/6 to-emerald-400/6 pointer-events-none" />
 
-      <div className="relative p-5 rounded-[16px] bg-white/5 backdrop-blur-xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_40px_rgba(2,6,23,0.45)]">
+      <div className={`relative ${isNativeApp ? 'p-4 sm:p-5' : 'p-5'} rounded-[16px] bg-white/5 backdrop-blur-xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_40px_rgba(2,6,23,0.45)]`}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 sm:mb-3">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/10 border border-white/10 ring-1 ring-white/10 shadow-[0_2px_8px_rgba(0,0,0,0.25)]">
               {/* alert icon */}
@@ -92,7 +94,7 @@ const LowStockAlertWidget = ({ userId }) => {
             All items are sufficiently stocked.
           </div>
         ) : (
-          <div className="max-h-[300px] overflow-y-auto pr-1">
+          <div className={`overflow-y-auto pr-1 ${isNativeApp ? 'max-h-[350px]' : 'max-h-[300px]'}`}>
             <ul className="space-y-2 text-sm">
               {lowStockItems.map((item) => (
                 <li key={item.id} className="group rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 transition-all p-3">

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { usePlatform } from '../../hooks/usePlatform';
 
 // Local count-up for premium feel
 const useCountUp = (value, duration = 800) => {
@@ -292,7 +293,7 @@ const KpiTile = ({ kpi, index }) => {
   return (
     <div
       ref={ref}
-      className={`kpi-card ${shown ? 'animate-in-up' : 'pre-animate'} p-4 flex items-center justify-between gap-4 group`}
+      className={`kpi-card ${shown ? 'animate-in-up' : 'pre-animate'} p-3 sm:p-4 flex items-center justify-between gap-3 sm:gap-4 group`}
       style={{ animationDelay: shown ? `${index * 90}ms` : undefined }}
       title={kpi.formatted || kpi.label}
       role="figure"
@@ -332,6 +333,8 @@ const KpiTile = ({ kpi, index }) => {
 }
 
 const KpiCards = ({ invoiceData = [] }) => {
+  const { isNativeApp } = usePlatform();
+  
   // Filter out unpaid credit from revenue calcs
   const filteredInvoices = invoiceData.filter(inv => {
     const mode = inv?.paymentMode?.toLowerCase?.();
@@ -419,8 +422,14 @@ const KpiCards = ({ invoiceData = [] }) => {
     }
   });
 
+  // Responsive grid: 1 col on mobile, 2 on tablet, 4 on desktop
+  // In app, add extra spacing between cards
+  const gridClass = isNativeApp
+    ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4"
+    : "grid grid-cols-1 md:grid-cols-4 gap-4";
+  
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div className={gridClass}>
       <KpiStyles />
       {kpis.map((kpi, index) => (
         <KpiTile key={kpi.key || index} kpi={kpi} index={index} />

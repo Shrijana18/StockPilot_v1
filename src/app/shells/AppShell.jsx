@@ -42,8 +42,8 @@ export default function AppShell({ children, headerContent = null, showFab = fal
 
   return (
     <div className="min-h-[100dvh] w-full overflow-x-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] text-white">
-      {/* Main scrollable container with safe-area bottom padding */}
-      <main className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
+      {/* Main scrollable container with safe-area padding */}
+      <main className="flex-1 overflow-y-auto pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         {children}
       </main>
       {/* Optional floating action button for quick access to Dashboard */}
@@ -57,7 +57,8 @@ export default function AppShell({ children, headerContent = null, showFab = fal
           aria-label="Go to Dashboard"
           className="md:hidden fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-xl
                      bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900
-                     font-extrabold flex items-center justify-center active:scale-[.98]"
+                     font-extrabold flex items-center justify-center active:scale-[.95] min-h-[56px] min-w-[56px] touch-target
+                     mb-[env(safe-area-inset-bottom)] mr-[env(safe-area-inset-right)]"
         >
           ⌂
         </button>

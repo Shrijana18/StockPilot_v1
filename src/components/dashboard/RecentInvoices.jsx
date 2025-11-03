@@ -1,5 +1,6 @@
 import React from 'react';
 import moment from 'moment';
+import { usePlatform } from '../../hooks/usePlatform';
 
 const formatINR = (n) => {
   const num = Number(n ?? 0);
@@ -51,6 +52,8 @@ const PaymentPill = ({ mode, isPaid, split, paidVia, dueDate }) => {
 };
 
 const RecentInvoices = ({ invoiceData }) => {
+  const { isNativeApp, isMobileViewport } = usePlatform();
+  
   const recent = [...invoiceData]
     .sort((a, b) => (b.createdAt?.toDate?.() || new Date(b.createdAt)) - (a.createdAt?.toDate?.() || new Date(a.createdAt)))
     .slice(0, 5);
@@ -60,9 +63,9 @@ const RecentInvoices = ({ invoiceData }) => {
       {/* soft aurora wash to match dashboard */}
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-sky-400/7 via-fuchsia-400/6 to-emerald-400/7 pointer-events-none" />
 
-      <div className="relative p-5 rounded-[16px] bg-white/5 backdrop-blur-xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_40px_rgba(2,6,23,0.45)]">
+      <div className={`relative ${isNativeApp ? 'p-4 sm:p-5' : 'p-5'} rounded-[16px] bg-white/5 backdrop-blur-xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_40px_rgba(2,6,23,0.45)]`}>
         {/* header */}
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 sm:mb-3">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/10 border border-white/10 ring-1 ring-white/10 shadow-[0_2px_8px_rgba(0,0,0,0.25)]">
               {/* receipt icon */}
@@ -80,7 +83,7 @@ const RecentInvoices = ({ invoiceData }) => {
         </div>
 
         {/* list */}
-        <div className="max-h-[300px] overflow-y-auto pr-1">
+        <div className={`overflow-y-auto pr-1 ${isNativeApp ? 'max-h-[350px]' : 'max-h-[300px]'}`}>
           <ul className="space-y-2">
             {recent.map((invoice, idx) => {
               const createdAtDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt);

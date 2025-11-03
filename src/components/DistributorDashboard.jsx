@@ -244,15 +244,15 @@ const DistributorDashboard = () => {
       `}</style>
 
       {/* MAIN CONTAINER */}
-      <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#0B1220] via-[#0F1A2A] to-[#0B1220] text-white font-sans transition-all duration-300 ease-in-out page-noise">
+      <div className="flex min-h-[100dvh] h-screen overflow-hidden bg-gradient-to-br from-[#0B1220] via-[#0F1A2A] to-[#0B1220] text-white font-sans transition-all duration-300 ease-in-out page-noise">
         {/* Sidebar as hidden drawer */}
-        <aside className={`fixed left-0 top-0 h-full w-64 sm:w-72 bg-gradient-to-b from-[#0D1524] via-[#0B1220] to-[#0B1220] backdrop-blur-md text-white shadow-2xl p-4 sm:p-5 flex flex-col justify-between transform transition-transform duration-300 z-30 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <aside className={`fixed left-0 top-0 h-full w-64 sm:w-72 bg-gradient-to-b from-[#0D1524] via-[#0B1220] to-[#0B1220] backdrop-blur-md text-white shadow-2xl p-4 sm:p-5 flex flex-col justify-between transform transition-transform duration-300 z-30 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-wide text-white mb-4 sm:mb-6">FLYP</h2>
             <nav className="space-y-3 sm:space-y-4 mt-16 sm:mt-20">
               <button
                 onClick={() => { setTabAndHash("dashboard"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "dashboard"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -262,7 +262,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("retailerRequests"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "retailerRequests"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -272,7 +272,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("inventory"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "inventory"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -282,7 +282,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("dispatch"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "dispatch"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -292,7 +292,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("analytics"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "analytics"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -302,7 +302,7 @@ const DistributorDashboard = () => {
               </button>
               <button
                 onClick={() => { setTabAndHash("employees"); setIsSidebarOpen(false); }}
-                className={`w-full text-left px-2 sm:px-3 py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 text-sm sm:text-base ${
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "employees"
                     ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
                     : "text-white"
@@ -314,7 +314,7 @@ const DistributorDashboard = () => {
           </div>
           <button
             onClick={handleSignOut}
-            className="bg-red-600 hover:bg-red-700 py-2 rounded text-sm mt-6"
+            className="bg-red-600 hover:bg-red-700 active:bg-red-800 py-3 sm:py-2 rounded text-sm mt-6 min-h-[48px] touch-target w-full flex items-center justify-center"
           >
             Sign Out
           </button>
@@ -329,7 +329,7 @@ const DistributorDashboard = () => {
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto transition-all duration-300 ease-in-out flex flex-col glass-scroll motion-reduce:transform-none motion-reduce:transition-none">
-          <header className="sticky top-0 z-10 bg-slate-900/70 backdrop-blur-md border-b border-slate-800 text-white px-5 py-2 shadow-sm flex items-center justify-between">
+          <header className="sticky top-0 z-10 bg-slate-900/70 backdrop-blur-md border-b border-slate-800 text-white px-3 sm:px-5 py-2 shadow-sm flex items-center justify-between pt-[env(safe-area-inset-top)]">
             <div>
               <div className="relative">
                 <h1 className="text-white font-semibold text-xl">Distributor Dashboard</h1>
@@ -344,7 +344,7 @@ const DistributorDashboard = () => {
           </header>
 
           {/* Main Content */}
-          <main className="relative pt-2 sm:pt-3 px-2 sm:px-3 md:px-5 pb-3 sm:pb-5 mx-2 sm:mx-3 mt-1 mb-2 sm:mb-3">
+          <main className="relative pt-2 sm:pt-3 px-2 sm:px-3 md:px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] mx-2 sm:mx-3 mt-1 mb-2 sm:mb-3 overflow-y-auto">
             <AnimatePresence mode="wait">
               {activeTab === "dashboard" && (
                 <motion.div
@@ -451,7 +451,7 @@ const DistributorDashboard = () => {
             {/* Floating FLYP badge to toggle sidebar */}
             <button
               onClick={() => setIsSidebarOpen(v => !v)}
-              className="fixed bottom-6 left-6 z-40 rounded-full px-4 py-3 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-extrabold tracking-wide shadow-lg shadow-emerald-700/30 ring-1 ring-white/20"
+              className="fixed bottom-6 left-6 z-40 rounded-full px-4 py-3 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 active:scale-[0.95] text-white font-extrabold tracking-wide shadow-lg shadow-emerald-700/30 ring-1 ring-white/20 min-h-[48px] min-w-[48px] touch-target flex items-center justify-center mb-[env(safe-area-inset-bottom)] ml-[env(safe-area-inset-left)]"
               aria-label="Toggle FLYP Menu"
             >
               FLYP

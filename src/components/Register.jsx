@@ -540,7 +540,7 @@ const Register = ({ role = 'retailer' }) => {
         <div className="absolute inset-0 opacity-[0.03] bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22160%22%20height=%22160%22%20viewBox=%220%200%20160%20160%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%222%22/%3E%3C/filter%3E%3Crect%20width=%22160%22%20height=%22160%22%20filter=%22url(%23n)%22%20opacity=%220.6%22/%3E%3C/svg%3E')]" />
       </div>
 
-      <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-10 px-6 py-10 lg:py-20 relative">
+      <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-10 px-4 sm:px-6 py-6 sm:py-10 lg:py-20 relative safe-top safe-bottom">
         {/* LEFT: Informational panel (non-card, no box) */}
         <div className="hidden lg:block">
           <div className="max-w-xl pr-4">
@@ -584,7 +584,7 @@ const Register = ({ role = 'retailer' }) => {
               </div>
             </div>
 
-            <button onClick={scrollToForm} className="mt-8 inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-emerald-200 hover:text-white hover:bg-emerald-400/20 transition">
+            <button onClick={scrollToForm} className="mt-8 inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2.5 sm:py-2 text-emerald-200 hover:text-white hover:bg-emerald-400/20 transition active:scale-[.98] min-h-[44px] touch-target">
               Go to registration
               <Icon name="arrow-right" className="h-5 w-5" />
             </button>
@@ -593,7 +593,7 @@ const Register = ({ role = 'retailer' }) => {
               <button
                 type="button"
                 onClick={() => navigate('/auth?type=register')}
-                className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-white/90 bg-white/5 border border-white/10 hover:bg-white/10"
+                className="inline-flex items-center gap-1 rounded-lg px-3 py-2 sm:py-1.5 text-white/90 bg-white/5 border border-white/10 hover:bg-white/10 active:scale-[.98] min-h-[44px] touch-target"
               >
                 <Icon name="arrow-left" className="h-4 w-4" />
                 Back
@@ -601,14 +601,14 @@ const Register = ({ role = 'retailer' }) => {
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="rounded-lg px-3 py-1.5 text-cyan-200 bg-white/5 border border-white/10 hover:bg-white/10"
+                className="rounded-lg px-3 py-2 sm:py-1.5 text-cyan-200 bg-white/5 border border-white/10 hover:bg-white/10 active:scale-[.98] min-h-[44px] touch-target"
               >
                 Home
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/auth?type=login')}
-                className="rounded-lg px-3 py-1.5 text-emerald-200 bg-white/5 border border-white/10 hover:bg-white/10"
+                className="rounded-lg px-3 py-2 sm:py-1.5 text-emerald-200 bg-white/5 border border-white/10 hover:bg-white/10 active:scale-[.98] min-h-[44px] touch-target"
               >
                 Sign In
               </button>
@@ -643,13 +643,13 @@ const Register = ({ role = 'retailer' }) => {
               </div>
 
               {/* Header */}
-              <div className="px-6 pt-6 text-center">
-                <h1 className="text-2xl font-bold text-white">Create your FLYP account</h1>
-                <p className="text-slate-300 mt-1 text-sm">30‑second signup. Finish the rest later in Profile Settings.</p>
+              <div className="px-4 sm:px-6 pt-4 sm:pt-6 text-center">
+                <h1 className="text-xl sm:text-2xl font-bold text-white">Create your FLYP account</h1>
+                <p className="text-slate-300 mt-1 text-xs sm:text-sm px-2">30‑second signup. Finish the rest later in Profile Settings.</p>
               </div>
 
               {/* Role strip */}
-              <div className="px-6 mt-5 flex items-center justify-between text-xs">
+              <div className="px-4 sm:px-6 mt-4 sm:mt-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 text-xs">
                 <div className="text-slate-300">
                   Joining as{' '}
                   <span className="font-semibold text-white">{roleName}</span>
@@ -675,12 +675,12 @@ const Register = ({ role = 'retailer' }) => {
               </div>
 
               {/* Google */}
-              <div className="px-6 mt-4">
+              <div className="px-4 sm:px-6 mt-4">
                 <button
                   type="button"
                   onClick={handleGoogle}
                   disabled={loading}
-                  className="w-full mb-4 flex items-center justify-center gap-3 py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 transition disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="w-full mb-4 flex items-center justify-center gap-3 py-3.5 sm:py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 active:scale-[0.98] transition disabled:opacity-70 disabled:cursor-not-allowed min-h-[48px] touch-target"
                 >
                   <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
                   Continue with Google
@@ -693,7 +693,7 @@ const Register = ({ role = 'retailer' }) => {
               </div>
 
               {/* Form */}
-              <form onSubmit={handleEmailSignup} className="px-6 pb-6">
+              <form onSubmit={handleEmailSignup} className="px-4 sm:px-6 pb-4 sm:pb-6">
               {msg.error && (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2">
                   <svg className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -713,7 +713,7 @@ const Register = ({ role = 'retailer' }) => {
 
               {/* Owner */}
               <label className="group relative block">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="user" /></span>
+                <span className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="user" className="h-4 w-4 sm:h-4 sm:w-4" /></span>
                 <input
                   type="text"
                   name="ownerName"
@@ -721,21 +721,22 @@ const Register = ({ role = 'retailer' }) => {
                   value={form.ownerName}
                   onChange={onChange}
                   required
-                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
+                  autoComplete="name"
+                  className="peer w-full pl-11 sm:pl-12 pr-3 sm:pr-4 py-3.5 sm:py-3 rounded-xl bg-white/10 text-white text-base sm:text-sm border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition min-h-[48px]"
                 />
               </label>
 
                 {/* Phone */}
-                <div className="mt-3">
-                  <label className="block text-sm mb-1.5 text-slate-200 font-medium">Phone Number</label>
-                  <div className={`flex items-center rounded-xl bg-white/10 text-white border transition-all ${
+                <div className="mt-3 sm:mt-4">
+                  <label className="block text-sm mb-1.5 sm:mb-2 text-slate-200 font-medium">Phone Number</label>
+                  <div className={`flex items-center rounded-xl bg-white/10 text-white border transition-all min-h-[48px] ${
                     phoneStatus.error 
                       ? 'border-red-400/50 focus-within:ring-2 focus-within:ring-red-400/50 focus-within:border-red-400/70' 
                       : phoneStatus.validated
                       ? 'border-emerald-400/50 focus-within:ring-2 focus-within:ring-emerald-400/50 focus-within:border-emerald-400/70'
                       : 'border-white/15 focus-within:ring-2 focus-within:ring-emerald-400/80 focus-within:border-emerald-300/40'
                   }`}>
-                    <span className="pl-3 pr-2 text-slate-300/90 select-none font-medium">+91</span>
+                    <span className="pl-3 sm:pl-4 pr-2 text-slate-300/90 select-none font-medium text-base sm:text-sm">+91</span>
                     <div className="h-6 w-px bg-white/10" />
                     <input
                       ref={phoneInputRef}
@@ -750,7 +751,7 @@ const Register = ({ role = 'retailer' }) => {
                       pattern="[0-9]{10}"
                       maxLength={10}
                       autoComplete="tel-national"
-                      className="w-full bg-transparent px-3 py-3 outline-none placeholder-white/50 text-white"
+                      className="w-full bg-transparent px-3 sm:px-4 py-3 outline-none placeholder-white/50 text-white text-base sm:text-sm flex-1 min-h-[48px]"
                       aria-label="10-digit Indian mobile number"
                     />
                     {phoneStatus.checking && (
@@ -805,16 +806,16 @@ const Register = ({ role = 'retailer' }) => {
                 </div>
 
                 {/* Email */}
-                <div className="mt-3">
-                  <label className="block text-sm mb-1.5 text-slate-200 font-medium">Email Address</label>
-                  <div className={`relative flex items-center rounded-xl bg-white/10 text-white border transition-all ${
+                <div className="mt-3 sm:mt-4">
+                  <label className="block text-sm mb-1.5 sm:mb-2 text-slate-200 font-medium">Email Address</label>
+                  <div className={`relative flex items-center rounded-xl bg-white/10 text-white border transition-all min-h-[48px] ${
                     emailStatus.error 
                       ? 'border-red-400/50 focus-within:ring-2 focus-within:ring-red-400/50 focus-within:border-red-400/70' 
                       : emailStatus.validated
                       ? 'border-emerald-400/50 focus-within:ring-2 focus-within:ring-emerald-400/50 focus-within:border-emerald-400/70'
                       : 'border-white/15 focus-within:ring-2 focus-within:ring-emerald-400/80 focus-within:border-emerald-300/40'
                   }`}>
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="mail" /></span>
+                    <span className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="mail" className="h-4 w-4 sm:h-4 sm:w-4" /></span>
                     <input
                       type="email"
                       name="email"
@@ -823,7 +824,8 @@ const Register = ({ role = 'retailer' }) => {
                       onChange={onChange}
                       onBlur={handleEmailBlur}
                       required
-                      className="w-full pl-11 pr-10 py-3 bg-transparent outline-none placeholder-white/50 text-white"
+                      autoComplete="email"
+                      className="w-full pl-11 sm:pl-12 pr-10 sm:pr-12 py-3.5 sm:py-3 bg-transparent outline-none placeholder-white/50 text-white text-base sm:text-sm"
                     />
                     {emailStatus.checking && (
                       <div className="absolute right-3">
@@ -874,10 +876,10 @@ const Register = ({ role = 'retailer' }) => {
                 </div>
 
               {/* Password */}
-              <div className="mt-3">
-                <label className="block text-sm mb-1.5 text-slate-200 font-medium">Password</label>
+              <div className="mt-3 sm:mt-4">
+                <label className="block text-sm mb-1.5 sm:mb-2 text-slate-200 font-medium">Password</label>
                 <label className="group relative block">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" /></span>
+                  <span className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" className="h-4 w-4 sm:h-4 sm:w-4" /></span>
                   <input
                     type="password"
                     name="password"
@@ -886,7 +888,8 @@ const Register = ({ role = 'retailer' }) => {
                     onChange={onChange}
                     required
                     minLength={6}
-                    className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/50 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
+                    autoComplete="new-password"
+                    className="peer w-full pl-11 sm:pl-12 pr-3 sm:pr-4 py-3.5 sm:py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/50 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition text-base sm:text-sm min-h-[48px]"
                   />
                 </label>
                 {form.password && (
@@ -917,10 +920,10 @@ const Register = ({ role = 'retailer' }) => {
               </div>
 
               {/* Confirm Password */}
-              <div className="mt-3">
-                <label className="block text-sm mb-1.5 text-slate-200 font-medium">Confirm Password</label>
+              <div className="mt-3 sm:mt-4">
+                <label className="block text-sm mb-1.5 sm:mb-2 text-slate-200 font-medium">Confirm Password</label>
                 <label className={`group relative block ${form.confirmPassword && form.password !== form.confirmPassword ? 'error' : ''}`}>
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" /></span>
+                  <span className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" className="h-4 w-4 sm:h-4 sm:w-4" /></span>
                   <input
                     type="password"
                     name="confirmPassword"
@@ -929,7 +932,8 @@ const Register = ({ role = 'retailer' }) => {
                     onChange={onChange}
                     required
                     minLength={6}
-                    className={`peer w-full pl-11 pr-10 py-3 rounded-xl bg-white/10 text-white border transition-all placeholder-white/50 outline-none focus:ring-2 focus:border-emerald-300/40 ${
+                    autoComplete="new-password"
+                    className={`peer w-full pl-11 sm:pl-12 pr-10 sm:pr-12 py-3.5 sm:py-3 rounded-xl bg-white/10 text-white border transition-all placeholder-white/50 outline-none focus:ring-2 focus:border-emerald-300/40 text-base sm:text-sm min-h-[48px] ${
                       form.confirmPassword && form.password !== form.confirmPassword
                         ? 'border-red-400/50 focus:ring-red-400/50'
                         : form.confirmPassword && form.password === form.confirmPassword
@@ -970,9 +974,9 @@ const Register = ({ role = 'retailer' }) => {
               </div>
 
                 {/* GSTIN */}
-                <div className="mt-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <label htmlFor="gstin" className="text-slate-200 text-sm flex items-center gap-2"><Icon name="gst" /> GSTIN (optional)</label>
+                <div className="mt-3 sm:mt-4">
+                  <div className="flex items-center justify-between mb-1 sm:mb-2 flex-wrap gap-1">
+                    <label htmlFor="gstin" className="text-slate-200 text-sm flex items-center gap-2"><Icon name="gst" className="h-4 w-4" /> GSTIN (optional)</label>
                     {form.gstin && (
                       <span className={`text-xs ${gstStatus.ok ? 'text-emerald-300' : 'text-red-300'}`}>
                         {gstStatus.ok ? 'Looks valid' : gstStatus.reason}
@@ -980,7 +984,7 @@ const Register = ({ role = 'retailer' }) => {
                     )}
                   </div>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="gst" /></span>
+                    <span className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="gst" className="h-4 w-4" /></span>
                     <input
                       id="gstin"
                       type="text"
@@ -988,7 +992,8 @@ const Register = ({ role = 'retailer' }) => {
                       placeholder="E.g., 27ABCDE1234F1Z5"
                       value={form.gstin}
                       onChange={onChange}
-                      className="w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition uppercase"
+                      autoComplete="off"
+                      className="w-full pl-11 sm:pl-12 pr-3 sm:pr-4 py-3.5 sm:py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition uppercase text-base sm:text-sm min-h-[48px]"
                     />
                   </div>
                 </div>
@@ -1039,7 +1044,7 @@ const Register = ({ role = 'retailer' }) => {
                     form.password !== form.confirmPassword ||
                     form.password.length < 6
                   }
-                  className="mt-6 w-full relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 py-3.5 font-semibold text-slate-900 shadow-lg transition [--shine:linear-gradient(120deg,transparent,rgba(255,255,255,.6),transparent)] hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] hover:-translate-y-0.5 transition-transform active:scale-[.99] disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="mt-6 w-full relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 py-4 sm:py-3.5 font-semibold text-slate-900 shadow-lg transition [--shine:linear-gradient(120deg,transparent,rgba(255,255,255,.6),transparent)] hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] hover:-translate-y-0.5 transition-transform active:scale-[.98] disabled:opacity-60 disabled:cursor-not-allowed min-h-[52px] touch-target no-select"
                 >
                   <span className="relative z-10 flex items-center justify-center gap-2">
                     {loading ? (

@@ -8,6 +8,8 @@ import LowStockAlertWidget from './LowStockAlertWidget';
 import CreditDueList from './CreditDueList';
 // Import motion from Framer Motion
 import { motion } from 'framer-motion';
+// Import platform detection for app vs web specific styling
+import { usePlatform } from '../../hooks/usePlatform';
 
 // --- Lightweight SplitText + Cursor (no external deps) ---
 const SplitText = ({ text = '', className = '', splitBy = 'chars', delay = 0.02, animate }) => {
@@ -163,6 +165,7 @@ const LocalStyles = () => (
 );
 
 const HomeSnapshot = ({ filterDates, filterType: selectedFilterType, headerRight }) => {
+  const { isNativeApp, isMobileViewport } = usePlatform();
   const [invoiceData, setInvoiceData] = useState([]);
   const [userId, setUserId] = useState(null);
   const [filterType, setFilterType] = useState(selectedFilterType || 'All');
@@ -390,13 +393,26 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType, headerRight
     const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download=`snapshot_${Date.now()}.png`; a.click();
   };
 
+  // Platform-specific spacing: More padding bottom for app to prevent content cutoff
+  // In app: extra bottom padding to prevent cutoff + safe area
+  // In web: normal spacing
+  const containerClass = isNativeApp
+    ? "px-4 md:px-6 py-4 md:py-3 text-white max-w-[1400px] mx-auto w-full"
+    : "px-4 md:px-6 py-2 space-y-6 text-white max-w-[1400px] mx-auto w-full";
+  
   // We replace the main `div` with `motion.div` and apply our variants.
   return (
     <motion.div
-      className="px-4 md:px-6 py-2 space-y-6 text-white max-w-[1400px] mx-auto w-full"
+      className={containerClass}
       variants={containerVariants}
       initial="hidden"
       animate="visible"
+      style={isNativeApp ? { 
+        paddingBottom: `calc(4rem + env(safe-area-inset-bottom))`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1.5rem'
+      } : {}}
     >
       <LocalStyles />
       <motion.div
@@ -425,8 +441,8 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType, headerRight
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button className="btn" onClick={shareSnapshot}>Share snapshot</button>
-            <button className="gear-btn" onClick={()=>togglePref('showTips')} title="Customize">⚙︎</button>
+            <button className="btn min-h-[44px] sm:min-h-0 touch-target" onClick={shareSnapshot}>Share snapshot</button>
+            <button className="gear-btn min-h-[44px] sm:min-h-0 touch-target" onClick={()=>togglePref('showTips')} title="Customize">⚙︎</button>
           </div>
         </div>
         {/* Highlights – smooth horizontal scroll with masked edges */}
@@ -473,7 +489,7 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType, headerRight
 
       <motion.section
         variants={itemVariants}
-        className="mt-4 overflow-x-auto"
+        className={`mt-4 ${isNativeApp ? 'mb-6' : ''} overflow-x-auto`}
         ref={creditsSectionRef}
       >
         <div className="relative rounded-2xl min-w-0 w-full">
@@ -492,15 +508,15 @@ const HomeSnapshot = ({ filterDates, filterType: selectedFilterType, headerRight
         </div>
       </motion.section>
       
-      <motion.div variants={itemVariants} className="flex items-center gap-2 text-xs text-white/70">
-        <button className="gear-btn" onClick={()=>togglePref('showLowStock')}>{prefs.showLowStock !== false ? 'Hide' : 'Show'} Low Stock</button>
-        <button className="gear-btn" onClick={()=>togglePref('showRecent')}>{prefs.showRecent !== false ? 'Hide' : 'Show'} Recent Invoices</button>
+      <motion.div variants={itemVariants} className={`flex items-center gap-2 text-xs text-white/70 ${isNativeApp ? 'mb-4' : ''}`}>
+        <button className="gear-btn min-h-[44px] sm:min-h-0 touch-target" onClick={()=>togglePref('showLowStock')}>{prefs.showLowStock !== false ? 'Hide' : 'Show'} Low Stock</button>
+        <button className="gear-btn min-h-[44px] sm:min-h-0 touch-target" onClick={()=>togglePref('showRecent')}>{prefs.showRecent !== false ? 'Hide' : 'Show'} Recent Invoices</button>
       </motion.div>
 
       {/* We wrap the grid itself so both cards can animate in together after the items above them. */}
       <motion.div
         variants={itemVariants}
-        className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        className={`grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 ${isNativeApp ? 'mb-6' : ''}`}
       >
         {(prefs.showLowStock !== false) && (
           <div className="relative rounded-2xl h-full">

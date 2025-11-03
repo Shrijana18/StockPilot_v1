@@ -168,7 +168,7 @@ const AuthPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center safe-top safe-bottom">
       <>
         {type === "register" && !selectedRole && (
           <div className="relative w-full min-h-screen text-white">
@@ -185,7 +185,7 @@ const AuthPage = () => {
               <div className="absolute inset-0 opacity-[0.05] bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22160%22%20height=%22160%22%20viewBox=%220%200%20160%20160%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%222%22/%3E%3C/filter%3E%3Crect%20width=%22160%22%20height=%22160%22%20filter=%22url(%23n)%22%20opacity=%220.6%22/%3E%3C/svg%3E')]" />
             </div>
 
-            <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-10 px-6 py-16 lg:py-20 relative">
+            <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-10 px-4 sm:px-6 py-10 sm:py-16 lg:py-20 relative">
               {/* LEFT: Informational intro (non-card) */}
               <div className="hidden lg:block">
                 <div className="max-w-xl pr-4">

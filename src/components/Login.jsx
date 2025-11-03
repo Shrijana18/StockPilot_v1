@@ -215,7 +215,7 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14]">
+    <div className="min-h-[100dvh] w-full relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14]">
       <LoadBarKeyframes />
       {/* Aurora / brand glow */}
       <div className="pointer-events-none absolute inset-0 opacity-40">
@@ -224,45 +224,45 @@ const Login = () => {
       </div>
 
       {/* Centered glass card */}
-      <div className="relative z-10 flex items-center justify-center px-6 py-14 sm:px-8">
+      <div className="relative z-10 flex items-center justify-center px-4 sm:px-6 py-8 sm:py-14 safe-top safe-bottom">
         <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.4)] relative">
           {loading && (
             <div className="absolute left-0 top-0 h-1 w-full overflow-hidden rounded-t-3xl">
               <div className="h-full w-full animate-[loadbar_1.2s_ease-in-out_infinite] bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400"></div>
             </div>
           )}
-          <div className="px-7 sm:px-8 pt-8 pb-6 text-center">
-            <div className="mx-auto mb-4 inline-flex items-center gap-2">
-              <span className="text-xl font-semibold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</span>
+          <div className="px-4 sm:px-7 md:px-8 pt-6 sm:pt-8 pb-4 sm:pb-6 text-center">
+            <div className="mx-auto mb-3 sm:mb-4 inline-flex items-center gap-2">
+              <span className="text-lg sm:text-xl font-semibold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</span>
               <span className="text-xs px-2 py-0.5 rounded-full border border-white/20 text-white/80">Sign In</span>
             </div>
-            <h2 className="text-2xl font-bold text-white">Welcome back</h2>
-            <p className="mt-1 text-sm text-white/70">Continue to your dashboard</p>
+            <h2 className="text-xl sm:text-2xl font-bold text-white">Welcome back</h2>
+            <p className="mt-1 text-xs sm:text-sm text-white/70">Continue to your dashboard</p>
           </div>
 
           {error && (
-            <div className="mx-7 sm:mx-8 mb-3 text-rose-300 text-sm bg-rose-900/30 border border-rose-500/30 rounded-lg px-3 py-2">
+            <div className="mx-4 sm:mx-7 md:mx-8 mb-3 text-rose-300 text-xs sm:text-sm bg-rose-900/30 border border-rose-500/30 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
-          <div className="px-7 sm:px-8 pb-2">
+          <div className="px-4 sm:px-7 md:px-8 pb-2">
             <button
               type="button"
               onClick={handleGoogleSignIn}
               disabled={loading}
-              className="w-full mb-4 flex items-center justify-center gap-3 py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 transition disabled:opacity-70 disabled:cursor-not-allowed"
+              className="w-full mb-4 flex items-center justify-center gap-3 py-3.5 sm:py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 active:scale-[0.98] transition disabled:opacity-70 disabled:cursor-not-allowed min-h-[48px] touch-target"
             >
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
               Sign in with Google
             </button>
           </div>
-          <div className="flex items-center px-7 sm:px-8 pb-2">
+          <div className="flex items-center px-4 sm:px-7 md:px-8 pb-2">
             <div className="flex-1 h-px bg-white/20"></div>
             <span className="px-3 text-xs text-white/60">or</span>
             <div className="flex-1 h-px bg-white/20"></div>
           </div>
 
-          <form onSubmit={handleSubmit} noValidate className="px-7 sm:px-8 pb-8 space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="px-4 sm:px-7 md:px-8 pb-6 sm:pb-8 space-y-4">
             <div className="group">
               <input
                 type="email"
@@ -273,7 +273,7 @@ const Login = () => {
                 required
                 disabled={loading}
                 autoComplete="email"
-                className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition"
+                className="w-full px-4 py-3.5 sm:py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition text-base sm:text-sm min-h-[48px]"
               />
             </div>
 
@@ -287,7 +287,7 @@ const Login = () => {
                 required
                 disabled={loading}
                 autoComplete="current-password"
-                className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition"
+                className="w-full px-4 py-3.5 sm:py-3 rounded-xl bg-white/10 text-white placeholder-white/60 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-300/40 transition text-base sm:text-sm min-h-[48px]"
               />
               <div className="mt-2 text-right">
                 <button
@@ -304,7 +304,7 @@ const Login = () => {
               type="submit"
               onClick={handleSubmit}
               disabled={loading}
-              className={`w-full py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+              className={`w-full py-4 sm:py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 active:scale-[.98] min-h-[52px] touch-target no-select ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {loading ? (
                 <span className="inline-flex items-center justify-center gap-2">
@@ -324,7 +324,7 @@ const Login = () => {
             </div>
           </form>
 
-          <div className="px-7 sm:px-8 pb-6 text-right">
+          <div className="px-4 sm:px-7 md:px-8 pb-4 sm:pb-6 text-right">
             <button
               onClick={async () => {
                 try {
@@ -336,7 +336,7 @@ const Login = () => {
                 }
               }}
               disabled={loading}
-              className="text-xs text-red-300/90 hover:text-red-200 underline underline-offset-4 transition"
+              className="text-xs text-red-300/90 hover:text-red-200 underline underline-offset-4 transition py-2 px-2 min-h-[44px] touch-target"
             >
               Sign out
             </button>

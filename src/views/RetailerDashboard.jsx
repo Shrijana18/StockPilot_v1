@@ -165,7 +165,7 @@ const RetailerDashboardInner = () => {
               style={{ willChange: "transform, opacity" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
+                  <div className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
               <div className="mb-3 sm:mb-4"><ModeToggle /></div>
               {sidebarItems.map((item) => (
                 <button
@@ -174,10 +174,10 @@ const RetailerDashboardInner = () => {
                     setActiveTab(item.id);
                     setShowMobileSidebar(false);
                   }}
-                  className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 rounded-lg w-full text-left transition text-sm sm:text-base ${
+                  className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 sm:py-2 rounded-lg w-full text-left transition text-sm sm:text-base min-h-[48px] touch-target ${
                     activeTab === item.id
                       ? 'bg-emerald-400/20 text-emerald-200 border border-emerald-300/30'
-                      : 'hover:bg-white/10'
+                      : 'hover:bg-white/10 active:bg-white/15'
                   }`}
                 >
                   {item.icon}
@@ -284,11 +284,11 @@ const RetailerDashboardInner = () => {
               {/* Redesigned Hero Bar */}
               <div className="sticky top-0 z-30 w-full">
                 <div
-                  className="relative flex items-center justify-between px-2 md:px-6 py-2 md:py-3 pt-[env(safe-area-inset-top)]
+                  className="relative flex items-center justify-between px-2 md:px-6 py-2 md:py-3 pt-[max(env(safe-area-inset-top),0.5rem)]
                   bg-gradient-to-r from-emerald-500/10 via-cyan-500/5 to-transparent
                   backdrop-blur-2xl border-b border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.25)]
                   "
-                  style={{ minHeight: '64px' }}
+                  style={{ minHeight: 'calc(64px + env(safe-area-inset-top))' }}
                 >
                   {/* Glow animation behind FLYP */}
                   <motion.div
@@ -310,7 +310,7 @@ const RetailerDashboardInner = () => {
                   {/* Left: Brand capsule */}
                   <div className="flex items-center min-w-[90px] relative z-10">
                     <button
-                      className="md:hidden text-xl sm:text-2xl text-gray-300 p-1 rounded-lg hover:bg-white/10 transition"
+                      className="md:hidden text-xl sm:text-2xl text-gray-300 p-2 sm:p-1 rounded-lg hover:bg-white/10 active:bg-white/15 transition min-h-[44px] min-w-[44px] touch-target flex items-center justify-center"
                       onClick={() => setShowMobileSidebar(true)}
                       aria-label="Open menu"
                     >
@@ -380,7 +380,7 @@ const RetailerDashboardInner = () => {
                     </div>
                     <button
                       onClick={handleSignOut}
-                      className="text-rose-300 hover:text-rose-200 text-xl ml-1"
+                      className="text-rose-300 hover:text-rose-200 active:text-rose-100 text-xl ml-1 p-2 -mr-2 min-h-[44px] min-w-[44px] touch-target flex items-center justify-center"
                       title="Sign Out"
                     >
                       <FaSignOutAlt />
@@ -414,7 +414,8 @@ const RetailerDashboardInner = () => {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, ease: [0.16,1,0.3,1] }}
-                className="flex-1 px-2 sm:px-4 md:px-6 py-3 sm:py-4 md:py-6 overflow-y-auto pb-[env(safe-area-inset-bottom)] text-white"
+                className="flex-1 px-2 sm:px-4 md:px-6 py-3 sm:py-4 md:py-6 overflow-y-auto text-white"
+                style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}
               >
                 {activeTab === 'home' && (
                   <div>
@@ -479,25 +480,25 @@ const RetailerDashboardInner = () => {
                     <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6 border-b pb-2">
                       <button
                         onClick={() => setInventoryTab('add')}
-                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'add' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${inventoryTab === 'add' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
                         ➕ Add Inventory
                       </button>
                       <button
                         onClick={() => setInventoryTab('view')}
-                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'view' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${inventoryTab === 'view' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
                         📋 View Inventory
                       </button>
                       <button
                         onClick={() => setInventoryTab('group')}
-                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'group' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${inventoryTab === 'group' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
                         🧩 Group Items
                       </button>
                       <button
                         onClick={() => setInventoryTab('lowstock')}
-                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${inventoryTab === 'lowstock' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${inventoryTab === 'lowstock' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
                         🚨 Low Stock Alerts
                       </button>
@@ -509,19 +510,19 @@ const RetailerDashboardInner = () => {
                         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                           <button
                             onClick={() => setAddMethod('manual')}
-                            className={`px-3 py-2 rounded border transition ${addMethod === 'manual' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15'}`}
+                            className={`px-3 py-3 sm:py-2 rounded border transition min-h-[48px] touch-target flex items-center justify-center ${addMethod === 'manual' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15 active:bg-white/20'}`}
                           >
                             📝 Manual Entry
                           </button>
                           <button
                             onClick={() => setAddMethod('ocr')}
-                            className={`px-3 py-2 rounded border transition ${addMethod === 'ocr' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15'}`}
+                            className={`px-3 py-3 sm:py-2 rounded border transition min-h-[48px] touch-target flex items-center justify-center ${addMethod === 'ocr' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15 active:bg-white/20'}`}
                           >
                             🖼️ OCR Upload
                           </button>
                           <button
                             onClick={() => setAddMethod('ai')}
-                            className={`px-3 py-2 rounded border transition ${addMethod === 'ai' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15'}`}
+                            className={`px-3 py-3 sm:py-2 rounded border transition min-h-[48px] touch-target flex items-center justify-center ${addMethod === 'ai' ? 'bg-emerald-500 text-slate-900 border-emerald-400' : 'bg-white/10 border-white/20 text-white hover:bg-white/15 active:bg-white/20'}`}
                           >
                             🤖 AI-Based
                           </button>
@@ -555,19 +556,19 @@ const RetailerDashboardInner = () => {
                     <div className="flex flex-wrap gap-2 sm:gap-4 mb-3 sm:mb-4">
                       <button
                         onClick={() => setDistributorTab('search')}
-                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${distributorTab === 'search' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${distributorTab === 'search' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
                         🔍 Search Distributor
                       </button>
                       <button
                         onClick={() => setDistributorTab('sent')}
-                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${distributorTab === 'sent' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${distributorTab === 'sent' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
                         📤 Sent Requests
                       </button>
                       <button
                         onClick={() => setDistributorTab('connected')}
-                        className={`px-3 sm:px-4 py-2 rounded transition text-sm sm:text-base ${distributorTab === 'connected' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15'}`}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${distributorTab === 'connected' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
                         🤝 View Distributors
                       </button>

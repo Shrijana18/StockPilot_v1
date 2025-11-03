@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { usePlatform } from '../../hooks/usePlatform';
 
 // --- utils ---
 const parseDate = (dateStr) => {
@@ -87,6 +88,8 @@ const CreditDueList = ({
   layout = 'horizontal', // kept but we now also allow switching in-UI
   onOpenInvoice, // optional: open invoice preview
 }) => {
+  const { isNativeApp, isMobileViewport } = usePlatform();
+  
   // view state
   const [view, setView] = useState('lanes'); // 'lanes' | 'table'
   const [query, setQuery] = useState('');
@@ -230,7 +233,7 @@ const CreditDueList = ({
             <span className="text-white/70">/{sorted.length} invoice(s)</span>
           </span>
           {hasDues && (
-            <button onClick={handleSendAllReminders} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white/90 bg-white/5 border border-white/10 hover:bg-white/10 active:bg-white/15">
+            <button onClick={handleSendAllReminders} className="inline-flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-sm font-medium text-white/90 bg-white/5 border border-white/10 hover:bg-white/10 active:bg-white/15 min-h-[44px] touch-target">
               ✉️ Send All Reminders
             </button>
           )}
@@ -246,13 +249,13 @@ const CreditDueList = ({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search customer or invoice ID..."
-          className="w-full sm:w-64 rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm outline-none focus:border-emerald-300/30 placeholder:text-white/50"
+          className="w-full sm:w-64 rounded-lg bg-white/5 border border-white/10 px-3 py-3 sm:py-2.5 text-base sm:text-sm outline-none focus:border-emerald-300/30 placeholder:text-white/50 min-h-[48px] sm:min-h-0"
         />
         <input
           value={minAmount}
           onChange={(e) => setMinAmount(e.target.value.replace(/[^0-9.]/g, ''))}
           placeholder="Min ₹"
-          className="w-28 rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm outline-none focus:border-emerald-300/30 placeholder:text-white/50"
+          className="w-28 rounded-lg bg-white/5 border border-white/10 px-3 py-3 sm:py-2.5 text-base sm:text-sm outline-none focus:border-emerald-300/30 placeholder:text-white/50 min-h-[48px] sm:min-h-0"
         />
         <label className="inline-flex items-center gap-2 text-sm text-white/80 bg-white/5 border border-white/10 px-3 py-2 rounded-lg">
           <input type="checkbox" checked={onlyOverdue} onChange={(e) => setOnlyOverdue(e.target.checked)} />
@@ -265,7 +268,7 @@ const CreditDueList = ({
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
-          className="rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm outline-none focus:border-emerald-300/30"
+          className="rounded-lg bg-white/5 border border-white/10 px-3 py-3 sm:py-2.5 text-base sm:text-sm outline-none focus:border-emerald-300/30 min-h-[48px] sm:min-h-0"
         >
           <option value="dueAsc">Sort: Due ↑</option>
           <option value="dueDesc">Sort: Due ↓</option>
@@ -274,8 +277,8 @@ const CreditDueList = ({
         </select>
         <div className="ml-auto flex gap-2">
           <div className="flex gap-1 bg-white/5 border border-white/10 rounded-lg p-1">
-            <button onClick={() => setView('lanes')} className={`px-3.5 py-1.5 text-sm rounded ${view === 'lanes' ? 'bg-white/10' : ''}`}>Lanes</button>
-            <button onClick={() => setView('table')} className={`px-3.5 py-1.5 text-sm rounded ${view === 'table' ? 'bg-white/10' : ''}`}>Table</button>
+            <button onClick={() => setView('lanes')} className={`px-3.5 py-2 sm:py-1.5 text-sm rounded min-h-[44px] sm:min-h-0 touch-target ${view === 'lanes' ? 'bg-white/10' : ''}`}>Lanes</button>
+            <button onClick={() => setView('table')} className={`px-3.5 py-2 sm:py-1.5 text-sm rounded min-h-[44px] sm:min-h-0 touch-target ${view === 'table' ? 'bg-white/10' : ''}`}>Table</button>
           </div>
           <button
             onClick={() => {
@@ -287,7 +290,7 @@ const CreditDueList = ({
               a.href = url; a.download = 'credit-dues.csv'; a.click();
               URL.revokeObjectURL(url);
             }}
-            className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-white/10 border border-white/10 hover:bg-white/15"
+            className="px-3 py-2.5 sm:py-2 rounded-lg text-sm font-medium text-white bg-white/10 border border-white/10 hover:bg-white/15 active:bg-white/20 min-h-[44px] sm:min-h-0 touch-target"
           >
             Export CSV
           </button>
@@ -345,7 +348,7 @@ const CreditDueList = ({
                   </div>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
+              <div className={`flex flex-col gap-2 overflow-y-auto pr-1 ${isNativeApp ? 'max-h-[400px]' : 'max-h-80'}`}>
                 {groups[lane.key].length ? (
                   groups[lane.key].map((x) => (
                     <div key={x.id} className="rounded-xl p-3 bg-white/5 backdrop-blur border border-white/10 ring-1 ring-white/5 hover:bg-white/10 transition-all hover:shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
@@ -359,9 +362,9 @@ const CreditDueList = ({
                       </div>
                       <div className="text-[15px] font-bold text-white mt-1">{formatINR(x.amount)}</div>
                       <div className="mt-2 flex gap-2">
-                        <button onClick={() => handleSendReminder(x.raw)} className="text-xs px-2 py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]">Send Reminder</button>
+                        <button onClick={() => handleSendReminder(x.raw)} className="text-xs px-3 py-2 sm:px-2 sm:py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)] active:scale-[0.98] min-h-[40px] sm:min-h-0 touch-target">Send Reminder</button>
                         {onOpenInvoice && (
-                          <button onClick={() => onOpenInvoice(x.raw)} className="text-xs px-2 py-1 rounded border border-white/15 text-white/90 hover:bg-white/10">Open</button>
+                          <button onClick={() => onOpenInvoice(x.raw)} className="text-xs px-3 py-2 sm:px-2 sm:py-1 rounded border border-white/15 text-white/90 hover:bg-white/10 active:bg-white/15 min-h-[40px] sm:min-h-0 touch-target">Open</button>
                         )}
                       </div>
                     </div>
@@ -404,9 +407,9 @@ const CreditDueList = ({
               </td>
               <td className="px-3 py-2">
                 <div className="flex gap-2">
-                  <button onClick={() => handleSendReminder(x.raw)} className="text-xs px-2 py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)]">Reminder</button>
+                  <button onClick={() => handleSendReminder(x.raw)} className="text-xs px-3 py-2 sm:px-2 sm:py-1 rounded font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)] active:scale-[0.98] min-h-[40px] sm:min-h-0 touch-target">Reminder</button>
                   {onOpenInvoice && (
-                    <button onClick={() => onOpenInvoice(x.raw)} className="text-xs px-2 py-1 rounded border border-white/15 text-white/90 hover:bg-white/10">Open</button>
+                    <button onClick={() => onOpenInvoice(x.raw)} className="text-xs px-3 py-2 sm:px-2 sm:py-1 rounded border border-white/15 text-white/90 hover:bg-white/10 active:bg-white/15 min-h-[40px] sm:min-h-0 touch-target">Open</button>
                   )}
                 </div>
               </td>
@@ -418,10 +421,10 @@ const CreditDueList = ({
   );
 
   return (
-    <div className="relative rounded-2xl text-white w-full">
+    <div className={`relative rounded-2xl text-white w-full ${isNativeApp ? 'pb-2' : ''}`}>
       {/* Aurora wash */}
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-400/7 via-fuchsia-400/6 to-sky-400/7 opacity-90 pointer-events-none" />
-      <div className="relative rounded-[16px] bg-white/5 backdrop-blur-xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_40px_rgba(2,6,23,0.45)] p-5 min-w-0">
+      <div className={`relative rounded-[16px] bg-white/5 backdrop-blur-xl border border-white/10 ring-1 ring-white/5 shadow-[0_12px_40px_rgba(2,6,23,0.45)] ${isNativeApp ? 'p-4 sm:p-5' : 'p-5'} min-w-0`}>
         <Header />
         {view === 'lanes' ? <Lanes /> : <Table />}
       </div>
