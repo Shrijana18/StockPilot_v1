@@ -57,13 +57,24 @@ const Login = () => {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       console.log("[Login] firebase signIn OK, uid:", user.uid);
+      
+      // Email verification removed from flow - can be added later as optional notification
+      
       const snap = await getDoc(doc(db, 'businesses', user.uid));
       console.log("[Login] role doc exists:", snap.exists());
       if (!snap.exists()) {
-        setError('⚠️ User data not found in Firestore.');
+        setError('⚠️ Account not found. Please register first.');
+        await auth.signOut();
         return;
       }
+      
+      // SECURITY: Verify user owns this account (email matches)
       const userData = snap.data();
+      if (userData.email && userData.email.toLowerCase() !== email.toLowerCase()) {
+        setError('⚠️ Email mismatch detected. Please contact support.');
+        await auth.signOut();
+        return;
+      }
       // Check for both 'role' and 'businessType' fields (some users have businessType)
       const rawRole = userData?.role || userData?.businessType || '';
       const role = String(rawRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');

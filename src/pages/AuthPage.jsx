@@ -57,6 +57,13 @@ const AuthPage = () => {
         }
 
         // Check if this is a regular business user
+        // Skip Firestore check if user is currently registering (prevents 400 errors during signup)
+        const isRegistering = sessionStorage.getItem('postSignupRole') !== null;
+        if (isRegistering) {
+          setIsLoadingUser(false);
+          return; // Let Register component handle the flow
+        }
+        
         const docRef = doc(db, "businesses", user.uid);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
@@ -75,12 +82,26 @@ const AuthPage = () => {
             if (!location.pathname.includes("/")) navigate("/", { replace: true });
           }
         } else {
-          console.warn("No user profile found in Firestore.");
-          navigate("/");
+          // No profile found - only redirect if not currently registering
+          const postSignupRole = sessionStorage.getItem('postSignupRole');
+          if (postSignupRole) {
+            setIsLoadingUser(false);
+            return; // Don't redirect - let Register component finish
+          }
+          // Only navigate to landing page if not on auth/register page
+          if (!location.pathname.includes('/auth')) {
+            navigate("/");
+          }
         }
       } catch (error) {
-        console.error("Error fetching user role:", error);
-        navigate("/");
+        // Don't log Firestore permission errors during registration
+        const isRegistering = sessionStorage.getItem('postSignupRole') !== null;
+        if (!isRegistering) {
+          console.error("Error fetching user role:", error);
+          if (!location.pathname.includes('/auth')) {
+            navigate("/");
+          }
+        }
       } finally {
         setIsLoadingUser(false);
       }
@@ -117,11 +138,19 @@ const AuthPage = () => {
             if (!location.pathname.includes("/")) navigate("/", { replace: true });
           }
         } else {
-          if (!location.pathname.includes("/")) navigate("/", { replace: true });
+          // Check if user just registered - don't redirect, let Register component finish
+          const postSignupRole = sessionStorage.getItem('postSignupRole');
+          if (!postSignupRole && !location.pathname.includes("/")) {
+            navigate("/", { replace: true });
+          }
         }
       } catch (e) {
         console.error("Error resolving role for register guard:", e);
-        if (!location.pathname.includes("/")) navigate("/", { replace: true });
+        // Don't redirect if user just registered - let Register component handle it
+        const postSignupRole = sessionStorage.getItem('postSignupRole');
+        if (!postSignupRole && !location.pathname.includes("/")) {
+          navigate("/", { replace: true });
+        }
       }
     })();
   }, [user, type, navigate, location.pathname]);

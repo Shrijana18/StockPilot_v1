@@ -1,53 +1,71 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+// Icon helper component (hoisted)
+function Icon({ name = '', className = 'h-4 w-4' }) {
+  const common = { className, xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 };
+  switch (name) {
+    case 'spark':
+      return <svg {...common}><path d="M12 3l1.8 5.5L19 10l-5.2 1.5L12 17l-1.8-5.5L5 10l5.2-1.5L12 3z"/></svg>;
+    case 'arrow-right':
+      return <svg {...common}><path d="M5 12h14M13 5l7 7-7 7"/></svg>;
+    case 'arrow-left':
+      return <svg {...common}><path d="M19 12H5m6 7l-7-7 7-7"/></svg>;
+    case 'user':
+      return <svg {...common}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+    case 'mail':
+      return <svg {...common}><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>;
+    case 'lock':
+      return <svg {...common}><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>;
+    case 'gst':
+      return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h10M7 13h6"/></svg>;
+    case 'google':
+      return <svg viewBox="0 0 48 48" className={className}><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3A12.9 12.9 0 0 1 11 24 13 13 0 1 0 37 33l6.6 5A21 21 0 1 1 45 24c0-1.2-.1-2.3-.4-3.5z"/></svg>;
+    default:
+      return <svg {...common}><circle cx="12" cy="12" r="9"/></svg>;
+  }
+}
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getAuth, GoogleAuthProvider, signInWithPopup, sendEmailVerification, linkWithCredential, EmailAuthProvider, updateProfile, fetchSignInMethodsForEmail, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, query, collection, where, getDocs } from 'firebase/firestore';
-// import { getFunctions, httpsCallable } from 'firebase/functions';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  updateProfile,
+  fetchSignInMethodsForEmail,
+  onAuthStateChanged
+} from 'firebase/auth';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  query,
+  collection,
+  where,
+  getDocs,
+  getDoc
+} from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from "../firebase/firebaseConfig";
-// import ReactDOM from 'react-dom';
 
 const auth = getAuth(app);
-// ---- Local debug helper (optional): bypass app verification on localhost ----
-// Disabled by default. To enable for test numbers only, set VITE_BYPASS_PHONE_RECAPTCHA=true in your .env.
-try {
-  if (
-    typeof window !== 'undefined' &&
-    ['localhost', '127.0.0.1'].includes(window.location.hostname) &&
-    import.meta.env?.VITE_BYPASS_PHONE_RECAPTCHA === 'true'
-  ) {
-    // This disables the reCAPTCHA requirement for testing WITH TEST PHONE NUMBERS ONLY.
-    // DO NOT enable when sending real OTPs; the server will reject with MALFORMED token.
-    // @ts-ignore
-    auth.settings.appVerificationDisabledForTesting = true;
-    console.info('[Auth] appVerificationDisabledForTesting enabled on localhost via env flag');
-  }
-} catch (e) {
-  // ignore if settings is undefined in older SDKs
-}
 const db = getFirestore(app);
-// Cloud Functions HTTPS base (adjust region/project if needed)
+const functions = getFunctions(app, 'us-central1');
+const reservePhone = httpsCallable(functions, 'reservePhone');
+const checkUniqueness = httpsCallable(functions, 'checkUniqueness');
 
-const CF_BASE = import.meta.env?.VITE_FUNCTIONS_ORIGIN || 'https://us-central1-stockpilotv1.cloudfunctions.net';
-const MSG91_WIDGET_ID = import.meta.env?.VITE_MSG91_WIDGET_ID || '356a79684758348381353138';
-
-
-
-// Generate human-friendly FLYP ID like FLYP-ABCDE
+// Generate FLYP ID
 const genFlypId = () => `FLYP-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 
-// --- Minimal GSTIN validator (optional field). Accept empty. If present, quick pattern + length check.
+// GSTIN validator
 function validateGSTIN(raw) {
   if (!raw) return { ok: true, reason: '' };
   const gst = raw.toUpperCase().trim();
   if (gst.length !== 15) return { ok: false, reason: 'GSTIN must be 15 characters' };
-  // Basic shape: 2 digits + 10 PAN chars + 1 entity + 'Z' + 1 check
   if (!/^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/i.test(gst)) {
     return { ok: false, reason: 'Format looks invalid' };
   }
   return { ok: true, reason: '' };
 }
 
-// --- Phone helpers (India) ---
+// Phone helpers
 const ONLY_DIGITS = /[^0-9]/g;
 function sanitize10Digits(v = "") {
   return (v || "").replace(ONLY_DIGITS, "").slice(0, 10);
@@ -56,78 +74,21 @@ function toE164IN(tenDigit) {
   return tenDigit ? `+91${tenDigit}` : "";
 }
 
-const Icon = ({ name, className = "" }) => {
-  // tiny inline icon set (no deps)
-  const common = "h-5 w-5";
-  if (name === 'user') {
-    return (
-      <svg className={`${common} ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    );
-  }
-  if (name === 'mail') {
-    return (
-      <svg className={`${common} ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M4 4h16v16H4z" stroke="currentColor" fill="none"/>
-        <path d="M22 6l-10 7L2 6" />
-      </svg>
-    );
-  }
-  if (name === 'lock') {
-    return (
-      <svg className={`${common} ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <rect x="3" y="11" width="18" height="10" rx="2"/>
-        <path d="M7 11V8a5 5 0 0 1 10 0v3" />
-      </svg>
-    );
-  }
-  if (name === 'gst') {
-    return (
-      <svg className={`${common} ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M4 7h16M4 12h16M4 17h10" />
-      </svg>
-    );
-  }
-  if (name === 'spark') {
-    return (
-      <svg className={`${common} ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M12 2v5M12 17v5M2 12h5M17 12h5M5 5l3.5 3.5M15.5 15.5L19 19M5 19l3.5-3.5M15.5 8.5L19 5"/>
-      </svg>
-    );
-  }
-  if (name === 'google') {
-    return (
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className={`${className}`} aria-hidden>
-        <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.156,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
-        <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,16.108,18.961,14,24,14c3.059,0,5.842,1.156,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
-        <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
-        <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.793,2.238-2.231,4.166-4.093,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C35.271,39.205,44,33.5,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
-      </svg>
-    );
-  }
-  if (name === 'arrow-right') {
-    return (
-      <svg className={`${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M5 12h14" />
-        <path d="M13 5l7 7-7 7" />
-      </svg>
-    );
-  }
-  if (name === 'arrow-left') {
-    return (
-      <svg className={`${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M19 12H5" />
-        <path d="M11 19l-7-7 7-7" />
-      </svg>
-    );
-  }
-  return null;
+// Role helpers
+const normalizeRoleKey = (s = '') => String(s).toLowerCase().replace(/\s+/g, '');
+const toCanonicalRole = (key = '') => {
+  const k = normalizeRoleKey(key);
+  if (k === 'distributor') return 'Distributor';
+  if (k === 'productowner' || k === 'product owner') return 'Product Owner';
+  return 'Retailer';
 };
 
 const Register = ({ role = 'retailer' }) => {
-  // Minimal, fast onboarding
+  const glowRef = useRef(null);
+  const mouseRAF = useRef(null);
+  const phoneInputRef = useRef(null);
+
+  // URL role and derived labels
   const [form, setForm] = useState({
     ownerName: '',
     email: '',
@@ -136,431 +97,433 @@ const Register = ({ role = 'retailer' }) => {
     phone: '',
     gstin: '',
     agree: false,
-    role: '', // Add role to form state for dynamic selection
+    role: '',
   });
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const roleParam = params.get('role') || '';
+  const roleName = useMemo(() => toCanonicalRole(form.role || role), [form.role, role]);
+  const cameFromChooser = Boolean(roleParam);
+
+  // Left pane hero bullets
+  const hero = useMemo(() => ([
+    { title: 'Fast Billing', text: 'Create invoices in seconds. Cash / Card / UPI supported.' },
+    { title: 'Inventory Sync', text: 'OCR / AI onboarding, auto stock updates, low‑stock alerts.' },
+    { title: 'Connect & Dispatch', text: 'Retailer ↔ Distributor orders, tracking, analytics.' },
+  ]), []);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({ error: '', success: '' });
-  // OTP state (MSG91 via Cloud Functions)
-  const [otp, setOtp] = useState('');
-  const [otpRequested, setOtpRequested] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
-  const [otpBusy, setOtpBusy] = useState(false);
-  const [otpInfo, setOtpInfo] = useState('');
-  // GPU-safe glow without React re-renders (prevents FirebaseUI unmount)
-  const glowRef = useRef(null);
-  const mouseRAF = useRef(null);
-  const navigate = useNavigate();
-  const location = useLocation();
+  const [phoneStatus, setPhoneStatus] = useState({ validated: false, checking: false, message: '', error: false });
+  const [emailStatus, setEmailStatus] = useState({ validated: false, checking: false, message: '', error: false });
 
-  useEffect(() => {
-    // Load MSG91 OTP widget script once
-    if (typeof window !== 'undefined' && !window.initSendOTP) {
-      const s = document.createElement('script');
-      s.src = 'https://verify.msg91.com/otp-provider.js';
-      s.async = true;
-      s.onload = () => console.info('[MSG91] widget loaded');
-      s.onerror = () => console.warn('[MSG91] widget failed to load');
-      document.body.appendChild(s);
+  const navigate = useNavigate();
+
+  const onChange = (e) => {
+    const { name, type, value, checked } = e.target;
+    let v = type === 'checkbox' ? checked : value;
+    if (name === 'phone') v = sanitize10Digits(v);
+    setForm((p) => ({ ...p, [name]: v }));
+  };
+
+  // Phone + email uniqueness validation
+  const validatePhoneUniqueness = useCallback(async (phoneValue) => {
+    const ten = sanitize10Digits(phoneValue);
+    if (ten.length !== 10) return false;
+    setPhoneStatus({ validated: false, checking: true, message: 'Checking...', error: false });
+    try {
+      const result = await checkUniqueness({ phone: toE164IN(ten) });
+      if (!result.data?.phone?.available) {
+        setPhoneStatus({ validated: false, checking: false, message: 'Phone already registered.', error: true });
+        return false;
+      }
+      setPhoneStatus({ validated: true, checking: false, message: '✓ Available', error: false });
+      return true;
+    } catch (e) {
+      setPhoneStatus({ validated: false, checking: false, message: 'Unable to verify phone.', error: true });
+      return false;
     }
   }, []);
 
-  // Role helpers
-  const normalizeRoleKey = (s = '') => String(s).toLowerCase().replace(/\s+/g, '');
-  const toCanonicalRole = (key = '') => {
-    const k = normalizeRoleKey(key);
-    if (k === 'distributor') return 'Distributor';
-    if (k === 'productowner') return 'Product Owner';
-    return 'Retailer';
-  };
+  const validateEmailUniqueness = useCallback(async (emailValue) => {
+    const email = emailValue.trim();
+    if (!email.includes('@')) return false;
+    setEmailStatus({ validated: false, checking: true, message: 'Checking...', error: false });
+    try {
+      const result = await checkUniqueness({ email: email.toLowerCase() });
+      if (!result.data?.email?.available) {
+        setEmailStatus({ validated: false, checking: false, message: 'Email already registered.', error: true });
+        return false;
+      }
+      setEmailStatus({ validated: true, checking: false, message: '✓ Available', error: false });
+      return true;
+    } catch {
+      setEmailStatus({ validated: false, checking: false, message: 'Unable to verify email.', error: true });
+      return false;
+    }
+  }, []);
 
-  // Read role from query (?role=Distributor/Product%20Owner/Retailer)
-  const params = new URLSearchParams(location.search);
-  const roleParam = params.get('role') || '';
-  const cameFromChooser = !!roleParam;
-  const onMouseMove = (e) => {
-    if (!glowRef.current) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const xPct = ((e.clientX - r.left) / r.width) * 100;
-    const yPct = ((e.clientY - r.top) / r.height) * 100;
-    if (mouseRAF.current) cancelAnimationFrame(mouseRAF.current);
-    mouseRAF.current = requestAnimationFrame(() => {
-      glowRef.current.style.background = `radial-gradient(240px circle at ${xPct}% ${yPct}%, rgba(56,189,248,.20), transparent 60%)`;
-    });
-  };
-
-
-  const formRef = useRef(null);
-
-
-
-
-
-  const gstStatus = useMemo(() => validateGSTIN(form.gstin), [form.gstin]);
-
-  const onChange = (e) =>
-    setForm((p) => {
-      const { name, type, value, checked } = e.target;
-      let v = type === 'checkbox' ? checked : value;
-      if (name === 'phone') v = sanitize10Digits(v);
-      return { ...p, [name]: v };
-    });
-
-
-  // --- OTP flow via MSG91 Widget (client) + server verify ---
-  const startOtpFlow = useCallback(async () => {
+  // Blur handlers that call the server-side uniqueness checks
+  const handlePhoneBlur = useCallback(() => {
     const ten = sanitize10Digits(form.phone);
     if (ten.length !== 10) {
-      setOtpInfo('Enter a valid 10-digit phone first.');
-      return;
+      setPhoneStatus({ validated: false, checking: false, message: '', error: false });
+      return false;
     }
-    if (!window.initSendOTP) {
-      setOtpInfo('OTP widget not loaded yet. Please wait a moment and try again.');
-      return;
-    }
-    setOtpInfo('');
-    setOtpBusy(true);
-    try {
-      const identifier = `+91${ten}`;
-      const configuration = {
-        widgetId: MSG91_WIDGET_ID,
-        tokenAuth: 'token',
-        identifier,
-        exposeMethods: false,
-        success: async (data) => {
-          // data may contain token under different keys based on SDK version
-          const token =
-            data?.access_token ||
-            data?.token ||
-            data?.data?.token ||
-            data?.response?.token;
-          if (!token) {
-            setOtpBusy(false);
-            setOtpInfo('Could not read access token from widget.');
-            return;
-          }
-          try {
-            const resp = await fetch(`${CF_BASE}/verifyOtp`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ phone: ten, access_token: token })
-            });
-            const out = await resp.json().catch(() => ({}));
-            if (resp.ok && (out?.ok || out?.status === 'ok')) {
-              setOtpVerified(true);
-              setOtpRequested(true);
-              setOtpInfo('Phone verified ✅');
-            } else {
-              setOtpVerified(false);
-              setOtpInfo(out?.error || out?.message || 'Verification failed. Please retry.');
-            }
-          } catch (err) {
-            console.error(err);
-            setOtpVerified(false);
-            setOtpInfo(err?.message || 'Verification failed.');
-          } finally {
-            setOtpBusy(false);
-          }
-        },
-        failure: (error) => {
-          console.warn('[MSG91] widget failure', error);
-          setOtpBusy(false);
-          setOtpInfo(error?.message || 'OTP flow cancelled or failed.');
-        }
-      };
-      window.initSendOTP(configuration);
-    } catch (e) {
-      console.error(e);
-      setOtpBusy(false);
-      setOtpInfo(e?.message || 'Failed to start OTP flow.');
-    }
-  }, [form.phone]);
+    return validatePhoneUniqueness(ten);
+  }, [form.phone, validatePhoneUniqueness]);
 
-  useEffect(() => {
-    // reset OTP flow if user edits the phone number
-    setOtp('');
-    setOtpRequested(false);
-    setOtpVerified(false);
-    setOtpInfo('');
-  }, [form.phone]);
+  const handleEmailBlur = useCallback(() => {
+    const email = (form.email || '').trim();
+    if (!email || !email.includes('@')) {
+      setEmailStatus({ validated: false, checking: false, message: '', error: false });
+      return false;
+    }
+    return validateEmailUniqueness(email);
+  }, [form.email, validateEmailUniqueness]);
 
-  const buildPayload = (userId) => {
-    const nowIso = new Date().toISOString();
-    // Use selected role from form, fallback to prop, fallback to "Retailer"
-    const selectedRole = (form.role || role || "Retailer").charAt(0).toUpperCase() + (form.role || role || "Retailer").slice(1);
-    const e164Phone = toE164IN(sanitize10Digits(form.phone));
-    return {
-      // Identity
-      ownerId: userId,
-      name: (form.ownerName || '').trim(),
+  // GST status derived from input
+  const gstStatus = useMemo(() => validateGSTIN(form.gstin), [form.gstin]);
+
+  // Naive password strength meter
+  const passwordStrength = useMemo(() => {
+    const pwd = form.password || '';
+    let level = 0;
+    if (pwd.length >= 6) level += 2;
+    if (/[A-Z]/.test(pwd)) level += 1;
+    if (/[a-z]/.test(pwd)) level += 1;
+    if (/[0-9]/.test(pwd)) level += 1;
+    if (/[^A-Za-z0-9]/.test(pwd)) level += 1;
+    const text =
+      level <= 2 ? 'Weak' :
+      level <= 4 ? 'Medium' : 'Strong';
+    const color =
+      level <= 2 ? 'text-red-300' :
+      level <= 4 ? 'text-yellow-300' : 'text-emerald-300';
+    return { level, text, color };
+  }, [form.password]);
+
+  // Scroll helper for the left panel CTA
+  const scrollToForm = useCallback(() => {
+    const formEl = document.querySelector('form');
+    if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // Build Firestore payload
+  const buildPayload = (uid) => {
+    const now = new Date().toISOString();
+    const selectedRole = toCanonicalRole(form.role || role || 'Retailer');
+    // Normalize email to lowercase for Firestore rules comparison
+    const normalizedEmail = (form.email || '').trim().toLowerCase();
+    const payload = {
+      ownerId: uid,
       ownerName: (form.ownerName || '').trim(),
-
-      // Contact
-      email: (form.email || '').trim(),
-      phone: e164Phone,
-      whatsappAlerts: false,
-
-      // Business meta (defaults — user completes later in Profile Settings)
+      name: (form.ownerName || '').trim(),
+      email: normalizedEmail,
+      phone: toE164IN(sanitize10Digits(form.phone)),
+      gstNumber: (form.gstin || '').toUpperCase().trim(),
       role: selectedRole,
       businessType: selectedRole,
-      businessName: '',
+      flypId: genFlypId(),
+      createdAt: now,
+      lastUpdated: now,
+      profileVersion: 1,
+      whatsappAlerts: false,
       businessMode: 'Online',
       invoicePreference: 'Minimal',
-
-      // Address (kept blank at signup)
+      logoUrl: '',
       address: '',
       city: '',
       state: '',
       country: 'India',
       zipcode: '',
-
-      // GST & Branding
-      gstNumber: (form.gstin || '').toUpperCase().trim(),
-      logoUrl: '',
-
-      // System fields
-      flypId: genFlypId(),
-      profileVersion: 1,
-      createdAt: nowIso,
-      lastUpdated: nowIso,
     };
+    return payload;
   };
 
-  // Force-refresh the user's ID token (prevents first-write rule races after signup)
   const ensureFreshToken = async (user) => {
     try {
-      if (user?.getIdToken) {
-        await user.getIdToken(true);
+      await user.getIdToken(true);
+    } catch {}
+  };
+
+  const createBusinessDoc = async (user) => {
+    let payload = null;
+    let authEmail = null;
+    try {
+      // Ensure we have fresh auth token before creating document
+      const token = await user.getIdToken(true);
+      authEmail = (user.email || '').toLowerCase().trim();
+      
+      if (!authEmail) {
+        throw new Error('User email not found in auth token');
       }
-    } catch (_) {
-      // ignore; Firestore will still attempt with current token
+      
+      payload = buildPayload(user.uid);
+      
+      // Verify email matches auth token (required by Firestore rules)
+      // Both should be lowercase from normalization
+      const payloadEmail = (payload.email || '').toLowerCase().trim();
+      if (!payloadEmail) {
+        throw new Error('Email missing in payload');
+      }
+      
+      if (authEmail !== payloadEmail) {
+        throw new Error(`Email mismatch: token has "${authEmail}" but payload has "${payloadEmail}"`);
+      }
+      
+      await setDoc(doc(db, 'businesses', user.uid), payload, { merge: false });
+    } catch (err) {
+      // Only log critical errors
+      if (err?.code === 'permission-denied') {
+        console.error('[Register] Permission denied:', err?.message);
+      } else {
+        console.error('[Register] Document creation failed:', err?.message);
+      }
+      throw err;
     }
   };
 
-  // Bulletproof write with one retry on permission race
-  const safeCreateBusinessDoc = async (user, uid) => {
+  // Retry wrapper for document creation with token refresh
+  const safeCreateBusinessDoc = async (user) => {
     try {
-      await createBusinessDoc(uid);
+      await createBusinessDoc(user);
     } catch (err) {
-      const msg = String(err?.message || "");
-      if (msg.includes('Missing or insufficient permissions')) {
-        // wait, refresh token, and retry once
-        await new Promise((r) => setTimeout(r, 1200));
+      const msg = String(err?.message || '');
+      if (msg.includes('permission') || msg.includes('Missing')) {
+        // Retry once after refreshing token
+        await new Promise(r => setTimeout(r, 1500));
         await ensureFreshToken(user);
-        await createBusinessDoc(uid);
+        await createBusinessDoc(user);
         return;
       }
       throw err;
     }
   };
 
-  const createBusinessDoc = async (uid) => {
-    const payload = buildPayload(uid);
-    await setDoc(doc(db, 'businesses', uid), payload, { merge: true });
-  };
-
   const handleEmailSignup = async (e) => {
     e.preventDefault();
     setMsg({ error: '', success: '' });
-    const e164Phone = toE164IN(sanitize10Digits(form.phone));
-    if (sanitize10Digits(form.phone).length !== 10) {
-      return setMsg({ error: 'Please enter a valid 10-digit Indian mobile number.', success: '' });
-    }
 
-    if (!form.agree) return setMsg({ error: 'Please accept Terms & Privacy to continue.', success: '' });
-    if (!gstStatus.ok) return setMsg({ error: `GSTIN error: ${gstStatus.reason}`, success: '' });
-    if (form.password !== form.confirmPassword) return setMsg({ error: 'Passwords do not match.', success: '' });
+    if (sanitize10Digits(form.phone).length !== 10)
+      return setMsg({ error: 'Enter valid 10-digit phone number', success: '' });
+    if (!form.agree)
+      return setMsg({ error: 'Accept Terms & Privacy to continue', success: '' });
+    if (form.password !== form.confirmPassword)
+      return setMsg({ error: 'Passwords do not match', success: '' });
 
-    if (!otpVerified) {
-      return setMsg({ error: 'Please verify your phone number with OTP first.', success: '' });
-    }
+    setLoading(true);
     try {
-      setLoading(true);
-      const userCred = await import('firebase/auth').then(({ createUserWithEmailAndPassword }) =>
-        createUserWithEmailAndPassword(auth, form.email.trim(), form.password)
-      );
+      // Create Auth account
+      const { createUserWithEmailAndPassword } = await import('firebase/auth');
+      const userCred = await createUserWithEmailAndPassword(auth, form.email.trim(), form.password);
       const user = userCred.user;
-
       await updateProfile(user, { displayName: (form.ownerName || '').trim() });
 
-      // Ensure auth state is fully active before Firestore write to avoid permission race
       await new Promise((resolve) => {
         const unsub = onAuthStateChanged(auth, (current) => {
-          if (current && current.uid === user.uid) {
+          if (current?.uid === user.uid) {
             unsub();
             resolve();
           }
         });
       });
 
-      // Now that we are authenticated (request.auth != null), check PHONE uniqueness in Firestore
-      const phoneQuery = query(collection(db, 'businesses'), where('phone', '==', e164Phone));
-      const phoneSnap = await getDocs(phoneQuery);
-      if (!phoneSnap.empty) {
-        // Phone already used: clean up the just-created auth user so we don't leave an orphan
+      // Reserve phone server-side (REQUIRED - Firestore rules need this)
+      const e164Phone = toE164IN(sanitize10Digits(form.phone));
+      try {
+        await reservePhone({ phone: e164Phone });
+      } catch (e) {
+        // Clean up auth account if phone reservation fails
         try { await user.delete(); } catch (_) {}
         try { await auth.signOut(); } catch (_) {}
-        return setMsg({ error: 'Phone number already registered. Please sign in instead.', success: '' });
+        
+        // Check for phone already exists error (could be in code, details, or message)
+        const code = e?.code || '';
+        const message = String(e?.message || '');
+        const details = e?.details || {};
+        
+        // Firebase callable functions return 'already-exists' code for 409 conflicts
+        if (code === 'already-exists' || 
+            code === 'failed-precondition' ||
+            message.toLowerCase().includes('already') ||
+            message.toLowerCase().includes('reserved')) {
+          return setMsg({ 
+            error: 'Phone number already registered. Please sign in or use a different number.', 
+            success: '' 
+          });
+        }
+        
+        return setMsg({ 
+          error: `Could not reserve phone number: ${message || 'Please try again.'}`, 
+          success: '' 
+        });
       }
 
-      // Safe to create the business profile document now (with token refresh + retry)
-      await ensureFreshToken(user);
-      await safeCreateBusinessDoc(user, user.uid);
-      await sendEmailVerification(user);
+      // Wait for phoneIndex to propagate (Firestore rules need to see it)
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      setMsg({ error: '', success: 'Account created. Redirecting to dashboard…' });
-      // OTP is enforced above; only allow navigation after verified
-      // Use selected role from form, fallback to prop, fallback to "Retailer"
-      const selectedRole = (form.role || role || 'Retailer');
+      // Create business document with retry logic
+      await ensureFreshToken(user);
+      
+      let docCreated = false;
+      try {
+        await safeCreateBusinessDoc(user);
+        docCreated = true;
+      } catch (docErr) {
+        // Retry once more
+        try {
+          await new Promise(r => setTimeout(r, 2000));
+          await ensureFreshToken(user);
+          await safeCreateBusinessDoc(user);
+          docCreated = true;
+        } catch (retryErr) {
+          // Clean up auth account
+          try { await user.delete(); } catch (_) {}
+          try { await auth.signOut(); } catch (_) {}
+          return setMsg({ 
+            error: `Registration failed: Could not create profile. ${retryErr?.message || 'Please try again.'}`, 
+            success: '' 
+          });
+        }
+      }
+
+      // Verify document was created
+      let docSnap = null;
+      let tries = 0;
+      while (tries < 10) {
+        docSnap = await getDoc(doc(db, "businesses", user.uid));
+        if (docSnap.exists()) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 500));
+        tries++;
+      }
+
+      if (!docSnap || !docSnap.exists()) {
+        // Clean up auth account
+        try { await user.delete(); } catch (_) {}
+        try { await auth.signOut(); } catch (_) {}
+        return setMsg({ 
+          error: 'Registration incomplete: Profile could not be created. Please try again.', 
+          success: '' 
+        });
+      }
+
+      const selectedRole = toCanonicalRole(form.role || role);
       const normalizedRole = selectedRole.toLowerCase();
       sessionStorage.setItem('postSignupRole', normalizedRole);
+
+      // Show "Creating account..." message and navigate directly without page refresh
+      setMsg({ success: 'Creating account...', error: '' });
+      
+      // Clear postSignupRole after a short delay to allow navigation
       setTimeout(() => {
-        if (normalizedRole === 'retailer') {
-          navigate('/dashboard');
-        } else if (normalizedRole === 'distributor') {
-          navigate('/distributor-dashboard');
-        } else if (normalizedRole === 'product owner') {
-          navigate('/product-owner-dashboard');
-        } else {
-          navigate('/dashboard');
-        }
-      }, 2000);
+        sessionStorage.removeItem('postSignupRole');
+      }, 3000);
+      
+      // Navigate immediately without setTimeout to avoid landing page flash
+      if (normalizedRole === 'retailer') {
+        navigate('/dashboard', { replace: true });
+      } else if (normalizedRole === 'distributor') {
+        navigate('/distributor-dashboard', { replace: true });
+      } else {
+        navigate('/product-owner-dashboard', { replace: true });
+      }
     } catch (err) {
-      console.error(err);
-      if (err?.code === 'auth/email-already-in-use') {
-        return setMsg({ error: 'Email already registered. Please sign in.', success: '' });
-      }
-      if (typeof err?.message === 'string' && err.message.includes('Missing or insufficient permissions')) {
-        return setMsg({ error: 'Security rules temporarily blocked registration. Please retry in a few seconds.', success: '' });
-      }
-      setMsg({ error: err?.message || 'Signup failed', success: '' });
-    } finally {
+      sessionStorage.removeItem('postSignupRole'); // Clean up on error
+      setMsg({ error: err?.message || 'Signup failed.', success: '' });
       setLoading(false);
     }
   };
 
   const handleGoogle = async () => {
-    setMsg({ error: '', success: '' });
     try {
       setLoading(true);
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      // Check if user already exists with a different provider
-      const methods = await fetchSignInMethodsForEmail(auth, user.email);
-      if (methods.includes("password") && !methods.includes("google.com")) {
-        setMsg({ error: "This email is already registered manually. Please login using email and password.", success: '' });
-        setLoading(false);
-        return;
-      }
-      // ---- Firestore logic to ensure user info is stored ----
-      // Check if user doc exists in /businesses; if not, create with default details
-      const { getDoc, setDoc, doc: fsDoc, serverTimestamp } = await import('firebase/firestore');
-      const dbInstance = db;
-      const businessRef = fsDoc(dbInstance, "businesses", user.uid);
-      const businessSnap = await getDoc(businessRef);
-      // Use selected role from form state if present, fallback to prop, fallback to "Retailer"
-      const selectedRole = (form.role || role || "Retailer").charAt(0).toUpperCase() + (form.role || role || "Retailer").slice(1);
-      // Ensure token is fresh before first Firestore write (post Google sign-in)
+
+      const dbRef = doc(db, 'businesses', user.uid);
+      const snap = await getDoc(dbRef);
+      const selectedRole = toCanonicalRole(form.role || role);
+
       await ensureFreshToken(user);
-      if (!businessSnap.exists()) {
-        try {
-          await setDoc(businessRef, {
-            ownerId: user.uid,
-            ownerName: user.displayName || "",
-            email: user.email || "",
-            phone: user.phoneNumber || "",
-            role: selectedRole,
-            createdAt: serverTimestamp(),
-            profileVersion: 1,
-            whatsappAlerts: false,
-            state: "",
-            zipcode: "",
-            gstnumber: "",
-            invoicePreference: "Minimal",
-            logoUrl: "",
-          });
-        } catch (err) {
-          const msg = String(err?.message || "");
-          if (msg.includes('Missing or insufficient permissions')) {
-            await new Promise((r) => setTimeout(r, 1200));
-            await ensureFreshToken(user);
-            await setDoc(businessRef, {
-              ownerId: user.uid,
-              ownerName: user.displayName || "",
-              email: user.email || "",
-              phone: user.phoneNumber || "",
-              role: selectedRole,
-              createdAt: serverTimestamp(),
-              profileVersion: 1,
-              whatsappAlerts: false,
-              state: "",
-              zipcode: "",
-              gstnumber: "",
-              invoicePreference: "Minimal",
-              logoUrl: "",
-            });
-          } else {
-            throw err;
-          }
-        }
+      if (!snap.exists()) {
+        const now = new Date().toISOString();
+        const phoneGoogle = (user.phoneNumber && user.phoneNumber.startsWith('+'))
+          ? user.phoneNumber
+          : toE164IN(sanitize10Digits(user.phoneNumber || ''));
+        await setDoc(dbRef, {
+          ownerId: user.uid,
+          ownerName: user.displayName || '',
+          name: user.displayName || '',
+          email: (user.email || '').trim(),
+          phone: phoneGoogle,
+          gstNumber: '',
+          role: selectedRole,
+          businessType: selectedRole,
+          flypId: genFlypId(),
+          createdAt: now,
+          lastUpdated: now,
+          profileVersion: 1,
+          whatsappAlerts: false,
+          businessMode: 'Online',
+          invoicePreference: 'Minimal',
+          logoUrl: '',
+          address: '',
+          city: '',
+          state: '',
+          country: 'India',
+          zipcode: ''
+        }, { merge: false });
       }
-      // ---- End Firestore logic ----
-      setMsg({ error: '', success: 'Signed in with Google. Redirecting…' });
-      // Use selected role from form, fallback to prop, fallback to "Retailer"
+
+      // Ensure Firestore document exists before redirect
+      let tries = 0;
+      let docSnap = null;
+      while (tries < 10) {
+        docSnap = await getDoc(doc(db, "businesses", user.uid));
+        if (docSnap.exists()) break;
+        await new Promise((r) => setTimeout(r, 500));
+        tries++;
+      }
+
       const normalizedRole = selectedRole.toLowerCase();
       sessionStorage.setItem('postSignupRole', normalizedRole);
+      
+      // Show "Creating account..." message and navigate directly
+      setMsg({ success: 'Creating account...', error: '' });
+      
+      // Clear postSignupRole after a short delay to allow navigation
       setTimeout(() => {
+        sessionStorage.removeItem('postSignupRole');
+      }, 3000);
+      
+      if (docSnap && docSnap.exists()) {
+        // Navigate immediately without setTimeout to avoid landing page flash
         if (normalizedRole === 'retailer') {
-          navigate('/dashboard');
+          navigate('/dashboard', { replace: true });
         } else if (normalizedRole === 'distributor') {
-          navigate('/distributor-dashboard');
-        } else if (normalizedRole === 'product owner') {
-          navigate('/product-owner-dashboard');
+          navigate('/distributor-dashboard', { replace: true });
         } else {
-          navigate('/dashboard');
+          navigate('/product-owner-dashboard', { replace: true });
         }
-      }, 1500);
-    } catch (error) {
-      if (error?.code && error?.message) {
-        console.error("Sign-in error:", error.code, error.message);
       } else {
-        console.error(error);
+        setMsg({ error: 'Account setup incomplete. Please try again.', success: '' });
+        sessionStorage.removeItem('postSignupRole');
+        setLoading(false);
       }
-      setMsg({ error: error?.message || 'Google sign-in failed', success: '' });
-    } finally {
+    } catch (error) {
+      setMsg({ error: error.message || 'Google sign-in failed.', success: '' });
       setLoading(false);
     }
   };
 
-  // Use selected role from form, query param, fallback to prop
-  const roleSource = form.role || roleParam || role || 'Retailer';
-  const roleName = toCanonicalRole(roleSource);
-  const hero = roleName === 'Retailer'
-    ? [
-        { title: 'Auto‑billing in seconds', text: 'Scan, bill, and auto‑deduct stock — no spreadsheet drama.' },
-        { title: 'Smart Inventory', text: 'OCR + AI onboarding. Track low‑stock. Forecast drain.' },
-        { title: 'Connect to Distributors', text: 'Send requests, compare, and track delivery to doorstep.' },
-      ]
-    : [
-        { title: 'Order Queue to Dispatch', text: 'Accept, schedule, ship. Full traceability.' },
-        { title: 'Inventory at a Glance', text: 'Live stock, slow movers, brand performance.' },
-        { title: 'Retailer Network', text: 'Manage connections and automate reorders.' },
-      ];
-
-  const scrollToForm = () => {
-    try {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } catch (_) {}
-  };
-
-  // If user arrived from the role chooser, set role from URL param
   useEffect(() => {
-    try {
-      const picked = normalizeRoleKey(roleParam);
-      if (!picked) return;
-      setForm((prev) => ({ ...prev, role: toCanonicalRole(picked) }));
-    } catch (_) {}
+    const picked = normalizeRoleKey(roleParam);
+    if (picked) setForm((p) => ({ ...p, role: toCanonicalRole(picked) }));
   }, [roleParam]);
+
 
   return (
     <div className="min-h-screen w-full relative overflow-hidden">
@@ -713,21 +676,40 @@ const Register = ({ role = 'retailer' }) => {
 
               {/* Google */}
               <div className="px-6 mt-4">
-                <button onClick={handleGoogle} disabled={loading} className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 bg-white text-slate-900 font-medium shadow hover:shadow-lg transition active:scale-[0.99]">
-                  <Icon name="google" className="h-5 w-5" />
+                <button
+                  type="button"
+                  onClick={handleGoogle}
+                  disabled={loading}
+                  className="w-full mb-4 flex items-center justify-center gap-3 py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 transition disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
                   Continue with Google
                 </button>
-                <div className="my-5 flex items-center gap-3 text-slate-400">
-                  <div className="h-px flex-1 bg-white/15" />
-                  <span className="text-[11px] uppercase tracking-widest">or</span>
-                  <div className="h-px flex-1 bg-white/15" />
+                <div className="flex items-center pb-2">
+                  <div className="flex-1 h-px bg-white/20"></div>
+                  <span className="px-3 text-xs text-white/60">or</span>
+                  <div className="flex-1 h-px bg-white/20"></div>
                 </div>
               </div>
 
               {/* Form */}
               <form onSubmit={handleEmailSignup} className="px-6 pb-6">
-                {msg.error && <div className="mb-3 text-red-300 text-sm">{msg.error}</div>}
-                {msg.success && <div className="mb-3 text-emerald-300 text-sm">{msg.success}</div>}
+              {msg.error && (
+                <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2">
+                  <svg className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-red-300 text-sm flex-1">{msg.error}</p>
+                </div>
+              )}
+              {msg.success && (
+                <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-2">
+                  <svg className="h-5 w-5 text-emerald-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-emerald-300 text-sm flex-1">{msg.success}</p>
+                </div>
+              )}
 
               {/* Owner */}
               <label className="group relative block">
@@ -745,88 +727,247 @@ const Register = ({ role = 'retailer' }) => {
 
                 {/* Phone */}
                 <div className="mt-3">
-                  <label className="block text-sm mb-1 text-slate-200">Phone</label>
-                  <div className="flex items-center rounded-xl bg-white/10 text-white border border-white/15 focus-within:ring-2 focus-within:ring-emerald-400/80 focus-within:border-emerald-300/40">
-                    <span className="pl-3 pr-2 text-slate-300/90 select-none">+91</span>
+                  <label className="block text-sm mb-1.5 text-slate-200 font-medium">Phone Number</label>
+                  <div className={`flex items-center rounded-xl bg-white/10 text-white border transition-all ${
+                    phoneStatus.error 
+                      ? 'border-red-400/50 focus-within:ring-2 focus-within:ring-red-400/50 focus-within:border-red-400/70' 
+                      : phoneStatus.validated
+                      ? 'border-emerald-400/50 focus-within:ring-2 focus-within:ring-emerald-400/50 focus-within:border-emerald-400/70'
+                      : 'border-white/15 focus-within:ring-2 focus-within:ring-emerald-400/80 focus-within:border-emerald-300/40'
+                  }`}>
+                    <span className="pl-3 pr-2 text-slate-300/90 select-none font-medium">+91</span>
                     <div className="h-6 w-px bg-white/10" />
                     <input
+                      ref={phoneInputRef}
                       type="tel"
                       name="phone"
                       placeholder="9876543210"
                       value={form.phone}
                       onChange={onChange}
+                      onBlur={handlePhoneBlur}
                       required
                       inputMode="numeric"
                       pattern="[0-9]{10}"
                       maxLength={10}
                       autoComplete="tel-national"
-                      className="w-full bg-transparent px-3 py-3 outline-none placeholder-white/60"
+                      className="w-full bg-transparent px-3 py-3 outline-none placeholder-white/50 text-white"
                       aria-label="10-digit Indian mobile number"
                     />
-                  </div>
-                  <div className="mt-2 flex flex-col gap-2">
-                    {!otpVerified ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={startOtpFlow}
-                          disabled={otpBusy || sanitize10Digits(form.phone).length !== 10}
-                          className="inline-flex w-fit items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-emerald-200 hover:bg-emerald-400/20 disabled:opacity-50"
-                        >
-                          Verify with OTP
-                        </button>
-                        {otpInfo && <div className="text-xs text-slate-300">{otpInfo}</div>}
-                      </>
-                    ) : (
-                      <div className="text-xs text-emerald-300">Phone verified ✅</div>
+                    {phoneStatus.checking && (
+                      <div className="pr-3">
+                        <svg className="animate-spin h-5 w-5 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                      </div>
+                    )}
+                    {phoneStatus.validated && !phoneStatus.checking && (
+                      <div className="pr-3">
+                        <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                    {phoneStatus.error && !phoneStatus.checking && (
+                      <div className="pr-3">
+                        <svg className="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </div>
                     )}
                   </div>
-                  <p className="mt-1 text-xs text-slate-400">Enter 10 digits. Country code is fixed to India (+91).</p>
+                  {phoneStatus.message && (
+                    <p className={`mt-1.5 text-xs flex items-center gap-1.5 ${
+                      phoneStatus.error ? 'text-red-300' : phoneStatus.validated ? 'text-emerald-300' : 'text-slate-300'
+                    }`}>
+                      {phoneStatus.checking && (
+                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                      )}
+                      {phoneStatus.validated && (
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      {phoneStatus.error && (
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                      <span>{phoneStatus.message}</span>
+                    </p>
+                  )}
+                  {!phoneStatus.message && (
+                    <p className="mt-1.5 text-xs text-slate-400">Enter a valid 10-digit Indian mobile number</p>
+                  )}
                 </div>
 
                 {/* Email */}
-                <label className="group relative block mt-3">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="mail" /></span>
-                  <input
-                    type="email"
-                    name="email"
-                    placeholder="Email"
-                    value={form.email}
-                    onChange={onChange}
-                    required
-                    className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
-                  />
-                </label>
+                <div className="mt-3">
+                  <label className="block text-sm mb-1.5 text-slate-200 font-medium">Email Address</label>
+                  <div className={`relative flex items-center rounded-xl bg-white/10 text-white border transition-all ${
+                    emailStatus.error 
+                      ? 'border-red-400/50 focus-within:ring-2 focus-within:ring-red-400/50 focus-within:border-red-400/70' 
+                      : emailStatus.validated
+                      ? 'border-emerald-400/50 focus-within:ring-2 focus-within:ring-emerald-400/50 focus-within:border-emerald-400/70'
+                      : 'border-white/15 focus-within:ring-2 focus-within:ring-emerald-400/80 focus-within:border-emerald-300/40'
+                  }`}>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="mail" /></span>
+                    <input
+                      type="email"
+                      name="email"
+                      placeholder="your.email@example.com"
+                      value={form.email}
+                      onChange={onChange}
+                      onBlur={handleEmailBlur}
+                      required
+                      className="w-full pl-11 pr-10 py-3 bg-transparent outline-none placeholder-white/50 text-white"
+                    />
+                    {emailStatus.checking && (
+                      <div className="absolute right-3">
+                        <svg className="animate-spin h-5 w-5 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                      </div>
+                    )}
+                    {emailStatus.validated && !emailStatus.checking && (
+                      <div className="absolute right-3">
+                        <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                    {emailStatus.error && !emailStatus.checking && (
+                      <div className="absolute right-3">
+                        <svg className="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  {emailStatus.message && (
+                    <p className={`mt-1.5 text-xs flex items-center gap-1.5 ${
+                      emailStatus.error ? 'text-red-300' : emailStatus.validated ? 'text-emerald-300' : 'text-slate-300'
+                    }`}>
+                      {emailStatus.checking && (
+                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                      )}
+                      {emailStatus.validated && (
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      {emailStatus.error && (
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                      <span>{emailStatus.message}</span>
+                    </p>
+                  )}
+                </div>
 
               {/* Password */}
-              <label className="group relative block mt-3">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" /></span>
-                <input
-                  type="password"
-                  name="password"
-                  placeholder="Password (min 6 chars)"
-                  value={form.password}
-                  onChange={onChange}
-                  required
-                  minLength={6}
-                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
-                />
-              </label>
+              <div className="mt-3">
+                <label className="block text-sm mb-1.5 text-slate-200 font-medium">Password</label>
+                <label className="group relative block">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" /></span>
+                  <input
+                    type="password"
+                    name="password"
+                    placeholder="Create a secure password"
+                    value={form.password}
+                    onChange={onChange}
+                    required
+                    minLength={6}
+                    className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/50 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
+                  />
+                </label>
+                {form.password && (
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all ${
+                            passwordStrength.level <= 2 ? 'bg-red-400' : 
+                            passwordStrength.level <= 4 ? 'bg-yellow-400' : 
+                            'bg-emerald-400'
+                          }`}
+                          style={{ width: `${(passwordStrength.level / 6) * 100}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-medium ${passwordStrength.color}`}>
+                        {passwordStrength.text}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {form.password.length < 6 ? 'Minimum 6 characters required' : 
+                       passwordStrength.level <= 2 ? 'Consider adding uppercase, numbers, or symbols for better security' :
+                       passwordStrength.level <= 4 ? 'Good! Add special characters for even stronger security' :
+                       'Strong password ✓'}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* Confirm Password */}
-              <label className="group relative block mt-3">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" /></span>
-                <input
-                  type="password"
-                  name="confirmPassword"
-                  placeholder="Confirm Password"
-                  value={form.confirmPassword}
-                  onChange={onChange}
-                  required
-                  minLength={6}
-                  className="peer w-full pl-11 pr-3 py-3 rounded-xl bg-white/10 text-white border border-white/15 placeholder-white/60 outline-none focus:ring-2 focus:ring-emerald-400/80 focus:border-emerald-300/40 transition"
-                />
-              </label>
+              <div className="mt-3">
+                <label className="block text-sm mb-1.5 text-slate-200 font-medium">Confirm Password</label>
+                <label className={`group relative block ${form.confirmPassword && form.password !== form.confirmPassword ? 'error' : ''}`}>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300/80"><Icon name="lock" /></span>
+                  <input
+                    type="password"
+                    name="confirmPassword"
+                    placeholder="Re-enter your password"
+                    value={form.confirmPassword}
+                    onChange={onChange}
+                    required
+                    minLength={6}
+                    className={`peer w-full pl-11 pr-10 py-3 rounded-xl bg-white/10 text-white border transition-all placeholder-white/50 outline-none focus:ring-2 focus:border-emerald-300/40 ${
+                      form.confirmPassword && form.password !== form.confirmPassword
+                        ? 'border-red-400/50 focus:ring-red-400/50'
+                        : form.confirmPassword && form.password === form.confirmPassword
+                        ? 'border-emerald-400/50 focus:ring-emerald-400/50'
+                        : 'border-white/15 focus:ring-emerald-400/80'
+                    }`}
+                  />
+                  {form.confirmPassword && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {form.password === form.confirmPassword ? (
+                        <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                    </div>
+                  )}
+                </label>
+                {form.confirmPassword && form.password !== form.confirmPassword && (
+                  <p className="mt-1.5 text-xs text-red-300 flex items-center gap-1.5">
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Passwords do not match
+                  </p>
+                )}
+                {form.confirmPassword && form.password === form.confirmPassword && (
+                  <p className="mt-1.5 text-xs text-emerald-300 flex items-center gap-1.5">
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Passwords match
+                  </p>
+                )}
+              </div>
 
                 {/* GSTIN */}
                 <div className="mt-3">
@@ -886,10 +1027,33 @@ const Register = ({ role = 'retailer' }) => {
 
                 <button
                   type="submit"
-                  disabled={loading || sanitize10Digits(form.phone).length !== 10 || !otpVerified}
-                  className="mt-5 w-full relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 py-3 font-semibold text-slate-900 shadow-lg transition [--shine:linear-gradient(120deg,transparent,rgba(255,255,255,.6),transparent)] hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] hover:-translate-y-0.5 transition-transform active:scale-[.99] disabled:opacity-60"
+                  disabled={
+                    loading || 
+                    sanitize10Digits(form.phone).length !== 10 || 
+                    !phoneStatus.validated || 
+                    phoneStatus.checking || 
+                    phoneStatus.error ||
+                    !emailStatus.validated ||
+                    emailStatus.checking ||
+                    emailStatus.error ||
+                    form.password !== form.confirmPassword ||
+                    form.password.length < 6
+                  }
+                  className="mt-6 w-full relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 py-3.5 font-semibold text-slate-900 shadow-lg transition [--shine:linear-gradient(120deg,transparent,rgba(255,255,255,.6),transparent)] hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] hover:-translate-y-0.5 transition-transform active:scale-[.99] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <span className="relative z-10">{loading ? 'Creating account…' : 'Create account'}</span>
+                  <span className="relative z-10 flex items-center justify-center gap-2">
+                    {loading ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                        Creating your account...
+                      </>
+                    ) : (
+                      'Create account'
+                    )}
+                  </span>
                   <span className="absolute inset-0 opacity-0 hover:opacity-100 transition-opacity [background-image:var(--shine)] bg-[length:250%_100%] bg-[position:-100%_0] hover:animate-[shine_1.6s_ease-in-out_infinite]" />
                 </button>
 
@@ -901,6 +1065,7 @@ const Register = ({ role = 'retailer' }) => {
           </div>
         </div>
       </div>
+
 
 
       {/* keyframes for button shine + marquee */}

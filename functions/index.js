@@ -60,6 +60,10 @@ exports.claimProvisionalRetailer = claimProvisionalRetailer;
 const { sendOtp, verifyOtp } = require("./otp/flypotp");
 exports.sendOtp = sendOtp;
 exports.verifyOtp = verifyOtp;
+const { reservePhone } = require("./otp/reservePhone");
+exports.reservePhone = reservePhone;
+const { checkUniqueness } = require("./otp/checkUniqueness");
+exports.checkUniqueness = checkUniqueness;
 
 // ============================
 // Utility Modules (Internal use)
