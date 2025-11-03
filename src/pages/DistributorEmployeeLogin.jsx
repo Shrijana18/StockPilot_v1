@@ -22,7 +22,12 @@ const DistributorEmployeeLogin = () => {
 
   useEffect(() => {
     if (empId) {
-      setForm(prev => ({ ...prev, employeeId: empId }));
+      setForm(prev => ({ ...prev, employeeId: empId.toUpperCase() }));
+      // If employee ID is pre-filled, focus the PIN input for better UX
+      const pinInput = document.querySelector('input[name="pin"]');
+      if (pinInput) {
+        setTimeout(() => pinInput.focus(), 100);
+      }
     }
   }, [empId]);
 
@@ -69,8 +74,13 @@ const DistributorEmployeeLogin = () => {
         accessSections: employeeData.accessSections || {}
       });
 
-      toast.success('Login successful!');
+      // Set redirect flag BEFORE navigation to allow EmployeeRoute to detect it
       setDistributorEmployeeRedirect();
+      
+      // Small delay to ensure auth state is updated
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      toast.success('Login successful! Redirecting...');
       navigate('/distributor-employee-dashboard', { replace: true });
 
     } catch (err) {

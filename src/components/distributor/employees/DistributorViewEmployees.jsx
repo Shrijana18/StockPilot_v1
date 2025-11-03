@@ -370,25 +370,56 @@ const DistributorViewEmployees = () => {
                   </td>
                   <td className="py-3 px-4 border-b border-white/10">
                     {(emp.flypEmployeeId || emp.id) ? (
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <a
                           href={`${(typeof window !== 'undefined' && window.location ? window.location.origin : 'https://flypnow.com')}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-300 hover:text-blue-200 underline-offset-2 hover:underline text-sm"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 hover:text-blue-200 text-sm transition-all min-h-[36px] touch-target active:scale-[0.98]"
                         >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
                           Open Link
                         </a>
                         <button
-                          onClick={() => {
-                            const base = (typeof window !== 'undefined' && window.location) ? window.location.origin : 'https://flypnow.com';
-                            const loginLink = `${base}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`;
-                            navigator.clipboard.writeText(loginLink);
-                            toast.success('Login link copied!');
+                          onClick={async () => {
+                            try {
+                              const base = (typeof window !== 'undefined' && window.location) ? window.location.origin : 'https://flypnow.com';
+                              const loginLink = `${base}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`;
+                              
+                              // Try Web Share API first (works on mobile)
+                              if (navigator.share) {
+                                try {
+                                  await navigator.share({
+                                    title: 'Employee Login Link',
+                                    text: `Login link for ${emp.name || 'Employee'}`,
+                                    url: loginLink
+                                  });
+                                  toast.success('Link shared!');
+                                  return;
+                                } catch (err) {
+                                  // User cancelled or share failed, fall back to clipboard
+                                  if (err.name !== 'AbortError') {
+                                    console.log('Share failed, using clipboard:', err);
+                                  }
+                                }
+                              }
+                              
+                              // Fallback to clipboard
+                              await navigator.clipboard.writeText(loginLink);
+                              toast.success('Login link copied to clipboard!');
+                            } catch (err) {
+                              console.error('Failed to copy link:', err);
+                              toast.error('Failed to copy link. Please try again.');
+                            }
                           }}
-                          className="text-blue-300 hover:text-blue-200 underline-offset-2 hover:underline text-sm"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 text-emerald-300 hover:text-emerald-200 text-sm transition-all min-h-[36px] touch-target active:scale-[0.98]"
                         >
-                          Copy Link
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                          Copy/Share Link
                         </button>
                       </div>
                     ) : (
