@@ -55,10 +55,8 @@ const DistributorEmployeeDashboard = () => {
         return;
       }
 
-      // Check if user is properly authenticated with Employee Auth
-      // Use auth state listener for reliable detection (especially after page reload)
+      // Load employee data using session (works even if Firebase auth is lost after page reload)
       let authUnsubscribe = null;
-      let retryTimer = null;
       let loaded = false;
       
       const loadEmployeeData = async (distId, empId) => {
@@ -66,10 +64,15 @@ const DistributorEmployeeDashboard = () => {
         loaded = true;
         
         try {
-          // Use the Employee Auth UID as the document ID (set in the custom token)
-          const empRef = doc(db, 'businesses', distId, 'distributorEmployees', empAuth.currentUser.uid);
+          // CRITICAL FIX: Use employeeId from session directly as document ID
+          // The custom token uses employeeDoc.id as UID, which equals employeeId from session
+          // This works even if empAuth.currentUser is null after page reload (in-memory persistence)
+          const employeeDocId = empAuth.currentUser?.uid || empId;
+          
+          const empRef = doc(db, 'businesses', distId, 'distributorEmployees', employeeDocId);
           const empSnap = await getDoc(empRef);
           if (!empSnap.exists()) {
+            console.warn('[DistributorEmployeeDashboard] Employee document not found:', { distId, empId, employeeDocId });
             if (!hasNavigated) {
               setHasNavigated(true);
               navigate('/distributor-employee-login', { replace: true });
@@ -92,34 +95,25 @@ const DistributorEmployeeDashboard = () => {
         }
       };
 
-      // Set up auth state listener (most reliable method)
-      authUnsubscribe = onAuthStateChanged(empAuth, (user) => {
-        if (user && !loaded) {
-          // Auth is ready, load employee data
-          loadEmployeeData(did, eid);
-        }
-      });
-
-      // Also check immediately in case auth is already ready
-      if (empAuth.currentUser && !loaded) {
+      // PRODUCTION FIX: Load employee data immediately using session (works even if auth is lost)
+      // The session has employeeId which is the same as the document ID
+      // This ensures the dashboard loads even after page reload with in-memory persistence
+      if (!loaded && eid && did) {
+        // Load immediately using session data (most reliable for production)
         loadEmployeeData(did, eid);
       }
 
-      // Fallback timeout - if auth doesn't come through after 3 seconds, redirect to login
-      retryTimer = setTimeout(() => {
-        if (!empAuth.currentUser && !loaded) {
-          // Still no auth after waiting - redirect to login
-          clearDistributorEmployeeSession();
-          if (!hasNavigated) {
-            setHasNavigated(true);
-            navigate('/distributor-employee-login', { replace: true });
-          }
+      // Set up auth state listener as backup (in case auth state is restored)
+      authUnsubscribe = onAuthStateChanged(empAuth, (user) => {
+        if (user && !loaded && eid && did) {
+          // Auth is restored, but we already loaded from session above
+          // This is just for consistency - no need to reload
+          console.log('[DistributorEmployeeDashboard] Auth state restored, but data already loaded from session');
         }
-      }, 3000); // Wait 3 seconds total
+      });
 
       return () => {
         if (authUnsubscribe) authUnsubscribe();
-        if (retryTimer) clearTimeout(retryTimer);
       };
     }, 1000); // Increased from 400ms to 1000ms for mobile/slow networks
 
