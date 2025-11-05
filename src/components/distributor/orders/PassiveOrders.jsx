@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { addDoc, collection, serverTimestamp, getDocs } from "firebase/firestore";
-import { db, empAuth } from "../../../firebase/firebaseConfig";
+import { onAuthStateChanged } from "firebase/auth";
+import { addDoc, collection, serverTimestamp, getDocs, getDoc, doc, query, where } from "firebase/firestore";
+import { db, empDB, empAuth, auth } from "../../../firebase/firebaseConfig";
+import { getDistributorEmployeeSession } from "../../../utils/distributorEmployeeSession";
 import { toast } from "react-toastify";
 
 /**
@@ -35,7 +36,7 @@ const QUICK_PICKS = [
   { id: "SKU-003", name: "Marie 250g", sku: "BM250", brand: "Britannia", unit: "pkt", price: 30 },
 ];
 
-const DEBUG = false;
+const DEBUG = true; // Enable debug logging to troubleshoot retailer type detection
 
 // ---------- Component ----------
 export default function PassiveOrders() {
@@ -71,12 +72,23 @@ export default function PassiveOrders() {
 
   const searchInputRef = useRef(null);
 
-  // Resolve distributorId from auth (handles delayed auth availability)
+  // Resolve distributorId from session (for employees) or auth (for distributor owner)
   useEffect(() => {
-    const auth = getAuth();
-    const unsub = onAuthStateChanged(auth, (u) => setDistributorId(u?.uid || null));
-    // also set immediately if already available
-    setDistributorId(auth.currentUser?.uid || null);
+    // Priority: Check session first (for distributor employees)
+    const session = getDistributorEmployeeSession();
+    if (session?.distributorId) {
+      setDistributorId(session.distributorId);
+      return;
+    }
+
+    // Fallback: Check main auth (for distributor owner)
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u) setDistributorId(u.uid);
+    });
+    // Also set immediately if already available
+    if (auth.currentUser) {
+      setDistributorId(auth.currentUser.uid);
+    }
     return () => unsub();
   }, []);
 
@@ -90,9 +102,15 @@ export default function PassiveOrders() {
       let connected = [];
       let provisional = [];
 
+      // Use empDB ONLY if employee is logged in AND has valid empAuth
+      // For distributor owners, must use db so Security Rules see primary auth
+      const session = getDistributorEmployeeSession();
+      const hasEmployeeAuth = session && empAuth.currentUser;
+      const firestore = hasEmployeeAuth ? empDB : db;
+
       // Read connectedRetailers (allowed by rules for owner)
       try {
-        const conRef = collection(db, "businesses", distributorId, "connectedRetailers");
+        const conRef = collection(firestore, "businesses", distributorId, "connectedRetailers");
         const conSnap = await getDocs(conRef);
         connected = conSnap.docs.map((d) => ({ id: d.id, ...(d.data() || {}), __src: "connected" }));
         if (DEBUG) console.log("[Retailers] connectedRetailers size:", conSnap.size);
@@ -102,7 +120,7 @@ export default function PassiveOrders() {
 
       // Read provisionalRetailers (may be blocked by global rule; do not fail overall)
       try {
-        const provRef = collection(db, "businesses", distributorId, "provisionalRetailers");
+        const provRef = collection(firestore, "businesses", distributorId, "provisionalRetailers");
         const provSnap = await getDocs(provRef);
         provisional = provSnap.docs.map((d) => ({ id: d.id, ...(d.data() || {}), __src: "provisional" }));
         if (DEBUG) console.log("[Retailers] provisionalRetailers size:", provSnap.size);
@@ -110,19 +128,62 @@ export default function PassiveOrders() {
         if (DEBUG) console.warn("[Retailers] provisionalRetailers read blocked by rules or missing path:", e);
       }
 
+      // Also read global provisionalRetailers collection to cross-reference
+      // This helps identify retailers in connectedRetailers that have a provisionalId
+      let globalProvisionalIds = new Set();
+      try {
+        const globalProvRef = collection(firestore, "provisionalRetailers");
+        const globalProvSnap = await getDocs(globalProvRef);
+        globalProvisionalIds = new Set(globalProvSnap.docs.map(d => d.id));
+        if (DEBUG) console.log("[Retailers] Global provisionalRetailers size:", globalProvSnap.size);
+      } catch (e) {
+        if (DEBUG) console.warn("[Retailers] Global provisionalRetailers read blocked by rules:", e);
+      }
+
       const all = [...connected, ...provisional]
-        .map((r) => ({
-          id: r.retailerId || r.id,
-          displayName: r.retailerName || r.name || r.displayName || r.shopName || "Retailer",
-          phone: r.retailerPhone || r.phone || "",
-          email: r.retailerEmail || r.email || "",
-          type:
-            r.__src === "provisional" || r.source === "provisioned" || r.provisionalId
-              ? "provisional"
-              : "connected",
-          provisionalId: r.provisionalId || null,
-          status: r.status || "",
-        }))
+        .map((r) => {
+          // Determine if retailer is provisional
+          // Check multiple indicators: source collection, source field, status, and provisionalId
+          const hasProvisionalId = r.provisionalId && 
+            (typeof r.provisionalId === 'string' ? r.provisionalId.trim().length > 0 : true);
+          
+          // Check if provisionalId exists in global provisionalRetailers collection
+          const hasValidProvisionalId = hasProvisionalId && globalProvisionalIds.has(r.provisionalId);
+          
+          const isProvisional = 
+            r.__src === "provisional" ||
+            (typeof r.source === "string" && r.source.toLowerCase().startsWith("provisioned")) ||
+            (typeof r.status === "string" && r.status.toLowerCase().startsWith("provisioned")) ||
+            hasValidProvisionalId ||
+            hasProvisionalId; // Fallback: if provisionalId exists but we couldn't verify, still mark as provisional
+          
+          // DEBUG: Log retailer data for troubleshooting
+          if (DEBUG) {
+            console.log('[PassiveOrders] Retailer data:', {
+              id: r.retailerId || r.id,
+              displayName: r.retailerName || r.name || r.displayName || r.shopName,
+              __src: r.__src,
+              source: r.source,
+              status: r.status,
+              provisionalId: r.provisionalId,
+              isProvisional,
+              rawData: r
+            });
+          }
+          
+          return {
+            id: r.retailerId || r.id,
+            displayName: r.retailerName || r.name || r.displayName || r.shopName || "Retailer",
+            phone: r.retailerPhone || r.phone || "",
+            email: r.retailerEmail || r.email || "",
+            type: isProvisional ? "provisional" : "connected",
+            provisionalId: r.provisionalId || (r.__src === "provisional" ? r.id : null),
+            status: r.status || "",
+            source: r.source || "", // Preserve source field (important for provisional detection)
+            // Preserve raw data for verification
+            rawData: r
+          };
+        })
         .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
 
       const qtxt = norm(retailerQuery);
@@ -156,9 +217,15 @@ export default function PassiveOrders() {
 
       let items = [];
 
+      // Use empDB ONLY if employee is logged in AND has valid empAuth
+      // For distributor owners, must use db so Security Rules see primary auth
+      const session = getDistributorEmployeeSession();
+      const hasEmployeeAuth = session && empAuth.currentUser;
+      const firestore = hasEmployeeAuth ? empDB : db;
+
       // 1) Try /inventory
       try {
-        const invRef = collection(db, "businesses", distributorId, "inventory");
+        const invRef = collection(firestore, "businesses", distributorId, "inventory");
         const invSnap = await getDocs(invRef);
         if (invSnap.size > 0) {
           items = invSnap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
@@ -171,7 +238,7 @@ export default function PassiveOrders() {
       // 2) Fallback to /products
       if (!items.length) {
         try {
-          const prodRef = collection(db, "businesses", distributorId, "products");
+          const prodRef = collection(firestore, "businesses", distributorId, "products");
           const prodSnap = await getDocs(prodRef);
           if (prodSnap.size > 0) {
             items = prodSnap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
@@ -185,7 +252,7 @@ export default function PassiveOrders() {
       // 3) Fallback to /items (POS)
       if (!items.length) {
         try {
-          const posRef = collection(db, "businesses", distributorId, "items");
+          const posRef = collection(firestore, "businesses", distributorId, "items");
           const posSnap = await getDocs(posRef);
           if (posSnap.size > 0) {
             items = posSnap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
@@ -323,36 +390,260 @@ export default function PassiveOrders() {
   const handleCreateOrder = async () => {
     const err = validate();
     if (err) return toast.error(err);
-    try {
-      const user = getAuth().currentUser;
-      if (!user) return toast.error("Please login to create order.");
-      const distributorId = user.uid;
+    
+    if (!distributorId) {
+      return toast.error("Distributor ID not found. Please refresh and try again.");
+    }
 
+    try {
       setSubmitting(true);
       const safeRetailerName = (selectedRetailer?.displayName || "").trim();
 
-      await addDoc(collection(db, "businesses", distributorId, "orderRequests"), {
-        createdBy: "distributor",
-        creatorUid: user.uid,
-        creatorEmail: user.email || null,
-        // Rich createdBy for auditing (employee/distributor)
-        ...(empAuth?.currentUser
-          ? { createdBy: { type: 'employee', uid: empAuth.currentUser.uid, name: empAuth.currentUser.displayName || null, flypEmployeeId: null } }
-          : { createdBy: { type: 'distributor', uid: user.uid, name: user.displayName || null } }
-        ),
+      // Get employee session if available (for distributor employees)
+      const session = getDistributorEmployeeSession();
+      const isEmployee = !!session;
+      const ownerAuth = auth.currentUser; // Use imported auth directly
+      const employeeAuth = empAuth.currentUser;
+
+      // Determine creator info
+      let creatorUid = null;
+      let creatorEmail = null;
+      let createdByInfo = null;
+
+      if (isEmployee && employeeAuth) {
+        // Distributor employee creating order
+        creatorUid = employeeAuth.uid; // Employee auth UID (from custom token)
+        createdByInfo = {
+          type: 'employee',
+          uid: employeeAuth.uid,
+          employeeId: session.employeeId, // Employee document ID
+          name: session.name || null,
+          flypEmployeeId: null // Can be added if available in session
+        };
+      } else if (ownerAuth) {
+        // Distributor owner creating order
+        creatorUid = ownerAuth.uid;
+        creatorEmail = ownerAuth.email || null;
+        createdByInfo = {
+          type: 'distributor',
+          uid: ownerAuth.uid,
+          name: ownerAuth.displayName || null
+        };
+      } else {
+        return toast.error("Please login to create order.");
+      }
+
+      // CRITICAL: Always use db (primary app) for distributor owners
+      // Only use empDB if employee is logged in AND has valid empAuth
+      // For distributor owners, must use db so Security Rules see primary auth
+      const firestore = (isEmployee && employeeAuth) ? empDB : db;
+
+      // CRITICAL VALIDATION: For distributor owners, ensure distributorId matches ownerAuth.uid
+      if (!isEmployee && ownerAuth && distributorId !== ownerAuth.uid) {
+        console.error('[PassiveOrders] MISMATCH: distributorId does not match owner UID', {
+          distributorId,
+          ownerUid: ownerAuth.uid
+        });
+        return toast.error("Distributor ID mismatch. Please refresh and try again.");
+      }
+
+      // CRITICAL: Validate selectedRetailer type before creating order
+      // Double-check the retailer type by checking its data in Firestore
+      let isProvisionalRetailer = selectedRetailer.type === "provisional";
+      
+      // Additional validation: Re-check retailer data if type seems wrong
+      if (
+        !isProvisionalRetailer && (
+          selectedRetailer.provisionalId ||
+          (typeof selectedRetailer.status === "string" && selectedRetailer.status.toLowerCase().startsWith("provisioned")) ||
+          (typeof selectedRetailer.source === "string" && selectedRetailer.source.toLowerCase().startsWith("provisioned"))
+        )
+      ) {
+        console.warn('[PassiveOrders] Retailer type mismatch detected! Retailer has provisional indicators but type is "connected". Re-checking...', {
+          selectedRetailer,
+          provisionalId: selectedRetailer.provisionalId,
+          status: selectedRetailer.status,
+          source: selectedRetailer.source
+        });
+        // Force provisional if we have clear indicators
+        isProvisionalRetailer = true;
+      }
+
+      // CRITICAL: Final verification by checking Firestore directly
+      // This ensures we have the most up-to-date retailer information
+      // We need to check multiple ways because provisional retailers can be stored differently
+      try {
+        let verifiedIsProvisional = false;
+        let verificationSource = null;
+        let verificationData = null;
+
+        // Method 1: Check provisionalRetailers collection by provisionalId (most reliable)
+        if (selectedRetailer.provisionalId) {
+          try {
+            const provisionalRetailerRef = doc(firestore, "provisionalRetailers", selectedRetailer.provisionalId);
+            const provisionalRetailerSnap = await getDoc(provisionalRetailerRef);
+            if (provisionalRetailerSnap.exists()) {
+              const provData = provisionalRetailerSnap.data();
+              verifiedIsProvisional = true;
+              verificationSource = "provisionalRetailers";
+              verificationData = provData;
+              console.log('[PassiveOrders] Firestore verification: Retailer is PROVISIONAL (found in provisionalRetailers collection)', {
+                provisionalId: selectedRetailer.provisionalId,
+                status: provData.status
+              });
+            }
+          } catch (provError) {
+            console.warn('[PassiveOrders] Failed to check provisionalRetailers:', provError);
+          }
+        }
+
+        // Method 2: Search connectedRetailers by provisionalId (if not already verified)
+        if (!verifiedIsProvisional && selectedRetailer.provisionalId) {
+          try {
+            const connectedRetailersRef = collection(firestore, "businesses", distributorId, "connectedRetailers");
+            const q = query(connectedRetailersRef, where("provisionalId", "==", selectedRetailer.provisionalId));
+            const querySnap = await getDocs(q);
+            if (!querySnap.empty) {
+              const connectedData = querySnap.docs[0].data();
+              // Check if this connected retailer is actually provisional
+              // NOTE: Cloud function sets status to "accepted" but source is "provisioned" for provisional retailers
+              if (
+                connectedData.provisionalId ||
+                (typeof connectedData.source === "string" && connectedData.source.toLowerCase().startsWith("provisioned")) ||
+                (typeof connectedData.status === "string" && connectedData.status.toLowerCase().startsWith("provisioned")) ||
+                connectedData.status === "provisional" ||
+                (connectedData.status === "accepted" && typeof connectedData.source === "string" && connectedData.source.toLowerCase().startsWith("provisioned"))
+              ) {
+                verifiedIsProvisional = true;
+                verificationSource = "connectedRetailers (by provisionalId)";
+                verificationData = connectedData;
+                console.log('[PassiveOrders] Firestore verification: Retailer is PROVISIONAL (found in connectedRetailers by provisionalId)', {
+                  provisionalId: selectedRetailer.provisionalId,
+                  source: connectedData.source,
+                  status: connectedData.status
+                });
+              }
+            }
+          } catch (queryError) {
+            console.warn('[PassiveOrders] Failed to query connectedRetailers by provisionalId:', queryError);
+          }
+        }
+
+        // Method 3: Check connectedRetailers by document ID (fallback)
+        if (!verifiedIsProvisional) {
+          try {
+            const connectedRetailerRef = doc(firestore, "businesses", distributorId, "connectedRetailers", selectedRetailer.id);
+            const connectedRetailerSnap = await getDoc(connectedRetailerRef);
+            
+            if (connectedRetailerSnap.exists()) {
+              const connectedData = connectedRetailerSnap.data();
+              // Check if this connected retailer is actually provisional
+              // NOTE: Cloud function sets status to "accepted" but source is "provisioned"
+              if (
+                connectedData.provisionalId ||
+                (typeof connectedData.source === "string" && connectedData.source.toLowerCase().startsWith("provisioned")) ||
+                (typeof connectedData.status === "string" && connectedData.status.toLowerCase().startsWith("provisioned")) ||
+                connectedData.status === "provisional"
+              ) {
+                verifiedIsProvisional = true;
+                verificationSource = "connectedRetailers (by document ID)";
+                verificationData = connectedData;
+                console.log('[PassiveOrders] Firestore verification: Retailer is PROVISIONAL (found in connectedRetailers by document ID)', {
+                  retailerId: selectedRetailer.id,
+                  provisionalId: connectedData.provisionalId,
+                  source: connectedData.source,
+                  status: connectedData.status
+                });
+              }
+            }
+          } catch (docError) {
+            console.warn('[PassiveOrders] Failed to check connectedRetailers by document ID:', docError);
+          }
+        }
+
+        // Use verified result if we got one
+        if (verifiedIsProvisional) {
+          isProvisionalRetailer = true;
+          console.log('[PassiveOrders] Final verification result: PROVISIONAL', {
+            verificationSource,
+            verificationData
+          });
+        } else {
+          console.log('[PassiveOrders] Firestore verification: No provisional indicators found, using fallback logic', {
+            selectedRetailerType: selectedRetailer.type,
+            selectedRetailerProvisionalId: selectedRetailer.provisionalId,
+            selectedRetailerStatus: selectedRetailer.status
+          });
+        }
+      } catch (firestoreError) {
+        console.error('[PassiveOrders] Firestore verification failed (using fallback logic):', firestoreError);
+        // If Firestore check fails, rely on the existing logic
+        // Don't change isProvisionalRetailer if verification fails
+      }
+      
+      console.log('[PassiveOrders] Creating order:', {
+        isEmployee,
+        hasEmployeeAuth: !!employeeAuth,
+        hasOwnerAuth: !!ownerAuth,
+        ownerUid: ownerAuth?.uid,
+        creatorUid,
         distributorId,
-        retailerMode: selectedRetailer.type === "provisional" ? "passive" : "active",
-        isProvisional: selectedRetailer.type === "provisional",
-        provisionalRetailerId: selectedRetailer.type === "provisional" ? selectedRetailer.id : null,
+        distributorIdMatchesOwner: !isEmployee ? (distributorId === ownerAuth?.uid) : 'N/A',
+        usingFirestore: firestore === empDB ? 'empDB' : 'db',
+        selectedRetailer: {
+          id: selectedRetailer.id,
+          displayName: selectedRetailer.displayName,
+          type: selectedRetailer.type,
+          provisionalId: selectedRetailer.provisionalId,
+          status: selectedRetailer.status
+        },
+        isProvisionalRetailer,
+        retailerMode: isProvisionalRetailer ? "passive" : "active",
+        finalDecision: isProvisionalRetailer ? "PASSIVE ORDER" : "ACTIVE ORDER"
+      });
+
+      // Debug log for provisional decision
+      console.log("[PassiveOrders] ✅ FINAL PROVISIONAL DECISION", {
+        retailerName: safeRetailerName,
+        isProvisionalRetailer,
+        selectedRetailer,
+      });
+
+      const _isProv = (
+        isProvisionalRetailer ||
+        selectedRetailer?.type === "provisional" ||
+        (typeof selectedRetailer?.source === "string" && selectedRetailer.source.toLowerCase().startsWith("provisioned")) ||
+        (typeof selectedRetailer?.status === "string" && selectedRetailer.status.toLowerCase().startsWith("provisioned")) ||
+        !!selectedRetailer?.provisionalId
+      );
+
+      await addDoc(collection(firestore, "businesses", distributorId, "orderRequests"), {
+        // CRITICAL: createdBy must be STRING "distributor" for Firestore rules
+        createdBy: "distributor",
+        creatorUid: creatorUid,
+        creatorEmail: creatorEmail,
+        // Rich creator details for auditing (separate field, doesn't affect rules)
+        ...(createdByInfo ? { creatorDetails: createdByInfo } : {}),
+        distributorId,
+        retailerMode: _isProv ? "passive" : "active",
+        mode: _isProv ? "passive" : "active", // redundancy
+        isProvisional: _isProv,
+        provisionalRetailerId: _isProv ? (selectedRetailer?.provisionalId || selectedRetailer?.id) : null,
         status: "Requested",
+        statusCode: "REQUESTED",
+        statusTimestamps: {
+          requestedAt: serverTimestamp()
+        },
+        quote: null,
+        shipment: { courier: null, awb: null, packedAt: null, shippedAt: null, deliveredAt: null },
         createdAt: serverTimestamp(),
-        retailerId: selectedRetailer.type === "connected" ? selectedRetailer.id : null,
+        retailerId: !_isProv ? selectedRetailer.id : null,
         retailerInfo: {
           name: safeRetailerName,
           phone: selectedRetailer.phone || "",
           email: selectedRetailer.email || "",
           type: selectedRetailer.type,
-          provisionalId: selectedRetailer.type === "provisional" ? selectedRetailer.id : null,
+          provisionalId: selectedRetailer.type === "provisional" ? (selectedRetailer.provisionalId || selectedRetailer.id) : null,
         },
         items: cart.map((i) => ({
           name: i.name,

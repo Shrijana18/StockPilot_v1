@@ -59,6 +59,8 @@ export function isValidOrderStatus(status) {
 export const STATUS_ALIASES = Object.freeze({
   PROFORMA_SENT: ORDER_STATUSES.QUOTED, // alias used in older commits / UI copy
   PLACED: ORDER_STATUSES.REQUESTED,     // sometimes shown as "Placed"
+  REQUESTED: ORDER_STATUSES.REQUESTED,
+  PENDING: ORDER_STATUSES.PACKED,       // older UI called this Pending
 });
 
 /**
@@ -78,15 +80,20 @@ export function normalizeStatusCode(doc = {}) {
       return ORDER_STATUSES.ACCEPTED;
     case 'REJECTED':
       return ORDER_STATUSES.REJECTED;
-    case 'PLACED':
-    case 'REQUESTED':
-      return ORDER_STATUSES.REQUESTED;
+    case 'DIRECT':
+      return ORDER_STATUSES.DIRECT;
+    case 'PACKED':
+    case 'PENDING':
+      return ORDER_STATUSES.PACKED; // unify older "Pending" with PACKED step
     case 'SHIPPED':
       return ORDER_STATUSES.SHIPPED;
     case 'DELIVERED':
       return ORDER_STATUSES.DELIVERED;
     case 'INVOICED':
       return ORDER_STATUSES.INVOICED;
+    case 'PLACED':
+    case 'REQUESTED':
+      return ORDER_STATUSES.REQUESTED;
     default:
       return undefined;
   }
@@ -106,4 +113,54 @@ export function isProformaPending(doc = {}) {
 export function isTerminalStatus(doc = {}) {
   const code = normalizeStatusCode(doc);
   return code === ORDER_STATUSES.REJECTED || code === ORDER_STATUSES.DELIVERED || code === ORDER_STATUSES.INVOICED;
+}
+
+/**
+ * Canonical transition graph used by both Active & Passive flows.
+ * We keep PACKED as the step name in code; older UI that says "Pending" maps to PACKED.
+ */
+export const ORDER_TRANSITIONS = Object.freeze({
+  [ORDER_STATUSES.REQUESTED]: [ORDER_STATUSES.QUOTED, ORDER_STATUSES.REJECTED, ORDER_STATUSES.DIRECT],
+  [ORDER_STATUSES.QUOTED]: [ORDER_STATUSES.ACCEPTED, ORDER_STATUSES.REJECTED],
+  [ORDER_STATUSES.ACCEPTED]: [ORDER_STATUSES.PACKED],
+  [ORDER_STATUSES.PACKED]: [ORDER_STATUSES.SHIPPED],
+  [ORDER_STATUSES.SHIPPED]: [ORDER_STATUSES.DELIVERED],
+  [ORDER_STATUSES.DELIVERED]: [ORDER_STATUSES.INVOICED],
+  [ORDER_STATUSES.REJECTED]: [],
+  [ORDER_STATUSES.DIRECT]: [ORDER_STATUSES.PACKED],
+  [ORDER_STATUSES.INVOICED]: [],
+});
+
+/** Return the normalized status code for a given doc or code string. */
+export function codeOf(input) {
+  if (typeof input === 'string') return normalizeStatusCode({ status: input });
+  return normalizeStatusCode(input);
+}
+
+/** Whether transition is allowed according to the canonical graph. */
+export function canTransition(from, to) {
+  const f = codeOf(from);
+  const t = codeOf(to);
+  return !!(f && t && ORDER_TRANSITIONS[f]?.includes(t));
+}
+
+/** Next allowed statuses for a given status */
+export function nextStatuses(from) {
+  const f = codeOf(from);
+  return (ORDER_TRANSITIONS[f] || []).slice();
+}
+
+/** Create a timeline entry object */
+export function timelineEntry(statusCode, actor = 'system') {
+  return { status: statusCode, at: new Date(), by: actor };
+}
+
+/** Determine if an order is passive/provisional */
+export function isPassiveOrder(doc = {}) {
+  return (
+    doc?.retailerMode === 'passive' ||
+    doc?.mode === 'passive' ||
+    doc?.isProvisional === true ||
+    !!doc?.provisionalRetailerId
+  );
 }

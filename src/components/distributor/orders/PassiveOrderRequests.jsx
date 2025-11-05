@@ -11,6 +11,19 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "../../../firebase/firebaseConfig";
+import { doc, updateDoc, arrayUnion, serverTimestamp } from "firebase/firestore";
+import { ORDER_STATUSES, canTransition, codeOf } from "../../../constants/orderStatus";
+
+// map status → statusTimestamps field name
+const TS_FIELDS = {
+  REQUESTED: "requestedAt",
+  QUOTED: "quotedAt",
+  ACCEPTED: "acceptedAt",
+  PACKED: "packedAt",
+  SHIPPED: "shippedAt",
+  DELIVERED: "deliveredAt",
+  REJECTED: "rejectedAt",
+};
 
 // ---------- helpers ----------
 const money = (n) => {
@@ -32,7 +45,7 @@ const fmtDate = (v) => {
 const cx = (...arr) => arr.filter(Boolean).join(" ");
 
 // allowed statuses used in UI
-const STATUSES = ["All", "Requested", "Confirmed", "Packed", "Dispatched", "Delivered", "Cancelled"];
+const STATUSES = ["All", "Requested", "Quoted", "Accepted", "Packed", "Shipped", "Delivered", "Rejected"];
 
 function Drawer({ open, onClose, children, title }) {
   if (!open) return null;
@@ -69,6 +82,43 @@ function buildPassiveOrdersQuery(distributorId, { status, pageSize = 25, cursor,
   }
   return baseQuery;
 }
+
+// ---------- unified order status helpers ----------
+async function setOrderStatus(distributorId, orderId, currentStatus, nextStatus, extra = {}) {
+  const force = !!extra?._forceTransition;
+  if (!force && !canTransition(currentStatus, nextStatus)) {
+    if (process?.env?.NODE_ENV !== 'production') {
+      console.warn("Invalid transition", currentStatus, "→", nextStatus);
+    }
+    return;
+  }
+  if ('_forceTransition' in extra) {
+    delete extra._forceTransition;
+  }
+  const ref = doc(db, "businesses", distributorId, "orderRequests", orderId);
+  const tsField = TS_FIELDS[nextStatus] || null;
+  const patch = {
+    status: nextStatus,
+    statusCode: nextStatus,
+    ...extra,
+  };
+  if (tsField) {
+    patch[`statusTimestamps.${tsField}`] = serverTimestamp();
+  }
+  patch.auditTrail = arrayUnion({
+    status: nextStatus,
+    by: "distributor",
+    at: new Date().toISOString(),
+  });
+  await updateDoc(ref, patch);
+}
+
+const quoteOrder   = (distId, id, cur, quote) => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.QUOTED,   { quote });
+const acceptOrder  = (distId, id, cur)        => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.ACCEPTED);
+const pendOrder    = (distId, id, cur)        => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.PACKED);
+const shipOrder    = (distId, id, cur, ship)  => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.SHIPPED,  { shipment: ship });
+const deliverOrder = (distId, id, cur, info)  => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.DELIVERED, { shipment: { ...(info||{}), deliveredAt: serverTimestamp() }});
+const rejectOrder  = (distId, id, cur, note)  => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.REJECTED, { rejectionNote: note || null });
 
 // ---------- component ----------
 export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "All" }) {
@@ -110,6 +160,11 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
           const snap = await getDocs(query(base, ...parts, limit(pageSize)));
           const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
+          // Defensive fallback: ensure isProvisional is set for passive mode if missing
+          for (const doc of docs) {
+            doc.isProvisional = doc.isProvisional ?? (doc.retailerMode === "passive");
+          }
+
           // sort client-side by createdAt desc
           docs.sort((a, b) => {
             const da = toDate(a.createdAt)?.getTime() ?? 0;
@@ -138,6 +193,11 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
 
         const snap = await getDocs(q);
         const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+        // Defensive fallback: ensure isProvisional is set for passive mode if missing
+        for (const doc of docs) {
+          doc.isProvisional = doc.isProvisional ?? (doc.retailerMode === "passive");
+        }
 
         if (reset) {
           setRows(docs);
@@ -286,19 +346,14 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                   <span
                     className={cx(
                       "text-xs px-2 py-0.5 rounded-full border",
-                      r.status === "Requested"
-                        ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                        : r.status === "Confirmed"
-                        ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                        : r.status === "Packed"
-                        ? "bg-sky-500/10 text-sky-300 border-sky-500/30"
-                        : r.status === "Dispatched"
-                        ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"
-                        : r.status === "Delivered"
-                        ? "bg-emerald-600/10 text-emerald-300 border-emerald-600/30"
-                        : r.status === "Cancelled"
-                        ? "bg-rose-500/10 text-rose-300 border-rose-500/30"
-                        : "bg-white/5 text-slate-300 border-slate-600/40"
+                      (r.status === "Requested") ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                      : (r.status === "Quoted" || r.status === "Proforma Sent") ? "bg-yellow-500/10 text-yellow-300 border-yellow-500/30"
+                      : (r.status === "Accepted" || r.status === "Confirmed") ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                      : (r.status === "Packed" || r.status === "Pending") ? "bg-sky-500/10 text-sky-300 border-sky-500/30"
+                      : (r.status === "Shipped" || r.status === "Dispatched") ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"
+                      : (r.status === "Delivered") ? "bg-emerald-600/10 text-emerald-300 border-emerald-600/30"
+                      : (r.status === "Rejected" || r.status === "Cancelled") ? "bg-rose-500/10 text-rose-300 border-rose-500/30"
+                      : "bg-white/5 text-slate-300 border-slate-600/40"
                     )}
                   >
                     {r.status || "Requested"}
@@ -410,6 +465,79 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                   <div className="text-sm whitespace-pre-wrap">{selected.notes}</div>
                 </div>
               ) : null}
+
+              <div className="rounded-lg border border-slate-700/50 p-3">
+                <div className="text-xs text-slate-400 mb-2">Actions</div>
+                {(() => {
+                  const cur = codeOf(selected.statusCode || selected.status);
+                  return (
+                    <div className="flex flex-wrap gap-2">
+                      {/* Send Quote: keep hidden for passive + requested */}
+                      {canTransition(cur, ORDER_STATUSES.QUOTED) &&
+                        !(selected?.retailerMode === "passive" && cur === ORDER_STATUSES.REQUESTED) && (
+                          <button
+                            className="px-3 py-1.5 rounded-lg bg-amber-400/20 text-amber-200 border border-amber-400/40 hover:bg-amber-400/30"
+                            onClick={async () => { await quoteOrder(distributorId, selected.id, cur, null); reload(); setDetailOpen(false); }}
+                          >Send Quote</button>
+                      )}
+                      {/* Accept: show if can transition OR (passive + requested) */}
+                      {(canTransition(cur, ORDER_STATUSES.ACCEPTED) ||
+                        (selected?.retailerMode === "passive" && cur === ORDER_STATUSES.REQUESTED)) && (
+                        <button
+                          className="px-3 py-1.5 rounded-lg bg-emerald-400/20 text-emerald-200 border border-emerald-400/40 hover:bg-emerald-400/30"
+                          onClick={async () => {
+                            await setOrderStatus(
+                              distributorId,
+                              selected.id,
+                              cur,
+                              ORDER_STATUSES.ACCEPTED,
+                              { _forceTransition: true }
+                            );
+                            reload();
+                            setDetailOpen(false);
+                          }}
+                        >Accept</button>
+                      )}
+                      {canTransition(cur, ORDER_STATUSES.PACKED) && (
+                        <button
+                          className="px-3 py-1.5 rounded-lg bg-sky-400/20 text-sky-200 border border-sky-400/40 hover:bg-sky-400/30"
+                          onClick={async () => { await pendOrder(distributorId, selected.id, cur); reload(); setDetailOpen(false); }}
+                        >Mark Pending</button>
+                      )}
+                      {canTransition(cur, ORDER_STATUSES.SHIPPED) && (
+                        <button
+                          className="px-3 py-1.5 rounded-lg bg-indigo-400/20 text-indigo-200 border border-indigo-400/40 hover:bg-indigo-400/30"
+                          onClick={async () => { await shipOrder(distributorId, selected.id, cur, { shippedAt: serverTimestamp() }); reload(); setDetailOpen(false); }}
+                        >Ship</button>
+                      )}
+                      {canTransition(cur, ORDER_STATUSES.DELIVERED) && (
+                        <button
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30"
+                          onClick={async () => { await deliverOrder(distributorId, selected.id, cur); reload(); setDetailOpen(false); }}
+                        >Deliver</button>
+                      )}
+                      {/* Reject: show if can transition OR (passive + requested) */}
+                      {(canTransition(cur, ORDER_STATUSES.REJECTED) ||
+                        (selected?.retailerMode === "passive" && cur === ORDER_STATUSES.REQUESTED)) && (
+                        <button
+                          className="px-3 py-1.5 rounded-lg bg-rose-400/20 text-rose-200 border border-rose-400/40 hover:bg-rose-400/30"
+                          onClick={async () => {
+                            await setOrderStatus(
+                              distributorId,
+                              selected.id,
+                              cur,
+                              ORDER_STATUSES.REJECTED,
+                              { _forceTransition: true }
+                            );
+                            reload();
+                            setDetailOpen(false);
+                          }}
+                        >Reject</button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           </div>
         )}

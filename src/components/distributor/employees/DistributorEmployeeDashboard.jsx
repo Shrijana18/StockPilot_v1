@@ -6,6 +6,7 @@ import { httpsCallable } from 'firebase/functions';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { getDistributorEmployeeSession, clearDistributorEmployeeSession, isDistributorEmployeeRedirect, clearDistributorEmployeeRedirect } from '../../../utils/distributorEmployeeSession';
+import { logoutUser } from '../../../utils/authUtils';
 
 // Import distributor components
 import AddRetailerModal from '../AddRetailerModal';
@@ -174,19 +175,32 @@ const DistributorEmployeeDashboard = () => {
   }, [activeTab]);
 
   const handleLogout = async () => {
-    if (distributorId && flypEmployeeId) {
-      try {
-        await setDoc(
-          doc(db, 'businesses', distributorId, 'distributorEmployees', flypEmployeeId),
-          { online: false, lastSeen: serverTimestamp() },
-          { merge: true }
-        );
-      } catch (e) {
-        console.warn('Presence clear failed (non-fatal):', e);
+    try {
+      // Update employee presence status (use employeeId which is the document ID)
+      const employeeDocId = employeeId || employee?.id || empAuth.currentUser?.uid;
+      if (distributorId && employeeDocId) {
+        try {
+          await setDoc(
+            doc(db, 'businesses', distributorId, 'distributorEmployees', employeeDocId),
+            { online: false, lastSeen: serverTimestamp() },
+            { merge: true }
+          );
+        } catch (e) {
+          console.warn('Presence clear failed (non-fatal):', e);
+        }
       }
+
+      // Sign out from Firebase and clear all sessions
+      await logoutUser('distributor-employee');
+      
+      // Navigate to login page
+      navigate('/distributor-employee-login', { replace: true });
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Even if there's an error, clear session and redirect
+      clearDistributorEmployeeSession();
+      navigate('/distributor-employee-login', { replace: true });
     }
-    clearDistributorEmployeeSession();
-    navigate('/distributor-employee-login', { replace: true });
   };
 
   const formatLastSeen = (timestamp) => {

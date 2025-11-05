@@ -8,6 +8,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import ChargesTaxesEditor from "../ChargesTaxesEditor";
 import PassiveOrderRequests from './PassiveOrderRequests';
+import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus";
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -170,6 +171,23 @@ const OrderRequests = () => {
   const filteredOrders = useMemo(() => {
     const term = debouncedSearch;
     return (orders || []).filter(order => {
+      // CRITICAL: Filter out passive/provisional orders when in active mode
+      if (mode === 'active') {
+        const isPassiveOrder =
+          order.retailerMode === 'passive' ||
+          order.mode === 'passive' ||
+          order.isProvisional === true ||
+          !!order.provisionalRetailerId;
+
+        if (isPassiveOrder) return false;
+
+        if (order.createdBy === 'distributor' && !order.retailerMode) {
+          if (order.isProvisional === true || !!order.provisionalRetailerId) {
+            return false;
+          }
+        }
+      }
+
       const matchesSearch =
         (order.id || '').toLowerCase().includes(term) ||
         (order.retailerName || '').toLowerCase().includes(term) ||
@@ -178,11 +196,13 @@ const OrderRequests = () => {
         (order.retailerCity || '').toLowerCase().includes(term) ||
         (order.retailerAddress || '').toLowerCase().includes(term);
 
-      const matchesStatus = statusFilter === 'All' || order.status === statusFilter;
+      const orderCode = codeOf(order.statusCode || order.status);
+      const filterCode = statusFilter === 'All' ? null : codeOf(statusFilter);
+      const matchesStatus = !filterCode || orderCode === filterCode;
       const matchesRetailer = selectedRetailerId === 'all' || order.retailerId === selectedRetailerId;
       return matchesSearch && matchesStatus && matchesRetailer;
     });
-  }, [orders, debouncedSearch, statusFilter, selectedRetailerId]);
+  }, [orders, debouncedSearch, statusFilter, selectedRetailerId, mode]);
 
   // Export all visible orders (CSV)
   const handleExportAllCSV = () => {
@@ -515,6 +535,8 @@ const OrderRequests = () => {
         // Update orderDocRef with status, items, and acceptedAt timestamp
         await updateDoc(orderDocRef, {
           status: newStatus,
+          statusCode: 'ACCEPTED',
+          timeline: arrayUnion({ status: 'ACCEPTED', by: 'distributor', at: serverTimestamp() }),
           items: enrichedItems,
           statusTimestamps: {
             acceptedAt: serverTimestamp(),
@@ -530,6 +552,8 @@ const OrderRequests = () => {
             ...order,
             items: enrichedItems,
             status: newStatus,
+            statusCode: 'ACCEPTED',
+            timeline: arrayUnion({ status: 'ACCEPTED', by: 'distributor', at: serverTimestamp() }),
             distributorId: auth.currentUser.uid,
             retailerId: order.retailerId,
             statusTimestamps: {
@@ -542,6 +566,8 @@ const OrderRequests = () => {
             ...order,
             items: enrichedItems,
             status: newStatus,
+            statusCode: 'ACCEPTED',
+            timeline: arrayUnion({ status: 'ACCEPTED', by: 'distributor', at: serverTimestamp() }),
             distributorId: auth.currentUser.uid,
             retailerId: order.retailerId,
             statusTimestamps: {
@@ -559,6 +585,8 @@ const OrderRequests = () => {
         if (!reason) return;
         await updateDoc(orderDocRef, {
           status: newStatus,
+          statusCode: 'REJECTED',
+          timeline: arrayUnion({ status: 'REJECTED', by: 'distributor', at: serverTimestamp() }),
           rejectionNote: reason,
           statusTimestamps: {
             rejectedAt: serverTimestamp(),
@@ -583,6 +611,8 @@ const OrderRequests = () => {
           await setDoc(retailerOrderRef, {
             ...order,
             status: newStatus,
+            statusCode: 'REJECTED',
+            timeline: arrayUnion({ status: 'REJECTED', by: 'distributor', at: serverTimestamp() }),
             distributorId: auth.currentUser.uid,
             retailerId: order.retailerId,
             rejectionNote: reason,
@@ -594,6 +624,8 @@ const OrderRequests = () => {
           await updateDoc(retailerOrderRef, {
             ...order,
             status: newStatus,
+            statusCode: 'REJECTED',
+            timeline: arrayUnion({ status: 'REJECTED', by: 'distributor', at: serverTimestamp() }),
             distributorId: auth.currentUser.uid,
             retailerId: order.retailerId,
             rejectionNote: reason,
@@ -855,20 +887,20 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
                 <span className={
                   `px-2 py-1 rounded-full text-xs font-medium
                   ${
-                    order.status === 'Requested'
+                    (order.status === 'Requested' || order.statusCode === 'REQUESTED')
                       ? 'bg-sky-400/15 text-sky-300'
-                      : order.status === 'Accepted'
+                      : (order.status === 'Accepted' || order.statusCode === 'ACCEPTED')
                       ? 'bg-emerald-400/15 text-emerald-300'
-                      : order.status === 'Rejected'
+                      : (order.status === 'Rejected' || order.statusCode === 'REJECTED')
                       ? 'bg-rose-400/15 text-rose-300'
                       : 'bg-white/10 text-white/80'
                   }
                   `
                 }>
-                  {order.status === 'Requested' && '📝 '}
-                  {order.status === 'Accepted' && '✔ '}
-                  {order.status === 'Rejected' && '✖ '}
-                  {order.status}
+                  {(order.status === 'Requested' || order.statusCode === 'REQUESTED') && '📝 '}
+                  {(order.status === 'Accepted'  || order.statusCode === 'ACCEPTED')  && '✔ '}
+                  {(order.status === 'Rejected'  || order.statusCode === 'REJECTED')  && '✖ '}
+                  {order.status || (order.statusCode ? order.statusCode.charAt(0) + order.statusCode.slice(1).toLowerCase() : '')}
                 </span>
                 {isDirect(order) && (
                   <span className="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-400/20">Direct</span>
@@ -972,16 +1004,19 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
                     <span className={
                       `ml-2 px-2 py-1 rounded-full font-semibold text-xs
                         ${
-                          order.status === 'Requested'
+                          (order.status === 'Requested' || order.statusCode === 'REQUESTED')
                             ? 'bg-sky-400/15 text-sky-300'
-                            : order.status === 'Accepted'
+                            : (order.status === 'Accepted' || order.statusCode === 'ACCEPTED')
                             ? 'bg-emerald-400/15 text-emerald-300'
-                            : order.status === 'Rejected'
+                            : (order.status === 'Rejected' || order.statusCode === 'REJECTED')
                             ? 'bg-rose-400/15 text-rose-300'
                             : 'bg-white/10 text-white/80'
                         }`
                     }>
-                      {order.status}
+                      {(order.status === 'Requested' || order.statusCode === 'REQUESTED') && '📝 '}
+                      {(order.status === 'Accepted'  || order.statusCode === 'ACCEPTED')  && '✔ '}
+                      {(order.status === 'Rejected'  || order.statusCode === 'REJECTED')  && '✖ '}
+                      {order.status || (order.statusCode ? order.statusCode.charAt(0) + order.statusCode.slice(1).toLowerCase() : '')}
                     </span>
                   </div>
                   <div className="mb-1 flex items-center gap-2">

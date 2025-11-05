@@ -16,7 +16,7 @@ module.exports = onRequest(async (req, res) => {
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     return res.status(204).send("");
-  }
+  }w
 
   cors(req, res, async () => {
     try {

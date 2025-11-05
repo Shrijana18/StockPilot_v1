@@ -8,6 +8,7 @@ import { downloadOrderExcel } from "../../../lib/exporters/excel";
 import { downloadOrderPDF } from "../../../lib/exporters/pdf";
 import ProformaSummary from "../../retailer/ProformaSummary";
 import { calculateProforma } from "../../../lib/calcProforma"; // ✅ ensure consistent math
+import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus"; // ✅ canonical statuses
 
 const TrackOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -27,6 +28,7 @@ const TrackOrders = () => {
         if (sub === 'payment-due') setActiveSection('Payment Due');
         else if (sub === 'out-for-delivery') setActiveSection('Out for Delivery');
         else if (sub === 'paid' || sub === 'paid-orders') setActiveSection('Paid Orders');
+        else if (sub === 'quoted') setActiveSection('Quoted');
       }
     };
     applyFromHash();
@@ -44,6 +46,7 @@ const TrackOrders = () => {
       if (name === 'Payment Due') params.set('sub', 'payment-due');
       else if (name === 'Out for Delivery') params.set('sub', 'out-for-delivery');
       else if (name === 'Paid Orders') params.set('sub', 'paid');
+      else if (name === 'Quoted') params.set('sub', 'quoted');
       else params.delete('sub');
       const newHash = `${path}?${params.toString()}`;
       if (newHash !== hash) window.history.replaceState(null, '', newHash);
@@ -77,10 +80,7 @@ const TrackOrders = () => {
     downloadOrderPDF(order, `${base}.pdf`);
   };
 
-  const getEditedCreditDays = (order) => {
-    const v = creditDaysEdit[order.id];
-    return (typeof v === 'number' && v > 0) ? v : Number(order.creditDays || 15);
-  };
+  // Removed duplicate declaration of getEditedCreditDays
   const duePreviewFromDays = (days) => {
     const d = new Date();
     d.setDate(d.getDate() + Number(days || 0));
@@ -97,8 +97,8 @@ const TrackOrders = () => {
         const orderData = snapshot.docs
           .map(doc => ({ id: doc.id, ...doc.data() }))
           .sort((a, b) => {
-            const aDelivered = a.status === 'Delivered';
-            const bDelivered = b.status === 'Delivered';
+            const aDelivered = (a.status === 'Delivered') || (a.statusCode === 'DELIVERED');
+            const bDelivered = (b.status === 'Delivered') || (b.statusCode === 'DELIVERED');
             if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
             return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
           });
@@ -157,15 +157,19 @@ const TrackOrders = () => {
     const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
     const distributorOrderSnap = await getDoc(distributorOrderRef);
     const orderData = distributorOrderSnap.data();
-    if (!orderData || !orderData.retailerId) return;
 
-    const retailerOrderRef = doc(db, 'businesses', orderData.retailerId, 'sentOrders', orderId);
+    const hasRetailer = !!(orderData && orderData.retailerId);
+    const retailerOrderRef = hasRetailer
+      ? doc(db, 'businesses', orderData.retailerId, 'sentOrders', orderId)
+      : null;
 
     const now = new Date();
     let updatePayload = {
       status: 'Delivered',
+      statusCode: 'DELIVERED',
       deliveredAt: now.toISOString(),
       'statusTimestamps.deliveredAt': serverTimestamp(),
+      timeline: arrayUnion({ status: 'DELIVERED', by: 'distributor', at: serverTimestamp() }),
       handledBy: {
         ...(orderData?.handledBy || {}),
         deliveredBy: { uid: user.uid, type: 'distributor' }
@@ -174,15 +178,20 @@ const TrackOrders = () => {
     };
 
     // Handle Credit Cycle logic
-    if (orderData.paymentMethod === 'Credit Cycle' && orderData.creditDays) {
-      const dueDate = new Date(now);
-      dueDate.setDate(dueDate.getDate() + Number(orderData.creditDays));
-      updatePayload.creditDueDate = dueDate.toISOString();
-      updatePayload.isPaid = false;
+    if (orderData?.paymentMethod === 'Credit Cycle') {
+      const days = Number(orderData.creditDays || 0);
+      if (Number.isFinite(days) && days > 0) {
+        const dueDate = new Date(now);
+        dueDate.setDate(dueDate.getDate() + days);
+        updatePayload.creditDueDate = dueDate.toISOString();
+        updatePayload.isPaid = false;
+      }
     }
 
     await updateDoc(distributorOrderRef, updatePayload);
-    await updateDoc(retailerOrderRef, updatePayload);
+    if (hasRetailer && retailerOrderRef) {
+      await updateDoc(retailerOrderRef, updatePayload);
+    }
     toast.success("📦 Order marked as Delivered!", { position: "top-right", autoClose: 3000, icon: "🚚" });
   };
 
@@ -191,12 +200,16 @@ const TrackOrders = () => {
     const user = auth.currentUser;
     if (!user) return;
     const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
-    const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
+    const retailerOrderRef = order.retailerId
+      ? doc(db, 'businesses', order.retailerId, 'sentOrders', order.id)
+      : null;
+
     const payload = {
       isPaid: true,
       paymentStatus: 'Paid',
       paidAt: new Date().toISOString(),
       'statusTimestamps.paidAt': serverTimestamp(),
+      timeline: arrayUnion({ status: 'PAID', by: 'distributor', at: serverTimestamp() }),
       handledBy: {
         ...(order?.handledBy || {}),
         paidBy: { uid: user.uid, type: 'distributor' }
@@ -204,11 +217,17 @@ const TrackOrders = () => {
       auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'recordPayment', by: { uid: user.uid, type: 'distributor' }, meta: { method: 'COD' } })
     };
     await updateDoc(distributorOrderRef, payload);
-    await updateDoc(retailerOrderRef, payload);
+    if (retailerOrderRef) {
+      await updateDoc(retailerOrderRef, payload);
+    }
     toast.success('💰 Payment received marked (COD)');
   };
 
   // Guarded deliver action
+  const getEditedCreditDays = (order) => {
+    const v = creditDaysEdit[order.id];
+    return (typeof v === 'number' && v > 0) ? v : Number(order.creditDays || 15);
+  };
   const guardedMarkDelivered = async (order) => {
     if (order.paymentMethod === 'COD' && !order.isPaid) {
       toast.info("For COD, please confirm 'Payment Received' first.");
@@ -222,9 +241,11 @@ const TrackOrders = () => {
       }
       const user = auth.currentUser; if (!user) return;
       const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
-      const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
       await updateDoc(distributorOrderRef, { creditDays: days });
-      await updateDoc(retailerOrderRef, { creditDays: days });
+      if (order.retailerId) {
+        const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
+        await updateDoc(retailerOrderRef, { creditDays: days });
+      }
     }
     await markAsDelivered(order.id);
   };
@@ -332,10 +353,11 @@ const TrackOrders = () => {
     return null;
   };
 
-  const outForDeliveryOrders = orders.filter((order) =>
-    (order.status === 'Shipped' || order.status === 'Out for Delivery') &&
-    matchesSearch(order) && matchesDate(order)
-  );
+  const outForDeliveryOrders = orders.filter((order) => {
+    const sc = codeOf(order.statusCode || order.status);
+    const isOFD = sc === 'SHIPPED' || sc === 'OUT_FOR_DELIVERY';
+    return isOFD && matchesSearch(order) && matchesDate(order);
+  });
 
   const quotedOrders = orders.filter((order) => 
     (order.status === 'Quoted' || order.statusCode === 'QUOTED' || order.statusCode === 'PROFORMA_SENT') && 
@@ -405,7 +427,7 @@ const TrackOrders = () => {
         </button>
       </div>
 
-      {paymentDueOrders.length === 0 && paidOrders.length === 0 ? (
+      {paymentDueOrders.length === 0 && paidOrders.length === 0 && outForDeliveryOrders.length === 0 && quotedOrders.length === 0 ? (
         <p className="text-white/60 mt-8 text-center">No orders to track yet.</p>
       ) : (
         <>
@@ -542,12 +564,11 @@ const TrackOrders = () => {
                                 ))}
                               </tbody>
                             </table>
-                            {/* Gross → Line Discounts → Items Sub-Total */}
                             {(() => { const pv = proformaPreviewFromOrder(order); return (
                               <div className="text-right mt-2 space-y-1">
                                 <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
                                 <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
-                                <div className="font-semibold">Items Sub‑Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
+                                <div className="font-semibold">Items Sub-Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
                               </div>
                             ); })()}
                           </div>
@@ -691,7 +712,7 @@ const TrackOrders = () => {
                               <div className="text-right mt-2 space-y-1">
                                 <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
                                 <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
-                                <div className="font-semibold">Items Sub‑Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
+                                <div className="font-semibold">Items Sub-Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
                               </div>
                             ); })()}
                           </div>
@@ -714,10 +735,19 @@ const TrackOrders = () => {
                             onClick={async () => {
                               const user = auth.currentUser; if (!user) return;
                               const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', order.id);
-                              const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
-                              const paymentPayload = { isPaid: true, paymentStatus: 'Paid', paidAt: new Date().toISOString() };
-                              await updateDoc(distributorOrderRef, paymentPayload);
-                              await updateDoc(retailerOrderRef, paymentPayload);
+                              const payload = {
+                                isPaid: true,
+                                paymentStatus: 'Paid',
+                                paidAt: new Date().toISOString(),
+                                'statusTimestamps.paidAt': serverTimestamp(),
+                                timeline: arrayUnion({ status: 'PAID', by: 'distributor', at: serverTimestamp() }),
+                                auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'recordPayment', by: { uid: user.uid, type: 'distributor' }, meta: { method: 'CREDIT' } })
+                              };
+                              await updateDoc(distributorOrderRef, payload);
+                              if (order.retailerId) {
+                                const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', order.id);
+                                await updateDoc(retailerOrderRef, payload);
+                              }
                               toast.success('✅ Credit payment marked as received!');
                             }}
                             className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition"
@@ -863,7 +893,7 @@ const TrackOrders = () => {
                               <div className="text-right mt-2 space-y-1">
                                 <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
                                 <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
-                                <div className="font-semibold">Items Sub‑Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
+                                <div className="font-semibold">Items Sub-Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
                               </div>
                             ); })()}
                           </div>

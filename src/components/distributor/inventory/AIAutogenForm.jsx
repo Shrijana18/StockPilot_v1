@@ -15,8 +15,12 @@ const AIAutogenForm = ({ userId }) => {
   const db = getFirestore(app);
 
   // Prompt-based inventory generation handler for AdvancedBrandInputForm
-  const handlePromptInventoryGeneration = async (promptText) => {
-    if (!promptText || promptText.trim().length === 0) {
+  const handlePromptInventoryGeneration = async (payload) => {
+    // payload can be either a string (legacy) or an object (new format)
+    const promptText = typeof payload === 'string' ? payload : payload?.prompt;
+    
+    // Ensure promptText is a string and not empty
+    if (!promptText || (typeof promptText !== 'string') || promptText.trim().length === 0) {
       toast.error("Prompt is empty.");
       return;
     }
