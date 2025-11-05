@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
 import { db, empAuth, functions } from '../../../firebase/firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
+import { onAuthStateChanged } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { getDistributorEmployeeSession, clearDistributorEmployeeSession, isDistributorEmployeeRedirect, clearDistributorEmployeeRedirect } from '../../../utils/distributorEmployeeSession';
 
@@ -38,12 +39,14 @@ const DistributorEmployeeDashboard = () => {
   }, []);
 
   useEffect(() => {
+    // Longer delay for mobile/slow networks - wait for auth state to initialize after page reload
     const timer = setTimeout(() => {
       const s = getDistributorEmployeeSession();
       const did = s?.distributorId || '';
       const eid = s?.employeeId || '';
 
       if (!s || !did || !eid) {
+        // Only redirect if we've waited long enough (prevents loops)
         clearDistributorEmployeeSession();
         if (!hasNavigated) {
           setHasNavigated(true);
@@ -53,19 +56,18 @@ const DistributorEmployeeDashboard = () => {
       }
 
       // Check if user is properly authenticated with Employee Auth
-      if (!empAuth.currentUser) {
-        clearDistributorEmployeeSession();
-        if (!hasNavigated) {
-          setHasNavigated(true);
-          navigate('/distributor-employee-login', { replace: true });
-        }
-        return;
-      }
-
-      (async () => {
+      // Use auth state listener for reliable detection (especially after page reload)
+      let authUnsubscribe = null;
+      let retryTimer = null;
+      let loaded = false;
+      
+      const loadEmployeeData = async (distId, empId) => {
+        if (loaded) return; // Prevent double loading
+        loaded = true;
+        
         try {
           // Use the Employee Auth UID as the document ID (set in the custom token)
-          const empRef = doc(db, 'businesses', did, 'distributorEmployees', empAuth.currentUser.uid);
+          const empRef = doc(db, 'businesses', distId, 'distributorEmployees', empAuth.currentUser.uid);
           const empSnap = await getDoc(empRef);
           if (!empSnap.exists()) {
             if (!hasNavigated) {
@@ -75,7 +77,7 @@ const DistributorEmployeeDashboard = () => {
             return;
           }
           const data = empSnap.data();
-          setEmployee({ id: eid, ...data });
+          setEmployee({ id: empId, ...data });
           try {
             await setDoc(empRef, { lastSeen: serverTimestamp(), online: true }, { merge: true });
           } catch (e) {
@@ -88,8 +90,38 @@ const DistributorEmployeeDashboard = () => {
             navigate('/distributor-employee-login', { replace: true });
           }
         }
-      })();
-    }, 400);
+      };
+
+      // Set up auth state listener (most reliable method)
+      authUnsubscribe = onAuthStateChanged(empAuth, (user) => {
+        if (user && !loaded) {
+          // Auth is ready, load employee data
+          loadEmployeeData(did, eid);
+        }
+      });
+
+      // Also check immediately in case auth is already ready
+      if (empAuth.currentUser && !loaded) {
+        loadEmployeeData(did, eid);
+      }
+
+      // Fallback timeout - if auth doesn't come through after 3 seconds, redirect to login
+      retryTimer = setTimeout(() => {
+        if (!empAuth.currentUser && !loaded) {
+          // Still no auth after waiting - redirect to login
+          clearDistributorEmployeeSession();
+          if (!hasNavigated) {
+            setHasNavigated(true);
+            navigate('/distributor-employee-login', { replace: true });
+          }
+        }
+      }, 3000); // Wait 3 seconds total
+
+      return () => {
+        if (authUnsubscribe) authUnsubscribe();
+        if (retryTimer) clearTimeout(retryTimer);
+      };
+    }, 1000); // Increased from 400ms to 1000ms for mobile/slow networks
 
     return () => clearTimeout(timer);
   }, [hasNavigated, navigate]);

@@ -127,10 +127,35 @@ const DistributorEmployeeLogin = () => {
           // Detect if mobile device
           const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
           
-          // Small delay to ensure localStorage/sessionStorage is committed
+          // Longer delay to ensure localStorage/sessionStorage is fully committed
+          // Especially important on mobile browsers which may have slower storage writes
           setTimeout(() => {
+            // Double-check that session was saved before redirect
+            const sessionCheck = localStorage.getItem('flyp_distributor_employee_session');
+            const redirectCheck = sessionStorage.getItem('flyp_distributor_employee_redirect');
+            
+            if (!sessionCheck || redirectCheck !== 'true') {
+              // Retry saving if needed
+              console.warn('Session not confirmed, retrying save...');
+              setDistributorEmployeeSession({
+                employeeId: employeeData.id,
+                distributorId,
+                name: employeeData.name,
+                role: employeeData.role,
+                accessSections: employeeData.accessSections || {}
+              });
+              setDistributorEmployeeRedirect();
+              
+              // Wait a bit more before redirect
+              setTimeout(() => {
+                window.location.href = targetUrl;
+              }, 200);
+              return;
+            }
+            
             if (isMobile) {
-              // On mobile, use window.location.href directly (more reliable)
+              // On mobile, always use window.location.href (most reliable)
+              // This ensures full page reload and proper auth state initialization
               window.location.href = targetUrl;
             } else {
               // On desktop, try React Router first (for SPA navigation)
@@ -145,7 +170,7 @@ const DistributorEmployeeLogin = () => {
                 }
               }, 500);
             }
-          }, 150);
+          }, 300); // Increased delay to ensure storage is committed
           
           resolve();
         };

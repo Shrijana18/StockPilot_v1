@@ -81,14 +81,21 @@ const EmployeeRoute = ({ kind = 'retailer' }) => {
       checkAuth();
       const interval = setInterval(checkAuth, 100); // Check every 100ms for faster response
       
-      // Timeout after 8 seconds (longer for mobile/slow networks)
+      // Timeout after 10 seconds (longer for mobile/slow networks after page reload)
       timeoutId = setTimeout(() => {
         if (!resolved) {
           checkAuth(); // Final check
-          console.warn('[EmployeeRoute] Auth check timeout after 8 seconds');
-          resolveAccess(false);
+          console.warn('[EmployeeRoute] Auth check timeout after 10 seconds');
+          // Don't immediately deny - check one more time with session
+          const finalSession = getDistributorEmployeeSession();
+          if (finalSession) {
+            console.log('[EmployeeRoute] Found session on timeout, allowing access');
+            resolveAccess(true);
+          } else {
+            resolveAccess(false);
+          }
         }
-      }, 8000);
+      }, 10000);
 
       return () => {
         if (timeoutId) clearTimeout(timeoutId);
