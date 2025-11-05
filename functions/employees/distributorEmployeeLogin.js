@@ -10,25 +10,49 @@ module.exports = onCall(async (request) => {
   try {
     const { distributorId, employeeId, pin } = request.data;
 
-    if (!distributorId || !employeeId || !pin) {
+    if (!employeeId || !pin) {
       return {
         success: false,
-        message: "Missing distributorId, employeeId, or PIN",
+        message: "Missing employeeId or PIN",
       };
     }
 
-    // Search by flypEmployeeId field, not document ID
-    const employeesRef = admin.firestore().collection('businesses').doc(distributorId).collection('distributorEmployees');
-    const querySnapshot = await employeesRef.where('flypEmployeeId', '==', employeeId).get();
+    let employeeDoc = null;
+    let foundDistributorId = null;
 
-    if (querySnapshot.empty) {
+    // If distributorId is provided, search directly (faster)
+    if (distributorId) {
+      const employeesRef = admin.firestore().collection('businesses').doc(distributorId).collection('distributorEmployees');
+      const querySnapshot = await employeesRef.where('flypEmployeeId', '==', employeeId.toUpperCase()).get();
+      
+      if (!querySnapshot.empty) {
+        employeeDoc = querySnapshot.docs[0];
+        foundDistributorId = distributorId;
+      }
+    } else {
+      // Search across all distributors (for manual entry without link)
+      // This is more expensive but allows employees to login with just ID and PIN
+      const businessesSnapshot = await admin.firestore().collection('businesses').get();
+      
+      for (const businessDoc of businessesSnapshot.docs) {
+        const employeesRef = businessDoc.ref.collection('distributorEmployees');
+        const querySnapshot = await employeesRef.where('flypEmployeeId', '==', employeeId.toUpperCase()).get();
+        
+        if (!querySnapshot.empty) {
+          employeeDoc = querySnapshot.docs[0];
+          foundDistributorId = businessDoc.id;
+          break; // Found the employee, stop searching
+        }
+      }
+    }
+
+    if (!employeeDoc || !foundDistributorId) {
       return {
         success: false,
         message: "Login failed. Employee not found.",
       };
     }
 
-    const employeeDoc = querySnapshot.docs[0];
     const employeeData = employeeDoc.data();
 
     // Verify PIN
@@ -55,7 +79,7 @@ module.exports = onCall(async (request) => {
 
     // Generate custom Firebase Auth token for the employee
     const customToken = await admin.auth().createCustomToken(employeeDoc.id, {
-      distributorId: distributorId,
+      distributorId: foundDistributorId,
       employeeId: employeeDoc.id,
       isDistributorEmployee: true,
       accessSections: employeeData.accessSections,
@@ -69,7 +93,7 @@ module.exports = onCall(async (request) => {
       employeeData: {
         ...safeEmployeeData,
         id: employeeDoc.id,
-        distributorId: distributorId,
+        distributorId: foundDistributorId,
       },
       message: "Login successful!",
       customToken: customToken,
