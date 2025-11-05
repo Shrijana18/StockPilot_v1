@@ -63,7 +63,7 @@ const DistributorEmployeeLogin = () => {
       // Sign in with custom token using employee auth instance
       await signInWithCustomToken(empAuth, customToken);
 
-      // Store session IMMEDIATELY
+      // Store session IMMEDIATELY and ensure it's committed
       setDistributorEmployeeSession({
         employeeId: employeeData.id,
         distributorId: employeeData.distributorId || distributorId,
@@ -75,13 +75,39 @@ const DistributorEmployeeLogin = () => {
       // Set redirect flag
       setDistributorEmployeeRedirect();
 
+      // CRITICAL: Force localStorage to flush synchronously (especially important in production)
+      // This ensures the session is committed before page reload
+      try {
+        // Trigger a dummy localStorage write to force flush
+        localStorage.setItem('__flyp_commit_check', Date.now().toString());
+        localStorage.removeItem('__flyp_commit_check');
+        // Also verify the session was stored
+        const verifySession = localStorage.getItem('flyp_distributor_employee_session');
+        if (!verifySession) {
+          console.warn('[Login] Session storage verification failed, retrying...');
+          // Retry storing session
+          setDistributorEmployeeSession({
+            employeeId: employeeData.id,
+            distributorId: employeeData.distributorId || distributorId,
+            name: employeeData.name,
+            role: employeeData.role,
+            accessSections: employeeData.accessSections || {}
+          });
+        }
+      } catch (e) {
+        console.error('[Login] Failed to verify localStorage commit:', e);
+      }
+
       toast.success('Login successful! Redirecting...');
 
       // SIMPLE REDIRECT - Use window.location.href for ALL devices (most reliable)
-      // Wait a moment to ensure storage is committed
+      // Increased timeout in production to ensure localStorage is committed (CDN/network delays)
+      const isProduction = window.location.hostname !== 'localhost';
+      const redirectDelay = isProduction ? 1000 : 500; // Longer delay in production
+      
       setTimeout(() => {
         window.location.href = '/distributor-employee-dashboard';
-      }, 500);
+      }, redirectDelay);
 
     } catch (err) {
       console.error('Login error:', err);

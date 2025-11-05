@@ -104,10 +104,27 @@ const EmployeeRoute = ({ kind = 'retailer' }) => {
       };
     } else {
       // No redirect guard, check immediately
-      const employeeAuthed = Boolean(empAuth?.currentUser);
+      // PRIORITY: Check session FIRST (works even if Firebase auth is lost after page reload)
+      // Then check Firebase auth as secondary
       const retailerEmpSession = getEmployeeSession();
       const distEmpSession = getDistributorEmployeeSession();
-      setHasAccess(employeeAuthed || retailerEmpSession || distEmpSession);
+      const employeeAuthed = Boolean(empAuth?.currentUser);
+      
+      // Session-based access is more reliable in production (survives page reloads)
+      const hasSessionAccess = retailerEmpSession || distEmpSession;
+      const hasAuthAccess = employeeAuthed;
+      
+      // Log for debugging production issues
+      if (!hasSessionAccess && !hasAuthAccess) {
+        console.log('[EmployeeRoute] No access found:', {
+          hasRetailerSession: !!retailerEmpSession,
+          hasDistSession: !!distEmpSession,
+          hasAuth: hasAuthAccess,
+          currentUser: empAuth?.currentUser?.uid || 'none'
+        });
+      }
+      
+      setHasAccess(hasSessionAccess || hasAuthAccess);
       setIsChecking(false);
     }
   }, []);
