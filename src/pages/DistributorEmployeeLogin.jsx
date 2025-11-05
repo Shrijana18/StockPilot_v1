@@ -86,15 +86,66 @@ const DistributorEmployeeLogin = () => {
             accessSections: employeeData.accessSections || {}
           });
 
+          // Verify session was saved (critical for mobile)
+          const verifySession = () => {
+            try {
+              const saved = localStorage.getItem('flyp_distributor_employee_session');
+              if (!saved) {
+                // Retry saving session
+                setDistributorEmployeeSession({
+                  employeeId: employeeData.id,
+                  distributorId,
+                  name: employeeData.name,
+                  role: employeeData.role,
+                  accessSections: employeeData.accessSections || {}
+                });
+              }
+            } catch (e) {
+              console.warn('Session verification failed:', e);
+            }
+          };
+          verifySession();
+
           // Set redirect flag BEFORE navigation to allow EmployeeRoute to detect it
           setDistributorEmployeeRedirect();
           
+          // Verify redirect flag was set
+          try {
+            if (sessionStorage.getItem('flyp_distributor_employee_redirect') !== 'true') {
+              sessionStorage.setItem('flyp_distributor_employee_redirect', 'true');
+            }
+          } catch (e) {
+            console.warn('Failed to set redirect flag:', e);
+          }
+          
           toast.success('Login successful! Redirecting...');
           
-          // Use setTimeout to ensure state is fully committed
+          // Use window.location.href for reliable cross-browser/mobile redirect
+          // This works better than React Router navigate on mobile devices and different browsers
+          const targetUrl = '/distributor-employee-dashboard';
+          
+          // Detect if mobile device
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+          
+          // Small delay to ensure localStorage/sessionStorage is committed
           setTimeout(() => {
-            navigate('/distributor-employee-dashboard', { replace: true });
-          }, 100);
+            if (isMobile) {
+              // On mobile, use window.location.href directly (more reliable)
+              window.location.href = targetUrl;
+            } else {
+              // On desktop, try React Router first (for SPA navigation)
+              navigate(targetUrl, { replace: true });
+              
+              // Fallback: Use window.location if React Router doesn't work
+              setTimeout(() => {
+                // Check if we're still on login page (navigation didn't work)
+                if (window.location.pathname.includes('distributor-employee-login')) {
+                  console.log('React Router navigation failed, using window.location fallback');
+                  window.location.href = targetUrl;
+                }
+              }, 500);
+            }
+          }, 150);
           
           resolve();
         };
@@ -123,12 +174,57 @@ const DistributorEmployeeLogin = () => {
           accessSections: employeeData.accessSections || {}
         });
 
+        // Verify session was saved
+        try {
+          const saved = localStorage.getItem('flyp_distributor_employee_session');
+          if (!saved) {
+            // Retry
+            setDistributorEmployeeSession({
+              employeeId: employeeData.id,
+              distributorId,
+              name: employeeData.name,
+              role: employeeData.role,
+              accessSections: employeeData.accessSections || {}
+            });
+          }
+        } catch (e) {
+          console.warn('Session save verification failed:', e);
+        }
+
         setDistributorEmployeeRedirect();
         
+        // Verify redirect flag
+        try {
+          if (sessionStorage.getItem('flyp_distributor_employee_redirect') !== 'true') {
+            sessionStorage.setItem('flyp_distributor_employee_redirect', 'true');
+          }
+        } catch (e) {
+          console.warn('Failed to set redirect flag:', e);
+        }
+        
         toast.success('Login successful! Redirecting...');
-        // Try navigation anyway - EmployeeRoute will handle auth check
+        
+        const targetUrl = '/distributor-employee-dashboard';
+        
+        // Detect if mobile device
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        // Use window.location as primary method for fallback (more reliable on mobile)
         setTimeout(() => {
-          navigate('/distributor-employee-dashboard', { replace: true });
+          if (isMobile) {
+            // On mobile, use window.location.href directly
+            window.location.href = targetUrl;
+          } else {
+            navigate(targetUrl, { replace: true });
+            
+            // Fallback check
+            setTimeout(() => {
+              if (window.location.pathname.includes('distributor-employee-login')) {
+                console.log('Navigation failed, using window.location fallback');
+                window.location.href = targetUrl;
+              }
+            }, 500);
+          }
         }, 200);
       });
 

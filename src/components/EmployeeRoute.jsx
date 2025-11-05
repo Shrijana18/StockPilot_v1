@@ -62,22 +62,33 @@ const EmployeeRoute = ({ kind = 'retailer' }) => {
         const distEmpSession = getDistributorEmployeeSession();
         const access = employeeAuthed || retailerEmpSession || distEmpSession;
         
+        // Debug logging (can be removed in production)
+        if (!access && hasRedirectGuard) {
+          console.log('[EmployeeRoute] Checking auth:', {
+            employeeAuthed,
+            hasRetailerSession: !!retailerEmpSession,
+            hasDistSession: !!distEmpSession,
+            currentUser: empAuth?.currentUser?.uid || 'none'
+          });
+        }
+        
         if (access) {
           resolveAccess(true);
         }
       };
       
-      // Check immediately and periodically
+      // Check immediately and periodically (more frequent for mobile)
       checkAuth();
-      const interval = setInterval(checkAuth, 200);
+      const interval = setInterval(checkAuth, 100); // Check every 100ms for faster response
       
-      // Timeout after 5 seconds (should never happen, but safety net)
+      // Timeout after 8 seconds (longer for mobile/slow networks)
       timeoutId = setTimeout(() => {
         if (!resolved) {
           checkAuth(); // Final check
+          console.warn('[EmployeeRoute] Auth check timeout after 8 seconds');
           resolveAccess(false);
         }
-      }, 5000);
+      }, 8000);
 
       return () => {
         if (timeoutId) clearTimeout(timeoutId);
