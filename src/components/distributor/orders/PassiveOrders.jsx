@@ -4,6 +4,8 @@ import { addDoc, collection, serverTimestamp, getDocs, getDoc, doc, query, where
 import { db, empDB, empAuth, auth } from "../../../firebase/firebaseConfig";
 import { getDistributorEmployeeSession } from "../../../utils/distributorEmployeeSession";
 import { toast } from "react-toastify";
+import { ORDER_STATUSES } from "../../../constants/orderStatus";
+import * as orderPolicy from "../../../lib/orders/orderPolicy";
 
 /**
  * PassiveOrders.jsx
@@ -21,6 +23,23 @@ const money = (n) => {
   });
 };
 const norm = (s) => (s || "").toLowerCase().trim();
+
+
+// Normalize cart items to schema expected by downstream screens
+const normalizeCartItems = (cart) =>
+  (cart || []).map((i) => ({
+    productName: i.name || 'Item',
+    name: i.name || 'Item',
+    sku: i.sku || null,
+    brand: i.brand || null,
+    unit: i.unit || null,
+    quantity: Number(i.qty || 0),
+    qty: Number(i.qty || 0),
+    price: Number(i.price || 0), // preferred by TrackOrders
+    unitPrice: Number(i.price || 0), // compatibility
+    mrp: Number(i.price || 0),
+    lineTotal: Number(i.qty || 0) * Number(i.price || 0),
+  }));
 
 const PAYMENT_MODES = [
   { label: "Cash", value: "Cash" },
@@ -617,52 +636,79 @@ export default function PassiveOrders() {
         !!selectedRetailer?.provisionalId
       );
 
-      await addDoc(collection(firestore, "businesses", distributorId, "orderRequests"), {
-        // CRITICAL: createdBy must be STRING "distributor" for Firestore rules
-        createdBy: "distributor",
+      // Canonical fields expected by other modules
+      const normalizedItems = normalizeCartItems(cart);
+      const retailerDisplay = (selectedRetailer?.displayName || '').trim();
+      const retailerPhone = selectedRetailer?.phone || '';
+      const retailerEmail = selectedRetailer?.email || '';
+      // Normalize payment via shared policy
+      const normalizedPayment = orderPolicy.normalizePaymentMode(paymentMode);
+      const paymentFlags = {
+        isCredit: !!normalizedPayment.isCredit,
+        isAdvance: !!normalizedPayment.isAdvance,
+        isSplit: !!normalizedPayment.isSplit,
+        isCOD: !!normalizedPayment.isCOD,
+        isUPI: !!normalizedPayment.isUPI,
+        isNetBanking: !!normalizedPayment.isNetBanking,
+        isCheque: !!normalizedPayment.isCheque,
+      };
+      const paymentModeLabel = normalizedPayment.label || (typeof paymentMode === 'string' ? paymentMode : '');
+
+      await addDoc(collection(firestore, 'businesses', distributorId, 'orderRequests'), {
+        // Who
+        createdBy: 'distributor',
         creatorUid: creatorUid,
         creatorEmail: creatorEmail,
-        // Rich creator details for auditing (separate field, doesn't affect rules)
         ...(createdByInfo ? { creatorDetails: createdByInfo } : {}),
+
+        // Ids
         distributorId,
-        retailerMode: _isProv ? "passive" : "active",
-        mode: _isProv ? "passive" : "active", // redundancy
+        retailerId: _isProv ? null : selectedRetailer.id,
+
+        // Retailer snapshot (top-level for UI parity)
+        retailerMode: _isProv ? 'passive' : 'active',
+        mode: _isProv ? 'passive' : 'active',
         isProvisional: _isProv,
         provisionalRetailerId: _isProv ? (selectedRetailer?.provisionalId || selectedRetailer?.id) : null,
-        status: "Requested",
-        statusCode: "REQUESTED",
-        statusTimestamps: {
-          requestedAt: serverTimestamp()
-        },
-        quote: null,
-        shipment: { courier: null, awb: null, packedAt: null, shippedAt: null, deliveredAt: null },
-        createdAt: serverTimestamp(),
-        retailerId: !_isProv ? selectedRetailer.id : null,
+        retailerBusinessName: retailerDisplay,
+        retailerName: retailerDisplay,
+        retailerPhone: retailerPhone,
+        retailerEmail: retailerEmail,
         retailerInfo: {
-          name: safeRetailerName,
-          phone: selectedRetailer.phone || "",
-          email: selectedRetailer.email || "",
+          name: retailerDisplay,
+          phone: retailerPhone,
+          email: retailerEmail,
           type: selectedRetailer.type,
-          provisionalId: selectedRetailer.type === "provisional" ? (selectedRetailer.provisionalId || selectedRetailer.id) : null,
+          provisionalId: selectedRetailer.type === 'provisional' ? (selectedRetailer.provisionalId || selectedRetailer.id) : null,
         },
-        items: cart.map((i) => ({
-          name: i.name,
-          sku: i.sku || null,
-          brand: i.brand || null,
-          unit: i.unit || null,
-          qty: Number(i.qty),
-          mrp: Number(i.price),
-          lineTotal: Number(i.qty) * Number(i.price),
-        })),
-        itemsSubTotal: cartTotal,
+
+        // Status
+        status: 'Requested',
+        statusCode: ORDER_STATUSES.REQUESTED,
+        statusTimestamps: { requestedAt: serverTimestamp() },
+
+        // Items
+        items: normalizedItems,
+        itemsSubTotal: normalizedItems.reduce((s, it) => s + Number(it.lineTotal || 0), 0),
+
+        // Dates & delivery
+        createdAt: serverTimestamp(),
         deliveryDate: new Date(`${deliveryDate}T00:00:00`),
-        paymentMode,
+        deliveryMode: 'Courier', // default; can be edited later
+
+        // Payment (normalized + detailed)
+        paymentMethod: normalizedPayment.code || null,    // e.g., "COD" | "SPLIT" | "ADVANCE" | "CREDIT_CYCLE"
+        paymentMode: paymentModeLabel,                    // UI-safe label
+        paymentFlags,
         payment: {
-          type: paymentMode,
-          creditDays: paymentMode === "Credit" ? Number(creditDays) || 0 : null,
-          advanceAmount: paymentMode === "Advance" ? Number(advanceAmount) || 0 : null,
+          type: paymentModeLabel,
+          creditDays: paymentFlags.isCredit ? Number(creditDays) || 0 : null,
+          advanceAmount: paymentFlags.isAdvance ? Number(advanceAmount) || 0 : null,
         },
-        notes: (notes || "").trim(),
+        policyVersion: orderPolicy.VERSION || 1,
+
+        // Notes
+        notes: (notes || '').trim(),
       });
 
       toast.success("Order created");

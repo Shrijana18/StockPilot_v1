@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, getDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, updateDoc, getDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -9,6 +9,153 @@ import { downloadOrderPDF } from "../../../lib/exporters/pdf";
 import ProformaSummary from "../../retailer/ProformaSummary";
 import { calculateProforma } from "../../../lib/calcProforma"; // ✅ ensure consistent math
 import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus"; // ✅ canonical statuses
+import * as orderPolicy from '../../../lib/orders/orderPolicy';
+
+// ---- Compatibility shim for orderPolicy exports (handles older names) ----
+const normalizePaymentMode =
+  orderPolicy.normalizePaymentMode ||
+  ((raw, extra = {}) => {
+    const txt = (raw ?? '').toString().trim();
+    const up = txt.toUpperCase();
+    return {
+      code: up || null,
+      label: txt || 'N/A',
+      isCredit: /CREDIT/.test(up),
+      isCOD: up === 'COD',
+      isUPI: up === 'UPI',
+      isNetBanking: /NET.?BANK/i.test(txt),
+      isCheque: /CHEQUE|CHECK/i.test(txt),
+      isSplit: !!extra.split,
+      creditDays: extra.creditDays ?? undefined,
+      advanceAmount: extra.advanceAmount ?? undefined,
+    };
+  });
+const ORDER_POLICY_VERSION =
+  orderPolicy.ORDER_POLICY_VERSION ||
+  orderPolicy.VERSION ||
+  orderPolicy.POLICY_VERSION ||
+  'v1';
+
+// ---- Order Policy helpers (UI + date/timestamp guards) ----
+const toMillis = (v) => {
+  if (!v) return 0;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === 'object' && typeof v.seconds === 'number') return v.seconds * 1000;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+};
+
+const paymentUi = (order) => {
+  try {
+    if (!order) {
+      return { label: 'N/A', normalized: null, flags: {} };
+    }
+
+    const existingFlags = order.paymentFlags || {};
+    const existingNormalized = order.paymentNormalized || {};
+    const fallbackAdvance =
+      order?.advanceAmount ??
+      order?.payment?.advanceAmount ??
+      order?.paymentSummary?.advanceAmount ??
+      undefined;
+    const fallbackSplit =
+      order?.splitPayment ??
+      order?.payment?.splitPayment ??
+      order?.paymentSummary?.splitPayment ??
+      undefined;
+    const fallbackCreditDays =
+      order?.creditDays ??
+      order?.payment?.creditDays ??
+      order?.paymentSummary?.creditDueDays ??
+      order?.payment?.creditDueDays ??
+      undefined;
+
+    const rawInput =
+      existingNormalized?.code && existingNormalized.code.trim()
+        ? existingNormalized.code
+        : order?.paymentMethod && typeof order.paymentMethod === 'string' && order.paymentMethod.trim()
+        ? order.paymentMethod
+        : order?.payment?.code && order.payment.code.trim()
+        ? order.payment.code
+        : order?.payment?.type && order.payment.type.trim()
+        ? order.payment.type
+        : order?.paymentMode && order.paymentMode.trim()
+        ? order.paymentMode
+        : order?.paymentSummary?.mode && order.paymentSummary.mode.trim()
+        ? order.paymentSummary.mode
+        : typeof order?.payment === 'string' && order.payment.trim()
+        ? order.payment
+        : null;
+
+    const norm = normalizePaymentMode(rawInput, {
+      creditDays: fallbackCreditDays,
+      advanceAmount: fallbackAdvance,
+      split: fallbackSplit,
+    });
+    return {
+      label:
+        (norm.label && norm.label.trim()) ||
+        order?.paymentMode ||
+        order?.payment?.type ||
+        order?.payment?.label ||
+        order?.paymentSummary?.mode ||
+        order?.paymentMethod ||
+        existingNormalized?.label ||
+        'N/A',
+      normalized: norm,
+      flags: {
+        isCredit:
+          existingFlags.isCredit ??
+          !!norm.isCredit,
+        isAdvance:
+          existingFlags.isAdvance ??
+          !!norm.isAdvance,
+        isSplit:
+          existingFlags.isSplit ??
+          !!norm.isSplit,
+        isCOD:
+          existingFlags.isCOD ??
+          !!norm.isCOD,
+        isUPI:
+          existingFlags.isUPI ??
+          !!norm.isUPI,
+        isNetBanking:
+          existingFlags.isNetBanking ??
+          !!norm.isNetBanking,
+        isCheque:
+          existingFlags.isCheque ??
+          !!norm.isCheque,
+      },
+    };
+  } catch {
+    const fallbackLabel =
+      order?.paymentMode ||
+      order?.payment?.type ||
+      order?.paymentSummary?.mode ||
+      order?.paymentMethod ||
+      'N/A';
+    return { label: fallbackLabel, normalized: order?.paymentNormalized || null, flags: order?.paymentFlags || {} };
+  }
+};
+
+// ✅ Always return a safe string label for React (avoid rendering objects)
+const getPaymentLabel = (order) => {
+  try {
+    const ui = paymentUi(order);
+    const lbl = ui && ui.label;
+    if (typeof lbl === 'string') return lbl;
+    if (lbl && typeof lbl === 'object' && typeof lbl.label === 'string') return lbl.label;
+    return (
+      order?.paymentMode ||
+      order?.payment?.type ||
+      order?.paymentSummary?.mode ||
+      order?.paymentMethod ||
+      'N/A'
+    );
+  } catch {
+    return 'N/A';
+  }
+};
 
 const TrackOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -16,6 +163,7 @@ const TrackOrders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [activeSection, setActiveSection] = useState('Out for Delivery');
+  const [mode, setMode] = useState('all'); // 'all' | 'active' | 'passive'
 
   // --- Deep link support for ?tab=&sub= in the hash ---
   useEffect(() => {
@@ -80,6 +228,23 @@ const TrackOrders = () => {
     downloadOrderPDF(order, `${base}.pdf`);
   };
 
+  // Passive/Active detector (shared across modules)
+  const isPassiveOrder = (order) =>
+    order?.retailerMode === 'passive' ||
+    order?.mode === 'passive' ||
+    order?.isProvisional === true ||
+    !!order?.provisionalRetailerId ||
+    order?.provisional === true;
+
+  // Mode filter helper
+  const matchesMode = (order) => {
+    if (mode === 'all') return true;
+    const passive = isPassiveOrder(order);
+    if (mode === 'active') return !passive;
+    if (mode === 'passive') return passive;
+    return true;
+  };
+
   // Removed duplicate declaration of getEditedCreditDays
   const duePreviewFromDays = (days) => {
     const d = new Date();
@@ -100,7 +265,7 @@ const TrackOrders = () => {
             const aDelivered = (a.status === 'Delivered') || (a.statusCode === 'DELIVERED');
             const bDelivered = (b.status === 'Delivered') || (b.statusCode === 'DELIVERED');
             if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
-            return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+            return toMillis(b.createdAt) - toMillis(a.createdAt);
           });
         setOrders(orderData);
       });
@@ -164,27 +329,83 @@ const TrackOrders = () => {
       : null;
 
     const now = new Date();
+    const nowIso = now.toISOString();
+    const paymentInfo = paymentUi(orderData);
+    const paymentFlags = paymentInfo?.flags || {};
+    const normalizedPayment = paymentInfo?.normalized || {};
+    const rawCreditDays =
+      normalizedPayment?.creditDays ??
+      orderData?.creditDays ??
+      orderData?.payment?.creditDays ??
+      orderData?.paymentSummary?.creditDueDays ??
+      orderData?.payment?.creditDueDays ??
+      0;
+    const creditDaysValue = Number(rawCreditDays || 0);
+    const isCredit =
+      !!paymentFlags.isCredit ||
+      normalizedPayment?.isCredit ||
+      (typeof orderData?.paymentMethod === 'string' &&
+        orderData.paymentMethod.toUpperCase().includes('CREDIT')) ||
+      (orderData?.paymentFlags && orderData.paymentFlags.isCredit === true);
+
+    const mergedFlags = {
+      ...(orderData?.paymentFlags || {}),
+      ...Object.fromEntries(
+        Object.entries(paymentFlags).filter(([, v]) => typeof v === 'boolean')
+      ),
+    };
+
+    const normalizedToStore =
+      normalizedPayment && normalizedPayment.code
+        ? { ...(orderData?.paymentNormalized || {}), ...normalizedPayment }
+        : orderData?.paymentNormalized || null;
+
+    const paymentLabel =
+      paymentInfo?.label && paymentInfo.label !== 'N/A'
+        ? (typeof paymentInfo.label === 'string' ? paymentInfo.label : paymentInfo.label.label || 'N/A')
+        : orderData?.paymentMode ||
+          orderData?.payment?.type ||
+          orderData?.paymentSummary?.mode ||
+          orderData?.paymentMethod ||
+          'N/A';
+
+    const paymentMethodCode =
+      (normalizedPayment && normalizedPayment.code) ||
+      orderData?.paymentMethod ||
+      orderData?.paymentNormalized?.code ||
+      null;
+
     let updatePayload = {
       status: 'Delivered',
       statusCode: 'DELIVERED',
-      deliveredAt: now.toISOString(),
+      deliveredAt: nowIso,
       'statusTimestamps.deliveredAt': serverTimestamp(),
-      timeline: arrayUnion({ status: 'DELIVERED', by: 'distributor', at: serverTimestamp() }),
+      // normalize: use object "by"
+      timeline: arrayUnion({ status: 'DELIVERED', by: { uid: user.uid, type: 'distributor' }, at: nowIso }),
       handledBy: {
         ...(orderData?.handledBy || {}),
         deliveredBy: { uid: user.uid, type: 'distributor' }
       },
-      auditTrail: arrayUnion({ at: now.toISOString(), event: 'deliverOrder', by: { uid: user.uid, type: 'distributor' } })
+      auditTrail: arrayUnion({ at: nowIso, event: 'deliverOrder', by: { uid: user.uid, type: 'distributor' } }),
+      policyVersion: ORDER_POLICY_VERSION,
+      paymentUi: paymentLabel,
+      paymentMode: paymentLabel,
+      paymentNormalized: normalizedToStore,
+      paymentFlags: mergedFlags,
     };
+    if (paymentMethodCode) {
+      updatePayload.paymentMethod = paymentMethodCode;
+    }
 
-    // Handle Credit Cycle logic
-    if (orderData?.paymentMethod === 'Credit Cycle') {
-      const days = Number(orderData.creditDays || 0);
-      if (Number.isFinite(days) && days > 0) {
-        const dueDate = new Date(now);
-        dueDate.setDate(dueDate.getDate() + days);
-        updatePayload.creditDueDate = dueDate.toISOString();
-        updatePayload.isPaid = false;
+    // Handle Credit Cycle logic (prefer normalized + stored fields)
+    if (isCredit && Number.isFinite(creditDaysValue) && creditDaysValue > 0) {
+      const dueDate = new Date(now);
+      dueDate.setDate(dueDate.getDate() + creditDaysValue);
+      updatePayload.creditDueDate = dueDate.toISOString();
+      updatePayload.creditDays = creditDaysValue;
+      updatePayload.isPaid = false;
+      if (!updatePayload.paymentStatus) {
+        updatePayload.paymentStatus = 'Payment Due';
       }
     }
 
@@ -204,18 +425,48 @@ const TrackOrders = () => {
       ? doc(db, 'businesses', order.retailerId, 'sentOrders', order.id)
       : null;
 
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const paymentInfo = paymentUi(order);
+    const normalizedPayment = paymentInfo?.normalized || {};
+    const mergedFlags = {
+      ...(order?.paymentFlags || {}),
+      ...Object.fromEntries(
+        Object.entries(paymentInfo?.flags || {}).filter(([, v]) => typeof v === 'boolean')
+      ),
+    };
+    const normalizedToStore =
+      normalizedPayment && normalizedPayment.code
+        ? { ...(order?.paymentNormalized || {}), ...normalizedPayment }
+        : order?.paymentNormalized || null;
+    const paymentLabel =
+      typeof paymentInfo.label === 'string' && paymentInfo.label !== 'N/A'
+        ? paymentInfo.label
+        : order?.paymentMode ||
+          order?.payment?.type ||
+          order?.paymentSummary?.mode ||
+          order?.paymentMethod ||
+          'COD';
     const payload = {
       isPaid: true,
       paymentStatus: 'Paid',
-      paidAt: new Date().toISOString(),
+      paidAt: nowIso,
       'statusTimestamps.paidAt': serverTimestamp(),
-      timeline: arrayUnion({ status: 'PAID', by: 'distributor', at: serverTimestamp() }),
+      timeline: arrayUnion({ status: 'PAID', by: { uid: user.uid, type: 'distributor' }, at: nowIso }),
       handledBy: {
         ...(order?.handledBy || {}),
         paidBy: { uid: user.uid, type: 'distributor' }
       },
-      auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'recordPayment', by: { uid: user.uid, type: 'distributor' }, meta: { method: 'COD' } })
+      auditTrail: arrayUnion({ at: nowIso, event: 'recordPayment', by: { uid: user.uid, type: 'distributor' }, meta: { method: 'COD' } }),
+      policyVersion: ORDER_POLICY_VERSION,
+      paymentUi: paymentLabel,
+      paymentMode: paymentLabel,
+      paymentNormalized: normalizedToStore,
+      paymentFlags: mergedFlags,
     };
+    if (normalizedPayment && normalizedPayment.code) {
+      payload.paymentMethod = normalizedPayment.code;
+    }
     await updateDoc(distributorOrderRef, payload);
     if (retailerOrderRef) {
       await updateDoc(retailerOrderRef, payload);
@@ -226,14 +477,35 @@ const TrackOrders = () => {
   // Guarded deliver action
   const getEditedCreditDays = (order) => {
     const v = creditDaysEdit[order.id];
-    return (typeof v === 'number' && v > 0) ? v : Number(order.creditDays || 15);
+    if (typeof v === 'number' && v > 0) return v;
+    const paymentInfo = paymentUi(order);
+    const normalizedPayment = paymentInfo?.normalized || {};
+    return Number(
+      normalizedPayment.creditDays ??
+      order.creditDays ??
+      order.payment?.creditDays ??
+      order.paymentSummary?.creditDueDays ??
+      order.payment?.creditDueDays ??
+      15
+    );
   };
   const guardedMarkDelivered = async (order) => {
-    if (order.paymentMethod === 'COD' && !order.isPaid) {
+    const paymentInfo = paymentUi(order);
+    const paymentFlags = paymentInfo?.flags || {};
+    const isCOD =
+      paymentFlags.isCOD ||
+      (typeof order.paymentMethod === 'string' && order.paymentMethod.toUpperCase() === 'COD');
+    const isCredit =
+      paymentFlags.isCredit ||
+      paymentInfo?.normalized?.isCredit ||
+      (typeof order.paymentMethod === 'string' && order.paymentMethod.toUpperCase().includes('CREDIT')) ||
+      (order.paymentFlags && order.paymentFlags.isCredit === true);
+
+    if (isCOD && !order.isPaid) {
       toast.info("For COD, please confirm 'Payment Received' first.");
       return;
     }
-    if (order.paymentMethod === 'Credit Cycle') {
+    if (isCredit) {
       const days = Number(getEditedCreditDays(order));
       if (!Number.isFinite(days) || days <= 0) {
         toast.error('Invalid credit days');
@@ -345,9 +617,13 @@ const TrackOrders = () => {
 
   const computeCreditDueDate = (order) => {
     if (order?.creditDueDate) return new Date(order.creditDueDate);
-    if (order?.deliveredAt && (order?.creditDays || order?.creditDays === 0)) {
+    const norm = paymentUi(order).normalized;
+    const creditDays =
+      (norm && Number(norm.creditDays)) ||
+      (Number.isFinite(order?.creditDays) ? Number(order.creditDays) : null);
+    if (order?.deliveredAt && Number.isFinite(creditDays)) {
       const d = new Date(order.deliveredAt);
-      d.setDate(d.getDate() + Number(order.creditDays || 0));
+      d.setDate(d.getDate() + Number(creditDays || 0));
       return d;
     }
     return null;
@@ -356,16 +632,18 @@ const TrackOrders = () => {
   const outForDeliveryOrders = orders.filter((order) => {
     const sc = codeOf(order.statusCode || order.status);
     const isOFD = sc === 'SHIPPED' || sc === 'OUT_FOR_DELIVERY';
-    return isOFD && matchesSearch(order) && matchesDate(order);
+    return isOFD && matchesMode(order) && matchesSearch(order) && matchesDate(order);
   });
 
   const quotedOrders = orders.filter((order) => 
     (order.status === 'Quoted' || order.statusCode === 'QUOTED' || order.statusCode === 'PROFORMA_SENT') && 
+    matchesMode(order) &&
     matchesSearch(order) && 
     matchesDate(order)
   );
 
   let paymentDueOrders = orders.filter((order) => {
+    if (!matchesMode(order)) return false;
     if (order.paymentMethod !== 'Credit Cycle') return false;
     if (order.isPaid === true || order.paymentStatus === 'Paid') return false;
     const due = computeCreditDueDate(order);
@@ -374,7 +652,8 @@ const TrackOrders = () => {
     .sort((a, b) => a.__dueDate - b.__dueDate);
 
   let paidOrders = orders.filter(
-    (order) => (order.isPaid === true || order.paymentStatus === 'Paid') &&
+    (order) => matchesMode(order) &&
+               (order.isPaid === true || order.paymentStatus === 'Paid') &&
                matchesSearch(order) && matchesDate(order)
   );
 
@@ -409,6 +688,22 @@ const TrackOrders = () => {
           onChange={(e) => setFilterDate(e.target.value)}
           className="px-3 sm:px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 text-sm"
         />
+        {/* Mode filter */}
+        <div className="ml-auto inline-flex rounded-full bg-white/5 border border-white/15 overflow-hidden backdrop-blur-xl">
+          {['all','active','passive'].map((m, i) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={
+                "px-3 py-2 font-medium text-xs transition focus:outline-none " +
+                (i>0 ? "border-l border-white/10 " : "") +
+                (mode===m ? "bg-cyan-400/25 text-cyan-200" : "text-white/70 hover:bg-white/5")
+              }
+            >
+              {m[0].toUpperCase()+m.slice(1)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Section Toggle */}
@@ -442,13 +737,18 @@ const TrackOrders = () => {
                   <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
                     {/* header */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
-                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
+                        {isPassiveOrder(order) && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/20 text-amber-200 border border-amber-400/30">passive</span>
+                        )}
+                      </div>
                       <span className="px-2 py-1 rounded-full text-xs font-medium bg-sky-500/15 text-sky-200">{order.status}</span>
                     </div>
                     {/* subheader */}
                     <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
                       <span><span className="font-medium text-white/80">Total:</span> ₹{sumOrderTotal(order).toFixed(2)}</span>
-                      <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 text-xs font-medium">Payment: {order.paymentMethod || 'N/A'}</span>
+                      <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 text-xs font-medium">Payment: {getPaymentLabel(order)}</span>
                       {order.paymentMethod === 'Credit Cycle' && (
                         <div className="flex items-center gap-2">
                           <label className="text-xs text-white/70 font-medium">Credit Days:</label>
@@ -472,15 +772,15 @@ const TrackOrders = () => {
 
                     {/* actions */}
                     <div className="px-4 pb-2 flex flex-col md:flex-row gap-2">
-                      {order.paymentMethod === 'COD' && !order.isPaid && (
+                      {(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid && (
                         <button onClick={() => confirmCODPayment(order)} className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition">
                           Confirm Payment Received
                         </button>
                       )}
                       <button
                         onClick={() => guardedMarkDelivered(order)}
-                        className={`rounded-lg px-4 py-2 font-medium text-white transition ${order.paymentMethod === 'COD' && !order.isPaid ? 'bg-white/10 cursor-not-allowed' : 'bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-500'}`}
-                        disabled={order.paymentMethod === 'COD' && !order.isPaid}
+                        className={`rounded-lg px-4 py-2 font-medium text-white transition ${(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid ? 'bg-white/10 cursor-not-allowed' : 'bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-500'}`}
+                        disabled={(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid}
                       >
                         Mark Delivered
                       </button>
@@ -529,7 +829,7 @@ const TrackOrders = () => {
                         <p><strong>Order ID:</strong> {order.id}</p>
                         <p><strong>Retailer Email:</strong> {order.retailerEmail || order.retailer?.email || currentRetailers[order.retailerId]?.email || connectedRetailerMap[order.retailerId]?.retailerEmail || 'N/A'}</p>
                         <p><strong>Retailer Phone:</strong> {order.retailerPhone || order.retailer?.phone || currentRetailers[order.retailerId]?.phone || connectedRetailerMap[order.retailerId]?.retailerPhone || 'N/A'}</p>
-                        <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
+                        <p><strong>Payment Method:</strong> {getPaymentLabel(order)}</p>
                         <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
 
                         {/* ITEMS FIRST (with inline discount columns) */}
@@ -587,7 +887,7 @@ const TrackOrders = () => {
 
                         {/* Badges + actions */}
                         <div className="flex flex-wrap gap-2 mt-2">
-                          <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.paymentMethod === 'Credit Cycle' ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-white/80')}>Payment: {order.paymentMethod || 'N/A'}</span>
+                          <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.paymentMethod === 'Credit Cycle' ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-white/80')}>Payment: {getPaymentLabel(order)}</span>
                           <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.deliveryMode === 'Self Pickup' ? 'bg-emerald-500/15 text-emerald-200' : order.deliveryMode === 'Courier' ? 'bg-sky-500/15 text-sky-200' : 'bg-white/10 text-white/80')}>Delivery: {order.deliveryMode || 'N/A'}</span>
                         </div>
                       </div>
@@ -608,7 +908,12 @@ const TrackOrders = () => {
                 paymentDueOrders.map((order) => (
                   <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
-                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
+                        {isPassiveOrder(order) && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/20 text-amber-200 border border-amber-400/30">passive</span>
+                        )}
+                      </div>
                       <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-200">{order.status}</span>
                     </div>
                     <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
@@ -669,7 +974,7 @@ const TrackOrders = () => {
                         {/* order meta */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           <p><strong>Order ID:</strong> {order.id}</p>
-                          <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
+                          <p><strong>Payment Method:</strong> {getPaymentLabel(order)}</p>
                           <p><strong>Retailer Email:</strong> {order.retailerEmail || order.retailer?.email || currentRetailers[order.retailerId]?.email || connectedRetailerMap[order.retailerId]?.retailerEmail || 'N/A'}</p>
                           <p><strong>Retailer Phone:</strong> {order.retailerPhone || order.retailer?.phone || currentRetailers[order.retailerId]?.phone || connectedRetailerMap[order.retailerId]?.retailerPhone || 'N/A'}</p>
                           <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
@@ -740,7 +1045,7 @@ const TrackOrders = () => {
                                 paymentStatus: 'Paid',
                                 paidAt: new Date().toISOString(),
                                 'statusTimestamps.paidAt': serverTimestamp(),
-                                timeline: arrayUnion({ status: 'PAID', by: 'distributor', at: serverTimestamp() }),
+                                timeline: arrayUnion({ status: 'PAID', by: { uid: user.uid, type: 'distributor' }, at: serverTimestamp() }),
                                 auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'recordPayment', by: { uid: user.uid, type: 'distributor' }, meta: { method: 'CREDIT' } })
                               };
                               await updateDoc(distributorOrderRef, payload);
@@ -774,7 +1079,12 @@ const TrackOrders = () => {
                   <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
                     {/* header */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
-                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
+                        {isPassiveOrder(order) && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/20 text-amber-200 border border-amber-400/30">passive</span>
+                        )}
+                      </div>
                       <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.status === 'Delivered' ? "bg-emerald-500/15 text-emerald-200" : order.status === 'Shipped' ? "bg-sky-500/15 text-sky-200" : order.status === 'Accepted' ? "bg-amber-500/15 text-amber-200" : "bg-white/10 text-white/80")}>{order.status}</span>
                     </div>
                     <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
@@ -786,10 +1096,10 @@ const TrackOrders = () => {
                     <div className="px-4 pb-2">
                       <div className="flex items-center gap-2">
                         {(() => {
-                          const steps = ['Requested', 'Accepted', 'Shipped', 'Delivered', 'Paid'];
+                          const steps = ['Requested', 'Accepted', 'Shipped', 'Delivered, Paid'];
                           const baseStatuses = ['Requested', 'Accepted', 'Shipped', 'Delivered'];
                           let statusIndex = baseStatuses.indexOf(order.status);
-                          if (order.isPaid || order.paymentStatus === 'Paid') statusIndex = 4;
+                          if (order.isPaid || order.paymentStatus === 'Paid') statusIndex = 3; // collapse Paid with Delivered badge above
                           return steps.map((step, index) => {
                             const isCompleted = index < statusIndex;
                             const isActive = index === statusIndex;
@@ -797,7 +1107,7 @@ const TrackOrders = () => {
                               <div key={step} className={`flex items-center gap-1 ${isActive ? 'text-blue-600' : isCompleted ? 'text-green-600' : 'text-gray-400'}`}>
                                 <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-blue-600' : isCompleted ? 'bg-green-600' : 'bg-gray-300'}`}></div>
                                 <span className="text-xs">{step}</span>
-                                {index !== 4 && <div className="w-6 h-px bg-gray-200"></div>}
+                                {index !== 3 && <div className="w-6 h-px bg-gray-200"></div>}
                               </div>
                             );
                           });
@@ -846,7 +1156,7 @@ const TrackOrders = () => {
                         <p><strong>Order ID:</strong> {order.id}</p>
                         <p><strong>Retailer Email:</strong> {order.retailerEmail || order.retailer?.email || currentRetailers[order.retailerId]?.email || connectedRetailerMap[order.retailerId]?.retailerEmail || 'N/A'}</p>
                         <p><strong>Retailer Phone:</strong> {order.retailerPhone || order.retailer?.phone || currentRetailers[order.retailerId]?.phone || connectedRetailerMap[order.retailerId]?.retailerPhone || 'N/A'}</p>
-                        <p><strong>Payment Method:</strong> {order.paymentMethod || 'N/A'}</p>
+                        <p><strong>Payment Method:</strong> {getPaymentLabel(order)}</p>
                         <p><strong>Delivery Mode:</strong> {order.deliveryMode || 'N/A'}</p>
                         {order.deliveredAt && (<p><strong>Delivered On:</strong> {formatDateTime(order.deliveredAt)}</p>)}
 
@@ -929,7 +1239,12 @@ const TrackOrders = () => {
                 quotedOrders.map((order) => (
                   <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
-                      <div><span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span></div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
+                        {isPassiveOrder(order) && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/20 text-amber-200 border border-amber-400/30">passive</span>
+                        )}
+                      </div>
                       <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-200">{order.status}</span>
                     </div>
                     <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">

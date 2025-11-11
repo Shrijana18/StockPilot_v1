@@ -41,6 +41,35 @@ function isSameDay(a, b) {
 
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
 
+const toDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "object" && typeof value.seconds === "number") {
+    return new Date(value.seconds * 1000);
+  }
+  return null;
+};
+
+const getOrderTotal = (order) => {
+  const breakdown = order?.chargesSnapshot?.breakdown;
+  if (breakdown && breakdown.grandTotal != null) return Number(breakdown.grandTotal) || 0;
+  if (order?.proforma?.grandTotal != null) return Number(order.proforma.grandTotal) || 0;
+  if (Array.isArray(order?.items)) {
+    return order.items.reduce((sum, item) => {
+      const qty = Number(item.quantity ?? item.qty ?? 0);
+      const price = Number(item.price ?? item.unitPrice ?? item.sellingPrice ?? 0);
+      return sum + qty * price;
+    }, 0);
+  }
+  if (order?.itemsSubTotal != null) return Number(order.itemsSubTotal) || 0;
+  if (order?.totalAmount != null) return Number(order.totalAmount) || 0;
+  return 0;
+};
+
 const DistributorCreditDue = () => {
   const [snapshot, setSnapshot] = useState({
     totalDueOrders: 0,
@@ -66,17 +95,28 @@ const DistributorCreditDue = () => {
       let dueTomorrowRetailers = new Set();
       querySnap.forEach((doc) => {
         const order = doc.data();
-        if (order.isPaid === false && order.status === "Delivered") {
+        const statusCode = (order.statusCode || order.status || "").toString().toUpperCase();
+        const isDelivered = statusCode === "DELIVERED" || order.status === "Delivered";
+        const isPaid = order.isPaid === true || order.paymentStatus === "Paid";
+        const creditDays =
+          Number(
+            order.creditDays ??
+            order.payment?.creditDays ??
+            order.paymentSummary?.creditDueDays ??
+            order.payment?.creditDueDays ??
+            0
+          ) || 0;
+
+        if (!isPaid && isDelivered && creditDays > 0) {
           totalDueOrders += 1;
           // Parse deliveredAt and creditDays
-          const deliveredAt = order.deliveredAt
-            ? new Date(order.deliveredAt)
-            : null;
-          const creditDays = Number(order.creditDays || 0);
+          const deliveredAt =
+            toDate(order.deliveredAt) ||
+            toDate(order.statusTimestamps?.deliveredAt);
           if (deliveredAt && !isNaN(deliveredAt.getTime())) {
             const dueDate = addDays(deliveredAt, creditDays);
             dueDate.setHours(0, 0, 0, 0);
-            const totalAmount = Number(order.totalAmount || 0);
+            const totalAmount = getOrderTotal(order);
             const retailerName = order.retailerName || order.retailer || "Unknown";
             if (isSameDay(dueDate, today)) {
               dueTodayAmount += totalAmount;

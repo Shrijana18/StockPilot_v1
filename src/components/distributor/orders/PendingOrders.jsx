@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   getFirestore,
   collection,
@@ -12,247 +12,45 @@ import {
   arrayUnion
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import ProformaSummary from "../../retailer/ProformaSummary";
-import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus";
+import { toast } from 'react-toastify';
+import ProformaSummary from '../../retailer/ProformaSummary';
+import { codeOf } from '../../../constants/orderStatus';
+import * as orderPolicy from '../../../lib/orders/orderPolicy';
 
 const PendingOrders = () => {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [statusFilter, setStatusFilter] = useState('All');
+  const [shippingIds, setShippingIds] = useState(new Set());
 
   const db = getFirestore();
   const auth = getAuth();
 
-  const handleDateChange = async (orderId, newDate) => {
-    const user = auth.currentUser;
-    if (!user) return;
-    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
-    await updateDoc(orderRef, { expectedDeliveryDate: newDate });
-  };
-
-  const handleDeliveryModeChange = async (orderId, mode) => {
-    const user = auth.currentUser;
-    if (!user) return;
-    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
-    await updateDoc(orderRef, { deliveryMode: mode });
-  };
-
-  const handlePaymentModeChange = async (orderId, newMode) => {
-    const user = auth.currentUser;
-    if (!user) return;
-    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
-    await updateDoc(orderRef, { paymentMode: newMode });
-  };
-
-  const markAsShipped = async (orderId) => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const order = pendingOrders.find(o => o.id === orderId);
-    if (!order) return;
-
-    // inline UI validation flags
-    setPendingOrders(prev =>
-      prev.map(o => {
-        if (o.id !== orderId) return o;
-        return {
-          ...o,
-          deliveryDateError: !o.expectedDeliveryDate,
-          deliveryModeError: !o.deliveryMode,
-        };
-      })
-    );
-
-    if (!order.expectedDeliveryDate || !order.deliveryMode) return;
-
-    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
-
-    // --- Canonical update for SHIPPED ---
-    const updateData = {
-      status: 'Shipped',
-      statusCode: 'SHIPPED',
-      retailerName: order.retailerName || order.retailer?.name || 'N/A',
-      retailerEmail: order.retailerEmail || order.retailer?.email || 'N/A',
-      retailerPhone: order.retailerPhone || order.retailer?.phone || 'N/A',
-      paymentMethod: order.paymentMode || 'N/A',
-      createdAt: order.timestamp?.seconds
-        ? new Date(order.timestamp.seconds * 1000).toISOString()
-        : new Date().toISOString(),
-      expectedDeliveryDate: order.expectedDeliveryDate,
-      deliveryMode: order.deliveryMode,
-      // stamp canonical server time under statusTimestamps
-      [`statusTimestamps.shippedAt`]: serverTimestamp(),
-      shipment: {
-        courier: order.courier || null,
-        awb: order.awb || null,
-        packedAt: (order.status === 'Packed' || order.statusCode === 'PACKED')
-          ? (order.packedAt || null)
-          : null,
-        shippedAt: null,
-        deliveredAt: null,
-      },
-      handledBy: {
-        ...(order?.handledBy || {}),
-        shippedBy: { uid: user.uid, type: 'distributor' }
-      },
-      auditTrail: arrayUnion({
-        at: new Date().toISOString(),
-        event: 'shipOrder',
-        by: { uid: user.uid, type: 'distributor' },
-        meta: { deliveryMode: order.deliveryMode }
-      })
-    };
-
-    await updateDoc(orderRef, updateData);
-
-    // Update retailer mirror ONLY for active (connected) retailers
-    if (order.retailerId) {
-      const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', orderId);
-      const retailerUpdateData = {
-        status: 'Shipped',
-        statusCode: 'SHIPPED',
-        expectedDeliveryDate: order.expectedDeliveryDate,
-        deliveryMode: order.deliveryMode,
-        shippedAt: new Date().toISOString(),
-        [`statusTimestamps.shippedAt`]: serverTimestamp()
-      };
-      await updateDoc(retailerOrderRef, retailerUpdateData);
+  // ---------- Helpers ----------
+  const formatDateTime = (d) => {
+    try {
+      return new Date(d).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    } catch {
+      return 'N/A';
     }
   };
 
-  const handleItemEdit = (orderId, index, field, value) => {
-    setPendingOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== orderId) return order;
-        const updatedItems = [...order.items];
-        updatedItems[index] = { ...updatedItems[index], [field]: value };
-        return { ...order, items: updatedItems };
-      })
-    );
-  };
-
-  const handleDeleteItem = (orderId, index) => {
-    setPendingOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== orderId) return order;
-        const updatedItems = order.items.filter((_, i) => i !== index);
-        return { ...order, items: updatedItems };
-      })
-    );
-  };
-
-  const saveModifiedOrder = async (orderId) => {
-    const user = auth.currentUser;
-    if (!user) return;
-    const updatedOrder = pendingOrders.find((o) => o.id === orderId);
-    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
-    await updateDoc(orderRef, {
-      items: updatedOrder.items,
-      paymentMode: updatedOrder.paymentMode,
-      deliveryMode: updatedOrder.deliveryMode || '',
-      expectedDeliveryDate: updatedOrder.expectedDeliveryDate || '',
-    });
-  };
-
   const checkStockAvailability = (item) => {
-    if (item.stockAvailable === undefined || item.stockAvailable === null) return { isOverstock: false, message: '' };
-    if (item.quantity > item.stockAvailable) {
+    if (item.stockAvailable === undefined || item.stockAvailable === null) {
+      return { isOverstock: false, message: '' };
+    }
+    if (Number(item.quantity) > Number(item.stockAvailable)) {
       return { isOverstock: true, message: `Only ${item.stockAvailable} in stock` };
     }
     return { isOverstock: false, message: '' };
   };
 
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const ordersRef = collection(db, 'businesses', user.uid, 'orderRequests');
-    // Use canonical uppercase statusCode for filtering; fall back is handled in render.
-    const q = query(ordersRef, where('statusCode', 'in', ['ACCEPTED', 'MODIFIED', 'PACKED']));
-
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const enriched = await Promise.all(snapshot.docs.map(async (docSnap) => {
-        const data = docSnap.data();
-        const retailerRef = doc(db, 'businesses', data.retailerId);
-        const retailerSnap = await getDoc(retailerRef);
-        const retailerData = retailerSnap.exists() ? retailerSnap.data() : {};
-
-        // Enrich items; prefer proforma-locked values
-        const itemsWithStock = await Promise.all((data.items || []).map(async (item, idx) => {
-          const pLine = Array.isArray(data.proforma?.lines) ? data.proforma.lines[idx] : undefined;
-          let enrichedItem = { ...item };
-
-          if (!pLine && item.productId) {
-            try {
-              const productRef = doc(db, 'products', item.productId);
-              const productSnap = await getDoc(productRef);
-              if (productSnap.exists()) {
-                const productData = productSnap.data();
-                enrichedItem = {
-                  ...enrichedItem,
-                  stockAvailable: productData.stockAvailable,
-                  price: productData.sellingPrice || 0,
-                  sku: productData.sku || '',
-                  unit: productData.unit || ''
-                };
-              }
-            } catch {
-              // keep item as-is if product fetch fails
-            }
-          }
-
-          if (pLine) {
-            enrichedItem = {
-              ...enrichedItem,
-              price: Number(pLine.price ?? enrichedItem.price ?? 0),
-              proformaGross: Number(pLine.gross ?? 0),
-              gstRate: Number(pLine.gstRate ?? enrichedItem.gstRate ?? 0),
-            };
-          }
-
-          return enrichedItem;
-        }));
-
-        return {
-          id: docSnap.id,
-          ...data,
-          items: itemsWithStock,
-          retailerName: retailerData.businessName || retailerData.ownerName || 'N/A',
-          retailerEmail: retailerData.email || 'N/A',
-        };
-      }));
-      setPendingOrders(enriched);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // Canonical status filter (supports legacy labels too)
-  const filteredOrders = pendingOrders.filter((order) => {
-    if (statusFilter === 'All') return true;
-    if (statusFilter === 'Modified') return order.status === 'Modified';
-    const orderCode = codeOf(order.statusCode || order.status);
-    const filterCode = codeOf(statusFilter);
-    return orderCode && filterCode && orderCode === filterCode;
-  });
-
-  // Helpers to format dates
-  const formatDateTime = (d) => {
-    try {
-      return new Date(d).toLocaleString('en-GB', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
-      });
-    } catch { return 'N/A'; }
-  };
-  const formatDate = (d) => {
-    try {
-      return new Date(d).toLocaleDateString('en-GB', {
-        day: '2-digit', month: '2-digit', year: 'numeric'
-      });
-    } catch { return 'N/A'; }
-  };
-
-  // Proforma helpers
   const getDisplayPrice = (order, idx, item) => {
     if (Array.isArray(order?.proforma?.lines)) {
       const ln = order.proforma.lines[idx];
@@ -271,6 +69,245 @@ const PendingOrders = () => {
     return qty * price;
   };
 
+  // ---------- Inline editors ----------
+  const handleDateChange = async (orderId, newDate) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
+    await updateDoc(orderRef, { expectedDeliveryDate: newDate || '' });
+  };
+
+  const handleDeliveryModeChange = async (orderId, mode) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
+    await updateDoc(orderRef, { deliveryMode: mode || '' });
+  };
+
+
+  const handleItemEdit = (orderId, index, field, value) => {
+    setPendingOrders((prev) =>
+      prev.map((order) => {
+        if (order.id !== orderId) return order;
+        const updated = [...(order.items || [])];
+        updated[index] = { ...updated[index], [field]: value };
+        return { ...order, items: updated };
+      }),
+    );
+  };
+
+  const handleDeleteItem = (orderId, index) => {
+    setPendingOrders((prev) =>
+      prev.map((order) => {
+        if (order.id !== orderId) return order;
+        const updated = (order.items || []).filter((_, i) => i !== index);
+        return { ...order, items: updated };
+      }),
+    );
+  };
+
+  const saveModifiedOrder = async (orderId) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const updatedOrder = pendingOrders.find((o) => o.id === orderId);
+    if (!updatedOrder) return;
+    await orderPolicy.updateLines({
+      db,
+      auth,
+      distributorId: user.uid,
+      orderId,
+      items: updatedOrder.items,
+      deliveryMode: updatedOrder.deliveryMode,
+      expectedDeliveryDate: updatedOrder.expectedDeliveryDate,
+      paymentMode: updatedOrder.payment || updatedOrder.paymentMode,
+    });
+    if (typeof toast === 'function') toast.success('Changes saved');
+  };
+
+  // ---------- Ship flow ----------
+  const markAsShipped = async (orderId) => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const order = pendingOrders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    // UI validation and loading guard
+    setPendingOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? { ...o, deliveryDateError: !o.expectedDeliveryDate, deliveryModeError: !o.deliveryMode }
+          : o,
+      ),
+    );
+    if (!order.expectedDeliveryDate || !order.deliveryMode) return;
+
+    // Disable the button instantly (optimistic)
+    setShippingIds((prev) => new Set(prev).add(orderId));
+
+    try {
+      await orderPolicy.shipOrder({
+        db,
+        auth,
+        distributorId: user.uid,
+        orderId,
+        expectedDeliveryDate: order.expectedDeliveryDate,
+        deliveryMode: order.deliveryMode,
+        courier: order.courier || null,
+        awb: order.awb || null,
+      });
+
+      // Optimistic UI update
+      setPendingOrders((prev) => prev.filter((o) => o.id !== orderId));
+      if (typeof toast === 'function') toast.success('Order marked as Shipped → Track Orders');
+    } catch (err) {
+      console.error('shipOrder failed:', err);
+      if (typeof toast === 'function') toast.error(err.message || 'Failed to mark as Shipped.');
+    } finally {
+      setShippingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(orderId);
+        return next;
+      });
+    }
+  };
+
+  // ---------- Live data ----------
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const ordersRef = collection(db, 'businesses', user.uid, 'orderRequests');
+
+    // Primary: canonical statusCode
+    const q1 = query(ordersRef, where('statusCode', 'in', ['ACCEPTED', 'MODIFIED', 'PACKED']));
+    // Fallback: legacy status (when accept wrote only `status: 'Accepted'`)
+    const q2 = query(ordersRef, where('status', 'in', ['Accepted', 'Modified', 'Packed']));
+
+    // aggregator by id (dedupe between q1 & q2)
+    const byId = new Map();
+
+    const enrich = async (docSnap) => {
+      const data = docSnap.data() || {};
+      const retailerId =
+        typeof data.retailerId === 'string' && data.retailerId.trim().length
+          ? data.retailerId.trim()
+          : null;
+
+      // Retailer profile (guard for passive/provisional without retailerId)
+      let retailerData = {};
+      if (retailerId) {
+        try {
+          const retailerRef = doc(db, 'businesses', retailerId);
+          const retailerSnap = await getDoc(retailerRef);
+          if (retailerSnap.exists()) retailerData = retailerSnap.data() || {};
+        } catch {
+          /* keep empty retailerData */
+        }
+      } else if (data.retailerInfo) {
+        // passive snapshot written at accept time
+        retailerData = {
+          businessName: data.retailerInfo.name || data.retailerInfo.businessName,
+          ownerName: data.retailerInfo.ownerName || null,
+          email: data.retailerInfo.email || null,
+          phone: data.retailerInfo.phone || null,
+          city: data.retailerInfo.city || null,
+          state: data.retailerInfo.state || null,
+          address: data.retailerInfo.address || null,
+        };
+      }
+
+      // Items enrichment: prefer proforma line values
+      const itemsSrc = Array.isArray(data.items) ? data.items : [];
+      const itemsWithStock = await Promise.all(
+        itemsSrc.map(async (item, idx) => {
+          const pLine = Array.isArray(data.proforma?.lines) ? data.proforma.lines[idx] : undefined;
+          let enriched = { ...item };
+
+          // prefer distributorProductId, fall back to productId
+          const prodId =
+            (typeof item.distributorProductId === 'string' && item.distributorProductId.trim()) ||
+            (typeof item.productId === 'string' && item.productId.trim()) ||
+            null;
+
+          if (!pLine && prodId) {
+            try {
+              const productRef = doc(db, 'businesses', user.uid, 'products', prodId);
+              const productSnap = await getDoc(productRef);
+              if (productSnap.exists()) {
+                const p = productSnap.data() || {};
+                enriched = {
+                  ...enriched,
+                  stockAvailable: p.quantity ?? p.stockAvailable,
+                  price: p.sellingPrice || p.price || enriched.price || 0,
+                  sku: p.sku || enriched.sku || '',
+                  unit: p.unit || enriched.unit || '',
+                };
+              }
+            } catch {
+              /* ignore product enrichment failure */
+            }
+          }
+
+          if (pLine) {
+            enriched = {
+              ...enriched,
+              price: Number(pLine.price ?? enriched.price ?? 0),
+              proformaGross: Number(pLine.gross ?? 0),
+              gstRate: Number(pLine.gstRate ?? enriched.gstRate ?? 0),
+            };
+          }
+
+          return enriched;
+        }),
+      );
+
+      return {
+        id: docSnap.id,
+        ...data,
+        items: itemsWithStock,
+        retailerName:
+          retailerData.businessName ||
+          retailerData.ownerName ||
+          data.retailerName ||
+          'N/A',
+        retailerEmail:
+          retailerData.email ||
+          data.retailerEmail ||
+          data.retailerInfo?.email ||
+          'N/A',
+      };
+    };
+
+    const unsub1 = onSnapshot(q1, async (snap) => {
+      const rows = await Promise.all(snap.docs.map(enrich));
+      rows.forEach((r) => byId.set(r.id, r));
+      setPendingOrders(Array.from(byId.values()));
+    });
+
+    const unsub2 = onSnapshot(q2, async (snap) => {
+      const rows = await Promise.all(snap.docs.map(enrich));
+      rows.forEach((r) => byId.set(r.id, r));
+      setPendingOrders(Array.from(byId.values()));
+    });
+
+    return () => {
+      unsub1();
+      unsub2();
+    };
+  }, []);
+
+  // Filter (supports legacy status, too)
+  const filteredOrders = useMemo(() => {
+    return pendingOrders.filter((order) => {
+      if (statusFilter === 'All') return true;
+      if (statusFilter === 'Modified') return order.status === 'Modified';
+      const orderCode = codeOf(order.statusCode || order.status);
+      const filterCode = codeOf(statusFilter);
+      return orderCode && filterCode && orderCode === filterCode;
+    });
+  }, [pendingOrders, statusFilter]);
+
   return (
     <div className="p-6 space-y-6 text-white">
       {/* Segmented control for status filter */}
@@ -279,7 +316,8 @@ const PendingOrders = () => {
           {['All', 'Accepted', 'Packed', 'Modified'].map((status) => {
             const active = statusFilter === status;
             const base = 'px-4 py-1 rounded-full text-sm border transition backdrop-blur-xl';
-            const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
+            const on =
+              'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
             const off = 'bg-white/10 text-white border-white/15 hover:bg-white/15';
             return (
               <button
@@ -296,12 +334,12 @@ const PendingOrders = () => {
       </div>
 
       {filteredOrders.map((order) => {
-        // Friendly display for status, fallback to statusCode if needed
         const displayStatus =
           order.status ||
           (order.statusCode
             ? order.statusCode.charAt(0) + order.statusCode.slice(1).toLowerCase()
             : 'N/A');
+        const paymentLabel = orderPolicy.formatPaymentLabel(order.paymentMode || order.payment);
 
         return (
           <div
@@ -329,38 +367,47 @@ const PendingOrders = () => {
                 </span>
               </div>
             </div>
-  
+
             <div className="mt-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
               <p className="text-white/70">Email: {order.retailerEmail}</p>
               {order.status === 'Modified' ? (
                 <label className="flex items-center gap-2">
                   <span className="font-medium text-white/80">Payment Mode:</span>
                   <select
-                    value={order.paymentMode || ''}
-                    onChange={(e) => handlePaymentModeChange(order.id, e.target.value)}
+                    value={orderPolicy.extractPaymentCode(order.payment || order.paymentMode) || ''}
+                    onChange={(e) =>
+                      setPendingOrders(prev =>
+                        prev.map(o =>
+                          o.id === order.id ? { ...o, paymentMode: e.target.value } : o
+                        )
+                      )
+                    }
                     className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
                   >
                     <option value="">Select</option>
                     <option value="COD">Cash on Delivery (COD)</option>
-                    <option value="Split Payment">Split Payment (50/50 or custom %)</option>
-                    <option value="Advance Payment">Advance Payment</option>
-                    <option value="End of Month">End of Month</option>
-                    <option value="Credit Cycle">Credit Cycle (15/30 days)</option>
+                    <option value="SPLIT">Split Payment (50/50 or custom %)</option>
+                    <option value="ADVANCE">Advance Payment</option>
+                    <option value="END_OF_MONTH">End of Month</option>
+                    <option value="CREDIT_CYCLE">Credit Cycle (15/30 days)</option>
                     <option value="UPI">UPI</option>
-                    <option value="Net Banking">Net Banking</option>
-                    <option value="Cheque">Cheque</option>
-                    <option value="Other">Other</option>
+                    <option value="NET_BANKING">Net Banking</option>
+                    <option value="CHEQUE">Cheque</option>
+                    <option value="OTHER">Other</option>
                   </select>
                 </label>
               ) : (
-                <p className="text-white/70"><span className="font-medium">Payment Mode:</span> {order.paymentMode || 'N/A'}</p>
+                <p className="text-white/70">
+                  <span className="font-medium">Payment Mode:</span> {paymentLabel}
+                </p>
               )}
             </div>
-  
+
             <p className="mt-1 text-white/60 text-sm">
-              Requested On: {order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : 'N/A'}
+              Requested On:{' '}
+              {order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : 'N/A'}
             </p>
-  
+
             {order?.proforma && (
               <div className="mt-4">
                 <ProformaSummary
@@ -370,7 +417,7 @@ const PendingOrders = () => {
                 />
               </div>
             )}
-  
+
             <div className="mt-4 border border-white/10 rounded-lg overflow-hidden">
               <div className="grid grid-cols-8 font-semibold bg-white/5 border-b border-white/10 px-4 py-2 text-white">
                 <div>Name</div>
@@ -382,8 +429,8 @@ const PendingOrders = () => {
                 <div>Price</div>
                 <div>Subtotal</div>
               </div>
-  
-              {order.items.map((item, i) => {
+
+              {(order.items || []).map((item, i) => {
                 const { isOverstock, message } = checkStockAvailability(item);
                 return (
                   <div
@@ -412,10 +459,14 @@ const PendingOrders = () => {
                         />
                         <div className="flex flex-col gap-1">
                           <input
-                            className={`rounded px-2 py-1 bg-white/10 border ${isOverstock ? 'border-rose-500' : 'border-white/20'} text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition`}
+                            className={`rounded px-2 py-1 bg-white/10 border ${
+                              isOverstock ? 'border-rose-500' : 'border-white/20'
+                            } text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition`}
                             type="number"
                             value={item.quantity}
-                            onChange={(e) => handleItemEdit(order.id, i, 'quantity', parseInt(e.target.value))}
+                            onChange={(e) =>
+                              handleItemEdit(order.id, i, 'quantity', parseInt(e.target.value))
+                            }
                           />
                           {isOverstock && (
                             <span className="text-xs text-rose-300">{message}</span>
@@ -445,9 +496,10 @@ const PendingOrders = () => {
                         <div>{item.category || 'N/A'}</div>
                         <div>
                           {item.quantity}
-                          {(item.stockAvailable !== undefined && item.quantity > item.stockAvailable) && (
-                            <span className="text-rose-300 text-xs ml-1">Out of Stock</span>
-                          )}
+                          {item.stockAvailable !== undefined &&
+                            Number(item.quantity) > Number(item.stockAvailable) && (
+                              <span className="text-rose-300 text-xs ml-1">Out of Stock</span>
+                            )}
                         </div>
                         <div>{item.unit || 'N/A'}</div>
                         <div></div>
@@ -458,7 +510,7 @@ const PendingOrders = () => {
                   </div>
                 );
               })}
-  
+
               {order?.proforma?.grandTotal != null && (
                 <div className="flex justify-end px-4 py-2 border-t border-white/10 text-sm font-semibold">
                   <span className="mr-2 text-white/80">Grand Total:</span>
@@ -466,7 +518,7 @@ const PendingOrders = () => {
                 </div>
               )}
             </div>
-  
+
             <div className="mt-6 flex flex-col md:flex-row md:items-center md:gap-6 gap-3">
               <label className="flex items-center gap-2 font-medium text-white/80">
                 Expected Delivery Date:
@@ -475,8 +527,10 @@ const PendingOrders = () => {
                   value={order.expectedDeliveryDate || ''}
                   onChange={(e) => {
                     handleDateChange(order.id, e.target.value);
-                    setPendingOrders(prev =>
-                      prev.map(o => o.id === order.id ? { ...o, expectedDeliveryDate: e.target.value } : o)
+                    setPendingOrders((prev) =>
+                      prev.map((o) =>
+                        o.id === order.id ? { ...o, expectedDeliveryDate: e.target.value } : o,
+                      ),
                     );
                   }}
                   className="rounded-lg px-3 py-2 ml-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
@@ -485,15 +539,17 @@ const PendingOrders = () => {
               {order.deliveryDateError && (
                 <p className="text-rose-300 text-sm mt-1">Please select a valid delivery date.</p>
               )}
-  
+
               <label className="flex items-center gap-2 font-medium text-white/80">
                 Delivery Mode:
                 <select
                   value={order.deliveryMode || ''}
                   onChange={(e) => {
                     handleDeliveryModeChange(order.id, e.target.value);
-                    setPendingOrders(prev =>
-                      prev.map(o => o.id === order.id ? { ...o, deliveryMode: e.target.value } : o)
+                    setPendingOrders((prev) =>
+                      prev.map((o) =>
+                        o.id === order.id ? { ...o, deliveryMode: e.target.value } : o,
+                      ),
                     );
                   }}
                   className="rounded-lg px-3 py-2 ml-1 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
@@ -509,7 +565,7 @@ const PendingOrders = () => {
                 <p className="text-rose-300 text-sm mt-1">Please select a delivery mode.</p>
               )}
             </div>
-  
+
             <div className="mt-4 flex gap-3 flex-wrap">
               {order.status === 'Modified' && (
                 <button
@@ -521,9 +577,10 @@ const PendingOrders = () => {
               )}
               <button
                 onClick={() => markAsShipped(order.id)}
-                className="px-4 py-2 rounded-full font-medium text-sm text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] transition"
+                disabled={shippingIds.has(order.id)}
+                className={`px-4 py-2 rounded-full font-medium text-sm text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] transition ${shippingIds.has(order.id) ? 'opacity-60 cursor-not-allowed' : ''}`}
               >
-                Mark as Shipped
+                {shippingIds.has(order.id) ? 'Shipping…' : 'Mark as Shipped'}
               </button>
             </div>
           </div>
@@ -532,5 +589,5 @@ const PendingOrders = () => {
     </div>
   );
 };
-  
+
 export default PendingOrders;

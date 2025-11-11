@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion, runTransaction } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import html2pdf from 'html2pdf.js';
 import * as XLSX from 'xlsx';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import ChargesTaxesEditor from "../ChargesTaxesEditor";
-import PassiveOrderRequests from './PassiveOrderRequests';
 import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus";
+import * as orderPolicy from "../../../lib/orders/orderPolicy";
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -25,32 +25,24 @@ const OrderRequests = () => {
   const [selectedRetailerId, setSelectedRetailerId] = useState('all');
   const [editChargesMap, setEditChargesMap] = useState({});   // { [orderId]: bool }
   const [chargesDraftMap, setChargesDraftMap] = useState({}); // { [orderId]: breakdown }
-  const [mode, setMode] = useState('active');
+  const [mode, setMode] = useState('all'); // 'all' | 'active' | 'passive'
   const renderModeTabs = () => (
     <div className="p-4 pt-0">
       <div className="mb-3 inline-flex rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow">
-        <button
-          type="button"
-          onClick={() => setMode('active')}
-          className={`px-4 py-2 text-sm rounded-l-xl transition ${
-            mode === 'active'
-              ? 'bg-emerald-500 text-slate-900 font-semibold'
-              : 'bg-transparent text-white hover:bg-white/10'
-          }`}
-        >
-          Active
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('passive')}
-          className={`px-4 py-2 text-sm rounded-r-xl transition border-l border-white/10 ${
-            mode === 'passive'
-              ? 'bg-emerald-500 text-slate-900 font-semibold'
-              : 'bg-transparent text-white hover:bg-white/10'
-          }`}
-        >
-          Passive
-        </button>
+        {['all','active','passive'].map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`px-4 py-2 text-sm first:rounded-l-xl last:rounded-r-xl transition ${
+              mode === m
+                ? 'bg-emerald-500 text-slate-900 font-semibold'
+                : 'bg-transparent text-white hover:bg-white/10'
+            }`}
+          >
+            {m[0].toUpperCase() + m.slice(1)}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -86,7 +78,21 @@ const OrderRequests = () => {
     return orderTotal(order?.items || []);
   };
 
-  const isDirect = (order) => (order?.statusCode === 'DIRECT' || order?.status === 'Placed (Direct)');
+  const isDirect = (order) => {
+    const passive =
+      order?.retailerMode === 'passive' ||
+      order?.mode === 'passive' ||
+      order?.isProvisional === true ||
+      !!order?.provisionalRetailerId ||
+      order?.provisional === true;
+    const directMarkers =
+      order?.statusCode === 'DIRECT' ||
+      order?.status === 'Placed (Direct)' ||
+      order?.directFlow === true ||
+      order?.chargesSnapshot?.directFlow === true ||
+      order?.chargesSnapshot?.defaultsUsed?.skipProforma === true;
+    return passive || directMarkers;
+  };
   const getSnapshot = (order) => {
     const b = order?.chargesSnapshot?.breakdown || {};
     const tb = b?.taxBreakup || {};
@@ -137,6 +143,42 @@ const OrderRequests = () => {
     } catch { return 'N/A'; }
   };
 
+  // --- Payment label normalizer (defensive against legacy object shapes) ---
+  const paymentLabelOf = (pm) => {
+    if (!pm) return 'N/A';
+    if (typeof pm === 'string') return pm;
+
+    // object-based legacy payloads
+    if (typeof pm === 'object') {
+      if (typeof pm.label === 'string' && pm.label.trim()) return pm.label.trim();
+
+      // Known codes
+      const code = (pm.code || pm.type || '').toString().toLowerCase();
+      if (code) {
+        if (code.includes('split')) return 'Split Payment';
+        if (code === 'credit' || code.includes('credit_cycle') || code.includes('creditcycle')) return 'Credit Cycle';
+        if (code === 'cod' || code.includes('cash_on_delivery')) return 'COD';
+        if (code === 'upi') return 'UPI';
+        if (code.includes('net')) return 'Net Banking';
+        if (code.includes('cheque') || code.includes('check')) return 'Cheque';
+        if (code.includes('advance')) return 'Advance Payment';
+      }
+
+      // Boolean flags
+      if (pm.isSplit) return 'Split Payment';
+      if (pm.isCredit) return 'Credit Cycle';
+      if (pm.isCOD) return 'COD';
+      if (pm.isUPI) return 'UPI';
+      if (pm.isNetBanking) return 'Net Banking';
+      if (pm.isCheque) return 'Cheque';
+      if (pm.isAdvance) return 'Advance Payment';
+
+      // last resort
+      if (typeof pm.raw === 'string' && pm.raw.trim()) return pm.raw.trim();
+    }
+    return 'N/A';
+  };
+
   // --- Reject modal helpers ---
   const openRejectModal = (orderId) => {
     setRejectOrderId(orderId);
@@ -171,21 +213,19 @@ const OrderRequests = () => {
   const filteredOrders = useMemo(() => {
     const term = debouncedSearch;
     return (orders || []).filter(order => {
-      // CRITICAL: Filter out passive/provisional orders when in active mode
-      if (mode === 'active') {
-        const isPassiveOrder =
-          order.retailerMode === 'passive' ||
-          order.mode === 'passive' ||
-          order.isProvisional === true ||
-          !!order.provisionalRetailerId;
+      // Normalize passive detection once
+      const isPassiveOrder =
+        order.retailerMode === 'passive' ||
+        order.mode === 'passive' ||
+        order.isProvisional === true ||
+        !!order.provisionalRetailerId;
 
-        if (isPassiveOrder) return false;
-
-        if (order.createdBy === 'distributor' && !order.retailerMode) {
-          if (order.isProvisional === true || !!order.provisionalRetailerId) {
-            return false;
-          }
-        }
+      // Mode filter
+      if (mode === 'active' && isPassiveOrder) {
+        return false;
+      }
+      if (mode === 'passive' && !isPassiveOrder) {
+        return false;
       }
 
       const matchesSearch =
@@ -220,7 +260,7 @@ const OrderRequests = () => {
         order.retailerPhone || 'N/A',
         order.retailerCity || 'N/A',
         order.status || 'N/A',
-        order.paymentMode || 'N/A',
+        paymentLabelOf(order.paymentMode),
         order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : '',
         orderGrandTotal(order).toFixed(2)
       ]);
@@ -247,7 +287,7 @@ const OrderRequests = () => {
       'Phone': order.retailerPhone || 'N/A',
       'City': order.retailerCity || 'N/A',
       'Status': order.status || 'N/A',
-      'Payment': order.paymentMode || 'N/A',
+      'Payment': paymentLabelOf(order.paymentMode),
       'Requested On': order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : '',
       'Total': orderGrandTotal(order).toFixed(2),
     }));
@@ -451,55 +491,81 @@ const OrderRequests = () => {
 
   const handleStatusUpdate = async (orderId, newStatus, providedReason, isDirectFlag = false, directChargesDraft = null) => {
     try {
-      const snapshot = await getDoc(doc(db, 'businesses', auth.currentUser.uid, 'orderRequests', orderId));
-      const order = snapshot.data();
-      const orderDocRef = doc(db, 'businesses', order.distributorId || auth.currentUser.uid, 'orderRequests', orderId);
-      const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', orderId);
-      const retailerOrderSnap = await getDoc(retailerOrderRef);
-      // Canonical order document reference under /orders
-      const canonicalOrderRef = doc(db, 'businesses', auth.currentUser.uid, 'orders', orderId);
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
 
-      if (newStatus === 'Accepted') {
-        const enrichedItems = [];
+      // Normalize next status string/code defensively
+      const next = (newStatus || '').toString().toUpperCase();
+      const nextCode = codeOf(newStatus);
 
-        for (let item of order.items || []) {
-          let updatedItem = { ...item };
+      // Load distributor-side order
+      const distRef = doc(db, 'businesses', uid, 'orderRequests', orderId);
+      const distSnap = await getDoc(distRef);
+      if (!distSnap.exists()) {
+        console.warn('handleStatusUpdate: order not found', orderId);
+        return;
+      }
+      const order = distSnap.data();
 
-          if (item.distributorProductId) {
-            const productRef = doc(db, 'businesses', auth.currentUser.uid, 'products', item.distributorProductId);
-            const prodSnap = await getDoc(productRef);
-            if (prodSnap.exists()) {
-              const data = prodSnap.data();
-              const currentQty = data.quantity || 0;
-              const newQty = Math.max(currentQty - Number(item.quantity || 0), 0);
+      // Build references safely (retailerId may be missing for passive orders)
+      const hasRetailer = !!order?.retailerId;
+      const retailerRef = hasRetailer
+        ? doc(db, 'businesses', order.retailerId, 'sentOrders', orderId)
+        : null;
+      const retailerSnap = retailerRef ? await getDoc(retailerRef) : null;
 
-              await updateDoc(productRef, { quantity: newQty });
+      // Canonical order doc (/orders) for distributor account
+      const canonicalRef = doc(db, 'businesses', uid, 'orders', orderId);
 
-              updatedItem = {
-                ...updatedItem,
-                price: data.sellingPrice || data.price || 0,
-                subtotal: (data.sellingPrice || data.price || 0) * Number(item.quantity || 0),
-                sku: data.sku || '',
-                category: data.category || '',
-                brand: data.brand || '',
-              };
-            }
+      // -------- FAST-ACCEPT for passive/direct orders --------
+      // Distributor can accept immediately with (optional) edited charges; no retailer confirmation.
+      if (isDirectFlag && (nextCode === ORDER_STATUSES.ACCEPTED)) {
+        const sourceItems = Array.isArray(order.items) ? order.items : [];
+        let enrichedItems = sourceItems.map((item) => ({ ...item }));
+        const needsStockUpdate = sourceItems.some((item) => item?.distributorProductId);
+
+        if (needsStockUpdate) {
+          try {
+            enrichedItems = await runTransaction(db, async (tx) => {
+              const result = [];
+              for (const item of sourceItems) {
+                if (item?.distributorProductId) {
+                  const productRef = doc(db, 'businesses', uid, 'products', item.distributorProductId);
+                  const productSnap = await tx.get(productRef);
+                  if (productSnap.exists()) {
+                    const product = productSnap.data();
+                    const orderedQty = Number(item.quantity || 0);
+                    const currentQty = Number(product.quantity || 0);
+                    const newQty = Math.max(currentQty - orderedQty, 0);
+                    tx.update(productRef, { quantity: newQty });
+                    result.push({
+                      ...item,
+                      price: product.sellingPrice ?? product.price ?? item.price ?? 0,
+                      subtotal: (product.sellingPrice ?? product.price ?? item.price ?? 0) * orderedQty,
+                      sku: product.sku || item.sku || '',
+                      category: product.category || item.category || '',
+                      brand: product.brand || item.brand || '',
+                    });
+                    continue;
+                  }
+                }
+                result.push({ ...item });
+              }
+              return result;
+            });
+          } catch (transactionError) {
+            console.error('Failed to update inventory transactionally:', transactionError);
+            enrichedItems = sourceItems.map((item) => ({ ...item }));
           }
-
-          enrichedItems.push(updatedItem);
         }
 
-        // --- Structure-preserving merge for chargesSnapshot with taxBreakup normalization ---
+        // Merge chargesSnapshot conservatively and normalize taxBreakup
         const existingCharges = order?.chargesSnapshot || {};
         const existingBreakdown = existingCharges?.breakdown || {};
         const existingTaxBreakup = existingBreakdown?.taxBreakup || {};
+        const draft = directChargesDraft || {};
 
-        const draft = isDirectFlag ? (directChargesDraft || {}) : {};
-        const mergedBreakdown = {
-          ...existingBreakdown,
-          ...draft,
-        };
-        // Ensure taxBreakup map is updated using flat cgst/sgst/igst if present in draft
+        const mergedBreakdown = { ...existingBreakdown, ...draft };
         const nextTaxBreakup = {
           ...existingTaxBreakup,
           ...(draft && (draft.cgst !== undefined || draft.sgst !== undefined || draft.igst !== undefined)
@@ -511,133 +577,167 @@ const OrderRequests = () => {
             : existingTaxBreakup),
         };
         mergedBreakdown.taxBreakup = nextTaxBreakup;
-
+        if (isDirectFlag) {
+          mergedBreakdown.directFlow = true;
+        }
         const finalCharges = {
           ...existingCharges,
           breakdown: mergedBreakdown,
         };
-
-        // Create/overwrite canonical order with full payload + enriched items
-        await setDoc(canonicalOrderRef, {
-          ...order,
-          items: enrichedItems,
-          status: newStatus,
-          statusCode: 'ACCEPTED',
-          distributorId: auth.currentUser.uid,
-          retailerId: order.retailerId,
-          statusTimestamps: { ...(order.statusTimestamps || {}), acceptedAt: serverTimestamp() },
-          createdBy: order.createdBy || { type: 'distributor', uid: auth.currentUser.uid },
-          handledBy: { ...(order.handledBy || {}), acceptedBy: { uid: auth.currentUser.uid, type: 'distributor' } },
-          auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'acceptOrder', by: { uid: auth.currentUser.uid, type: 'distributor' } }),
-          chargesSnapshot: finalCharges,
-        }, { merge: true });
-
-        // Update orderDocRef with status, items, and acceptedAt timestamp
-        await updateDoc(orderDocRef, {
-          status: newStatus,
-          statusCode: 'ACCEPTED',
-          timeline: arrayUnion({ status: 'ACCEPTED', by: 'distributor', at: serverTimestamp() }),
-          items: enrichedItems,
-          statusTimestamps: {
-            acceptedAt: serverTimestamp(),
-          },
-          createdBy: order.createdBy || { type: 'distributor', uid: auth.currentUser.uid },
-          handledBy: { ...(order.handledBy || {}), acceptedBy: { uid: auth.currentUser.uid, type: 'distributor' } },
-          auditTrail: arrayUnion({ at: new Date().toISOString(), event: 'acceptOrder', by: { uid: auth.currentUser.uid, type: 'distributor' } }),
-          chargesSnapshot: finalCharges,
-        });
-
-        if (!retailerOrderSnap.exists()) {
-          await setDoc(retailerOrderRef, {
-            ...order,
-            items: enrichedItems,
-            status: newStatus,
-            statusCode: 'ACCEPTED',
-            timeline: arrayUnion({ status: 'ACCEPTED', by: 'distributor', at: serverTimestamp() }),
-            distributorId: auth.currentUser.uid,
-            retailerId: order.retailerId,
-            statusTimestamps: {
-              requestedAt: order.timestamp,
-            },
-            chargesSnapshot: finalCharges,
-          });
-        } else {
-          await updateDoc(retailerOrderRef, {
-            ...order,
-            items: enrichedItems,
-            status: newStatus,
-            statusCode: 'ACCEPTED',
-            timeline: arrayUnion({ status: 'ACCEPTED', by: 'distributor', at: serverTimestamp() }),
-            distributorId: auth.currentUser.uid,
-            retailerId: order.retailerId,
-            statusTimestamps: {
-              acceptedAt: serverTimestamp(),
-            },
-            chargesSnapshot: finalCharges,
-          });
+        if (isDirectFlag) {
+          finalCharges.directFlow = true;
         }
 
-        return;
+        const baseMode = order.retailerMode || (order.provisionalRetailerId ? 'passive' : 'active');
+        // --- Payment mode normalization ---
+        const normalizedPaymentMode = (orderPolicy && orderPolicy.normalizePaymentMode ? orderPolicy.normalizePaymentMode(order.paymentMode || order.payment_method || order.payment) : (order.paymentMode || order.payment_method || order.payment || 'Cash'));
+
+        const timelineEntry = {
+          status: 'ACCEPTED',
+          by: { uid, type: 'distributor' },
+          at: new Date().toISOString(),
+          ...(baseMode ? { mode: baseMode } : {}),
+        };
+        const auditEntry = {
+          at: new Date().toISOString(),
+          event: 'acceptOrder',
+          by: { uid, type: 'distributor' },
+          meta: { fastAccept: true },
+        };
+        const acceptanceBase = {
+          status: 'Accepted',
+          statusCode: 'ACCEPTED',
+          distributorId: uid,
+          // If this is a passive/provisional order, keep retailerId if present, otherwise carry the provisionalRetailerId.
+          retailerId: (order.retailerId ?? (order.provisionalRetailerId || null)),
+          retailerMode: baseMode,
+          provisionalRetailerId: order.provisionalRetailerId || null,
+          proformaLocked: true,
+          promotionReady: true,
+          directFlow: true,
+          items: enrichedItems,
+          chargesSnapshot: finalCharges,
+          paymentMode: normalizedPaymentMode,
+          paymentMethod: order.paymentMethod || order.payment_method || undefined,
+        };
+
+        // 1) Update distributor-side source doc first so PendingOrders sees ACCEPTED instantly
+        await updateDoc(distRef, {
+          ...acceptanceBase,
+          'statusTimestamps.acceptedAt': serverTimestamp(),
+          'handledBy.acceptedBy': { uid, type: 'distributor' },
+          updatedAt: serverTimestamp(),
+          timeline: arrayUnion(timelineEntry),
+          auditTrail: arrayUnion(auditEntry),
+        });
+
+        // 2) Ensure canonical /orders document exists and is updated
+        await setDoc(canonicalRef, acceptanceBase, { merge: true });
+        await updateDoc(canonicalRef, {
+          'statusTimestamps.acceptedAt': serverTimestamp(),
+          'handledBy.acceptedBy': { uid, type: 'distributor' },
+          updatedAt: serverTimestamp(),
+          timeline: arrayUnion(timelineEntry),
+          auditTrail: arrayUnion(auditEntry),
+        });
+
+        // Mirror to retailer doc only if it exists/allowed
+        if (hasRetailer) {
+          try {
+            await setDoc(retailerRef, {
+              status: 'Accepted',
+              statusCode: 'ACCEPTED',
+              distributorId: uid,
+              retailerId: order.retailerId,
+              items: enrichedItems,
+              chargesSnapshot: finalCharges,
+              proformaLocked: true,
+              directFlow: true,
+              paymentMode: normalizedPaymentMode,
+            }, { merge: true });
+            await updateDoc(retailerRef, {
+              'statusTimestamps.acceptedAt': serverTimestamp(),
+              directFlow: true,
+              timeline: arrayUnion(timelineEntry),
+            });
+          } catch (e) {
+            if (e?.code !== 'permission-denied') console.warn('retailer accept mirror skipped:', e?.message || e);
+          }
+        }
+        return; // fast-accept done
       }
 
-      if (newStatus === 'Rejected') {
+      // -------- Standard branches (Requested → Accepted / Rejected) --------
+      if (nextCode === ORDER_STATUSES.ACCEPTED) {
+        // Reuse fast-accept pathway with flag=false: still enrich and write safely
+        return await handleStatusUpdate(orderId, 'Accepted', providedReason, true, directChargesDraft);
+      }
+
+      if (nextCode === ORDER_STATUSES.REJECTED) {
         const reason = (providedReason || '').trim();
         if (!reason) return;
-        await updateDoc(orderDocRef, {
-          status: newStatus,
+
+        const rejectedTimeline = {
+          status: 'REJECTED',
+          by: { uid, type: 'distributor' },
+          at: new Date().toISOString(),
+        };
+        const rejectedAudit = {
+          at: new Date().toISOString(),
+          event: 'rejectOrder',
+          by: { uid, type: 'distributor' },
+          meta: { reason },
+        };
+        const rejectionBase = {
+          status: 'Rejected',
           statusCode: 'REJECTED',
-          timeline: arrayUnion({ status: 'REJECTED', by: 'distributor', at: serverTimestamp() }),
+          distributorId: uid,
+          retailerId: order.retailerId ?? null,
           rejectionNote: reason,
-          statusTimestamps: {
-            rejectedAt: serverTimestamp(),
-          },
+          items: order.items || [],
+          chargesSnapshot: order.chargesSnapshot || null,
+          paymentMode: (orderPolicy && orderPolicy.normalizePaymentMode ? orderPolicy.normalizePaymentMode(order.paymentMode || order.payment_method || order.payment) : (order.paymentMode || order.payment_method || order.payment || undefined)),
+        };
+
+        await setDoc(canonicalRef, rejectionBase, { merge: true });
+        await updateDoc(canonicalRef, {
+          'statusTimestamps.rejectedAt': serverTimestamp(),
+          timeline: arrayUnion(rejectedTimeline),
+          auditTrail: arrayUnion(rejectedAudit),
+          updatedAt: serverTimestamp(),
         });
-        // Update canonical order (rejected)
-        try {
-          await setDoc(canonicalOrderRef, {
-            ...order,
-            status: newStatus,
-            statusCode: 'REJECTED',
-            distributorId: auth.currentUser.uid,
-            retailerId: order.retailerId,
-            rejectionNote: reason,
-            statusTimestamps: { ...(order.statusTimestamps || {}), rejectedAt: serverTimestamp() },
-          }, { merge: true });
-        } catch (e) {
-          console.warn('Canonical order set (reject) skipped:', e?.message || e);
-        }
 
-        if (!retailerOrderSnap.exists()) {
-          await setDoc(retailerOrderRef, {
-            ...order,
-            status: newStatus,
-            statusCode: 'REJECTED',
-            timeline: arrayUnion({ status: 'REJECTED', by: 'distributor', at: serverTimestamp() }),
-            distributorId: auth.currentUser.uid,
-            retailerId: order.retailerId,
-            rejectionNote: reason,
-            statusTimestamps: {
-              requestedAt: order.timestamp,
-            },
-          });
-        } else {
-          await updateDoc(retailerOrderRef, {
-            ...order,
-            status: newStatus,
-            statusCode: 'REJECTED',
-            timeline: arrayUnion({ status: 'REJECTED', by: 'distributor', at: serverTimestamp() }),
-            distributorId: auth.currentUser.uid,
-            retailerId: order.retailerId,
-            rejectionNote: reason,
-            statusTimestamps: {
-              rejectedAt: serverTimestamp(),
-            },
-          });
-        }
+        await updateDoc(distRef, {
+          ...rejectionBase,
+          'statusTimestamps.rejectedAt': serverTimestamp(),
+          timeline: arrayUnion(rejectedTimeline),
+          auditTrail: arrayUnion(rejectedAudit),
+          updatedAt: serverTimestamp(),
+        });
 
+        if (hasRetailer) {
+          try {
+            await setDoc(retailerRef, {
+              status: 'Rejected',
+              statusCode: 'REJECTED',
+              distributorId: uid,
+              retailerId: order.retailerId,
+              rejectionNote: reason,
+              items: order.items || [],
+              chargesSnapshot: order.chargesSnapshot || null,
+            }, { merge: true });
+            await updateDoc(retailerRef, {
+              'statusTimestamps.rejectedAt': serverTimestamp(),
+              timeline: arrayUnion(rejectedTimeline),
+            });
+          } catch (e) {
+            if (e?.code !== 'permission-denied') console.warn('retailer reject mirror skipped:', e?.message || e);
+          }
+        }
         return;
       }
-      // For other statuses, no canonical update needed as of now.
+
+      // Other statuses not handled here
     } catch (err) {
       console.error('Failed to update status:', err);
     }
@@ -650,7 +750,7 @@ const OrderRequests = () => {
         order.retailerName,
         order.retailerEmail,
         order.timestamp?.seconds ? formatDate(order.timestamp.seconds * 1000) : '',
-        order.paymentMode,
+        paymentLabelOf(order.paymentMode),
         order.status,
       ],
     ].map(r => r.join(',')).join('\n');
@@ -668,7 +768,7 @@ const OrderRequests = () => {
         Retailer: order.retailerName,
         Email: order.retailerEmail,
         Date: order.timestamp?.seconds ? formatDate(order.timestamp.seconds * 1000) : '',
-        Payment: order.paymentMode,
+        Payment: paymentLabelOf(order.paymentMode),
         Status: order.status,
       }
     ]);
@@ -681,7 +781,7 @@ const OrderRequests = () => {
     html2pdf().from(content).save(`order_${order.id}.pdf`);
   };
 
-if (mode !== 'passive' && loading) {
+if (loading) {
   return (
     <div className="p-4 text-white">
       <div className="space-y-3">
@@ -705,7 +805,7 @@ if (mode !== 'passive' && loading) {
   );
 }
 
-if (mode !== 'passive' && !loading && orders.length === 0) {
+if (!loading && orders.length === 0) {
   return (
     <div className="p-6">
       <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl text-white p-6 text-center shadow-xl">
@@ -721,11 +821,6 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
     <div className="p-0 space-y-4 text-white">
       {/* Ensure all child elements are properly nested and closed */}
       {renderModeTabs()}
-      {mode === 'passive' ? (
-        <div className="px-4">
-          <PassiveOrderRequests pageSize={25} />
-        </div>
-      ) : (
       <div className="p-4 space-y-4">
       {/* Export buttons */}
       <div className="flex justify-end mb-4">
@@ -851,7 +946,14 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
               onClick={() => toggleOrder(order.id)}
             >
               <div>
-                <div className="font-bold text-lg text-white">{order.retailerName || 'N/A'}</div>
+                <div className="font-bold text-lg text-white">
+                  {order.retailerName || 'N/A'}
+                  {(order.retailerMode === 'passive' || order.mode === 'passive' || order.isProvisional || order.provisionalRetailerId) && (
+                    <span className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                      passive
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-white/60 mt-1">
                   {order.retailerCity || 'N/A'}
                   {order.retailerState ? `, ${order.retailerState}` : ''}
@@ -1021,19 +1123,28 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
                   </div>
                   <div className="mb-1 flex items-center gap-2">
                     <span className="font-medium text-white/70">Payment Mode:</span>
-                    {order.paymentMode === 'Credit Cycle' ? (
-                      <span className="px-2 py-1 rounded-full bg-orange-400/15 text-orange-300 font-medium text-xs">
-                        Credit Cycle
-                      </span>
-                    ) : order.paymentMode === 'Split Payment' ? (
-                      <span className="px-2 py-1 rounded-full bg-fuchsia-400/15 text-fuchsia-300 font-medium text-xs">
-                        Split Payment
-                      </span>
-                    ) : (
-                      <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 font-medium text-xs">
-                        {order.paymentMode || 'N/A'}
-                      </span>
-                    )}
+                    {(() => {
+                      const label = paymentLabelOf(order.paymentMode);
+                      if (label === 'Credit Cycle') {
+                        return (
+                          <span className="px-2 py-1 rounded-full bg-orange-400/15 text-orange-300 font-medium text-xs">
+                            Credit Cycle
+                          </span>
+                        );
+                      }
+                      if (label === 'Split Payment') {
+                        return (
+                          <span className="px-2 py-1 rounded-full bg-fuchsia-400/15 text-fuchsia-300 font-medium text-xs">
+                            Split Payment
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 font-medium text-xs">
+                          {label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   {order.paymentMode === 'Credit Cycle' && order.timestamp?.seconds && order.creditDays && (
                     <div className="mb-1 flex items-center gap-2">
@@ -1292,7 +1403,6 @@ if (mode !== 'passive' && !loading && orders.length === 0) {
         </div>
       )}
       </div>
-      )}
     </div>
   );
 };

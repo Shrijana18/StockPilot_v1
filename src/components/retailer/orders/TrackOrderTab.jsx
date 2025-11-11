@@ -75,6 +75,42 @@ const TrackOrderTab = () => {
     }
   };
 
+  // --- Payment label normalizer (defensive against legacy object shapes) ---
+  const paymentLabelOf = (pm) => {
+    if (!pm) return 'N/A';
+    if (typeof pm === 'string') return pm;
+
+    // object-based legacy payloads
+    if (typeof pm === 'object') {
+      if (typeof pm.label === 'string' && pm.label.trim()) return pm.label.trim();
+
+      // Known codes
+      const code = (pm.code || pm.type || '').toString().toLowerCase();
+      if (code) {
+        if (code.includes('split')) return 'Split Payment';
+        if (code === 'credit' || code.includes('credit_cycle') || code.includes('creditcycle')) return 'Credit Cycle';
+        if (code === 'cod' || code.includes('cash_on_delivery')) return 'COD';
+        if (code === 'upi') return 'UPI';
+        if (code.includes('net')) return 'Net Banking';
+        if (code.includes('cheque') || code.includes('check')) return 'Cheque';
+        if (code.includes('advance')) return 'Advance Payment';
+      }
+
+      // Boolean flags
+      if (pm.isSplit) return 'Split Payment';
+      if (pm.isCredit) return 'Credit Cycle';
+      if (pm.isCOD) return 'COD';
+      if (pm.isUPI) return 'UPI';
+      if (pm.isNetBanking) return 'Net Banking';
+      if (pm.isCheque) return 'Cheque';
+      if (pm.isAdvance) return 'Advance Payment';
+
+      // last resort
+      if (typeof pm.raw === 'string' && pm.raw.trim()) return pm.raw.trim();
+    }
+    return 'N/A';
+  };
+
   const handleAddToInventory = async (order) => {
     try {
       const user = auth.currentUser;
@@ -259,7 +295,7 @@ const TrackOrderTab = () => {
                         <p><strong>Distributor Email:</strong> {order.distributorEmail || "N/A"}</p>
                         <p><strong>Distributor Phone:</strong> {order.distributorPhone || "N/A"}</p>
                         <p><strong>Distributor Address:</strong> {order.distributorAddress || "N/A"}</p>
-                        <p><strong>Payment Mode:</strong> {order.paymentMode || "N/A"}</p>
+                        <p><strong>Payment Mode:</strong> {paymentLabelOf(order.paymentMode)}</p>
                         <p><strong>Note:</strong> {order.note || "—"}</p>
                         <p><strong>Delivery ETA:</strong> {formatETA(order.expectedDeliveryDate || order.eta)}</p>
 

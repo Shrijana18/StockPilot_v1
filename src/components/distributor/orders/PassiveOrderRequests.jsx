@@ -13,6 +13,21 @@ import {
 import { db } from "../../../firebase/firebaseConfig";
 import { doc, updateDoc, arrayUnion, serverTimestamp } from "firebase/firestore";
 import { ORDER_STATUSES, canTransition, codeOf } from "../../../constants/orderStatus";
+import { normalizePaymentMode, VERSION as ORDER_POLICY_VERSION } from '../../../lib/orders/orderPolicy';
+
+// Convert status codes to human-readable labels
+const toHuman = (code) => {
+  switch ((code || "").toString().toUpperCase()) {
+    case ORDER_STATUSES.REQUESTED: return "Requested";
+    case ORDER_STATUSES.QUOTED: return "Quoted";
+    case ORDER_STATUSES.ACCEPTED: return "Accepted";
+    case ORDER_STATUSES.PACKED: return "Packed";
+    case ORDER_STATUSES.SHIPPED: return "Shipped";
+    case ORDER_STATUSES.DELIVERED: return "Delivered";
+    case ORDER_STATUSES.REJECTED: return "Rejected";
+    default: return "Requested";
+  }
+};
 
 // map status → statusTimestamps field name
 const TS_FIELDS = {
@@ -44,6 +59,16 @@ const fmtDate = (v) => {
 };
 const cx = (...arr) => arr.filter(Boolean).join(" ");
 
+// unified payment label using order policy
+const paymentUi = (row) => {
+  try {
+    const norm = normalizePaymentMode(row?.payment || row?.paymentMode || null);
+    return norm?.ui || '-';
+  } catch {
+    return row?.paymentMode || row?.payment?.type || '-';
+  }
+};
+
 // allowed statuses used in UI
 const STATUSES = ["All", "Requested", "Quoted", "Accepted", "Packed", "Shipped", "Delivered", "Rejected"];
 
@@ -67,8 +92,9 @@ function Drawer({ open, onClose, children, title }) {
 function buildPassiveOrdersQuery(distributorId, { status, pageSize = 25, cursor, dateFrom, dateTo }) {
   const base = collection(db, "businesses", distributorId, "orderRequests");
   const parts = [where("retailerMode", "==", "passive")];
+  const statusCode = (status && status !== "All") ? codeOf(status) : null;
 
-  if (status && status !== "All") parts.push(where("status", "==", status));
+  if (statusCode) parts.push(where("statusCode", "==", statusCode));
   if (dateFrom) parts.push(where("createdAt", ">=", dateFrom));
   if (dateTo) parts.push(where("createdAt", "<", dateTo));
 
@@ -98,8 +124,8 @@ async function setOrderStatus(distributorId, orderId, currentStatus, nextStatus,
   const ref = doc(db, "businesses", distributorId, "orderRequests", orderId);
   const tsField = TS_FIELDS[nextStatus] || null;
   const patch = {
-    status: nextStatus,
     statusCode: nextStatus,
+    status: toHuman(nextStatus),
     ...extra,
   };
   if (tsField) {
@@ -107,7 +133,7 @@ async function setOrderStatus(distributorId, orderId, currentStatus, nextStatus,
   }
   patch.auditTrail = arrayUnion({
     status: nextStatus,
-    by: "distributor",
+    by: { uid: distributorId, type: "distributor" },
     at: new Date().toISOString(),
   });
   await updateDoc(ref, patch);
@@ -340,24 +366,29 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                   </div>
                 </td>
                 <td className="px-3 py-3">{(r.items || []).length}</td>
-                <td className="px-3 py-3">₹{money(r.itemsSubTotal)}</td>
-                <td className="px-3 py-3">{fmtDate(r.deliveryDate)}</td>
+                <td className="px-3 py-3">₹{money(r.itemsSubTotal || 0)}</td>
+                <td className="px-3 py-3">{fmtDate(r.deliveryDate || r.expectedDeliveryDate)}</td>
                 <td className="px-3 py-3">
-                  <span
-                    className={cx(
-                      "text-xs px-2 py-0.5 rounded-full border",
-                      (r.status === "Requested") ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                      : (r.status === "Quoted" || r.status === "Proforma Sent") ? "bg-yellow-500/10 text-yellow-300 border-yellow-500/30"
-                      : (r.status === "Accepted" || r.status === "Confirmed") ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                      : (r.status === "Packed" || r.status === "Pending") ? "bg-sky-500/10 text-sky-300 border-sky-500/30"
-                      : (r.status === "Shipped" || r.status === "Dispatched") ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"
-                      : (r.status === "Delivered") ? "bg-emerald-600/10 text-emerald-300 border-emerald-600/30"
-                      : (r.status === "Rejected" || r.status === "Cancelled") ? "bg-rose-500/10 text-rose-300 border-rose-500/30"
-                      : "bg-white/5 text-slate-300 border-slate-600/40"
-                    )}
-                  >
-                    {r.status || "Requested"}
-                  </span>
+                  {(() => {
+                    const code = codeOf(r.statusCode || r.status) || ORDER_STATUSES.REQUESTED;
+                    return (
+                      <span
+                        className={cx(
+                          "text-xs px-2 py-0.5 rounded-full border",
+                          code === ORDER_STATUSES.REQUESTED ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                          : code === ORDER_STATUSES.QUOTED ? "bg-yellow-500/10 text-yellow-300 border-yellow-500/30"
+                          : code === ORDER_STATUSES.ACCEPTED ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                          : code === ORDER_STATUSES.PACKED ? "bg-sky-500/10 text-sky-300 border-sky-500/30"
+                          : code === ORDER_STATUSES.SHIPPED ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"
+                          : code === ORDER_STATUSES.DELIVERED ? "bg-emerald-600/10 text-emerald-300 border-emerald-600/30"
+                          : code === ORDER_STATUSES.REJECTED ? "bg-rose-500/10 text-rose-300 border-rose-500/30"
+                          : "bg-white/5 text-slate-300 border-slate-600/40"
+                        )}
+                      >
+                        {toHuman(code)}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-3 py-3 text-right">
                   <button
@@ -422,8 +453,8 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
 
               <div className="rounded-lg border border-slate-700/50 p-3">
                 <div className="text-xs text-slate-400 mb-1">Delivery & Payment</div>
-                <div className="text-sm">Delivery: {fmtDate(selected.deliveryDate)}</div>
-                <div className="text-sm">Payment: {selected.paymentMode || selected.payment?.type || "-"}</div>
+                <div className="text-sm">Delivery: {fmtDate(selected.deliveryDate || selected.expectedDeliveryDate)}</div>
+                <div className="text-sm">Payment: {paymentUi(selected)}</div>
                 {selected.payment?.creditDays ? (
                   <div className="text-sm">Credit days: {selected.payment.creditDays}</div>
                 ) : null}
@@ -456,7 +487,7 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                     ))}
                   </tbody>
                 </table>
-                <div className="mt-3 text-right text-sm">Subtotal: <span className="font-semibold">₹{money(selected.itemsSubTotal)}</span></div>
+                <div className="mt-3 text-right text-sm">Subtotal: <span className="font-semibold">₹{money(selected.itemsSubTotal || 0)}</span></div>
               </div>
 
               {selected.notes ? (
@@ -486,12 +517,19 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                         <button
                           className="px-3 py-1.5 rounded-lg bg-emerald-400/20 text-emerald-200 border border-emerald-400/40 hover:bg-emerald-400/30"
                           onClick={async () => {
+                            const norm = normalizePaymentMode(selected?.payment || selected?.paymentMode || null);
                             await setOrderStatus(
                               distributorId,
                               selected.id,
                               cur,
                               ORDER_STATUSES.ACCEPTED,
-                              { _forceTransition: true }
+                              {
+                                _forceTransition: true,
+                                retailerMode: 'passive',
+                                policyVersion: ORDER_POLICY_VERSION,
+                                paymentNormalized: norm || null,
+                                paymentFlags: norm?.flags || {},
+                              }
                             );
                             reload();
                             setDetailOpen(false);

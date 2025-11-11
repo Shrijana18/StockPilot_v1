@@ -10,6 +10,7 @@ export const ORDER_STATUSES = Object.freeze({
   REQUESTED: 'REQUESTED',   // Retailer placed request (pre-tax estimate)
   QUOTED: 'QUOTED',         // Distributor issued Proforma (taxes/charges applied)
   ACCEPTED: 'ACCEPTED',     // Retailer accepted Proforma (values locked)
+  MODIFIED: 'MODIFIED',     // Distributor modified the order before fulfillment
   REJECTED: 'REJECTED',     // Proforma rejected (terminal for the request)
   DIRECT: 'DIRECT',         // Defaults applied (proforma skipped)
   PACKED: 'PACKED',
@@ -25,6 +26,7 @@ export const ORDER_FLOW = Object.freeze([
   ORDER_STATUSES.REQUESTED,
   ORDER_STATUSES.QUOTED,
   ORDER_STATUSES.ACCEPTED,
+  ORDER_STATUSES.MODIFIED,
   ORDER_STATUSES.PACKED,
   ORDER_STATUSES.SHIPPED,
   ORDER_STATUSES.DELIVERED,
@@ -37,6 +39,7 @@ export const ORDER_FLOW = Object.freeze([
 export const ORDER_FLOW_DIRECT = Object.freeze([
   ORDER_STATUSES.REQUESTED,
   ORDER_STATUSES.ACCEPTED,
+  ORDER_STATUSES.MODIFIED,
   ORDER_STATUSES.PACKED,
   ORDER_STATUSES.SHIPPED,
   ORDER_STATUSES.DELIVERED,
@@ -60,6 +63,7 @@ export const STATUS_ALIASES = Object.freeze({
   PROFORMA_SENT: ORDER_STATUSES.QUOTED, // alias used in older commits / UI copy
   PLACED: ORDER_STATUSES.REQUESTED,     // sometimes shown as "Placed"
   REQUESTED: ORDER_STATUSES.REQUESTED,
+  MODIFIED: ORDER_STATUSES.MODIFIED,
   PENDING: ORDER_STATUSES.PACKED,       // older UI called this Pending
 });
 
@@ -78,6 +82,8 @@ export function normalizeStatusCode(doc = {}) {
       return ORDER_STATUSES.QUOTED;
     case 'ACCEPTED':
       return ORDER_STATUSES.ACCEPTED;
+    case 'MODIFIED':
+      return ORDER_STATUSES.MODIFIED;
     case 'REJECTED':
       return ORDER_STATUSES.REJECTED;
     case 'DIRECT':
@@ -122,7 +128,8 @@ export function isTerminalStatus(doc = {}) {
 export const ORDER_TRANSITIONS = Object.freeze({
   [ORDER_STATUSES.REQUESTED]: [ORDER_STATUSES.QUOTED, ORDER_STATUSES.REJECTED, ORDER_STATUSES.DIRECT],
   [ORDER_STATUSES.QUOTED]: [ORDER_STATUSES.ACCEPTED, ORDER_STATUSES.REJECTED],
-  [ORDER_STATUSES.ACCEPTED]: [ORDER_STATUSES.PACKED],
+  [ORDER_STATUSES.ACCEPTED]: [ORDER_STATUSES.MODIFIED, ORDER_STATUSES.PACKED],
+  [ORDER_STATUSES.MODIFIED]: [ORDER_STATUSES.PACKED],
   [ORDER_STATUSES.PACKED]: [ORDER_STATUSES.SHIPPED],
   [ORDER_STATUSES.SHIPPED]: [ORDER_STATUSES.DELIVERED],
   [ORDER_STATUSES.DELIVERED]: [ORDER_STATUSES.INVOICED],

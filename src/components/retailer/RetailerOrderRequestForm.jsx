@@ -7,6 +7,7 @@ import { computeChargesFromDefaults } from "../../services/proformaDefaults";
 import EstimateNotice from "../../components/common/EstimateNotice";
 import { calculateEstimate } from "../../lib/calcEstimate";
 import { ORDER_STATUSES } from "../../constants/orderStatus";
+import { normalizePaymentMode } from "../../lib/orders/orderPolicy";
 
 const RetailerOrderRequestForm = ({ distributorId }) => {
   const [items, setItems] = useState([]);
@@ -27,6 +28,7 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
   const [loadingDefaults, setLoadingDefaults] = useState(false);
 
   const getItemsSubTotal = (list) => list.reduce((sum, it) => (sum + (parseFloat(it.quantity || 0) || 0) * (parseFloat(it.unitPrice || 0) || 0)), 0);
+
   useEffect(() => {
     const run = async () => {
       if (!distributorId || !auth.currentUser) {
@@ -81,7 +83,6 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
       });
       setChargesPreview(breakdown);
     } catch (e) {
-      // If compute fails for any reason, hide preview rather than block form
       setChargesPreview(null);
     }
   }, [items, effectiveDefaults]);
@@ -126,19 +127,17 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
     try {
       setSubmitting(true);
 
-      // Build a cart snapshot suitable for pre-tax estimate (qty/price fields)
+      // Build a cart snapshot suitable for pre-tax estimate
       const cartForEstimate = items.map((it) => ({
-        // passthrough identifiers
         inventoryId: it.distributorProductId,
         name: it.productName,
         sku: it.sku,
         hsn: it.hsn || undefined,
         uom: it.unit || undefined,
         imageUrl: it.imageUrl || undefined,
-        // normalized numerics expected by calculator
         qty: Number(it.quantity || 0),
         price: Number(it.unitPrice || 0),
-        itemDiscountPct: Number(it.itemDiscountPct || 0), // default 0 if absent
+        itemDiscountPct: Number(it.itemDiscountPct || 0),
       }));
 
       const est = calculateEstimate(cartForEstimate);
@@ -158,8 +157,11 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
       const retailerUid = currentUser.uid;
       const itemsSubTotal = totalAmount;
 
+      // Normalize payment mode AND keep a display label
+      const normMode = normalizePaymentMode(paymentMode);
+
       if (fastFlow && effectiveDefaults && effectiveDefaults.enabled) {
-        // DIRECT flow (proforma skipped): create a FULL request in orderRequests only
+        // DIRECT (proforma skipped)
         const orderId = doc(collection(db, `businesses/${distributorId}/orderRequests`)).id;
 
         const chargesSnapshot = {
@@ -180,12 +182,26 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           creatorUid: retailerUid,
           items,
           itemsSubTotal,
-          paymentMode,
-          creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
-          splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
+          paymentMode: normMode,
+          paymentModeLabel: paymentMode, // NEW: preserve human choice
+          creditDays: normMode === 'CREDIT_CYCLE' ? creditDays : null,
+          splitPayment: normMode === 'SPLIT' ? splitPayment : null,
           chargesSnapshot,
           status: 'Requested',
-          statusCode: 'DIRECT',
+          statusCode: ORDER_STATUSES.REQUESTED,
+          retailerMode: 'active',
+          directFlow: true,
+          paymentSummary: {
+            mode: normMode,
+            creditDueDays: normMode === 'CREDIT_CYCLE' ? Number(creditDays || 0) : null,
+            splitPayment: normMode === 'SPLIT' ? { ...splitPayment } : null,
+            status: 'pending'
+          },
+          paymentFlags: {
+            isCredit: normMode === 'CREDIT_CYCLE',
+            isSplit: normMode === 'SPLIT',
+            isAdvance: normMode === 'ADVANCE'
+          },
           createdAt: serverTimestamp(),
           timestamp: serverTimestamp(),
           distributorName: distributorData.businessName || distributorData.ownerName || '',
@@ -193,27 +209,19 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           distributorState: distributorData.state || '',
           distributorPhone,
           distributorEmail,
-          // Add status timestamps for better tracking
-          statusTimestamps: {
-            requestedAt: serverTimestamp()
-          },
-          // Add retailer info for better tracking
-          retailerName: currentUser.displayName || distributorData.businessName || 'Retailer',
+          statusTimestamps: { requestedAt: serverTimestamp() },
+          retailerName: currentUser.displayName || 'Retailer',
           retailerEmail: currentUser.email || '',
-          retailerPhone: distributorData.phone || '',
-          retailerCity: distributorData.city || '',
-          retailerState: distributorData.state || '',
+          retailerPhone: currentUser.phoneNumber || '',
         };
 
-        // Write full request to distributor's orderRequests
+        // Write to distributor + mirror to retailer with SAME id
         await setDoc(doc(db, `businesses/${distributorId}/orderRequests/${orderId}`), requestPayload);
-
-        // Mirror full request to retailer's sentOrders using same orderId
         await setDoc(doc(db, `businesses/${retailerUid}/sentOrders/${orderId}`), requestPayload);
 
         toast.success('Order sent (Direct defaults applied). Awaiting distributor action.');
       } else {
-        // Original PROFORMA flow: create order request for distributor + mirror to retailer
+        // PROFORMA flow
         const distributorRef = collection(db, `businesses/${distributorId}/orderRequests`);
         const docRef = await addDoc(distributorRef, {
           retailerId: currentUser.uid,
@@ -221,12 +229,27 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           createdBy: 'retailer',
           creatorUid: currentUser.uid,
           items,
-          totalAmount,
-          paymentMode,
-          creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
-          splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
+          itemsSubTotal,
+          paymentMode: normMode,
+          paymentModeLabel: paymentMode, // NEW
+          creditDays: normMode === 'CREDIT_CYCLE' ? creditDays : null,
+          splitPayment: normMode === 'SPLIT' ? splitPayment : null,
+          retailerMode: 'active',
+          directFlow: false,
+          paymentSummary: {
+            mode: normMode,
+            creditDueDays: normMode === 'CREDIT_CYCLE' ? Number(creditDays || 0) : null,
+            splitPayment: normMode === 'SPLIT' ? { ...splitPayment } : null,
+            status: 'pending'
+          },
+          paymentFlags: {
+            isCredit: normMode === 'CREDIT_CYCLE',
+            isSplit: normMode === 'SPLIT',
+            isAdvance: normMode === 'ADVANCE'
+          },
           status: 'Requested',
           timestamp: serverTimestamp(),
+          createdAt: serverTimestamp(), // NEW: canonical createdAt for queries
           distributorName: distributorData.businessName || distributorData.ownerName || '',
           distributorCity: distributorData.city || '',
           distributorState: distributorData.state || '',
@@ -241,16 +264,10 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             version: 1,
           },
           statusCode: ORDER_STATUSES.REQUESTED,
-          // Add status timestamps for better tracking
-          statusTimestamps: {
-            requestedAt: serverTimestamp()
-          },
-          // Add retailer info for better tracking
-          retailerName: currentUser.displayName || distributorData.businessName || 'Retailer',
+          statusTimestamps: { requestedAt: serverTimestamp() },
+          retailerName: currentUser.displayName || 'Retailer',
           retailerEmail: currentUser.email || '',
-          retailerPhone: distributorData.phone || '',
-          retailerCity: distributorData.city || '',
-          retailerState: distributorData.state || '',
+          retailerPhone: currentUser.phoneNumber || '',
         });
 
         const retailerRef = doc(db, `businesses/${currentUser.uid}/sentOrders/${docRef.id}`);
@@ -258,12 +275,27 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           retailerId: currentUser.uid,
           distributorId: distributorId,
           items,
-          totalAmount,
-          paymentMode,
-          creditDays: paymentMode === 'Credit Cycle' ? creditDays : null,
-          splitPayment: paymentMode === 'Split Payment' ? splitPayment : null,
+          itemsSubTotal,
+          paymentMode: normMode,
+          paymentModeLabel: paymentMode, // NEW
+          creditDays: normMode === 'CREDIT_CYCLE' ? creditDays : null,
+          splitPayment: normMode === 'SPLIT' ? splitPayment : null,
+          retailerMode: 'active',
+          directFlow: false,
+          paymentSummary: {
+            mode: normMode,
+            creditDueDays: normMode === 'CREDIT_CYCLE' ? Number(creditDays || 0) : null,
+            splitPayment: normMode === 'SPLIT' ? { ...splitPayment } : null,
+            status: 'pending'
+          },
+          paymentFlags: {
+            isCredit: normMode === 'CREDIT_CYCLE',
+            isSplit: normMode === 'SPLIT',
+            isAdvance: normMode === 'ADVANCE'
+          },
           status: 'Requested',
           timestamp: serverTimestamp(),
+          createdAt: serverTimestamp(), // NEW: keep mirror aligned
           distributorName: distributorData.businessName || distributorData.ownerName || '',
           distributorCity: distributorData.city || '',
           distributorState: distributorData.state || '',
@@ -278,21 +310,16 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             version: 1,
           },
           statusCode: ORDER_STATUSES.REQUESTED,
-          // Add status timestamps for better tracking
-          statusTimestamps: {
-            requestedAt: serverTimestamp()
-          },
-          // Add retailer info for better tracking
-          retailerName: currentUser.displayName || distributorData.businessName || 'Retailer',
+          statusTimestamps: { requestedAt: serverTimestamp() },
+          retailerName: currentUser.displayName || 'Retailer',
           retailerEmail: currentUser.email || '',
-          retailerPhone: distributorData.phone || '',
-          retailerCity: distributorData.city || '',
-          retailerState: distributorData.state || '',
+          retailerPhone: currentUser.phoneNumber || '',
         });
 
         toast.success('Order request sent successfully!');
       }
-      setItems([{ productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '', unitPrice: '' }]);
+      setItems([]);
+      setTimeout(() => setItems([{ productName: '', sku: '', brand: '', category: '', quantity: '', unit: '', description: '', notes: '', unitPrice: '' }]), 0);
     } catch (err) {
       console.error('Error sending order:', err);
       alert('Failed to send order request.');
@@ -421,7 +448,7 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
         const isOpen = !!expanded[index];
         return (
           <div key={index} className="mb-2 rounded-lg border border-white/10 bg-white/[0.04] p-2 md:p-3 shadow-sm">
-            {/* Header: compact name/meta + actions */}
+            {/* Header */}
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-sm font-semibold truncate leading-tight">{item.productName || 'Selected product'}</div>
@@ -460,46 +487,47 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
             <div className="mt-2 grid grid-cols-2 md:grid-cols-8 gap-2">
               <div className="col-span-1 md:col-span-2">
                 <label className="sr-only">Quantity</label>
-  <input
-    type="number"
-    placeholder="Qty"
-    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-    value={item.quantity}
-    onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
-  />
-</div>
-<div className="col-span-1 md:col-span-2">
-  <label className="sr-only">Unit</label>
-  <div
-    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center"
-    tabIndex={-1}
-    aria-readonly="true"
-  >
-    {item.unit || '—'}
-  </div>
-</div>
+                <input
+                  type="number"
+                  placeholder="Qty"
+                  className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                  value={item.quantity}
+                  onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
+                />
+              </div>
+              <div className="col-span-1 md:col-span-2">
+                <label className="sr-only">Unit</label>
+                <div
+                  className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center"
+                  tabIndex={-1}
+                  aria-readonly="true"
+                >
+                  {item.unit || '—'}
+                </div>
+              </div>
 
-<div className="col-span-1 md:col-span-2">
-  <label className="sr-only">Unit Price</label>
-  <div
-    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center justify-between"
-    tabIndex={-1}
-    aria-readonly="true"
-  >
-    <span className="truncate">{item.unitPrice ? `₹${item.unitPrice}` : '—'}</span>
-  </div>
-</div>
+              <div className="col-span-1 md:col-span-2">
+                <label className="sr-only">Unit Price</label>
+                <div
+                  className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center justify-between"
+                  tabIndex={-1}
+                  aria-readonly="true"
+                >
+                  <span className="truncate">{item.unitPrice ? `₹${item.unitPrice}` : '—'}</span>
+                </div>
+              </div>
 
-<div className="col-span-1 md:col-span-2">
-  <label className="sr-only">SKU</label>
-  <div
-    className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center"
-    tabIndex={-1}
-    aria-readonly="true"
-  >
-    <span className="truncate">{item.sku || '—'}</span>
-  </div>
-</div>
+              <div className="col-span-1 md:col-span-2">
+                <label className="sr-only">SKU</label>
+                <div
+                  className="h-9 w-full rounded-md border border-white/15 bg-white/10 px-2 text-sm text-white/80 flex items-center"
+                  tabIndex={-1}
+                  aria-readonly="true"
+                >
+                  <span className="truncate">{item.sku || '—'}</span>
+                </div>
+              </div>
+
               {/* Subtotal (mobile) */}
               <div className="col-span-2 md:col-span-0 md:hidden text-xs text-white/70">
                 Subtotal: <span className="font-semibold text-white/90">{formatINR(subtotal)}</span>
@@ -542,7 +570,7 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
         + Add Item
       </button>
 
-      {/* Estimate banner: clarifies this total is pre‑tax & pre‑charges */}
+      {/* Estimate banner: clarifies this total is pre-tax & pre-charges */}
       <EstimateNotice className="mb-3" />
 
       <div className="text-right font-semibold text-lg mb-3 text-white">
