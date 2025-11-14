@@ -47,6 +47,8 @@ export default function AddRetailerModal({
     phone: "",
     gst: "",
     address: "",
+    city: "",
+    state: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -84,6 +86,8 @@ export default function AddRetailerModal({
         phone: "",
         gst: "",
         address: "",
+        city: "",
+        state: "",
       });
       setLoading(false);
       setError("");
@@ -140,11 +144,15 @@ export default function AddRetailerModal({
     setLoading(true);
     try {
       // Minimal local record in connectedRetailers; can invite later from panel
+      // Save all retailer info including city, state, and address for order display
       const connRef = doc(collection(db, "businesses", distributorId, "connectedRetailers"));
       const payload = {
         retailerName: form.businessName.trim(),
         retailerEmail: form.email.trim() || null,
         retailerPhone: normalizePhoneIN(form.phone),
+        retailerAddress: form.address.trim() || null, // Save address for order display
+        retailerCity: form.city.trim() || null, // Save city for order display
+        retailerState: form.state.trim() || null, // Save state for order display
         status: "provisioned-local",
         source: "provisioned-local",
         addedBy: createdBy?.type && createdBy?.id ? {
@@ -209,6 +217,8 @@ export default function AddRetailerModal({
             phone: normalizePhoneIN(form.phone),
             gst: form.gst.trim() || null,
             address: form.address.trim() || null,
+            city: form.city.trim() || null,
+            state: form.state.trim() || null,
           },
         });
         const { provisionalId, inviteUrl } = res?.data || {};
@@ -233,6 +243,8 @@ export default function AddRetailerModal({
         retailerPhone: normalizePhoneIN(form.phone),
         gst: form.gst.trim() || null,
         address: form.address.trim() || null,
+        city: form.city.trim() || null,
+        state: form.state.trim() || null,
         status: "provisional",
         connectedDistributorId: distributorId,
         createdAt: serverTimestamp(),
@@ -240,12 +252,16 @@ export default function AddRetailerModal({
       };
       await setDoc(provisionalRef, payload, { merge: true });
       // Also create a connectedRetailers entry (provisioned)
+      // Save all retailer info including city, state, and address for order display
       const connRef = doc(collection(db, "businesses", distributorId, "connectedRetailers"));
       await setDoc(connRef, {
         provisionalId,
         retailerEmail: payload.retailerEmail,
         retailerPhone: payload.retailerPhone,
         retailerName: payload.businessName,
+        retailerAddress: payload.address, // Save address for order display
+        retailerCity: payload.city, // Save city for order display
+        retailerState: payload.state, // Save state for order display
         status: "provisioned",
         source: "provisioned",
         addedBy: createdBy?.type && createdBy?.id ? {
@@ -381,9 +397,27 @@ export default function AddRetailerModal({
                       className="w-full rounded-lg input px-3 py-2"
                       value={form.address}
                       onChange={setVal("address")}
-                      placeholder="Street, City, State"
+                      placeholder="Street address"
                     />
                   </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="City (optional)">
+                      <input
+                        className="w-full rounded-lg input px-3 py-2"
+                        value={form.city}
+                        onChange={setVal("city")}
+                        placeholder="City"
+                      />
+                    </Field>
+                    <Field label="State (optional)">
+                      <input
+                        className="w-full rounded-lg input px-3 py-2"
+                        value={form.state}
+                        onChange={setVal("state")}
+                        placeholder="State"
+                      />
+                    </Field>
+                  </div>
                 </div>
 
                 <div className="h-px bg-white/10 my-2" />

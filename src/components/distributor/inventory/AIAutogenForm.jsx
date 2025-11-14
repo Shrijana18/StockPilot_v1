@@ -14,6 +14,10 @@ const AIAutogenForm = ({ userId }) => {
 
   const db = getFirestore(app);
 
+  // --- RENDER CONSTANTS ---
+  const GST_OPTIONS = [0, 5, 12, 18, 28];
+  const PRICING_OPTIONS = ["MRP_INCLUSIVE", "BASE_PLUS_GST"];
+
   // Prompt-based inventory generation handler for AdvancedBrandInputForm
   const handlePromptInventoryGeneration = async (payload) => {
     // payload can be either a string (legacy) or an object (new format)
@@ -49,7 +53,12 @@ const AIAutogenForm = ({ userId }) => {
             unit: item.unit || "",
             quantity: "",
             costPrice: "",
-            sellingPrice: item.price || "",
+            sellingPrice: item.price || item.mrp || item.sellingPrice || "",
+            pricingMode: item.pricingMode || item.PricingMode || "MRP_INCLUSIVE",
+            mrp: item.mrp ?? "",
+            basePrice: item.basePrice ?? "",
+            taxRate: item.gstRate ?? item.gst ?? item.taxRate ?? "",
+            hsnCode: item.hsnCode || item.hsn || "",
             imageUrl: item.imageUrl || "",
           });
         }
@@ -76,7 +85,21 @@ const AIAutogenForm = ({ userId }) => {
     try {
       for (const item of inventoryList) {
         const docRef = await addDoc(collection(db, "businesses", userId, "products"), {
-          ...item,
+          productName: item.productName || "",
+          brand: item.brand || "",
+          category: item.category || "",
+          sku: item.sku || "",
+          unit: item.unit || "",
+          quantity: Number(item.quantity) || 0,
+          costPrice: Number(item.costPrice) || 0,
+          sellingPrice: Number(item.sellingPrice) || 0,
+          mrp: item.mrp ? Number(item.mrp) : undefined,
+          pricingMode: item.pricingMode || "MRP_INCLUSIVE",
+          basePrice: item.basePrice ? Number(item.basePrice) : undefined,
+          taxRate: item.taxRate ? Number(item.taxRate) : undefined,
+          gstRate: item.taxRate ? Number(item.taxRate) : undefined,
+          hsnCode: item.hsnCode || "",
+          imageUrl: item.imageUrl || "",
           source: "ai",
           createdAt: serverTimestamp(),
         });
@@ -153,7 +176,12 @@ const AIAutogenForm = ({ userId }) => {
             unit: item.unit || "",
             quantity: "",
             costPrice: "",
-            sellingPrice: item.price || "",
+            sellingPrice: item.price || item.mrp || item.sellingPrice || "",
+            pricingMode: item.pricingMode || item.PricingMode || "MRP_INCLUSIVE",
+            mrp: item.mrp ?? "",
+            basePrice: item.basePrice ?? "",
+            taxRate: item.gstRate ?? item.gst ?? item.taxRate ?? "",
+            hsnCode: item.hsnCode || item.hsn || "",
             imageUrl: item.imageUrl || "",
           });
         }
@@ -220,12 +248,13 @@ const AIAutogenForm = ({ userId }) => {
             <div className="overflow-auto max-h-[52vh] rounded-lg">
               <table className="min-w-full text-sm ai-table">
                 <thead>
-                  <tr className="text-left text-white/80">
-                    <th className="px-3 py-3">Name</th>
-                    <th className="px-3 py-3">Brand</th>
-                    <th className="px-3 py-3">Category</th>
-                    <th className="px-3 py-3">SKU</th>
-                    <th className="px-3 py-3">Unit</th>
+                  <tr className="text-left text-white/80 border-b border-white/20">
+                    <th className="px-3 py-3 w-[36%]">Item Details</th>
+                    <th className="px-3 py-3">HSN</th>
+                    <th className="px-3 py-3">GST %</th>
+                    <th className="px-3 py-3">Pricing Mode</th>
+                    <th className="px-3 py-3">Base</th>
+                    <th className="px-3 py-3">MRP</th>
                     <th className="px-3 py-3">Qty</th>
                     <th className="px-3 py-3">Cost</th>
                     <th className="px-3 py-3">Price</th>
@@ -234,34 +263,133 @@ const AIAutogenForm = ({ userId }) => {
                 </thead>
                 <tbody>
                   {inventoryList.map((item, idx) => (
-                    <tr key={idx} className="row-alt">
-                      <td className="px-2 py-2 min-w-[220px]">
-                        <input
-                          value={item.productName ?? "(productName)"}
-                          onChange={(e) => handleFieldChange(idx, "productName", e.target.value)}
-                          className="ai-input w-full rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
-                          placeholder="Product name"
-                        />
-                      </td>
-                      <td className="px-2 py-2 min-w-[160px]">
-                        <input
-                          value={item.brand ?? "(brand)"}
-                          onChange={(e) => handleFieldChange(idx, "brand", e.target.value)}
-                          className="ai-input w-full rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
-                          placeholder="Brand"
-                        />
-                      </td>
-                      {(["category","sku","unit","quantity","costPrice","sellingPrice"]).map((field) => (
-                        <td key={field} className="px-2 py-2 min-w-[120px]">
+                    <tr key={idx} className="row-alt border-t border-white/10">
+                      {/* Item Details Cell */}
+                      <td className="px-3 py-3">
+                        <div className="space-y-1.5">
                           <input
-                            value={item[field] ?? `(${field})`}
-                            onChange={(e) => handleFieldChange(idx, field, e.target.value)}
-                            className="ai-input w-full rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
-                            placeholder={field}
+                            value={item.productName ?? ""}
+                            onChange={(e) => handleFieldChange(idx, "productName", e.target.value)}
+                            className="ai-input w-full rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40 font-semibold"
+                            placeholder="Product name"
                           />
-                        </td>
-                      ))}
-                      <td className="px-2 py-2 text-center whitespace-nowrap">
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              value={item.brand ?? ""}
+                              onChange={(e) => handleFieldChange(idx, "brand", e.target.value)}
+                              className="ai-input w-full rounded-md px-2 py-1.5 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                              placeholder="Brand"
+                            />
+                            <input
+                              value={item.category ?? ""}
+                              onChange={(e) => handleFieldChange(idx, "category", e.target.value)}
+                              className="ai-input w-full rounded-md px-2 py-1.5 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                              placeholder="Category"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              value={item.sku ?? ""}
+                              onChange={(e) => handleFieldChange(idx, "sku", e.target.value)}
+                              className="ai-input w-full rounded-md px-2 py-1.5 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                              placeholder="SKU"
+                            />
+                            <input
+                              value={item.unit ?? ""}
+                              onChange={(e) => handleFieldChange(idx, "unit", e.target.value)}
+                              className="ai-input w-full rounded-md px-2 py-1.5 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                              placeholder="Unit"
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      {/* Other Editable Cells */}
+                      <td className="px-2 py-3">
+                        <input
+                          value={item.hsnCode ?? ""}
+                          onChange={(e) => handleFieldChange(idx, "hsnCode", e.target.value)}
+                          className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                          placeholder="HSN"
+                        />
+                      </td>
+                      <td className="px-2 py-3">
+                        <select
+                          value={item.gstRate ?? item.taxRate ?? ""}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            handleFieldChange(idx, "gstRate", val);
+                            handleFieldChange(idx, "taxRate", val);
+                          }}
+                          className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                        >
+                          <option value="" className="bg-slate-900">—</option>
+                          {GST_OPTIONS.map((g) => (
+                            <option key={g} value={g} className="bg-slate-900">
+                              {g}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-2 py-3">
+                        <select
+                          value={item.pricingMode ?? ""}
+                          onChange={(e) => handleFieldChange(idx, "pricingMode", e.target.value)}
+                          className="ai-input w-36 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                        >
+                          <option value="" className="bg-slate-900">—</option>
+                          {PRICING_OPTIONS.map((p) => (
+                            <option key={p} value={p} className="bg-slate-900">
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-2 py-3">
+                        <input
+                          type="number"
+                          value={item.basePrice ?? ""}
+                          onChange={(e) => handleFieldChange(idx, "basePrice", e.target.value)}
+                          className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                          placeholder="Base"
+                        />
+                      </td>
+                      <td className="px-2 py-3">
+                        <input
+                          type="number"
+                          value={item.mrp ?? ""}
+                          onChange={(e) => handleFieldChange(idx, "mrp", e.target.value)}
+                          className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                          placeholder="MRP"
+                        />
+                      </td>
+                      <td className="px-2 py-3">
+                        <input
+                          type="number"
+                          value={item.quantity ?? ""}
+                          onChange={(e) => handleFieldChange(idx, "quantity", e.target.value)}
+                          className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                          placeholder="Qty"
+                        />
+                      </td>
+                      <td className="px-2 py-3">
+                        <input
+                          type="number"
+                          value={item.costPrice ?? ""}
+                          onChange={(e) => handleFieldChange(idx, "costPrice", e.target.value)}
+                          className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                          placeholder="Cost"
+                        />
+                      </td>
+                      <td className="px-2 py-3">
+                        <input
+                          type="number"
+                          value={item.sellingPrice ?? ""}
+                          onChange={(e) => handleFieldChange(idx, "sellingPrice", e.target.value)}
+                          className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
+                          placeholder="Price"
+                        />
+                      </td>
+                      <td className="px-2 py-3 text-center whitespace-nowrap">
                         <button
                           className="ai-btn ai-btn-danger hover:brightness-110"
                           title="Remove row"

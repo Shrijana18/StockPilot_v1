@@ -183,6 +183,28 @@ const DistributorHome = () => {
           collection(db, `businesses/${distributorId}/orderRequests`)
         );
 
+        // Helper: compute total amount for an order from Firestore shape
+        const calcOrderTotal = (order) => {
+          if (!order || typeof order !== "object") return 0;
+          const breakdown = order?.chargesSnapshot?.breakdown;
+          if (breakdown && breakdown.grandTotal != null) {
+            return Number(breakdown.grandTotal) || 0;
+          }
+          if (order?.chargesSnapshot?.grandTotal != null) {
+            return Number(order.chargesSnapshot.grandTotal) || 0;
+          }
+          if (order?.proforma?.grandTotal != null) {
+            return Number(order.proforma.grandTotal) || 0;
+          }
+          if (order?.itemsSubTotal != null) {
+            return Number(order.itemsSubTotal) || 0;
+          }
+          if (order?.estimate?.subtotal != null) {
+            return Number(order.estimate.subtotal) || 0;
+          }
+          return 0;
+        };
+
         let total = 0,
           completed = 0,
           revenue = 0,
@@ -206,10 +228,11 @@ const DistributorHome = () => {
           // Completed & money + due classification
           if (d.status === "Delivered") {
             completed++;
+            const orderTotal = calcOrderTotal(d);
             if (d.isPaid === true) {
-              revenue += Number(d.totalAmount || 0);
+              revenue += orderTotal;
             } else if (d.isPaid === false) {
-              const amt = Number(d.totalAmount || 0);
+              const amt = orderTotal;
               dueCreditTotal += amt;
               const due = computeDueDate(d);
               const delta = daysFromToday(due);
@@ -222,7 +245,7 @@ const DistributorHome = () => {
                 daysLeft: delta,
                 deliveredAt: tsToDate(d.deliveredAt),
                 creditDays: Number(d.creditDays || 0),
-                paymentMode: d.paymentMode || d.paymentMethod || 'Credit Cycle',
+                paymentMode: d.paymentMode || d.paymentMethod || "Credit Cycle",
               };
               if (delta === 0) dueToday.push(row);
               else if (delta === 1) dueTomorrow.push(row);

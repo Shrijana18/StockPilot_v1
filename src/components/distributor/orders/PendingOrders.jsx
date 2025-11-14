@@ -16,6 +16,8 @@ import { toast } from 'react-toastify';
 import ProformaSummary from '../../retailer/ProformaSummary';
 import { codeOf } from '../../../constants/orderStatus';
 import * as orderPolicy from '../../../lib/orders/orderPolicy';
+import { splitFromMrp } from '../../../utils/pricing';
+import { calculateProforma } from '../../../lib/calcProforma';
 
 const PendingOrders = () => {
   const [pendingOrders, setPendingOrders] = useState([]);
@@ -51,12 +53,58 @@ const PendingOrders = () => {
     return { isOverstock: false, message: '' };
   };
 
+  // Get the calculated base/unit price for display based on pricing mode
+  const getDisplayBasePrice = (order, idx, item) => {
+    const pricingMode = item.pricingMode || "LEGACY";
+    const basePrice = Number(item.basePrice || 0);
+    const mrp = Number(item.mrp || 0);
+    const sellingPrice = Number(item.sellingPrice || item.price || item.unitPrice || 0);
+    const baseGstRate = Number(item.gstRate || item.taxRate || 0);
+
+    // Get proforma line if available
+    const pLine = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+    const lineGstRate = pLine?.gstRate !== undefined ? Number(pLine.gstRate) : baseGstRate;
+
+    if (pricingMode === "MRP_INCLUSIVE") {
+      // MRP is final, calculate base from MRP
+      if (mrp > 0 && lineGstRate > 0) {
+        const split = splitFromMrp(mrp, lineGstRate);
+        return split.base;
+      }
+      return mrp || sellingPrice;
+    } else if (pricingMode === "SELLING_PRICE") {
+      // Selling price is final (GST included), calculate base from it
+      if (sellingPrice > 0 && lineGstRate > 0) {
+        const split = splitFromMrp(sellingPrice, lineGstRate);
+        return split.base;
+      }
+      return sellingPrice;
+    } else if (pricingMode === "BASE_PLUS_TAX") {
+      // Base price is explicit
+      if (basePrice > 0) {
+        return basePrice;
+      }
+      // Fallback: calculate from selling price if base is missing
+      if (sellingPrice > 0 && lineGstRate > 0) {
+        const split = splitFromMrp(sellingPrice, lineGstRate);
+        return split.base;
+      }
+      return sellingPrice;
+    } else {
+      // LEGACY: use basePrice if available, otherwise sellingPrice
+      return basePrice || sellingPrice;
+    }
+  };
+
   const getDisplayPrice = (order, idx, item) => {
+    // Return the selling price (final price) for display
     if (Array.isArray(order?.proforma?.lines)) {
       const ln = order.proforma.lines[idx];
       if (ln && ln.price != null) return Number(ln.price) || 0;
     }
-    return Number(item?.price) || 0;
+    const sellingPrice = Number(item.sellingPrice || item.price || 0);
+    if (sellingPrice > 0) return sellingPrice;
+    return Number(item.price) || 0;
   };
 
   const getDisplaySubtotal = (order, idx, item) => {
@@ -65,8 +113,75 @@ const PendingOrders = () => {
       if (ln && ln.gross != null) return Number(ln.gross) || 0;
     }
     const qty = Number(item?.quantity) || 0;
-    const price = Number(item?.price) || 0;
+    const price = getDisplayPrice(order, idx, item);
     return qty * price;
+  };
+
+  // Get full proforma breakdown for display
+  const getProformaBreakdown = (order) => {
+    const b = order?.chargesSnapshot?.breakdown;
+    if (b) {
+      // Return full breakdown from chargesSnapshot
+      return {
+        grossItems: Number(b.grossItems || 0),
+        lineDiscountTotal: Number(b.lineDiscountTotal || 0),
+        itemsSubTotal: Number(b.itemsSubTotal || b.subTotal || 0),
+        orderCharges: {
+          delivery: Number(b.delivery || 0),
+          packing: Number(b.packing || 0),
+          insurance: Number(b.insurance || 0),
+          other: Number(b.other || 0),
+        },
+        discountTotal: Number(b.discountTotal || 0),
+        taxableBase: Number(b.taxableBase || 0),
+        taxType: b.taxType || 'CGST_SGST',
+        taxBreakup: b.taxBreakup || {},
+        roundOff: Number(b.roundOff || 0),
+        grandTotal: Number(b.grandTotal || 0),
+      };
+    }
+    // Calculate from order data if chargesSnapshot not available
+    const items = Array.isArray(order?.items) ? order.items : [];
+    const lines = items.map((it, idx) => ({
+      qty: Number(it.quantity ?? it.qty ?? 0),
+      price: Number(it.sellingPrice ?? it.price ?? it.unitPrice ?? 0),
+      itemDiscountPct: Number(order?.proforma?.lines?.[idx]?.itemDiscountPct ?? it.itemDiscountPct ?? 0),
+      gstRate: Number(it.gstRate ?? order?.proforma?.lines?.[idx]?.gstRate ?? 0),
+    }));
+    const orderCharges = {
+      delivery: Number(order?.chargesSnapshot?.breakdown?.delivery || order?.delivery || 0),
+      packing: Number(order?.chargesSnapshot?.breakdown?.packing || order?.packing || 0),
+      insurance: Number(order?.chargesSnapshot?.breakdown?.insurance || order?.insurance || 0),
+      other: Number(order?.chargesSnapshot?.breakdown?.other || order?.other || 0),
+      discountPct: Number(order?.chargesSnapshot?.breakdown?.discountPct || order?.orderDiscountPct || 0),
+      discountAmt: Number(order?.chargesSnapshot?.breakdown?.discountAmt || order?.orderDiscountAmt || 0),
+      discountChangedBy: order?.chargesSnapshot?.breakdown?.discountAmt ? "amt" : "pct",
+    };
+    const p = calculateProforma({
+      lines,
+      orderCharges,
+      distributorState: order?.distributorState,
+      retailerState: order?.retailerState || order?.state,
+      roundingEnabled: !!order?.chargesSnapshot?.defaultsUsed?.roundEnabled,
+      rounding: (order?.chargesSnapshot?.defaultsUsed?.roundRule || 'nearest').toUpperCase(),
+    });
+    return {
+      grossItems: p.grossItems,
+      lineDiscountTotal: p.lineDiscountTotal,
+      itemsSubTotal: p.itemsSubTotal ?? p.subTotal,
+      orderCharges: {
+        delivery: Number(orderCharges.delivery || 0),
+        packing: Number(orderCharges.packing || 0),
+        insurance: Number(orderCharges.insurance || 0),
+        other: Number(orderCharges.other || 0),
+      },
+      discountTotal: Number(p.discountTotal || 0),
+      taxableBase: Number(p.taxableBase || 0),
+      taxType: p.taxType || 'CGST_SGST',
+      taxBreakup: p.taxBreakup || {},
+      roundOff: Number(p.roundOff || 0),
+      grandTotal: Number(p.grandTotal || 0),
+    };
   };
 
   // ---------- Inline editors ----------
@@ -419,23 +534,34 @@ const PendingOrders = () => {
             )}
 
             <div className="mt-4 border border-white/10 rounded-lg overflow-hidden">
-              <div className="grid grid-cols-8 font-semibold bg-white/5 border-b border-white/10 px-4 py-2 text-white">
+              <div className="grid grid-cols-12 font-semibold bg-white/5 border-b border-white/10 px-4 py-2 text-white text-sm">
                 <div>Name</div>
                 <div>Brand</div>
                 <div>Category</div>
-                <div>Qty</div>
+                <div className="text-right">Qty</div>
                 <div>Unit</div>
+                <div className="text-right">Base Price</div>
+                <div className="text-right">MRP</div>
+                <div className="text-right">Selling Price</div>
+                <div className="text-right">GST %</div>
                 <div>Actions</div>
-                <div>Price</div>
-                <div>Subtotal</div>
+                <div className="text-right">Price</div>
+                <div className="text-right">Subtotal</div>
               </div>
 
               {(order.items || []).map((item, i) => {
                 const { isOverstock, message } = checkStockAvailability(item);
+                const basePrice = getDisplayBasePrice(order, i, item);
+                const mrp = Number(item.mrp || 0);
+                const sellingPrice = getDisplayPrice(order, i, item);
+                const gstRate = Number(item.gstRate || item.taxRate || 0);
+                const pLine = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[i] : undefined;
+                const displayGstRate = pLine?.gstRate !== undefined ? Number(pLine.gstRate) : gstRate;
+                
                 return (
                   <div
                     key={i}
-                    className="grid grid-cols-8 border-t border-white/10 px-4 py-2 text-sm items-center gap-2 hover:bg-white/5 transition"
+                    className="grid grid-cols-12 border-t border-white/10 px-4 py-2 text-sm items-center gap-2 hover:bg-white/5 transition"
                   >
                     {order.status === 'Modified' ? (
                       <>
@@ -461,7 +587,7 @@ const PendingOrders = () => {
                           <input
                             className={`rounded px-2 py-1 bg-white/10 border ${
                               isOverstock ? 'border-rose-500' : 'border-white/20'
-                            } text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition`}
+                            } text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition text-right`}
                             type="number"
                             value={item.quantity}
                             onChange={(e) =>
@@ -478,6 +604,10 @@ const PendingOrders = () => {
                           value={item.unit || ''}
                           onChange={(e) => handleItemEdit(order.id, i, 'unit', e.target.value)}
                         />
+                        <div className="text-right text-white/90">₹{basePrice.toFixed(2)}</div>
+                        <div className="text-right text-white/90">{mrp > 0 ? `₹${mrp.toFixed(2)}` : '—'}</div>
+                        <div className="text-right text-white/90">₹{sellingPrice.toFixed(2)}</div>
+                        <div className="text-right text-white/90">{displayGstRate > 0 ? `${displayGstRate}%` : '—'}</div>
                         <button
                           onClick={() => handleDeleteItem(order.id, i)}
                           className="text-rose-300 font-semibold px-2 py-1 rounded hover:bg-white/10 transition"
@@ -486,15 +616,15 @@ const PendingOrders = () => {
                         >
                           Delete
                         </button>
-                        <div></div>
-                        <div></div>
+                        <div className="text-right text-white/90">₹{sellingPrice.toFixed(2)}</div>
+                        <div className="text-right text-white/90">₹{getDisplaySubtotal(order, i, item).toFixed(2)}</div>
                       </>
                     ) : (
                       <>
                         <div>{item.productName}</div>
                         <div>{item.brand || 'N/A'}</div>
                         <div>{item.category || 'N/A'}</div>
-                        <div>
+                        <div className="text-right">
                           {item.quantity}
                           {item.stockAvailable !== undefined &&
                             Number(item.quantity) > Number(item.stockAvailable) && (
@@ -502,9 +632,13 @@ const PendingOrders = () => {
                             )}
                         </div>
                         <div>{item.unit || 'N/A'}</div>
+                        <div className="text-right text-white/90">₹{basePrice.toFixed(2)}</div>
+                        <div className="text-right text-white/90">{mrp > 0 ? `₹${mrp.toFixed(2)}` : '—'}</div>
+                        <div className="text-right text-white/90">₹{sellingPrice.toFixed(2)}</div>
+                        <div className="text-right text-white/90">{displayGstRate > 0 ? `${displayGstRate}%` : '—'}</div>
                         <div></div>
-                        <div>₹{getDisplayPrice(order, i, item).toFixed(2)}</div>
-                        <div>₹{getDisplaySubtotal(order, i, item).toFixed(2)}</div>
+                        <div className="text-right text-white/90">₹{sellingPrice.toFixed(2)}</div>
+                        <div className="text-right text-white/90">₹{getDisplaySubtotal(order, i, item).toFixed(2)}</div>
                       </>
                     )}
                   </div>
@@ -518,6 +652,56 @@ const PendingOrders = () => {
                 </div>
               )}
             </div>
+
+            {/* Full Breakdown */}
+            {(() => {
+              const breakdown = getProformaBreakdown(order);
+              const distributorState = order.distributorState || 'Maharashtra';
+              const retailerState = order.retailerState || order.state || distributorState;
+              const taxTypeLabel = breakdown.taxType === 'IGST'
+                ? `IGST (Interstate: ${distributorState} → ${retailerState})`
+                : `CGST + SGST (Intrastate: ${distributorState} → ${retailerState})`;
+              
+              return (
+                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                  <h4 className="font-semibold mb-3 text-white">Proforma Breakdown</h4>
+                  <div className="space-y-1 text-sm text-white/80">
+                    <div className="flex justify-between"><span>Unit Price Total</span><span>₹{breakdown.grossItems.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>− Line Discounts</span><span>₹{breakdown.lineDiscountTotal.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Items Sub‑Total</span><span>₹{breakdown.itemsSubTotal.toFixed(2)}</span></div>
+                    {breakdown.orderCharges.delivery > 0 && (
+                      <div className="flex justify-between"><span>+ Delivery</span><span>₹{breakdown.orderCharges.delivery.toFixed(2)}</span></div>
+                    )}
+                    {breakdown.orderCharges.packing > 0 && (
+                      <div className="flex justify-between"><span>+ Packing</span><span>₹{breakdown.orderCharges.packing.toFixed(2)}</span></div>
+                    )}
+                    {breakdown.orderCharges.insurance > 0 && (
+                      <div className="flex justify-between"><span>+ Insurance</span><span>₹{breakdown.orderCharges.insurance.toFixed(2)}</span></div>
+                    )}
+                    {breakdown.orderCharges.other > 0 && (
+                      <div className="flex justify-between"><span>+ Other</span><span>₹{breakdown.orderCharges.other.toFixed(2)}</span></div>
+                    )}
+                    {breakdown.discountTotal > 0 && (
+                      <div className="flex justify-between"><span>− Order Discount</span><span>₹{breakdown.discountTotal.toFixed(2)}</span></div>
+                    )}
+                    <div className="flex justify-between font-semibold"><span>Taxable Base</span><span>₹{breakdown.taxableBase.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Tax Type</span><span className="text-xs">{taxTypeLabel}</span></div>
+                    {breakdown.taxType === 'IGST' ? (
+                      <div className="flex justify-between"><span>IGST</span><span>₹{Number(breakdown.taxBreakup?.igst || 0).toFixed(2)}</span></div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between"><span>CGST</span><span>₹{Number(breakdown.taxBreakup?.cgst || 0).toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>SGST</span><span>₹{Number(breakdown.taxBreakup?.sgst || 0).toFixed(2)}</span></div>
+                      </>
+                    )}
+                    {breakdown.roundOff !== 0 && (
+                      <div className="flex justify-between"><span>Round Off</span><span>₹{breakdown.roundOff.toFixed(2)}</span></div>
+                    )}
+                    <div className="flex justify-between font-semibold text-white border-t border-white/20 pt-1 mt-1"><span>Grand Total</span><span>₹{breakdown.grandTotal.toFixed(2)}</span></div>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="mt-6 flex flex-col md:flex-row md:items-center md:gap-6 gap-3">
               <label className="flex items-center gap-2 font-medium text-white/80">

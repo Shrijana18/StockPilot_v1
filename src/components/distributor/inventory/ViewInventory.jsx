@@ -1,13 +1,46 @@
 import { getStorage, ref, getDownloadURL, uploadBytes, getBlob } from "firebase/storage";
 import React from "react";
 import { useState, useEffect } from "react";
-import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
 import fetchGoogleImages from "../../../utils/fetchGoogleImages";
 import { logInventoryChange } from "../../../utils/logInventoryChange";
 import { collection as fsCollection, query, orderBy, onSnapshot as fsOnSnapshot } from "firebase/firestore";
 import { db, auth } from "../../../firebase/firebaseConfig";
 // Removed useAuth because we will pass userId as prop
 import EditProductModal from "../../inventory/EditProductModal";
+import QRCodeGenerator from "../../inventory/QRCodeGenerator";
+import AddColumnInventory from "../../inventory/AddColumnInventory";
+
+// === Column Preferences: defaults + storage keys ===
+const COLUMN_DEFAULTS = [
+  { id: "image", label: "Image", minWidth: 70, sticky: false },
+  { id: "productName", label: "Product", minWidth: 200 },
+  { id: "sku", label: "SKU", minWidth: 140 },
+  { id: "brand", label: "Brand", minWidth: 140 },
+  { id: "category", label: "Category", minWidth: 140 },
+  { id: "hsnCode", label: "HSN", minWidth: 120 },
+  { id: "quantity", label: "Qty", minWidth: 90 },
+  { id: "unit", label: "Unit", minWidth: 90 },
+  { id: "costPrice", label: "Cost", minWidth: 110 },
+  { id: "sellingPrice", label: "Sell", minWidth: 110 },
+  // Newly supported optional columns:
+  { id: "mrp", label: "MRP", minWidth: 110 },
+  { id: "gstRate", label: "GST %", minWidth: 90 },
+  { id: "status", label: "Status", minWidth: 100, align: "center" },
+  { id: "source", label: "Source", minWidth: 120 },
+  { id: "qr", label: "QR", minWidth: 80 },
+  { id: "delete", label: "Delete", minWidth: 80 },
+  { id: "edit", label: "Edit", minWidth: 80 },
+];
+const LS_KEY = "FLYP_INVENTORY_COLUMNS_V2_DISTRIBUTOR";
+const prefDocPath = (uid) => [`businesses`, uid, `preferences`, `inventoryColumns`];
+
+const toSafeKey = (name = "") =>
+  String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 const DeleteConfirmationModal = ({
   product,
@@ -97,6 +130,15 @@ const ViewInventory = ({ userId }) => {
   // Recently Modified tab state
   const [inventoryLogs, setInventoryLogs] = useState([]);
   const [selectedTab, setSelectedTab] = useState("view");
+  // QR modal states
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrTargetProduct, setQrTargetProduct] = useState(null);
+  // Column preferences state
+  const [columns, setColumns] = useState(COLUMN_DEFAULTS);
+  const [hiddenCols, setHiddenCols] = useState(new Set());
+  // Custom columns
+  const [customColumns, setCustomColumns] = useState([]); // [{id,label,minWidth,type,key}]
+  const [showCustomColumnsModal, setShowCustomColumnsModal] = useState(false);
 
   // For compatibility with handleSelectUnsplashImage
   // We'll store the selected Unsplash image URL in imagePreviewUrl, and imageUploadFile remains null
@@ -129,10 +171,60 @@ const ViewInventory = ({ userId }) => {
   const [viewMode, setViewMode] = useState("list");
   const db = getFirestore();
 
+  const saveColumnPrefs = async (uid, order, hidden) => {
+    try {
+      // Persist to Firestore
+      await setDoc(doc(getFirestore(), ...prefDocPath(uid)), {
+        order,
+        hidden,
+        updatedAt: Date.now(),
+      }, { merge: true });
+    } catch (e) {
+      // Fallback to localStorage if Firestore fails
+      const payload = { order, hidden, updatedAt: Date.now() };
+      localStorage.setItem(LS_KEY, JSON.stringify(payload));
+    }
+  };
+  const loadColumnPrefs = async (uid) => {
+    try {
+      const snap = await getDoc(doc(getFirestore(), ...prefDocPath(uid)));
+      if (snap.exists()) {
+        const data = snap.data();
+        const orderFromDb = Array.isArray(data.order) ? data.order : COLUMN_DEFAULTS.map(c => c.id);
+        const hiddenFromDb = Array.isArray(data.hidden) ? new Set(data.hidden) : new Set();
+        const ordered = orderFromDb
+          .map(id => COLUMN_DEFAULTS.find(c => c.id === id))
+          .filter(Boolean);
+        const merged = [...ordered]; // drop unknowns safely
+        setColumns(merged);
+        setHiddenCols(hiddenFromDb);
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    // Fallback to localStorage or defaults
+    const ls = localStorage.getItem(LS_KEY);
+    if (ls) {
+      try {
+        const parsed = JSON.parse(ls);
+        const order = Array.isArray(parsed.order) ? parsed.order : COLUMN_DEFAULTS.map(c => c.id);
+        const hidden = new Set(Array.isArray(parsed.hidden) ? parsed.hidden : []);
+        const ordered = order.map(id => COLUMN_DEFAULTS.find(c => c.id === id)).filter(Boolean);
+        setColumns(ordered);
+        setHiddenCols(hidden);
+        return;
+      } catch (_) { /* ignore */ }
+    }
+    setColumns(COLUMN_DEFAULTS);
+    setHiddenCols(new Set());
+  };
+
   // Prevent rendering if userId is not available
   if (!userId) {
     return <div className="text-center p-4">Loading user data...</div>;
   }
+  useEffect(() => {
+    if (userId) loadColumnPrefs(userId);
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -164,6 +256,36 @@ const ViewInventory = ({ userId }) => {
     });
 
     return () => unsubscribe(); // cleanup on unmount
+  }, [userId]);
+
+  // Custom columns Firestore subscription
+  useEffect(() => {
+    if (!userId) return;
+    const colRef = collection(db, "businesses", userId, "customColumns");
+    const unsub = onSnapshot(colRef, (snap) => {
+      const list = snap.docs.map(d => {
+        const data = d.data() || {};
+        const label = data.name || "Custom";
+        const key = data.key || toSafeKey(label);
+        return {
+          id: key,
+          label,
+          minWidth: 140,
+          type: data.type || "text",
+          _docId: d.id,
+        };
+      });
+      setCustomColumns(list);
+      // Merge into columns list while preserving existing order from prefs when possible
+      setColumns((prev) => {
+        // Take existing order ids
+        const existingIds = prev.map(c => c.id);
+        // Any custom not present gets appended
+        const appended = list.filter(c => !existingIds.includes(c.id));
+        return [...prev, ...appended];
+      });
+    });
+    return () => unsub();
   }, [userId]);
 
   // Fetch inventoryLogs for Recently Modified tab
@@ -419,6 +541,7 @@ return (
             <option value="quantity">Quantity</option>
             <option value="costPrice">Cost Price</option>
             <option value="sellingPrice">Selling Price</option>
+            <option value="mrp">MRP</option>
           </select>
           <select
             className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -533,227 +656,293 @@ return (
           </div>
 
           {viewMode === "list" ? (
-        <div className="overflow-x-auto glass-scroll w-full bg-white/5 border-y border-white/10 rounded-none mx-[-16px] md:mx-[-24px]">
-          <table className="min-w-full text-sm">
-            <thead className="text-left bg-white/10 sticky top-0 z-10">
-              <tr>
-                <th className="p-2">Image</th>
-                <th className="p-2">Product</th>
-                <th className="p-2">SKU</th>
-                <th className="p-2">Brand</th>
-                <th className="p-2">Category</th>
-                <th className="p-2">Qty</th>
-                <th className="p-2">Unit</th>
-                <th className="p-2">Cost</th>
-                <th className="p-2">Sell</th>
-                <th className="p-2">Status</th>
-                <th className="p-2">Source</th>
-                <th className="p-2">Delete</th>
-                <th className="p-2">Edit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p, idx) => (
-                <tr key={p.id} className="border-t border-white/10 odd:bg-white/0 even:bg-white/[0.03] hover:bg-white/[0.06] transition-colors">
-                  <td className="p-2">
-                    <div className="flex items-center gap-1">
-                      <div
-                        className="inline-block cursor-pointer"
-                        onClick={() => handleImageClick(p)}
-                        title="Click to upload image"
-                      >
-                      <img
-                        src={p.imageUrl || "/placeholder.png"}
-                        alt="product"
-                        className="h-10 w-10 rounded object-cover border border-white/20"
-                      />
-                      </div>
-                      <button
-                        type="button"
-                        title="Search & set image from Google"
-                        className="ml-1 text-lg px-1 py-0.5 rounded hover:bg-gray-200"
-                        onClick={() => handleFetchImages(p, idx)}
-                        style={{ lineHeight: "1" }}
-                      >
-                        🔍
-                      </button>
-                    </div>
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'productName', p.productName)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "productName" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "productName", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.productName
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'sku', p.sku)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "sku" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "sku", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.sku
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'brand', p.brand)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "brand" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "brand", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.brand
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'category', p.category)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "category" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "category", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.category
-                    )}
-                  </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
-                    {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
-                      <input
-                        type="number"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
-                        autoFocus
-                      />
-                    ) : (
-                      p.quantity
-                    )}
-                  </td>
-                  <td
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
-                    onClick={() => startEdit(p.id, 'unit', p.unit)}
-                  >
-                    {editingCell.rowId === p.id && editingCell.field === "unit" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "unit", editedValue)}
-                        autoFocus
-                      />
-                    ) : (
-                      p.unit
-                    )}
-                  </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "costPrice", p.costPrice)}>
-                    {editingCell.rowId === p.id && editingCell.field === "costPrice" ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "costPrice", Number(editedValue))}
-                        autoFocus
-                      />
-                    ) : (
-                      <span className="text-white/90">₹{p.costPrice}</span>
-                    )}
-                  </td>
-                  <td className="p-2" onClick={() => startEdit(p.id, "sellingPrice", p.sellingPrice)}>
-                    {editingCell.rowId === p.id && editingCell.field === "sellingPrice" ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "sellingPrice", Number(editedValue))}
-                        autoFocus
-                      />
-                    ) : (
-                      <span className="text-white/90">₹{p.sellingPrice}</span>
-                    )}
-                  </td>
-                  <td className="p-2 min-w-[80px] text-center">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs ${
-                        getStatus(p.quantity) === "Low" ? "bg-rose-500/90 text-white" : "bg-emerald-600/90 text-white"
-                      }`}
-                    >
-                      {getStatus(p.quantity)}
-                    </span>
-                  </td>
-                  <td className="p-2 min-w-[100px] max-w-[120px] text-center">
-                    {p.sourceOrderId ? (
-                      <span className="inline-block px-2 py-1 rounded text-xs bg-blue-500 text-white break-words whitespace-normal leading-snug">
-                        From Order
-                      </span>
-                    ) : (
-                      ''
-                    )}
-                  </td>
-                  <td className="p-2">
+            <>
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white hover:bg-white/15"
+              onClick={() => setShowCustomColumnsModal(true)}
+              type="button"
+              title="Manage columns"
+            >
+              Manage Columns
+            </button>
+          </div>
+              <div className="overflow-x-auto w-full">
+                <div className="overflow-x-auto">
+                  <table className="table-fixed w-full text-xs sm:text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden min-w-[800px]">
+                  <thead className="bg-white/10 text-left sticky top-0">
+                    <tr>
+                      {columns.filter(c => !hiddenCols.has(c.id)).map(col => (
+                        <th
+                          key={col.id}
+                          className={
+                            "p-2 text-white/80 border-b border-white/10 truncate " +
+                            (col.id === "status" ? "text-center" : "")
+                          }
+                          style={{ minWidth: col.minWidth ? `${col.minWidth}px` : undefined }}
+                        >
+                          {col.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((p) => (
+                      <tr key={p.id} className="border-t border-white/10 hover:bg-white/5">
+                        {columns.filter(c => !hiddenCols.has(c.id)).map(col => {
+                          switch (col.id) {
+                            case "qr":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <button
+                                    onClick={() => { setQrTargetProduct(p); setShowQrModal(true); }}
+                                    className="px-2 py-1 text-xs rounded bg-white/10 border border-white/20 hover:bg-white/15 text-white"
+                                    title="Generate QR"
+                                  >
+                                    Generate
+                                  </button>
+                                </td>
+                              );
+                            case "image":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <div
+                                    className="inline-block cursor-pointer"
+                                    onClick={() => handleImageClick(p)}
+                                    title="Click to upload image"
+                                  >
+                                    <img
+                                      src={p.imageUrl || "/placeholder.png"}
+                                      alt="product"
+                                      className="h-10 w-10 rounded object-cover border border-white/20 ring-1 ring-white/10"
+                                    />
+                                  </div>
+                                </td>
+                              );
+                            case "productName":
+                              return (
+                                <td
+                                  key={col.id}
+                                  className="p-2 max-w-[220px] break-words whitespace-normal"
+                                  onClick={() => startEdit(p.id, "productName", p.productName)}
+                                >
+                                  {editingCell.rowId === p.id && editingCell.field === "productName" ? (
+                                    <input
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, "productName", editedValue)}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p.productName
+                                  )}
+                                </td>
+                              );
+                            case "sku":
+                            case "brand":
+                            case "category":
+                            case "hsnCode":
+                            case "unit":
+                              return (
+                                <td
+                                  key={col.id}
+                                  className="p-2 max-w-[180px] break-words whitespace-normal"
+                                  onClick={() => startEdit(p.id, col.id, p[col.id])}
+                                >
+                                  {editingCell.rowId === p.id && editingCell.field === col.id ? (
+                                    <input
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, col.id, editedValue)}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p[col.id] || ""
+                                  )}
+                                </td>
+                              );
+                            case "quantity":
+                              return (
+                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
+                                  {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
+                                    <input
+                                      type="number"
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p.quantity
+                                  )}
+                                </td>
+                              );
+                            case "costPrice":
+                            case "sellingPrice":
+                            case "mrp":
+                              return (
+                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, col.id, p[col.id])}>
+                                  {editingCell.rowId === p.id && editingCell.field === col.id ? (
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, col.id, Number(editedValue))}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p[col.id] !== undefined ? <>₹{p[col.id]}</> : ""
+                                  )}
+                                </td>
+                              );
+                            case "gstRate":
+                              // Display gstRate from either field; prefer explicit gstRate, fallback to taxRate
+                              const currentGst = p.gstRate !== undefined && p.gstRate !== null ? p.gstRate : p.taxRate;
+                              return (
+                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "gstRate", currentGst)}>
+                                  {editingCell.rowId === p.id && editingCell.field === "gstRate" ? (
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, "gstRate", Number(editedValue))}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    currentGst !== undefined && currentGst !== null ? <>{currentGst}%</> : ""
+                                  )}
+                                </td>
+                              );
+                            case "status": {
+                              const st = getStatus(p.quantity);
+                              const badgeText = st === "In Stock" ? "In\u00A0Stock" : st; // keep on one line
+                              const isLow = st === "Low";
+                              return (
+                                <td key={col.id} className="p-2 align-middle text-center whitespace-nowrap">
+                                  <span
+                                    title={st}
+                                    className={
+                                      "inline-flex items-center justify-center min-w-[72px] h-6 px-2 rounded-full text-xs font-semibold " +
+                                      (isLow ? "bg-rose-500 text-white" : "bg-emerald-400 text-slate-900")
+                                    }
+                                  >
+                                    {badgeText}
+                                  </span>
+                                </td>
+                              );
+                            }
+                            case "source":
+                              return (
+                                <td key={col.id} className="p-2 min-w-[100px] max-w-[120px] text-center">
+                                  {p.sourceOrderId ? (
+                                    <span className="inline-block px-2 py-1 rounded text-xs bg-blue-500 text-white break-words whitespace-normal leading-snug">
+                                      From Order
+                                    </span>
+                                  ) : (
+                                    ""
+                                  )}
+                                </td>
+                              );
+                            case "delete":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <button
+                                    onClick={() => handleDelete(p)}
+                                    className="text-rose-300 hover:text-rose-200"
+                                    title="Delete Item"
+                                  >
+                                    🗑️
+                                  </button>
+                                </td>
+                              );
+                            case "edit":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedProductId(p.id);
+                                      setIsModalOpen(true);
+                                    }}
+                                    className="text-sm text-emerald-300 underline"
+                                  >
+                                    Edit
+                                  </button>
+                                </td>
+                              );
+                            default:
+                              return (
+                                <td
+                                  key={col.id}
+                                  className="p-2 max-w-[180px] break-words whitespace-normal"
+                                  onClick={() => startEdit(p.id, col.id, p[col.id])}
+                                >
+                                  {editingCell.rowId === p.id && editingCell.field === col.id ? (
+                                    <input
+                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                                      value={editedValue}
+                                      onChange={(e) => setEditedValue(e.target.value)}
+                                      onBlur={() => saveEdit(p.id, col.id, editedValue)}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    p[col.id] || ""
+                                  )}
+                                </td>
+                              );
+                          }
+                        })}
+                      </tr>
+                    ))}
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={columns.filter(c => !hiddenCols.has(c.id)).length} className="text-center p-4 text-white/70">
+                          {products.length === 0 ? "No products found." : "Loading inventory..."}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                  </table>
+                </div>
+              </div>
+              {showCustomColumnsModal && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">
+                  <div className="w-[96%] max-w-2xl rounded-2xl p-4 bg-white/10 backdrop-blur-2xl border border-white/15 shadow-[0_20px_80px_rgba(0,0,0,0.5)] text-white relative">
                     <button
-                      onClick={() => handleDelete(p)}
-                      className="text-red-600 hover:text-red-800"
-                      title="Delete Item"
+                      onClick={() => setShowCustomColumnsModal(false)}
+                      className="absolute top-2 right-2 text-white/70 hover:text-white"
                     >
-                      {/* Instead of icon, open confirmation modal */}
-                      🗑️
+                      ✕
                     </button>
-                  </td>
-                  <td className="p-2">
-                    <button
-                      onClick={() => {
-                        setSelectedProductId(p.id);
-                        setIsModalOpen(true);
+                    <AddColumnInventory
+                      availableColumns={columns}
+                      hiddenCols={hiddenCols}
+                      onToggle={(id) => {
+                        const next = new Set(hiddenCols);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        setHiddenCols(next);
+                        // Save immediately (order = current cols ids)
+                        saveColumnPrefs(userId, columns.map(c => c.id), Array.from(next));
                       }}
-                      className="text-sm text-blue-600 underline"
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan="13" className="text-center p-4 text-gray-500">
-                    {products.length === 0 ? "No products found." : "Loading inventory..."}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+                      onReset={() => {
+                        setColumns(COLUMN_DEFAULTS);
+                        const next = new Set();
+                        setHiddenCols(next);
+                        saveColumnPrefs(userId, COLUMN_DEFAULTS.map(c => c.id), []);
+                      }}
+                      onClose={() => setShowCustomColumnsModal(false)}
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filtered.map((item) => (
@@ -773,26 +962,41 @@ return (
                     </button>
                   </div>
                   <h3 className="font-semibold mb-1">{item.productName}</h3>
-                  <p className="text-sm text-gray-600 mb-1">{item.brand} | {item.category}</p>
+                  <p className="text-sm text-white/70 mb-1">{item.brand} | {item.category}</p>
                   <p className="text-sm mb-1">
-                    Qty: {item.quantity} | <span className="text-white/90">₹{item.sellingPrice}</span>
+                    Qty: {item.quantity} {item.sellingPrice !== undefined && <>| ₹{item.sellingPrice}</>}
                   </p>
-                  <p className="text-xs text-gray-600 mb-1">
+                  { (item.mrp !== undefined || item.gstRate !== undefined || item.taxRate !== undefined) && (
+                    <p className="text-sm mb-1">
+                      {item.mrp !== undefined && <>MRP: ₹{item.mrp}</>}
+                      {(item.mrp !== undefined) && (item.gstRate !== undefined || item.taxRate !== undefined) && <> &nbsp;|&nbsp; </>}
+                      {(item.gstRate !== undefined || item.taxRate !== undefined) && <>GST: {(item.gstRate ?? item.taxRate)}%</>}
+                    </p>
+                  )}
+                  <p className="text-xs text-white/60 mb-1">
                     SKU: {item.sku || "N/A"} | Unit: {item.unit || "N/A"}
                   </p>
+                  { item.hsnCode && (
+                    <p className="text-xs text-white/60 mb-1">
+                      HSN: {item.hsnCode}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 mt-auto">
                     <span
-                      className={`px-2 py-1 text-xs rounded font-semibold ${
-                        (item.status || getStatus(item.quantity)) === 'In Stock'
-                          ? 'bg-emerald-600/90 text-white'
-                          : 'bg-rose-500/90 text-white'
-                      }`}
+                      className={`px-2 py-1 text-xs rounded font-semibold ${(item.status || getStatus(item.quantity)) === 'In Stock' ? 'bg-emerald-500 text-slate-900' : 'bg-rose-500 text-white'}`}
                     >
                       {item.status || getStatus(item.quantity)}
                     </span>
+                    <button
+                      className="text-xs px-2 py-1 rounded bg-white/10 border border-white/20 hover:bg-white/15 text-white"
+                      onClick={() => { setQrTargetProduct(item); setShowQrModal(true); }}
+                      title="Generate QR"
+                    >
+                      QR
+                    </button>
                     {/* Delete button triggers modal */}
                     <button
-                      className="ml-auto text-red-600 hover:text-red-800 px-2"
+                      className="ml-auto text-rose-300 hover:text-rose-200 px-2"
                       title="Delete Item"
                       onClick={() => handleDelete(item)}
                     >
@@ -871,6 +1075,17 @@ return (
           handleImageUpload={handleImageUpload}
         />
       )}
+      {/* QR Modal */}
+      {showQrModal && qrTargetProduct && (
+        <QRCodeGenerator
+          product={qrTargetProduct}
+          onClose={() => {
+            setShowQrModal(false);
+            setQrTargetProduct(null);
+          }}
+        />
+      )}
+
       {/* AI Image Search Modal */}
       {showImageModalAI && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">

@@ -9,6 +9,8 @@ import Select from '@mui/material/Select';
 import ChargesTaxesEditor from "../ChargesTaxesEditor";
 import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus";
 import * as orderPolicy from "../../../lib/orders/orderPolicy";
+import { calculateProforma } from "../../../lib/calcProforma";
+import { splitFromMrp } from "../../../utils/pricing";
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -25,6 +27,8 @@ const OrderRequests = () => {
   const [selectedRetailerId, setSelectedRetailerId] = useState('all');
   const [editChargesMap, setEditChargesMap] = useState({});   // { [orderId]: bool }
   const [chargesDraftMap, setChargesDraftMap] = useState({}); // { [orderId]: breakdown }
+  const [chargeInputValues, setChargeInputValues] = useState({}); // { [orderId]: { [fieldName]: string } } - tracks raw input strings
+  const [lineEditsMap, setLineEditsMap] = useState({}); // { [orderId]: { [lineIndex]: { itemDiscountPct, gstRate, ... } } }
   const [mode, setMode] = useState('all'); // 'all' | 'active' | 'passive'
   const renderModeTabs = () => (
     <div className="p-4 pt-0">
@@ -104,12 +108,215 @@ const OrderRequests = () => {
       igst: b.igst ?? tb.igst ?? 0,
     };
   };
+  // Recalculate charges using calculateProforma for accurate totals
+  const recalculateCharges = (order, draftCharges = {}, lineEdits = {}) => {
+    if (!order || !order.items || order.items.length === 0) {
+      return { grandTotal: 0, breakdown: {} };
+    }
+
+    // Build lines from order items
+    // NOTE: Selling prices are already final - GST% should be 0 by default
+    // GST is only applied if user explicitly edits the GST % on a line item
+    const lines = (order.items || []).map((item, idx) => {
+      // Check if there are proforma lines with discounts
+      const proformaLine = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : null;
+      // Get line edits if any
+      const lineEdit = lineEdits[idx] || {};
+      
+      // Get pricing mode from item
+      const pricingMode = item.pricingMode || "LEGACY";
+      
+      // Base GST rate from item
+      const baseGstRate = Number(item.gstRate || item.taxRate || proformaLine?.gstRate || 0);
+      
+      // Get the selling price/MRP from item
+      const sellingPrice = Number(item.sellingPrice || item.price || item.unitPrice || 0);
+      const mrp = Number(item.mrp || 0);
+      const basePrice = Number(item.basePrice || 0);
+      
+      // Calculate base price and GST rate based on pricing mode:
+      let calculatedBasePrice = 0;
+      let gstRate = 0;
+      
+      if (pricingMode === "MRP_INCLUSIVE") {
+        // MRP includes GST - calculate base price from MRP
+        // Formula: base = MRP / (1 + GST/100)
+        if (mrp > 0 && baseGstRate > 0) {
+          const split = splitFromMrp(mrp, baseGstRate);
+          calculatedBasePrice = split.base;
+          // Use the GST rate for calculation (GST will be added on top of base)
+          gstRate = baseGstRate;
+        } else if (sellingPrice > 0 && baseGstRate > 0) {
+          // Fallback: if MRP not available but selling price is, treat as MRP (GST included)
+          const split = splitFromMrp(sellingPrice, baseGstRate);
+          calculatedBasePrice = split.base;
+          gstRate = baseGstRate;
+        } else {
+          // No GST info - use price as-is (no GST to add)
+          calculatedBasePrice = sellingPrice || mrp;
+          gstRate = 0;
+        }
+      } else if (pricingMode === "BASE_PLUS_TAX") {
+        // Base price mode - use base price directly, add GST on top
+        if (basePrice > 0) {
+          calculatedBasePrice = basePrice;
+        } else if (sellingPrice > 0 && baseGstRate > 0) {
+          // If base price missing but selling price and GST exist, calculate base
+          // This handles case where product has GST but no explicit base price
+          const split = splitFromMrp(sellingPrice, baseGstRate);
+          calculatedBasePrice = split.base;
+        } else {
+          calculatedBasePrice = sellingPrice;
+        }
+        // Use GST rate from item or user edit
+        if (lineEdit.gstRate !== undefined) {
+          gstRate = Number(lineEdit.gstRate) || 0;
+        } else {
+          gstRate = baseGstRate;
+        }
+      } else if (pricingMode === "SELLING_PRICE") {
+        // Selling price is FINAL (GST included) - treat like MRP_INCLUSIVE
+        // Calculate base price from selling price for breakdown display
+        // But we still need to apply GST on the base for proper breakdown
+        if (sellingPrice > 0 && baseGstRate > 0) {
+          // Calculate base price from selling price (GST included)
+          const split = splitFromMrp(sellingPrice, baseGstRate);
+          calculatedBasePrice = split.base;
+          // Use GST rate for calculation (will be applied on base + charges - discounts)
+          gstRate = baseGstRate;
+        } else if (sellingPrice > 0) {
+          // No GST info - use selling price as base, no GST to add
+          calculatedBasePrice = sellingPrice;
+          gstRate = 0;
+        } else {
+          calculatedBasePrice = basePrice || 0;
+          gstRate = 0;
+        }
+        // If user edits GST rate, recalculate base and use new GST rate
+        if (lineEdit.gstRate !== undefined && Number(lineEdit.gstRate) > 0) {
+          const split = splitFromMrp(sellingPrice, Number(lineEdit.gstRate));
+          calculatedBasePrice = split.base;
+          gstRate = Number(lineEdit.gstRate);
+        }
+      } else {
+        // LEGACY mode - try to calculate base if GST exists, otherwise use selling price
+        if (!basePrice && sellingPrice > 0 && baseGstRate > 0) {
+          // If GST exists but no base price, calculate it (assume selling price includes GST)
+          const split = splitFromMrp(sellingPrice, baseGstRate);
+          calculatedBasePrice = split.base;
+        } else {
+          calculatedBasePrice = sellingPrice;
+        }
+        if (lineEdit.gstRate !== undefined) {
+          gstRate = Number(lineEdit.gstRate) || 0;
+        } else {
+          gstRate = baseGstRate;
+        }
+      }
+      
+      // Allow user to override GST rate if explicitly edited (except MRP_INCLUSIVE and SELLING_PRICE which are fixed)
+      // For SELLING_PRICE, GST edit only affects base calculation, not the final GST applied
+      if (lineEdit.gstRate !== undefined && pricingMode !== "MRP_INCLUSIVE" && pricingMode !== "SELLING_PRICE") {
+        gstRate = Number(lineEdit.gstRate) || 0;
+        // If user sets GST to 0 or different value, recalculate base if needed
+        if (pricingMode === "LEGACY") {
+          if (sellingPrice > 0 && gstRate > 0 && !basePrice) {
+            const split = splitFromMrp(sellingPrice, gstRate);
+            calculatedBasePrice = split.base;
+          }
+        }
+      }
+      
+      // Item discount: use edited value if available
+      const itemDiscountPct = lineEdit.itemDiscountPct !== undefined 
+        ? Number(lineEdit.itemDiscountPct) 
+        : Number(proformaLine?.itemDiscountPct || item.itemDiscountPct || 0);
+      const itemDiscountAmt = lineEdit.itemDiscountAmt !== undefined
+        ? Number(lineEdit.itemDiscountAmt)
+        : Number(proformaLine?.discountAmount || item.itemDiscountAmt || 0);
+      const itemDiscountChangedBy = lineEdit.itemDiscountChangedBy || proformaLine?.itemDiscountChangedBy || item.itemDiscountChangedBy || 'pct';
+      
+      return {
+        qty: Number(item.quantity || item.qty || 0),
+        price: calculatedBasePrice, // Use calculated base price for calculation
+        gstRate, // GST rate to apply on top of base
+        itemDiscountPct,
+        itemDiscountAmt,
+        itemDiscountChangedBy,
+      };
+    });
+
+    // Get order-level charges from draft or existing snapshot
+    const existingBreakdown = order?.chargesSnapshot?.breakdown || {};
+    // Determine discountChangedBy: prefer draft, then check which discount field has value
+    let discountChangedBy = draftCharges.discountChangedBy || existingBreakdown.discountChangedBy;
+    if (!discountChangedBy) {
+      const draftAmt = Number(draftCharges.discountAmt ?? existingBreakdown.discountAmt ?? 0);
+      const draftPct = Number(draftCharges.discountPct ?? existingBreakdown.discountPct ?? 0);
+      discountChangedBy = draftAmt > 0 ? 'amt' : 'pct';
+    }
+    const orderCharges = {
+      delivery: Number(draftCharges.delivery ?? existingBreakdown.delivery ?? 0),
+      packing: Number(draftCharges.packing ?? existingBreakdown.packing ?? 0),
+      insurance: Number(draftCharges.insurance ?? existingBreakdown.insurance ?? 0),
+      other: Number(draftCharges.other ?? existingBreakdown.other ?? 0),
+      discountPct: Number(draftCharges.discountPct ?? existingBreakdown.discountPct ?? 0),
+      discountAmt: Number(draftCharges.discountAmt ?? existingBreakdown.discountAmt ?? 0),
+      discountChangedBy,
+    };
+
+    // Get states for tax calculation
+    const distributorState = order.distributorState || 'Maharashtra';
+    const retailerState = order.retailerState || order.state || distributorState;
+
+    // Calculate proforma
+    const proforma = calculateProforma({
+      lines,
+      orderCharges,
+      distributorState,
+      retailerState,
+      roundingEnabled: order?.chargesSnapshot?.defaultsUsed?.roundEnabled || false,
+      rounding: (order?.chargesSnapshot?.defaultsUsed?.roundRule || 'nearest').toUpperCase(),
+    });
+
+    return {
+      grandTotal: proforma.grandTotal,
+      breakdown: {
+        ...proforma,
+        orderCharges: proforma.orderCharges || orderCharges,
+        taxBreakup: proforma.taxBreakup || {},
+        // Ensure all breakdown fields are included from calculateProforma
+        grossItems: proforma.grossItems || 0,
+        lineDiscountTotal: proforma.lineDiscountTotal || 0,
+        itemsSubTotal: proforma.itemsSubTotal || proforma.subTotal || 0,
+        subTotal: proforma.subTotal || 0,
+        discountTotal: proforma.discountTotal || 0,
+        taxableBase: proforma.taxableBase || 0,
+        taxType: proforma.taxType || 'CGST_SGST',
+        roundOff: proforma.roundOff || 0,
+      },
+    };
+  };
+
+  // Helper to get line edits for an order
+  const getLineEdits = (orderId) => {
+    return lineEditsMap[orderId] || {};
+  };
+
   const previewGrandTotal = (order, editChargesMap, chargesDraftMap) => {
     if (isDirect(order)) {
       const draft = chargesDraftMap[order.id];
-      if (editChargesMap[order.id] && typeof draft?.grandTotal === 'number') return draft.grandTotal;
+      const lineEdits = getLineEdits(order.id);
+      if (editChargesMap[order.id] && draft) {
+        // Recalculate if editing
+        const recalculated = recalculateCharges(order, draft, lineEdits);
+        return recalculated.grandTotal;
+      }
       const snap = getSnapshot(order);
       if (typeof snap?.grandTotal === 'number') return snap.grandTotal;
+      // Fallback: recalculate from current state
+      const recalculated = recalculateCharges(order, {}, lineEdits);
+      return recalculated.grandTotal;
     }
     return orderGrandTotal(order);
   };
@@ -559,31 +766,53 @@ const OrderRequests = () => {
           }
         }
 
-        // Merge chargesSnapshot conservatively and normalize taxBreakup
-        const existingCharges = order?.chargesSnapshot || {};
-        const existingBreakdown = existingCharges?.breakdown || {};
-        const existingTaxBreakup = existingBreakdown?.taxBreakup || {};
+        // Recalculate chargesSnapshot using calculateProforma for accuracy
         const draft = directChargesDraft || {};
-
-        const mergedBreakdown = { ...existingBreakdown, ...draft };
-        const nextTaxBreakup = {
-          ...existingTaxBreakup,
-          ...(draft && (draft.cgst !== undefined || draft.sgst !== undefined || draft.igst !== undefined)
-            ? {
-                cgst: draft.cgst ?? existingTaxBreakup.cgst ?? existingBreakdown.cgst ?? 0,
-                sgst: draft.sgst ?? existingTaxBreakup.sgst ?? existingBreakdown.sgst ?? 0,
-                igst: draft.igst ?? existingTaxBreakup.igst ?? existingBreakdown.igst ?? 0,
-              }
-            : existingTaxBreakup),
-        };
-        mergedBreakdown.taxBreakup = nextTaxBreakup;
-        if (isDirectFlag) {
-          mergedBreakdown.directFlow = true;
+        const lineEdits = getLineEdits(order.id);
+        const recalculated = recalculateCharges(order, draft, lineEdits);
+        
+        // Build proper chargesSnapshot structure
+        const existingCharges = order?.chargesSnapshot || {};
+        const existingDefaults = existingCharges?.defaultsUsed || {};
+        
+        // Determine discountChangedBy
+        let discountChangedBy = draft.discountChangedBy || existingCharges?.breakdown?.discountChangedBy;
+        if (!discountChangedBy) {
+          const draftAmt = Number(draft.discountAmt ?? existingCharges?.breakdown?.discountAmt ?? 0);
+          const draftPct = Number(draft.discountPct ?? existingCharges?.breakdown?.discountPct ?? 0);
+          discountChangedBy = draftAmt > 0 ? 'amt' : 'pct';
         }
+        
+        const finalBreakdown = {
+          ...recalculated.breakdown,
+          delivery: Number(draft.delivery ?? existingCharges?.breakdown?.delivery ?? 0),
+          packing: Number(draft.packing ?? existingCharges?.breakdown?.packing ?? 0),
+          insurance: Number(draft.insurance ?? existingCharges?.breakdown?.insurance ?? 0),
+          other: Number(draft.other ?? existingCharges?.breakdown?.other ?? 0),
+          discountPct: Number(draft.discountPct ?? existingCharges?.breakdown?.discountPct ?? 0),
+          discountAmt: Number(draft.discountAmt ?? existingCharges?.breakdown?.discountAmt ?? 0),
+          discountChangedBy,
+          discountTotal: recalculated.breakdown.discountTotal,
+          grossItems: recalculated.breakdown.grossItems,
+          lineDiscountTotal: recalculated.breakdown.lineDiscountTotal,
+          itemsSubTotal: recalculated.breakdown.itemsSubTotal,
+          subTotal: recalculated.breakdown.subTotal,
+          taxableBase: recalculated.breakdown.taxableBase,
+          taxBreakup: recalculated.breakdown.taxBreakup,
+          roundOff: recalculated.breakdown.roundOff,
+          grandTotal: recalculated.grandTotal,
+        };
+        
+        if (isDirectFlag) {
+          finalBreakdown.directFlow = true;
+        }
+        
         const finalCharges = {
           ...existingCharges,
-          breakdown: mergedBreakdown,
+          breakdown: finalBreakdown,
+          defaultsUsed: existingDefaults,
         };
+        
         if (isDirectFlag) {
           finalCharges.directFlow = true;
         }
@@ -843,38 +1072,21 @@ if (!loading && orders.length === 0) {
       </div>
 
       {/* Filters container */}
-      <div className="sticky top-[72px] z-40 rounded-xl p-3 sm:p-4 mb-4 flex flex-col lg:flex-row lg:items-center lg:gap-4 gap-3 border border-white/10 bg-[#0B0F14]/90 supports-[backdrop-filter]:bg-[#0B0F14]/70 backdrop-blur-xl shadow-lg">
-        {/* Search */}
-        <div className="flex-1">
-          <input
-            type="text"
-            placeholder="Search by Order ID, Retailer Name, Email, Phone, City, or Address"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
-            className="w-full px-3 py-2 rounded-lg text-sm bg-white/10 border border-white/20 placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-          />
-        </div>
-        {/* Status Segmented Control */}
-        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
-          {['All', 'Requested', 'Quoted', 'Accepted', 'Rejected'].map((status) => {
-            const active = statusFilter === status;
-            const base = 'px-2 sm:px-4 py-1 rounded-full text-xs border transition whitespace-nowrap';
-            const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
-            const off = 'bg-white/10 text-white border-white/20 hover:bg-white/15';
-            return (
-              <button
-                key={status}
-                type="button"
-                className={`${base} ${active ? on : off}`}
-                onClick={() => setStatusFilter(status)}
-              >
-                {status}
-              </button>
-            );
-          })}
-        </div>
-        {/* Retailer dropdown */}
-        <div className="w-full sm:min-w-[200px]">
+      <div className="rounded-xl p-3 sm:p-4 mb-4 flex flex-col gap-3 border border-white/10 bg-[#0B0F14]/90 supports-[backdrop-filter]:bg-[#0B0F14]/70 backdrop-blur-xl shadow-lg">
+        {/* First row: Search and Retailer dropdown */}
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+          {/* Search */}
+          <div className="flex-1">
+            <input
+              type="text"
+              placeholder="Search by Order ID, Retailer Name, Email, Phone, City, or Address"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
+              className="w-full px-3 py-2 rounded-lg text-sm bg-white/10 border border-white/20 placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+            />
+          </div>
+          {/* Retailer dropdown */}
+          <div className="w-full sm:min-w-[200px]">
           <Select
             value={selectedRetailerId || 'all'}
             onChange={(e) => setSelectedRetailerId(e.target.value)}
@@ -927,6 +1139,28 @@ if (!loading && orders.length === 0) {
                 );
               })}
           </Select>
+        </div>
+        </div>
+        
+        {/* Second row: Status filter buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-white/70 font-medium mr-1">Status:</span>
+          {['All', 'Requested', 'Quoted', 'Accepted', 'Rejected'].map((status) => {
+            const active = statusFilter === status;
+            const base = 'px-4 py-1.5 rounded-lg text-sm font-medium border transition whitespace-nowrap';
+            const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_4px_12px_rgba(16,185,129,0.3)]';
+            const off = 'bg-white/10 text-white border-white/20 hover:bg-white/15 hover:border-white/30';
+            return (
+              <button
+                key={status}
+                type="button"
+                className={`${base} ${active ? on : off}`}
+                onClick={() => setStatusFilter(status)}
+              >
+                {status}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1092,11 +1326,35 @@ if (!loading && orders.length === 0) {
                   <div className="mb-1">
                     <span className="font-medium text-white/70">Requested On:</span>
                     <span className="ml-2 text-white">
-                      {order.timestamp?.seconds
-                        ? formatDateTime(order.timestamp.seconds * 1000)
-                        : 'N/A'}
+                      {(() => {
+                        const ms = getOrderTimestampMs(order);
+                        return ms ? formatDateTime(ms) : 'N/A';
+                      })()}
                     </span>
                   </div>
+                  {/* Show status timestamps if available */}
+                  {order.statusTimestamps && (
+                    <div className="mb-1 space-y-0.5 text-xs text-white/60">
+                      {order.statusTimestamps.requestedAt?.seconds && (
+                        <div>Requested: {formatDateTime(order.statusTimestamps.requestedAt.seconds * 1000)}</div>
+                      )}
+                      {order.statusTimestamps.quotedAt?.seconds && (
+                        <div>Quoted: {formatDateTime(order.statusTimestamps.quotedAt.seconds * 1000)}</div>
+                      )}
+                      {order.statusTimestamps.acceptedAt?.seconds && (
+                        <div>Accepted: {formatDateTime(order.statusTimestamps.acceptedAt.seconds * 1000)}</div>
+                      )}
+                      {order.statusTimestamps.shippedAt?.seconds && (
+                        <div>Shipped: {formatDateTime(order.statusTimestamps.shippedAt.seconds * 1000)}</div>
+                      )}
+                      {order.statusTimestamps.deliveredAt?.seconds && (
+                        <div>Delivered: {formatDateTime(order.statusTimestamps.deliveredAt.seconds * 1000)}</div>
+                      )}
+                      {order.statusTimestamps.rejectedAt?.seconds && (
+                        <div>Rejected: {formatDateTime(order.statusTimestamps.rejectedAt.seconds * 1000)}</div>
+                      )}
+                    </div>
+                  )}
                   <div className="mb-1">
                     <span className="font-medium text-white/70">Order Note:</span>
                     <span className="ml-2 text-white">{order.notes || '—'}</span>
@@ -1167,39 +1425,76 @@ if (!loading && orders.length === 0) {
                 <div className="mt-4">
                   <h4 className="font-medium mb-1">Items:</h4>
                   <div className="mt-2 border border-white/10 rounded-md overflow-hidden">
-                    <div className="grid grid-cols-6 font-semibold bg-white/10 border-b border-white/10 px-3 py-2 text-xs">
-                      <div>Name</div>
-                      <div>Brand</div>
-                      <div>Category</div>
-                      <div>Qty</div>
-                      <div>Unit</div>
-                      <div>Stock</div>
-                    </div>
-                    {order.items.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="grid grid-cols-6 border-t border-white/10 px-3 py-2 text-sm hover:bg-white/5 transition"
-                      >
-                        <div>{item.productName}</div>
-                        <div>{item.brand || '—'}</div>
-                        <div>{item.category || '—'}</div>
-                        <div>{item.quantity}</div>
-                        <div>{item.unit}</div>
-                        <div className={`font-medium ${
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead className="font-semibold bg-white/10 border-b border-white/10">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Product Details</th>
+                            <th className="px-3 py-2 text-left">SKU</th>
+                            <th className="px-3 py-2 text-left">Brand</th>
+                            <th className="px-3 py-2 text-left">Category</th>
+                            <th className="px-3 py-2 text-right">Unit</th>
+                            <th className="px-3 py-2 text-right">Base Price</th>
+                            <th className="px-3 py-2 text-right">MRP</th>
+                            <th className="px-3 py-2 text-right">GST %</th>
+                            <th className="px-3 py-2 text-right">Selling Price</th>
+                            <th className="px-3 py-2 text-center">Qty</th>
+                            <th className="px-3 py-2 text-right">Subtotal</th>
+                            <th className="px-3 py-2 text-center">Stock</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {order.items.map((item, idx) => {
+                            const unitPrice = Number(item.sellingPrice || item.price || item.unitPrice || 0);
+                            const qty = Number(item.quantity || item.qty || 0);
+                            const subtotal = qty * unitPrice;
+                            return (
+                              <tr key={idx} className="border-t border-white/10 hover:bg-white/5 transition">
+                                <td className="px-3 py-2">
+                                  <div className="font-medium">{item.productName || item.name || 'N/A'}</div>
+                                  {item.hsnCode && (
+                                    <div className="text-xs text-white/60 mt-0.5">HSN: {item.hsnCode}</div>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">{item.sku || '—'}</td>
+                                <td className="px-3 py-2">{item.brand || '—'}</td>
+                                <td className="px-3 py-2">{item.category || '—'}</td>
+                                <td className="px-3 py-2 text-right">{item.unit || '—'}</td>
+                                <td className="px-3 py-2 text-right">
+                                  {item.basePrice > 0 ? `₹${item.basePrice.toFixed(2)}` : '—'}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {item.mrp > 0 ? `₹${item.mrp.toFixed(2)}` : '—'}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {(item.gstRate || item.taxRate) > 0 ? `${item.gstRate || item.taxRate}%` : '—'}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <span className="font-semibold text-emerald-400">₹{unitPrice.toFixed(2)}</span>
+                                </td>
+                                <td className="px-3 py-2 text-center">{qty}</td>
+                                <td className="px-3 py-2 text-right">
+                                  <span className="font-semibold">₹{subtotal.toFixed(2)}</span>
+                                </td>
+                                <td className={`px-3 py-2 text-center font-medium ${
                           item.availableStock === undefined ? 'text-white/50' :
-                          item.availableStock >= item.quantity ? 'text-emerald-300' :
+                                  item.availableStock >= qty ? 'text-emerald-300' :
                           item.availableStock > 0 ? 'text-amber-300' : 'text-rose-300'
                         }`}>
                           {item.availableStock === undefined
                             ? 'N/A'
-                            : item.availableStock >= item.quantity
+                                    : item.availableStock >= qty
                             ? `${item.availableStock} In Stock`
                             : item.availableStock > 0
                             ? `${item.availableStock} Low`
                             : 'Out of Stock'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                         </div>
-                      </div>
-                    ))}
                   </div>
                 </div>
                 <div className="mt-3 flex justify-end text-emerald-300 text-sm font-semibold">Total: ₹{previewGrandTotal(order, editChargesMap, chargesDraftMap).toFixed(2)}</div>
@@ -1209,9 +1504,9 @@ if (!loading && orders.length === 0) {
                     <h4 className="font-medium mb-2">Proforma / Taxes & Charges</h4>
 
                     {isDirect(order) ? (
-                      <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="text-xs text-white/70">Using retailer’s default charges snapshot</div>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs text-white/70">Using retailer's default charges snapshot</div>
                           <label className="flex items-center gap-2 text-sm">
                             <input
                               type="checkbox"
@@ -1223,55 +1518,407 @@ if (!loading && orders.length === 0) {
                         </div>
 
                         {(() => {
-                          const snap = chargesDraftMap[order.id] || getSnapshot(order);
-                          const setField = (k, v) => setChargesDraftMap((prev) => ({
-                            ...prev,
-                            [order.id]: { ...(prev[order.id] || getSnapshot(order)), [k]: v }
-                          }));
+                          const baseSnap = getSnapshot(order);
+                          const draft = chargesDraftMap[order.id] || {};
+                          const currentSnap = { ...baseSnap, ...draft };
+                          const lineEdits = getLineEdits(order.id);
                           const disabled = !editChargesMap[order.id];
-                          const num = (x) => (x === '' || x === null || x === undefined ? '' : Number(x));
-
-                          // --- Compute display rates for CGST/SGST/IGST ---
-                          const defaultsUsed = order?.chargesSnapshot?.defaultsUsed || {};
-                          const taxBreakup = snap?.taxBreakup || {};
-                          const taxableBase = Number(snap?.taxableBase ?? 0);
-                          const deriveRate = (explicit, amount) => {
-                            if (typeof explicit === 'number') return explicit;
-                            const amt = Number(amount ?? 0);
-                            if (taxableBase > 0 && amt > 0) return Number(((amt / taxableBase) * 100).toFixed(2));
-                            return undefined;
+                          
+                          // Get or initialize input values for this order
+                          let inputValues = chargeInputValues[order.id];
+                          if (!inputValues && editChargesMap[order.id]) {
+                            // Initialize with current values (empty string for 0)
+                            inputValues = {};
+                            ['delivery', 'packing', 'insurance', 'other', 'discountPct', 'discountAmt'].forEach(key => {
+                              const val = currentSnap?.[key] ?? 0;
+                              inputValues[key] = val === 0 || val === '' ? '' : String(val);
+                            });
+                            // Set it in state (async, but we use local copy for this render)
+                            setChargeInputValues(prev => ({ ...prev, [order.id]: inputValues }));
+                          }
+                          inputValues = inputValues || {};
+                          
+                          const setField = (k, v) => {
+                            // Store the raw input value as string (for clean editing)
+                            setChargeInputValues(prev => ({
+                            ...prev,
+                              [order.id]: { ...(prev[order.id] || {}), [k]: v }
+                            }));
+                            
+                            // Convert to number for calculation (empty string = 0)
+                            const numValue = v === '' || v === null || v === undefined ? 0 : Number(v);
+                            const newDraft = { ...(chargesDraftMap[order.id] || baseSnap), [k]: numValue };
+                            
+                            // Handle discountChangedBy and two-way sync for discount
+                            if (k === 'discountPct') {
+                              newDraft.discountChangedBy = 'pct';
+                              // Calculate discount amount from percentage
+                              // First, get the base before discount (items + charges, without discount)
+                              const tempDraft = { ...newDraft, discountPct: 0, discountAmt: 0 };
+                              const tempCalc = recalculateCharges(order, tempDraft, lineEdits);
+                              // Base before discount = itemsSubTotal + charges (delivery, packing, etc.)
+                              const itemsSubTotal = tempCalc.breakdown.itemsSubTotal || tempCalc.breakdown.subTotal || 0;
+                              const charges = (tempDraft.delivery || 0) + (tempDraft.packing || 0) + 
+                                            (tempDraft.insurance || 0) + (tempDraft.other || 0);
+                              const baseBeforeDiscount = itemsSubTotal + charges;
+                              
+                              if (baseBeforeDiscount > 0 && numValue > 0) {
+                                const calculatedAmt = (baseBeforeDiscount * numValue) / 100;
+                                newDraft.discountAmt = Math.round(calculatedAmt * 100) / 100;
+                                // Update input value for discountAmt to show calculated value
+                                setChargeInputValues(prev => ({
+                                  ...prev,
+                                  [order.id]: { ...(prev[order.id] || {}), discountAmt: calculatedAmt === 0 ? '' : String(calculatedAmt.toFixed(2)) }
+                                }));
+                              } else {
+                                newDraft.discountAmt = 0;
+                                setChargeInputValues(prev => ({
+                                  ...prev,
+                                  [order.id]: { ...(prev[order.id] || {}), discountAmt: '' }
+                                }));
+                              }
+                            } else if (k === 'discountAmt') {
+                              newDraft.discountChangedBy = 'amt';
+                              // Calculate discount percentage from amount
+                              // First, get the base before discount (items + charges, without discount)
+                              const tempDraft = { ...newDraft, discountPct: 0, discountAmt: 0 };
+                              const tempCalc = recalculateCharges(order, tempDraft, lineEdits);
+                              // Base before discount = itemsSubTotal + charges (delivery, packing, etc.)
+                              const itemsSubTotal = tempCalc.breakdown.itemsSubTotal || tempCalc.breakdown.subTotal || 0;
+                              const charges = (tempDraft.delivery || 0) + (tempDraft.packing || 0) + 
+                                            (tempDraft.insurance || 0) + (tempDraft.other || 0);
+                              const baseBeforeDiscount = itemsSubTotal + charges;
+                              
+                              if (baseBeforeDiscount > 0 && numValue > 0) {
+                                const calculatedPct = (numValue / baseBeforeDiscount) * 100;
+                                newDraft.discountPct = Math.min(100, Math.round(calculatedPct * 100) / 100);
+                                // Update input value for discountPct to show calculated value
+                                setChargeInputValues(prev => ({
+                                  ...prev,
+                                  [order.id]: { ...(prev[order.id] || {}), discountPct: calculatedPct === 0 ? '' : String(calculatedPct.toFixed(2)) }
+                                }));
+                              } else {
+                                newDraft.discountPct = 0;
+                                setChargeInputValues(prev => ({
+                                  ...prev,
+                                  [order.id]: { ...(prev[order.id] || {}), discountPct: '' }
+                                }));
+                              }
+                            }
+                            
+                            // Recalculate totals when any field changes
+                            const recalculated = recalculateCharges(order, newDraft, lineEdits);
+                            setChargesDraftMap((prev) => ({
+                              ...prev,
+                              [order.id]: { ...newDraft, ...recalculated.breakdown, grandTotal: recalculated.grandTotal }
+                            }));
                           };
-                          const cgstRate = deriveRate(defaultsUsed.cgstRate, taxBreakup.cgst ?? snap.cgst);
-                          const sgstRate = deriveRate(defaultsUsed.sgstRate, taxBreakup.sgst ?? snap.sgst);
-                          const igstRate = deriveRate(defaultsUsed.igstRate ?? defaultsUsed.gstRate, taxBreakup.igst ?? snap.igst);
 
-                          const Row = ({ label, keyName }) => (
-                            <div className="flex items-center justify-between py-1 border-b border-white/10">
-                              <span className="text-sm text-white/80">{label}</span>
+                          const updateLineField = (lineIdx, field, value) => {
+                            const numValue = value === '' || value === null || value === undefined ? 0 : Number(value);
+                            setLineEditsMap(prev => {
+                              const orderEdits = prev[order.id] || {};
+                              const lineEdit = orderEdits[lineIdx] || {};
+                              const newLineEdit = { ...lineEdit, [field]: numValue };
+                              if (field === 'itemDiscountAmt' && numValue > 0) {
+                                newLineEdit.itemDiscountChangedBy = 'amt';
+                              } else if (field === 'itemDiscountPct' && numValue > 0) {
+                                newLineEdit.itemDiscountChangedBy = 'pct';
+                              }
+                              return {
+                                ...prev,
+                                [order.id]: { ...orderEdits, [lineIdx]: newLineEdit }
+                              };
+                            });
+                            
+                            // Recalculate with updated line edits
+                            const updatedLineEdits = { ...lineEdits, [lineIdx]: { ...lineEdits[lineIdx], [field]: numValue } };
+                            const recalculated = recalculateCharges(order, draft, updatedLineEdits);
+                            setChargesDraftMap((prev) => ({
+                              ...prev,
+                              [order.id]: { ...draft, ...recalculated.breakdown, grandTotal: recalculated.grandTotal }
+                            }));
+                          };
+
+                          // Get recalculated values for display
+                          const displayValues = editChargesMap[order.id] && chargesDraftMap[order.id]
+                            ? recalculateCharges(order, chargesDraftMap[order.id], lineEdits)
+                            : recalculateCharges(order, {}, lineEdits);
+                          const displayBreakdown = displayValues.breakdown;
+                          // Use the full proforma result for preview (it has all the breakdown fields)
+                          const preview = displayValues.breakdown || displayValues;
+                          
+                          // Two-way sync for discount: calculate derived values for display
+                          // Get base before discount (taxable base + discount total)
+                          const discountTotal = Number(preview?.discountTotal || 0);
+                          const taxableBase = Number(preview?.taxableBase || 0);
+                          const baseBeforeDiscount = taxableBase + discountTotal;
+                          
+                          // Determine which discount field was last edited
+                          const discountChangedBy = draft.discountChangedBy || currentSnap?.discountChangedBy || 'pct';
+                          
+                          // Calculate derived discount percentage from amount
+                          const derivedDiscountPct = baseBeforeDiscount > 0 
+                            ? ((discountTotal / baseBeforeDiscount) * 100) 
+                            : 0;
+                          
+                          // What to show in inputs: use edited value if that field was edited, otherwise show derived value
+                          const shownDiscountPct = discountChangedBy === 'pct'
+                            ? (inputValues.discountPct !== undefined ? inputValues.discountPct : (currentSnap?.discountPct === 0 ? '' : String(currentSnap?.discountPct || '')))
+                            : (derivedDiscountPct > 0 ? String(Math.round(derivedDiscountPct * 100) / 100) : '');
+                          
+                          const shownDiscountAmt = discountChangedBy === 'amt'
+                            ? (inputValues.discountAmt !== undefined ? inputValues.discountAmt : (currentSnap?.discountAmt === 0 ? '' : String(currentSnap?.discountAmt || '')))
+                            : (discountTotal > 0 ? String(discountTotal.toFixed(2)) : '');
+
+                          // Get states for tax type display
+                          const distributorState = order.distributorState || 'Maharashtra';
+                          const retailerState = order.retailerState || order.state || distributorState;
+                          const taxTypeLabel = preview?.taxType === 'IGST'
+                            ? `IGST (Interstate: ${distributorState} → ${retailerState})`
+                            : `CGST + SGST (Intrastate: ${distributorState} → ${retailerState})`;
+
+                          return (
+                            <>
+                              {/* Line Items Editor */}
+                              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                                <h3 className="text-white font-semibold mb-3">Line Items (Distributor View)</h3>
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full text-sm">
+                                    <thead>
+                                      <tr className="text-white/80">
+                                        <th className="text-left p-2">Item</th>
+                                        <th className="text-right p-2">Qty</th>
+                                        <th className="text-right p-2">Price</th>
+                                        <th className="text-right p-2">Disc %</th>
+                                        <th className="text-right p-2">GST %</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {(order.items || []).map((item, idx) => {
+                                        const lineEdit = lineEdits[idx] || {};
+                                        const itemDiscountPct = lineEdit.itemDiscountPct !== undefined 
+                                          ? lineEdit.itemDiscountPct 
+                                          : (item.itemDiscountPct || 0);
+                                        // Display GST rate: use edited value, or item's GST rate, or empty string
+                                        const baseGstRate = Number(item.gstRate || item.taxRate || 0);
+                                        const gstRate = lineEdit.gstRate !== undefined 
+                                          ? (lineEdit.gstRate === 0 ? '' : String(lineEdit.gstRate))
+                                          : (baseGstRate > 0 ? String(baseGstRate) : '');
+                                        
+                                        return (
+                                          <tr key={idx} className="border-t border-white/10">
+                                            <td className="p-2 text-white/90">
+                                              <div className="font-medium">{item.productName || item.name || 'Item'}</div>
+                                              <div className="text-xs text-white/60">
+                                                {item.sku || ''} {item.hsnCode || item.hsn ? `• HSN ${item.hsnCode || item.hsn}` : ''}
+                                              </div>
+                                            </td>
+                                            <td className="p-2 text-right text-white/90">
+                                              {item.quantity || item.qty || 0}
+                                            </td>
+                                            <td className="p-2 text-right text-white/90">
+                                              {(() => {
+                                                // Calculate and display base/unit price
+                                                // For SELLING_PRICE and MRP_INCLUSIVE, show the final price (selling price/MRP)
+                                                // For BASE_PLUS_TAX, show base price
+                                                const pricingMode = item.pricingMode || "LEGACY";
+                                                const basePrice = Number(item.basePrice || 0);
+                                                const mrp = Number(item.mrp || 0);
+                                                const sellingPrice = Number(item.sellingPrice || item.price || item.unitPrice || 0);
+                                                const gstRate = Number(item.gstRate || item.taxRate || 0);
+                                                
+                                                let displayPrice = basePrice;
+                                                
+                                                // For SELLING_PRICE and MRP_INCLUSIVE, show BASE/UNIT price (calculated from final price)
+                                                // This is for breakdown clarity: unit price → charges → discounts → GST → total
+                                                if (pricingMode === "SELLING_PRICE") {
+                                                  // Calculate base price from selling price (GST included)
+                                                  if (sellingPrice > 0 && gstRate > 0) {
+                                                    const split = splitFromMrp(sellingPrice, gstRate);
+                                                    displayPrice = split.base;
+                                                  } else {
+                                                    displayPrice = sellingPrice; // Fallback if no GST
+                                                  }
+                                                } else if (pricingMode === "MRP_INCLUSIVE") {
+                                                  // Calculate base price from MRP (GST included)
+                                                  const finalPrice = mrp > 0 ? mrp : sellingPrice;
+                                                  if (finalPrice > 0 && gstRate > 0) {
+                                                    const split = splitFromMrp(finalPrice, gstRate);
+                                                    displayPrice = split.base;
+                                                  } else {
+                                                    displayPrice = finalPrice; // Fallback if no GST
+                                                  }
+                                                } else if (!displayPrice) {
+                                                  // For other modes, calculate base if needed
+                                                  if (pricingMode === "BASE_PLUS_TAX") {
+                                                    displayPrice = basePrice || sellingPrice;
+                                                  } else {
+                                                    // LEGACY: try to calculate base if GST exists
+                                                    if (sellingPrice > 0 && gstRate > 0) {
+                                                      const split = splitFromMrp(sellingPrice, gstRate);
+                                                      displayPrice = split.base;
+                                                    } else {
+                                                      displayPrice = sellingPrice;
+                                                    }
+                                                  }
+                                                }
+                                                
+                                                return `₹${displayPrice.toFixed(2)}`;
+                                              })()}
+                                            </td>
+                                            <td className="p-2 text-right">
                               <input
                                 type="number"
-                                className={`w-32 px-2 py-1 rounded bg-white/10 border border-white/20 text-right ${disabled ? 'opacity-60' : ''}`}
-                                value={num(snap?.[keyName] ?? 0)}
-                                onChange={(e) => setField(keyName, Number(e.target.value || 0))}
+                                                className="w-24 rounded bg-white/10 text-white px-2 py-1 text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                value={itemDiscountPct === 0 ? '' : String(itemDiscountPct)}
+                                                onChange={(e) => updateLineField(idx, 'itemDiscountPct', e.target.value)}
+                                                onFocus={(e) => e.target.select()}
+                                                placeholder="0"
+                                                min="0"
+                                                max="100"
                                 disabled={disabled}
                               />
+                                            </td>
+                                            <td className="p-2 text-right">
+                                              <input
+                                                type="number"
+                                                className="w-24 rounded bg-white/10 text-white px-2 py-1 text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                value={gstRate}
+                                                onChange={(e) => updateLineField(idx, 'gstRate', e.target.value)}
+                                                onFocus={(e) => e.target.select()}
+                                                placeholder="0"
+                                                min="0"
+                                                max="28"
+                                                disabled={disabled}
+                                              />
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
                             </div>
-                          );
-                          return (
-                            <div className="space-y-1">
-                              <Row label="Delivery" keyName="delivery" />
-                              <Row label="Packing" keyName="packing" />
-                              <Row label="Insurance" keyName="insurance" />
-                              <Row label="Other" keyName="other" />
-                              <Row label="Discount %" keyName="discountPct" />
-                              <Row label="Discount ₹" keyName="discountAmt" />
-                              <Row label="Round Off" keyName="roundOff" />
-                              <Row label={`CGST${cgstRate !== undefined ? ` (${cgstRate}%)` : ''}`} keyName="cgst" />
-                              <Row label={`SGST${sgstRate !== undefined ? ` (${sgstRate}%)` : ''}`} keyName="sgst" />
-                              <Row label={`IGST${igstRate !== undefined ? ` (${igstRate}%)` : ''}`} keyName="igst" />
-                              <Row label="Taxable Base" keyName="taxableBase" />
-                              <Row label="Grand Total" keyName="grandTotal" />
-                            </div>
+                              </div>
+
+                              {/* Order-level Charges & Preview */}
+                              <div className="grid md:grid-cols-2 gap-4">
+                                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                                  <h3 className="text-white font-semibold mb-3">Order-level Charges & Discount</h3>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-white/90 text-sm mb-1">Delivery</label>
+                                      <input
+                                        type="number"
+                                        className="w-full rounded bg-white/10 text-white px-2 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        value={inputValues.delivery !== undefined ? inputValues.delivery : (currentSnap?.delivery === 0 ? '' : String(currentSnap?.delivery || ''))}
+                                        onChange={(e) => setField('delivery', e.target.value)}
+                                        onFocus={(e) => e.target.select()}
+                                        placeholder="0"
+                                        min="0"
+                                        disabled={disabled}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-white/90 text-sm mb-1">Packing</label>
+                                      <input
+                                        type="number"
+                                        className="w-full rounded bg-white/10 text-white px-2 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        value={inputValues.packing !== undefined ? inputValues.packing : (currentSnap?.packing === 0 ? '' : String(currentSnap?.packing || ''))}
+                                        onChange={(e) => setField('packing', e.target.value)}
+                                        onFocus={(e) => e.target.select()}
+                                        placeholder="0"
+                                        min="0"
+                                        disabled={disabled}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-white/90 text-sm mb-1">Insurance</label>
+                                      <input
+                                        type="number"
+                                        className="w-full rounded bg-white/10 text-white px-2 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        value={inputValues.insurance !== undefined ? inputValues.insurance : (currentSnap?.insurance === 0 ? '' : String(currentSnap?.insurance || ''))}
+                                        onChange={(e) => setField('insurance', e.target.value)}
+                                        onFocus={(e) => e.target.select()}
+                                        placeholder="0"
+                                        min="0"
+                                        disabled={disabled}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-white/90 text-sm mb-1">Other</label>
+                                      <input
+                                        type="number"
+                                        className="w-full rounded bg-white/10 text-white px-2 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        value={inputValues.other !== undefined ? inputValues.other : (currentSnap?.other === 0 ? '' : String(currentSnap?.other || ''))}
+                                        onChange={(e) => setField('other', e.target.value)}
+                                        onFocus={(e) => e.target.select()}
+                                        placeholder="0"
+                                        min="0"
+                                        disabled={disabled}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-white/90 text-sm mb-1">Discount %</label>
+                                      <input
+                                        type="number"
+                                        className="w-full rounded bg-white/10 text-white px-2 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        value={shownDiscountPct}
+                                        onChange={(e) => setField('discountPct', e.target.value)}
+                                        onFocus={(e) => e.target.select()}
+                                        placeholder="0"
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        disabled={disabled}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-white/90 text-sm mb-1">Discount ₹</label>
+                                      <input
+                                        type="number"
+                                        className="w-full rounded bg-white/10 text-white px-2 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        value={shownDiscountAmt}
+                                        onChange={(e) => setField('discountAmt', e.target.value)}
+                                        onFocus={(e) => e.target.select()}
+                                        placeholder="0"
+                                        min="0"
+                                        step="0.01"
+                                        disabled={disabled}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                                  <h3 className="text-white font-semibold mb-3">Proforma Preview</h3>
+                                  <div className="text-sm text-white/80 space-y-1">
+                                    <div className="flex justify-between"><span>Unit Price Total</span><span>₹{Number(preview?.grossItems || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>− Line Discounts</span><span>₹{Number(preview?.lineDiscountTotal || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>Items Sub‑Total</span><span>₹{Number(preview?.itemsSubTotal || preview?.subTotal || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>+ Delivery</span><span>₹{Number((draft?.delivery !== undefined ? draft.delivery : preview?.orderCharges?.delivery) || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>+ Packing</span><span>₹{Number((draft?.packing !== undefined ? draft.packing : preview?.orderCharges?.packing) || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>+ Insurance</span><span>₹{Number((draft?.insurance !== undefined ? draft.insurance : preview?.orderCharges?.insurance) || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>+ Other</span><span>₹{Number((draft?.other !== undefined ? draft.other : preview?.orderCharges?.other) || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>− Order Discount</span><span>₹{Number(preview?.discountTotal || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between font-semibold"><span>Taxable Base</span><span>₹{Number(preview?.taxableBase || 0).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span>Tax Type</span><span>{taxTypeLabel}</span></div>
+                                    {preview?.taxType === 'IGST' ? (
+                                      <div className="flex justify-between"><span>IGST</span><span>₹{Number(preview?.taxBreakup?.igst || 0).toFixed(2)}</span></div>
+                                    ) : (
+                                      <>
+                                        <div className="flex justify-between"><span>CGST</span><span>₹{Number(preview?.taxBreakup?.cgst || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between"><span>SGST</span><span>₹{Number(preview?.taxBreakup?.sgst || 0).toFixed(2)}</span></div>
+                                      </>
+                                    )}
+                                    {(preview?.roundOff && Number(preview.roundOff) !== 0) && (
+                                      <div className="flex justify-between"><span>Round Off</span><span>₹{Number(preview.roundOff).toFixed(2)}</span></div>
+                                    )}
+                                    <div className="flex justify-between font-semibold text-white"><span>Grand Total</span><span>₹{Number(preview?.grandTotal || 0).toFixed(2)}</span></div>
+                                  </div>
+                                </div>
+                              </div>
+                            </>
                           );
                         })()}
                       </div>

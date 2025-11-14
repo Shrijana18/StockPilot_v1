@@ -71,6 +71,9 @@ export function calculateProforma({
   let grossItems = 0;
   let lineDiscountTotal = 0;
   let itemsSubTotal = 0;
+  
+  // Track gross items total for proportional allocation (before any discounts)
+  let totalGrossItems = 0;
 
   const norm = lines.map((l = {}) => {
     const qty = r2(toNum(l.qty));
@@ -79,6 +82,7 @@ export function calculateProforma({
 
     const gross = r2(qty * price);
     grossItems = r2(grossItems + gross);
+    totalGrossItems = r2(totalGrossItems + gross); // Track for proportional allocation
 
     // Inline discount: prefer the field last edited if provided
     const discPct = r2(toNum(l.itemDiscountPct));
@@ -121,8 +125,12 @@ export function calculateProforma({
   const insurance = r2(toNum(orderCharges.insurance));
   const other = r2(toNum(orderCharges.other));
 
-  const preDiscount = r2(subTotal + delivery + packing + insurance + other);
-
+  // For proportional allocation: allocate charges based on gross items (before discounts)
+  // This ensures charges are divided proportionally to unit prices as per Indian GST rules
+  const totalCharges = r2(delivery + packing + insurance + other);
+  
+  // Calculate order-level discount on itemsSubTotal + charges
+  const preDiscount = r2(subTotal + totalCharges);
   const orderDiscPct = r2(toNum(orderCharges.discountPct));
   const orderDiscAmtFixed = r2(toNum(orderCharges.discountAmt));
   const orderDiscFromPct = r2((preDiscount * Math.max(0, Math.min(100, orderDiscPct))) / 100);
@@ -140,6 +148,8 @@ export function calculateProforma({
   // clamp to [0, preDiscount]
   discountTotal = r2(Math.max(0, Math.min(preDiscount, discountTotal)));
 
+  // Taxable base is itemsSubTotal + charges - discount
+  // But for GST calculation, we'll allocate charges/discounts proportionally to each line
   const taxableBase = r2(preDiscount - discountTotal);
 
   // 3) Tax engine (IGST vs CGST/SGST)
@@ -147,13 +157,36 @@ export function calculateProforma({
   let cgst = 0, sgst = 0, igst = 0;
 
   if (taxableBase > 0) {
-    // Proportional apportionment by each line's taxable share
-    const totalTaxableLines = norm.reduce((s, l) => r2(s + l.taxable), 0) || 1;
-    norm.forEach(l => {
-      const share = r2(l.taxable / totalTaxableLines);
-      const allocatedBase = r2(taxableBase * share);
+    // Indian GST Rule: Allocate charges/discounts proportionally to each line item's gross value
+    // Then apply GST on each line item's adjusted amount (after discount + allocated charges)
+    // This ensures mixed GST rates are handled correctly
+    
+    // Step 1: Allocate order-level charges proportionally to each line's gross value
+    const totalGrossForAllocation = totalGrossItems || grossItems || 1; // Use gross items for allocation
+    const allocatedChargesPerLine = norm.map(l => {
+      const grossShare = totalGrossForAllocation > 0 ? (l.gross / totalGrossForAllocation) : 0;
+      return {
+        ...l,
+        allocatedCharges: r2(totalCharges * grossShare), // Charges allocated to this line
+      };
+    });
+    
+    // Step 2: Allocate order-level discount proportionally to each line's gross value
+    const allocatedDiscountPerLine = allocatedChargesPerLine.map(l => {
+      const grossShare = totalGrossForAllocation > 0 ? (l.gross / totalGrossForAllocation) : 0;
+      const allocatedDiscount = r2(discountTotal * grossShare);
+      return {
+        ...l,
+        allocatedDiscount: allocatedDiscount,
+        // Adjusted taxable base for this line: taxable (after inline discount) + allocated charges - allocated discount
+        adjustedTaxableBase: r2(l.taxable + l.allocatedCharges - allocatedDiscount),
+      };
+    });
+    
+    // Step 3: Calculate GST on each line item's adjusted taxable base
+    allocatedDiscountPerLine.forEach(l => {
       const rate = r2(toNum(l.gstRate));
-      const taxAmt = r2((allocatedBase * rate) / 100);
+      const taxAmt = l.adjustedTaxableBase > 0 ? r2((l.adjustedTaxableBase * rate) / 100) : 0;
 
       if (tt === 'IGST') {
         igst = r2(igst + taxAmt);

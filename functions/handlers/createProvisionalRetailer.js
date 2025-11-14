@@ -67,6 +67,8 @@ const createProvisionalRetailer = onCall({ cors: true }, async (request) => {
   const phone = normalizePhone(payload?.phone);
   const gst = cleanString(payload?.gst).toUpperCase();
   const address = cleanString(payload?.address);
+  const city = cleanString(payload?.city);
+  const state = cleanString(payload?.state);
 
   if (!businessName) {
     throw new HttpsError("invalid-argument", "businessName is required.");
@@ -96,6 +98,8 @@ const createProvisionalRetailer = onCall({ cors: true }, async (request) => {
     retailerPhone: phone || null,
     gst: gst || null,
     address: address || null,
+    city: city || null,
+    state: state || null,
     status: "provisional",
     invite: {
       tokenHash,
@@ -111,6 +115,9 @@ const createProvisionalRetailer = onCall({ cors: true }, async (request) => {
     retailerName: businessName,
     retailerEmail: email || null,
     retailerPhone: phone || null,
+    retailerAddress: address || null, // Save address for order display
+    retailerCity: city || null, // Save city for order display
+    retailerState: state || null, // Save state for order display
     status: "accepted",
     source: "provisioned",
     createdAt: now,

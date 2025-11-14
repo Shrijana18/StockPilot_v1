@@ -6,6 +6,8 @@ import { getDistributorEmployeeSession } from "../../../utils/distributorEmploye
 import { toast } from "react-toastify";
 import { ORDER_STATUSES } from "../../../constants/orderStatus";
 import * as orderPolicy from "../../../lib/orders/orderPolicy";
+import { calculateProforma } from "../../../lib/calcProforma";
+import { splitFromMrp } from "../../../utils/pricing";
 
 /**
  * PassiveOrders.jsx
@@ -28,17 +30,29 @@ const norm = (s) => (s || "").toLowerCase().trim();
 // Normalize cart items to schema expected by downstream screens
 const normalizeCartItems = (cart) =>
   (cart || []).map((i) => ({
-    productName: i.name || 'Item',
-    name: i.name || 'Item',
+    productName: i.productName || i.name || 'Item',
+    name: i.name || i.productName || 'Item',
     sku: i.sku || null,
     brand: i.brand || null,
+    category: i.category || null,
     unit: i.unit || null,
     quantity: Number(i.qty || 0),
     qty: Number(i.qty || 0),
-    price: Number(i.price || 0), // preferred by TrackOrders
-    unitPrice: Number(i.price || 0), // compatibility
-    mrp: Number(i.price || 0),
-    lineTotal: Number(i.qty || 0) * Number(i.price || 0),
+    // Pricing fields - use selected price based on pricing mode
+    price: Number(i.sellingPrice || i.price || 0), // preferred by TrackOrders
+    unitPrice: Number(i.sellingPrice || i.price || 0), // compatibility
+    sellingPrice: Number(i.sellingPrice || i.price || 0),
+    mrp: Number(i.mrp || 0),
+    basePrice: Number(i.basePrice || 0),
+    costPrice: Number(i.costPrice || 0),
+    // Tax fields
+    gstRate: Number(i.gstRate || i.taxRate || 0),
+    taxRate: Number(i.taxRate || i.gstRate || 0),
+    // Other fields
+    hsnCode: i.hsnCode || null,
+    pricingMode: i.pricingMode || "LEGACY", // CRITICAL: Preserve pricing mode for GST calculation
+    // Calculated
+    lineTotal: Number(i.qty || 0) * Number(i.sellingPrice || i.price || 0),
   }));
 
 const PAYMENT_MODES = [
@@ -195,6 +209,9 @@ export default function PassiveOrders() {
             displayName: r.retailerName || r.name || r.displayName || r.shopName || "Retailer",
             phone: r.retailerPhone || r.phone || "",
             email: r.retailerEmail || r.email || "",
+            city: r.retailerCity || r.city || "",
+            state: r.retailerState || r.state || "",
+            address: r.retailerAddress || r.address || "",
             type: isProvisional ? "provisional" : "connected",
             provisionalId: r.provisionalId || (r.__src === "provisional" ? r.id : null),
             status: r.status || "",
@@ -285,9 +302,23 @@ export default function PassiveOrders() {
       const normalized = items.map((it) => ({
         id: it.id,
         name: it.name || it.productName || it.title || "Unnamed",
+        productName: it.productName || it.name || it.title || "Unnamed",
         sku: it.sku || it.SKU || it.code || "",
         brand: it.brand || it.Brand || "",
+        category: it.category || it.Category || "",
         unit: it.unit || it.Unit || it.measure || "",
+        // Pricing fields
+        sellingPrice: Number(it.sellingPrice ?? it.selling_price ?? it.price ?? 0),
+        mrp: Number(it.mrp ?? it.MRP ?? 0),
+        basePrice: Number(it.basePrice ?? it.base_price ?? 0),
+        costPrice: Number(it.costPrice ?? it.cost_price ?? 0),
+        // Tax fields
+        gstRate: Number(it.gstRate ?? it.taxRate ?? it.gst ?? it.tax ?? 0),
+        taxRate: Number(it.taxRate ?? it.gstRate ?? it.tax ?? it.gst ?? 0),
+        // Other fields
+        hsnCode: it.hsnCode || it.hsn || "",
+        pricingMode: it.pricingMode || it.pricing_mode || "LEGACY",
+        // Fallback price for display
         price: Number(it.sellingPrice ?? it.selling_price ?? it.price ?? it.mrp ?? 0),
       }));
 
@@ -311,10 +342,31 @@ export default function PassiveOrders() {
   }, [search, catalog]);
 
   // ---------- Product Handlers ----------
-  const addItem = (p, qty = 1) => {
+  const addItem = (p, qty = 1, selectedPricingMode = null) => {
     setCart((prev) => {
       const key = p.id || `${p.sku}-${p.name}`;
       const idx = prev.findIndex((i) => i.key === key);
+      
+      // Determine pricing mode and price based on selection
+      // If pricingMode is provided, use it; otherwise default based on available prices
+      let pricingMode = selectedPricingMode || p.pricingMode || "LEGACY";
+      let selectedPrice = 0;
+      
+      if (selectedPricingMode === "MRP_INCLUSIVE" && p.mrp > 0) {
+        selectedPrice = p.mrp;
+        pricingMode = "MRP_INCLUSIVE";
+      } else if (selectedPricingMode === "BASE_PLUS_TAX" && p.basePrice > 0) {
+        selectedPrice = p.basePrice;
+        pricingMode = "BASE_PLUS_TAX";
+      } else if (selectedPricingMode === "SELLING_PRICE" || p.sellingPrice > 0) {
+        selectedPrice = p.sellingPrice || p.price || 0;
+        pricingMode = selectedPricingMode || "SELLING_PRICE";
+      } else {
+        // Fallback: use whatever price is available
+        selectedPrice = p.sellingPrice || p.price || p.mrp || p.basePrice || 0;
+        pricingMode = "LEGACY";
+      }
+      
       if (idx >= 0) {
         const clone = [...prev];
         clone[idx] = { ...clone[idx], qty: Number(clone[idx].qty) + Number(qty) };
@@ -324,15 +376,55 @@ export default function PassiveOrders() {
         ...prev,
         {
           key,
-          name: p.name,
+          // Basic info
+          name: p.name || p.productName || "Unnamed",
+          productName: p.productName || p.name || "Unnamed",
           sku: p.sku || null,
           brand: p.brand || null,
+          category: p.category || null,
           unit: p.unit || null,
+          // Pricing - use selected price based on pricing mode
+          sellingPrice: selectedPrice,
+          mrp: Number(p.mrp ?? 0),
+          basePrice: Number(p.basePrice ?? 0),
+          costPrice: Number(p.costPrice ?? 0),
+          // Tax
+          gstRate: Number(p.gstRate ?? p.taxRate ?? 0),
+          taxRate: Number(p.taxRate ?? p.gstRate ?? 0),
+          // Other
+          hsnCode: p.hsnCode || null,
+          pricingMode: pricingMode, // Store the selected pricing mode
+          // Quantity & calculated
           qty: Number(qty),
-          price: Number(p.price || 0),
+          price: selectedPrice, // Use selected price
         },
       ];
     });
+  };
+  
+  // Update pricing mode for a cart item
+  const updateCartItemPricingMode = (key, pricingMode) => {
+    setCart((prev) => prev.map((item) => {
+      if (item.key === key) {
+        let newPrice = item.sellingPrice;
+        // Update price based on new pricing mode
+        if (pricingMode === "MRP_INCLUSIVE" && item.mrp > 0) {
+          newPrice = item.mrp;
+        } else if (pricingMode === "BASE_PLUS_TAX" && item.basePrice > 0) {
+          newPrice = item.basePrice;
+        } else if (pricingMode === "SELLING_PRICE") {
+          // Keep current selling price or use original
+          newPrice = item.sellingPrice || item.price || 0;
+        }
+        return {
+          ...item,
+          pricingMode,
+          sellingPrice: newPrice,
+          price: newPrice,
+        };
+      }
+      return item;
+    }));
   };
 
   const removeItem = (key) => setCart((prev) => prev.filter((i) => i.key !== key));
@@ -641,6 +733,9 @@ export default function PassiveOrders() {
       const retailerDisplay = (selectedRetailer?.displayName || '').trim();
       const retailerPhone = selectedRetailer?.phone || '';
       const retailerEmail = selectedRetailer?.email || '';
+      const retailerCity = selectedRetailer?.city || '';
+      const retailerState = selectedRetailer?.state || '';
+      const retailerAddress = selectedRetailer?.address || '';
       // Normalize payment via shared policy
       const normalizedPayment = orderPolicy.normalizePaymentMode(paymentMode);
       const paymentFlags = {
@@ -653,6 +748,85 @@ export default function PassiveOrders() {
         isCheque: !!normalizedPayment.isCheque,
       };
       const paymentModeLabel = normalizedPayment.label || (typeof paymentMode === 'string' ? paymentMode : '');
+
+      // Calculate initial chargesSnapshot for passive orders
+      // Fetch distributor profile for state info
+      let distributorState = '';
+      try {
+        const distributorProfileRef = doc(firestore, 'businesses', distributorId);
+        const distributorProfileSnap = await getDoc(distributorProfileRef);
+        if (distributorProfileSnap.exists()) {
+          const profile = distributorProfileSnap.data();
+          distributorState = profile.state || '';
+        }
+      } catch (e) {
+        console.warn('[PassiveOrders] Failed to fetch distributor profile:', e);
+      }
+      
+      // Use retailer state from selected retailer, fallback to distributor state
+      const finalRetailerState = retailerState || distributorState || 'Maharashtra';
+
+      // Build lines for calculateProforma
+      // NOTE: Selling prices are already final - GST% is informational only
+      // We set gstRate to 0 initially so no GST is calculated on top of selling prices
+      // User can add charges/taxes later in OrderRequests if needed
+      const proformaLines = normalizedItems.map(item => ({
+        qty: Number(item.quantity || item.qty || 0),
+        price: Number(item.sellingPrice || item.price || 0),
+        gstRate: 0, // Set to 0 initially - selling prices are already final
+        itemDiscountPct: 0, // Can be edited later in OrderRequests
+        itemDiscountAmt: 0,
+      }));
+
+      // Calculate initial proforma with zero charges and zero GST
+      // This ensures grandTotal = sum of selling prices (no GST added on top)
+      const initialProforma = calculateProforma({
+        lines: proformaLines,
+        orderCharges: {
+          delivery: 0,
+          packing: 0,
+          insurance: 0,
+          other: 0,
+          discountPct: 0,
+          discountAmt: 0,
+        },
+        distributorState: distributorState || 'Maharashtra', // fallback
+        retailerState: finalRetailerState, // Use retailer state from selected retailer
+        roundingEnabled: false,
+      });
+
+      // Build initial chargesSnapshot structure
+      // Ensure all values are numbers (not undefined) to avoid Firestore errors
+      const initialChargesSnapshot = {
+        breakdown: {
+          grossItems: Number(initialProforma.grossItems || 0),
+          lineDiscountTotal: Number(initialProforma.lineDiscountTotal || 0),
+          itemsSubTotal: Number(initialProforma.itemsSubTotal || initialProforma.subTotal || 0),
+          subTotal: Number(initialProforma.subTotal || 0),
+          delivery: 0,
+          packing: 0,
+          insurance: 0,
+          other: 0,
+          discountPct: 0,
+          discountAmt: 0,
+          discountTotal: Number(initialProforma.discountTotal || 0),
+          taxableBase: Number(initialProforma.taxableBase || 0),
+          taxBreakup: {
+            cgst: Number(initialProforma.taxBreakup?.cgst || 0),
+            sgst: Number(initialProforma.taxBreakup?.sgst || 0),
+            igst: Number(initialProforma.taxBreakup?.igst || 0),
+          },
+          roundOff: Number(initialProforma.roundOff || 0),
+          grandTotal: Number(initialProforma.grandTotal || 0),
+        },
+        defaultsUsed: {
+          cgstRate: null,
+          sgstRate: null,
+          igstRate: null,
+          roundEnabled: false,
+        },
+        directFlow: true,
+      };
 
       await addDoc(collection(firestore, 'businesses', distributorId, 'orderRequests'), {
         // Who
@@ -674,10 +848,16 @@ export default function PassiveOrders() {
         retailerName: retailerDisplay,
         retailerPhone: retailerPhone,
         retailerEmail: retailerEmail,
+        retailerCity: retailerCity, // Save city for order display
+        retailerState: finalRetailerState, // Save state for order display
+        retailerAddress: retailerAddress, // Save address for order display
         retailerInfo: {
           name: retailerDisplay,
           phone: retailerPhone,
           email: retailerEmail,
+          city: retailerCity,
+          state: finalRetailerState,
+          address: retailerAddress,
           type: selectedRetailer.type,
           provisionalId: selectedRetailer.type === 'provisional' ? (selectedRetailer.provisionalId || selectedRetailer.id) : null,
         },
@@ -685,11 +865,17 @@ export default function PassiveOrders() {
         // Status
         status: 'Requested',
         statusCode: ORDER_STATUSES.REQUESTED,
+        timestamp: serverTimestamp(), // Main timestamp for display
         statusTimestamps: { requestedAt: serverTimestamp() },
 
         // Items
         items: normalizedItems,
         itemsSubTotal: normalizedItems.reduce((s, it) => s + Number(it.lineTotal || 0), 0),
+
+        // Initial chargesSnapshot for passive orders (can be edited in OrderRequests)
+        chargesSnapshot: initialChargesSnapshot,
+        distributorState: distributorState || 'Maharashtra',
+        retailerState: finalRetailerState,
 
         // Dates & delivery
         createdAt: serverTimestamp(),
@@ -903,44 +1089,131 @@ export default function PassiveOrders() {
               Start by <span className="text-emerald-400">scanning</span> or <span className="text-emerald-400">searching</span> items, or use <span className="text-emerald-400">Quick Picks</span>.
             </div>
           ) : (
-            <div className="overflow-auto">
+            <div className="overflow-auto rounded-xl border border-slate-700/50 bg-[#1d2633]/40">
               <table className="min-w-full text-sm">
-                <thead className="text-xs uppercase text-slate-300 bg-white/5">
+                <thead className="text-xs uppercase text-slate-300 bg-white/5 sticky top-0">
                   <tr className="border-b border-slate-700/50">
-                    <th className="text-left py-2 pr-3">Item</th>
-                    <th className="text-left py-2 pr-3">SKU</th>
-                    <th className="text-right py-2 pr-3">Qty</th>
-                    <th className="text-right py-2 pr-3">Price</th>
-                    <th className="text-right py-2 pr-3">Subtotal</th>
-                    <th className="py-2 pl-3 text-right w-16">&nbsp;</th>
+                    <th className="text-left py-3 px-3 min-w-[200px]">Product Details</th>
+                    <th className="text-left py-3 px-3 min-w-[100px]">SKU</th>
+                    <th className="text-left py-3 px-3 min-w-[100px]">Brand</th>
+                    <th className="text-left py-3 px-3 min-w-[100px]">Category</th>
+                    <th className="text-right py-3 px-3 min-w-[80px]">Unit</th>
+                    <th className="text-right py-3 px-3 min-w-[90px]">Base Price</th>
+                    <th className="text-right py-3 px-3 min-w-[90px]">MRP</th>
+                    <th className="text-right py-3 px-3 min-w-[80px]">GST %</th>
+                    <th className="text-right py-3 px-3 min-w-[120px]">Price Mode</th>
+                    <th className="text-right py-3 px-3 min-w-[90px]">Selling Price</th>
+                    <th className="text-right py-3 px-3 min-w-[100px]">Qty</th>
+                    <th className="text-right py-3 px-3 min-w-[100px]">Subtotal</th>
+                    <th className="py-3 px-3 text-center w-20">&nbsp;</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cart.map((r) => (
-                    <tr key={r.key} className="border-b border-slate-700/50 hover:bg-[#2f3a4d]">
-                      <td className="py-2 pr-3 min-w-[200px]">{r.name}</td>
-                      <td className="py-2 pr-3">{r.sku || "-"}</td>
-                      <td className="py-2 pr-3 text-right min-w-[100px]">
-                        <div className="inline-flex items-center gap-1">
-                          <button onClick={() => dec(r.key)} className="h-7 w-7 rounded-lg border border-slate-600/50 bg-[#243041] hover:bg-[#2c3a4f] transition">-</button>
-                          <input
-                            type="number"
-                            value={r.qty}
-                            onChange={(e) => setQty(r.key, e.target.value)}
-                            className="w-16 text-right rounded-lg border border-slate-600/50 bg-[#1d2633] text-slate-100 px-2 py-1"
-                          />
-                          <button onClick={() => inc(r.key)} className="h-7 w-7 rounded-lg border border-slate-600/50 bg-[#243041] hover:bg-[#2c3a4f] transition">+</button>
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3 text-right min-w-[120px]">₹{money(r.price)}</td>
-                      <td className="py-2 pr-3 text-right">₹{money(Number(r.qty) * Number(r.price))}</td>
-                      <td className="py-2 pl-3 text-right">
-                        <button onClick={() => removeItem(r.key)} className="px-2 py-1 rounded-lg border border-red-500/30 text-xs hover:bg-red-500/20 text-red-500">
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {cart.map((r) => {
+                    const unitPrice = Number(r.sellingPrice || r.price || 0);
+                    const subtotal = Number(r.qty) * unitPrice;
+                    return (
+                      <tr key={r.key} className="border-b border-slate-700/30 hover:bg-[#2f3a4d]/50 transition-colors">
+                        <td className="py-3 px-3">
+                          <div className="font-medium text-slate-100">{r.productName || r.name}</div>
+                          {r.hsnCode && (
+                            <div className="text-xs text-slate-400 mt-0.5">HSN: {r.hsnCode}</div>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-slate-300">{r.sku || "-"}</td>
+                        <td className="py-3 px-3 text-slate-300">{r.brand || "-"}</td>
+                        <td className="py-3 px-3 text-slate-300">{r.category || "-"}</td>
+                        <td className="py-3 px-3 text-right text-slate-300">{r.unit || "-"}</td>
+                        <td className="py-3 px-3 text-right">
+                          {(() => {
+                            // Smart base price calculation:
+                            // If MRP_INCLUSIVE mode and basePrice not available, calculate it from MRP
+                            let displayBasePrice = r.basePrice;
+                            if (!displayBasePrice && r.pricingMode === "MRP_INCLUSIVE" && r.mrp > 0 && (r.gstRate || r.taxRate) > 0) {
+                              const split = splitFromMrp(r.mrp, r.gstRate || r.taxRate);
+                              displayBasePrice = split.base;
+                            }
+                            
+                            if (displayBasePrice > 0) {
+                              return <span className="text-slate-200">₹{money(displayBasePrice)}</span>;
+                            } else {
+                              return <span className="text-slate-500">-</span>;
+                            }
+                          })()}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {r.mrp > 0 ? (
+                            <span className="text-slate-200">₹{money(r.mrp)}</span>
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {(r.gstRate || r.taxRate) > 0 ? (
+                            <span className="text-slate-200">{(r.gstRate || r.taxRate)}%</span>
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <select
+                            value={r.pricingMode || "LEGACY"}
+                            onChange={(e) => updateCartItemPricingMode(r.key, e.target.value)}
+                            className="text-xs rounded-lg border border-slate-600/50 bg-[#1d2633] text-slate-100 px-2 py-1 min-w-[100px] focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          >
+                            {r.mrp > 0 && (
+                              <option value="MRP_INCLUSIVE">MRP (GST Included)</option>
+                            )}
+                            {r.sellingPrice > 0 && (
+                              <option value="SELLING_PRICE">Selling Price</option>
+                            )}
+                            {r.basePrice > 0 && (
+                              <option value="BASE_PLUS_TAX">Base + Tax</option>
+                            )}
+                            {!r.mrp && !r.sellingPrice && !r.basePrice && (
+                              <option value="LEGACY">Legacy</option>
+                            )}
+                          </select>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <span className="font-semibold text-emerald-400">₹{money(unitPrice)}</span>
+                        </td>
+                        <td className="py-3 px-3 text-right min-w-[100px]">
+                          <div className="inline-flex items-center gap-1">
+                            <button 
+                              onClick={() => dec(r.key)} 
+                              className="h-7 w-7 rounded-lg border border-slate-600/50 bg-[#243041] hover:bg-[#2c3a4f] transition text-slate-300"
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              value={r.qty}
+                              onChange={(e) => setQty(r.key, e.target.value)}
+                              className="w-16 text-center rounded-lg border border-slate-600/50 bg-[#1d2633] text-slate-100 px-2 py-1"
+                            />
+                            <button 
+                              onClick={() => inc(r.key)} 
+                              className="h-7 w-7 rounded-lg border border-slate-600/50 bg-[#243041] hover:bg-[#2c3a4f] transition text-slate-300"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <span className="font-semibold text-slate-100">₹{money(subtotal)}</span>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <button 
+                            onClick={() => removeItem(r.key)} 
+                            className="px-2 py-1 rounded-lg border border-red-500/30 text-xs hover:bg-red-500/20 text-red-400 transition"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1039,27 +1312,70 @@ export default function PassiveOrders() {
           </div>
 
           {/* Review table */}
-          <div className="mt-4 overflow-auto rounded-xl border border-slate-700/50">
+          <div className="mt-4 overflow-auto rounded-xl border border-slate-700/50 bg-[#1d2633]/40">
             <table className="min-w-full text-sm">
-              <thead className="text-xs uppercase text-slate-300 bg-white/5">
-                <tr>
-                  <th className="text-left py-2 px-3">Item</th>
-                  <th className="text-left py-2 px-3">SKU</th>
-                  <th className="text-right py-2 px-3">Qty</th>
-                  <th className="text-right py-2 px-3">Price</th>
-                  <th className="text-right py-2 px-3">Subtotal</th>
+              <thead className="text-xs uppercase text-slate-300 bg-white/5 sticky top-0">
+                <tr className="border-b border-slate-700/50">
+                  <th className="text-left py-3 px-3 min-w-[200px]">Product Details</th>
+                  <th className="text-left py-3 px-3 min-w-[100px]">SKU</th>
+                  <th className="text-left py-3 px-3 min-w-[100px]">Brand</th>
+                  <th className="text-left py-3 px-3 min-w-[100px]">Category</th>
+                  <th className="text-right py-3 px-3 min-w-[80px]">Unit</th>
+                  <th className="text-right py-3 px-3 min-w-[90px]">Base Price</th>
+                  <th className="text-right py-3 px-3 min-w-[90px]">MRP</th>
+                  <th className="text-right py-3 px-3 min-w-[80px]">GST %</th>
+                  <th className="text-right py-3 px-3 min-w-[90px]">Selling Price</th>
+                  <th className="text-right py-3 px-3 min-w-[80px]">Qty</th>
+                  <th className="text-right py-3 px-3 min-w-[100px]">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
-                {cart.map((r) => (
-                  <tr key={r.key} className="border-t border-slate-700/50">
-                    <td className="py-2 px-3">{r.name}</td>
-                    <td className="py-2 px-3">{r.sku || "-"}</td>
-                    <td className="py-2 px-3 text-right">{r.qty}</td>
-                    <td className="py-2 px-3 text-right">₹{money(r.price)}</td>
-                    <td className="py-2 px-3 text-right">₹{money(r.qty * r.price)}</td>
-                  </tr>
-                ))}
+                {cart.map((r) => {
+                  const unitPrice = Number(r.sellingPrice || r.price || 0);
+                  const subtotal = Number(r.qty) * unitPrice;
+                  return (
+                    <tr key={r.key} className="border-t border-slate-700/30 hover:bg-[#2f3a4d]/30">
+                      <td className="py-3 px-3">
+                        <div className="font-medium text-slate-100">{r.productName || r.name}</div>
+                        {r.hsnCode && (
+                          <div className="text-xs text-slate-400 mt-0.5">HSN: {r.hsnCode}</div>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-slate-300">{r.sku || "-"}</td>
+                      <td className="py-3 px-3 text-slate-300">{r.brand || "-"}</td>
+                      <td className="py-3 px-3 text-slate-300">{r.category || "-"}</td>
+                      <td className="py-3 px-3 text-right text-slate-300">{r.unit || "-"}</td>
+                      <td className="py-3 px-3 text-right">
+                        {r.basePrice > 0 ? (
+                          <span className="text-slate-200">₹{money(r.basePrice)}</span>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        {r.mrp > 0 ? (
+                          <span className="text-slate-200">₹{money(r.mrp)}</span>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        {(r.gstRate || r.taxRate) > 0 ? (
+                          <span className="text-slate-200">{(r.gstRate || r.taxRate)}%</span>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <span className="font-semibold text-emerald-400">₹{money(unitPrice)}</span>
+                      </td>
+                      <td className="py-3 px-3 text-right text-slate-200">{r.qty}</td>
+                      <td className="py-3 px-3 text-right">
+                        <span className="font-semibold text-slate-100">₹{money(subtotal)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

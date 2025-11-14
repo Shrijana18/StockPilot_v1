@@ -132,7 +132,9 @@ const ManageRetailers = ({ distributorId }) => {
           status: data.status || "provisioned",
           businessName: data.retailerName || "Retailer",
           email: data.retailerEmail || "",
-          city: data.city || "",
+          city: data.retailerCity || data.city || "", // Check both retailerCity and city for compatibility
+          state: data.retailerState || data.state || "", // Also include state
+          address: data.retailerAddress || data.address || "", // Also include address
           phone: data.retailerPhone || "",
           connectedAt: data.connectedAt || null,
           provisionalId: data.provisionalId || null,
@@ -535,6 +537,12 @@ const ManageRetailers = ({ distributorId }) => {
                     <div className="text-white/80 text-sm">{activeRetailer.email || "—"}</div>
                     <div className="text-white/80 text-sm">{activeRetailer.phone || "—"}</div>
                     <div className="text-white/60 text-xs mt-2">City: {activeRetailer.city || "—"}</div>
+                    {activeRetailer.state && (
+                      <div className="text-white/60 text-xs">State: {activeRetailer.state}</div>
+                    )}
+                    {activeRetailer.address && (
+                      <div className="text-white/60 text-xs">Address: {activeRetailer.address}</div>
+                    )}
                     <div className="text-white/60 text-xs">Status: <span className="uppercase">{activeRetailer.status || "provisioned"}</span></div>
                     <div className="text-white/60 text-xs mt-1">Added: {activeRetailer.createdAt?.toDate?.().toLocaleString?.() || "—"}</div>
                     <div className="text-white/60 text-xs">

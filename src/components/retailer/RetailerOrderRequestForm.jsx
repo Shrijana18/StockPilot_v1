@@ -157,8 +157,46 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
       const retailerUid = currentUser.uid;
       const itemsSubTotal = totalAmount;
 
-      // Normalize payment mode AND keep a display label
-      const normMode = normalizePaymentMode(paymentMode);
+      // Normalize payment mode to a canonical object (policy-compliant)
+      const _norm = normalizePaymentMode(paymentMode);
+      const paymentPolicy = (() => {
+        // If normalizePaymentMode returns a string code
+        if (typeof _norm === 'string') {
+          const code = _norm;
+          return {
+            code,
+            label: paymentMode,
+            isCredit: /credit/i.test(code) || code === 'CREDIT_CYCLE',
+            isSplit: code === 'SPLIT' || /split/i.test(code),
+            isAdvance: code === 'ADVANCE' || /advance/i.test(code),
+            creditDays: (/credit/i.test(code) || code === 'CREDIT_CYCLE') ? Number(creditDays || 0) : null,
+            splitPayment: (code === 'SPLIT' || /split/i.test(code)) ? { ...splitPayment } : null,
+          };
+        }
+        // If it returns an object (preferred)
+        if (_norm && typeof _norm === 'object') {
+          const code = _norm.code || '';
+          return {
+            code,
+            label: _norm.label || paymentMode,
+            isCredit: _norm.isCredit ?? (/credit/i.test(code) || /credit/i.test(_norm.label || '')),
+            isSplit: _norm.isSplit ?? (code === 'SPLIT' || /split/i.test(code || '')),
+            isAdvance: _norm.isAdvance ?? (code === 'ADVANCE' || /advance/i.test(code || '')),
+            creditDays: _norm.creditDays ?? ((code === 'CREDIT_CYCLE' || /credit/i.test(code || '')) ? Number(creditDays || 0) : null),
+            splitPayment: _norm.splitPayment ?? ((code === 'SPLIT' || /split/i.test(code || '')) ? { ...splitPayment } : null),
+          };
+        }
+        // Fallback
+        return {
+          code: 'COD',
+          label: 'Cash on Delivery',
+          isCredit: false,
+          isSplit: false,
+          isAdvance: false,
+          creditDays: null,
+          splitPayment: null,
+        };
+      })();
 
       if (fastFlow && effectiveDefaults && effectiveDefaults.enabled) {
         // DIRECT (proforma skipped)
@@ -182,25 +220,27 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           creatorUid: retailerUid,
           items,
           itemsSubTotal,
-          paymentMode: normMode,
-          paymentModeLabel: paymentMode, // NEW: preserve human choice
-          creditDays: normMode === 'CREDIT_CYCLE' ? creditDays : null,
-          splitPayment: normMode === 'SPLIT' ? splitPayment : null,
+          paymentMode: paymentPolicy.code,
+          paymentModeLabel: paymentPolicy.label,
+          paymentMethod: paymentPolicy.code,
+          paymentNormalized: { ...paymentPolicy },
+          creditDays: paymentPolicy.creditDays,
+          splitPayment: paymentPolicy.splitPayment,
           chargesSnapshot,
           status: 'Requested',
           statusCode: ORDER_STATUSES.REQUESTED,
           retailerMode: 'active',
           directFlow: true,
           paymentSummary: {
-            mode: normMode,
-            creditDueDays: normMode === 'CREDIT_CYCLE' ? Number(creditDays || 0) : null,
-            splitPayment: normMode === 'SPLIT' ? { ...splitPayment } : null,
+            mode: { ...paymentPolicy },
+            creditDueDays: paymentPolicy.creditDays,
+            splitPayment: paymentPolicy.splitPayment,
             status: 'pending'
           },
           paymentFlags: {
-            isCredit: normMode === 'CREDIT_CYCLE',
-            isSplit: normMode === 'SPLIT',
-            isAdvance: normMode === 'ADVANCE'
+            isCredit: !!paymentPolicy.isCredit,
+            isSplit: !!paymentPolicy.isSplit,
+            isAdvance: !!paymentPolicy.isAdvance
           },
           createdAt: serverTimestamp(),
           timestamp: serverTimestamp(),
@@ -230,22 +270,24 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           creatorUid: currentUser.uid,
           items,
           itemsSubTotal,
-          paymentMode: normMode,
-          paymentModeLabel: paymentMode, // NEW
-          creditDays: normMode === 'CREDIT_CYCLE' ? creditDays : null,
-          splitPayment: normMode === 'SPLIT' ? splitPayment : null,
+          paymentMode: paymentPolicy.code,
+          paymentModeLabel: paymentPolicy.label,
+          paymentMethod: paymentPolicy.code,
+          paymentNormalized: { ...paymentPolicy },
+          creditDays: paymentPolicy.creditDays,
+          splitPayment: paymentPolicy.splitPayment,
           retailerMode: 'active',
           directFlow: false,
           paymentSummary: {
-            mode: normMode,
-            creditDueDays: normMode === 'CREDIT_CYCLE' ? Number(creditDays || 0) : null,
-            splitPayment: normMode === 'SPLIT' ? { ...splitPayment } : null,
+            mode: { ...paymentPolicy },
+            creditDueDays: paymentPolicy.creditDays,
+            splitPayment: paymentPolicy.splitPayment,
             status: 'pending'
           },
           paymentFlags: {
-            isCredit: normMode === 'CREDIT_CYCLE',
-            isSplit: normMode === 'SPLIT',
-            isAdvance: normMode === 'ADVANCE'
+            isCredit: !!paymentPolicy.isCredit,
+            isSplit: !!paymentPolicy.isSplit,
+            isAdvance: !!paymentPolicy.isAdvance
           },
           status: 'Requested',
           timestamp: serverTimestamp(),
@@ -276,22 +318,24 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           distributorId: distributorId,
           items,
           itemsSubTotal,
-          paymentMode: normMode,
-          paymentModeLabel: paymentMode, // NEW
-          creditDays: normMode === 'CREDIT_CYCLE' ? creditDays : null,
-          splitPayment: normMode === 'SPLIT' ? splitPayment : null,
+          paymentMode: paymentPolicy.code,
+          paymentModeLabel: paymentPolicy.label,
+          paymentMethod: paymentPolicy.code,
+          paymentNormalized: { ...paymentPolicy },
+          creditDays: paymentPolicy.creditDays,
+          splitPayment: paymentPolicy.splitPayment,
           retailerMode: 'active',
           directFlow: false,
           paymentSummary: {
-            mode: normMode,
-            creditDueDays: normMode === 'CREDIT_CYCLE' ? Number(creditDays || 0) : null,
-            splitPayment: normMode === 'SPLIT' ? { ...splitPayment } : null,
+            mode: { ...paymentPolicy },
+            creditDueDays: paymentPolicy.creditDays,
+            splitPayment: paymentPolicy.splitPayment,
             status: 'pending'
           },
           paymentFlags: {
-            isCredit: normMode === 'CREDIT_CYCLE',
-            isSplit: normMode === 'SPLIT',
-            isAdvance: normMode === 'ADVANCE'
+            isCredit: !!paymentPolicy.isCredit,
+            isSplit: !!paymentPolicy.isSplit,
+            isAdvance: !!paymentPolicy.isAdvance
           },
           status: 'Requested',
           timestamp: serverTimestamp(),

@@ -108,7 +108,8 @@ const OCRUploadForm = ({ distributorId }) => {
             quantity: p?.quantity || "",
             unit: p?.unit || "",
             costPrice: p?.cost || p?.costPrice || "",
-            sellingPrice: "",
+            sellingPrice: p?.sellingPrice || p?.price || "",
+            mrp: p?.mrp || "",
             brand: p?.brand || "",
             category: p?.category || "",
             description: p?.description || "",
@@ -166,6 +167,7 @@ const OCRUploadForm = ({ distributorId }) => {
         unit: item.unit?.trim() || "",
         costPrice: Number(item.costPrice) || 0,
         sellingPrice: Number(item.sellingPrice) || 0,
+        mrp: item.mrp ? Number(item.mrp) : undefined,
         description: item.description?.trim() || "",
         sku: item.sku?.trim() || "",
         imageUrl: item.imageUrl || "",
@@ -225,6 +227,7 @@ const OCRUploadForm = ({ distributorId }) => {
                     <th className="p-2 border border-white/10 text-white/80">Quantity</th>
                     <th className="p-2 border border-white/10 text-white/80">Unit</th>
                     <th className="p-2 border border-white/10 text-white/80">Cost Price</th>
+                    <th className="p-2 border border-white/10 text-white/80">MRP</th>
                     <th className="p-2 border border-white/10 text-white/80">Selling Price</th>
                     <th className="p-2 border border-white/10 text-white/80">Action</th>
                   </tr>
@@ -276,6 +279,18 @@ const OCRUploadForm = ({ distributorId }) => {
                           onChange={(e) => {
                             const newProducts = [...products];
                             newProducts[index].costPrice = e.target.value;
+                            setProducts(newProducts);
+                          }}
+                          className="w-full rounded-md bg-slate-800/60 border border-white/10 text-white p-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400/30"
+                        />
+                      </td>
+                      <td className="p-2 border border-white/10 text-white/90">
+                        <input
+                          type="number"
+                          value={item.mrp || ""}
+                          onChange={(e) => {
+                            const newProducts = [...products];
+                            newProducts[index].mrp = e.target.value;
                             setProducts(newProducts);
                           }}
                           className="w-full rounded-md bg-slate-800/60 border border-white/10 text-white p-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400/30"

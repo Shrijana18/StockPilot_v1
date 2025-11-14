@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 
 import DistributorInventory from "./distributor/DistributorInventory.jsx";
+import DistributorInvoices from "./distributor/DistributorInvoices.jsx";
 import DispatchTracker from "./distributor/DispatchTracker";
 import DistributorAnalytics from "./distributor/analytics/DistributorAnalytics";
 import DistributorHome from "./distributor/DistributorHome";
@@ -63,6 +64,7 @@ const DistributorDashboard = () => {
     { id: 'retailerRequests', label: 'Retailer Panel' },
     { id: 'inventory', label: 'Inventory' },
     { id: 'dispatch', label: 'Dispatch Tracker' },
+    { id: 'invoices', label: 'Invoices' },
     { id: 'analytics', label: 'Analytics' },
   ];
 
@@ -81,6 +83,7 @@ const DistributorDashboard = () => {
     retailerRequests: 'retailer-requests',
     inventory: 'inventory',
     dispatch: 'track-orders', // important: our DispatchTracker page is track-orders in URL
+    invoices: 'invoices',
     analytics: 'analytics',
   };
   const urlTabToId = {
@@ -88,6 +91,7 @@ const DistributorDashboard = () => {
     'retailer-requests': 'retailerRequests',
     'inventory': 'inventory',
     'track-orders': 'dispatch',
+    'invoices': 'invoices',
     'analytics': 'analytics',
   };
 
@@ -291,6 +295,16 @@ const DistributorDashboard = () => {
                 🚚 Dispatch Tracker
               </button>
               <button
+                onClick={() => { setTabAndHash("invoices"); setIsSidebarOpen(false); }}
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
+                  activeTab === "invoices"
+                    ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
+                    : "text-white"
+                }`}
+              >
+                🧾 Invoices
+              </button>
+              <button
                 onClick={() => { setTabAndHash("analytics"); setIsSidebarOpen(false); }}
                 className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "analytics"
@@ -395,6 +409,19 @@ const DistributorDashboard = () => {
                 >
                   <div className="w-full">
                     <DispatchTracker db={db} auth={auth} />
+                  </div>
+                </motion.div>
+              )}
+              {activeTab === "invoices" && auth?.currentUser && (
+                <motion.div
+                  key="invoices"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="w-full">
+                    <DistributorInvoices />
                   </div>
                 </motion.div>
               )}

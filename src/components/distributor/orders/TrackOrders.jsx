@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getFirestore, collection, onSnapshot, doc, updateDoc, getDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -10,6 +10,7 @@ import ProformaSummary from "../../retailer/ProformaSummary";
 import { calculateProforma } from "../../../lib/calcProforma"; // ✅ ensure consistent math
 import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus"; // ✅ canonical statuses
 import * as orderPolicy from '../../../lib/orders/orderPolicy';
+import { splitFromMrp } from '../../../utils/pricing';
 
 // ---- Compatibility shim for orderPolicy exports (handles older names) ----
 const normalizePaymentMode =
@@ -138,6 +139,7 @@ const paymentUi = (order) => {
   }
 };
 
+
 // ✅ Always return a safe string label for React (avoid rendering objects)
 const getPaymentLabel = (order) => {
   try {
@@ -157,6 +159,22 @@ const getPaymentLabel = (order) => {
   }
 };
 
+// Helper: robustly detect credit orders (active + passive + legacy)
+const isCreditOrder = (order) => {
+  try {
+    const ui = paymentUi(order);
+    return !!(
+      ui?.flags?.isCredit ||
+      (ui?.normalized?.code === 'CREDIT_CYCLE') ||
+      /credit/i.test(ui?.label || '') ||
+      /credit/i.test(order?.paymentMethod || '') ||
+      (order?.paymentFlags?.isCredit === true)
+    );
+  } catch {
+    return false;
+  }
+};
+
 const TrackOrders = () => {
   const [orders, setOrders] = useState([]);
   const [expandedOrderIds, setExpandedOrderIds] = useState([]);
@@ -164,6 +182,9 @@ const TrackOrders = () => {
   const [filterDate, setFilterDate] = useState('');
   const [activeSection, setActiveSection] = useState('Out for Delivery');
   const [mode, setMode] = useState('all'); // 'all' | 'active' | 'passive'
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [orderDataForInvoice, setOrderDataForInvoice] = useState(null);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
 
   // --- Deep link support for ?tab=&sub= in the hash ---
   useEffect(() => {
@@ -199,6 +220,55 @@ const TrackOrders = () => {
       const newHash = `${path}?${params.toString()}`;
       if (newHash !== hash) window.history.replaceState(null, '', newHash);
     } catch {}
+  };
+
+  // Navigate to Distributor Invoices tab in the dashboard
+  const goToInvoicesTab = () => {
+    try {
+      const hash = window.location.hash || '#/distributor-dashboard';
+      const [path, query = ''] = hash.split('?');
+      const params = new URLSearchParams(query);
+      params.set('tab', 'invoices');
+      const newHash = `${path}?${params.toString()}`;
+      if (newHash !== hash) {
+        window.history.replaceState(null, '', newHash);
+      }
+    } catch {}
+  };
+
+  // View invoice for a specific order
+  const handleViewInvoice = async (order) => {
+    const user = auth.currentUser;
+    if (!user || !order?.id) return;
+
+    setLoadingInvoice(true);
+    setSelectedInvoice(null);
+    setOrderDataForInvoice(null);
+
+    try {
+      // Fetch invoice from invoices collection using orderId
+      const invoiceRef = doc(db, 'businesses', user.uid, 'invoices', order.id);
+      const invoiceSnap = await getDoc(invoiceRef);
+      
+      if (invoiceSnap.exists()) {
+        const invoiceData = { id: invoiceSnap.id, ...invoiceSnap.data() };
+        setSelectedInvoice(invoiceData);
+        // Use the order data we already have
+        setOrderDataForInvoice(order);
+      } else {
+        toast.info('Invoice not found for this order. It will be created when the order is marked as delivered.');
+      }
+    } catch (err) {
+      console.error('[TrackOrders] Error fetching invoice:', err);
+      toast.error('Failed to load invoice');
+    } finally {
+      setLoadingInvoice(false);
+    }
+  };
+
+  const closeInvoiceModal = () => {
+    setSelectedInvoice(null);
+    setOrderDataForInvoice(null);
   };
 
   const db = getFirestore();
@@ -319,8 +389,14 @@ const TrackOrders = () => {
   const markAsDelivered = async (orderId) => {
     const user = auth.currentUser;
     if (!user) return;
-    const distributorOrderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
+
+    const distributorId = user.uid;
+    const distributorOrderRef = doc(db, 'businesses', distributorId, 'orderRequests', orderId);
     const distributorOrderSnap = await getDoc(distributorOrderRef);
+    if (!distributorOrderSnap.exists()) {
+      console.warn('[TrackOrders] markAsDelivered: order not found', orderId);
+      return;
+    }
     const orderData = distributorOrderSnap.data();
 
     const hasRetailer = !!(orderData && orderData.retailerId);
@@ -362,7 +438,9 @@ const TrackOrders = () => {
 
     const paymentLabel =
       paymentInfo?.label && paymentInfo.label !== 'N/A'
-        ? (typeof paymentInfo.label === 'string' ? paymentInfo.label : paymentInfo.label.label || 'N/A')
+        ? (typeof paymentInfo.label === 'string'
+            ? paymentInfo.label
+            : paymentInfo.label.label || 'N/A')
         : orderData?.paymentMode ||
           orderData?.payment?.type ||
           orderData?.paymentSummary?.mode ||
@@ -380,24 +458,32 @@ const TrackOrders = () => {
       statusCode: 'DELIVERED',
       deliveredAt: nowIso,
       'statusTimestamps.deliveredAt': serverTimestamp(),
-      // normalize: use object "by"
-      timeline: arrayUnion({ status: 'DELIVERED', by: { uid: user.uid, type: 'distributor' }, at: nowIso }),
+      timeline: arrayUnion({
+        status: 'DELIVERED',
+        by: { uid: distributorId, type: 'distributor' },
+        at: nowIso,
+      }),
       handledBy: {
         ...(orderData?.handledBy || {}),
-        deliveredBy: { uid: user.uid, type: 'distributor' }
+        deliveredBy: { uid: distributorId, type: 'distributor' },
       },
-      auditTrail: arrayUnion({ at: nowIso, event: 'deliverOrder', by: { uid: user.uid, type: 'distributor' } }),
+      auditTrail: arrayUnion({
+        at: nowIso,
+        event: 'deliverOrder',
+        by: { uid: distributorId, type: 'distributor' },
+      }),
       policyVersion: ORDER_POLICY_VERSION,
       paymentUi: paymentLabel,
       paymentMode: paymentLabel,
       paymentNormalized: normalizedToStore,
       paymentFlags: mergedFlags,
     };
+
     if (paymentMethodCode) {
       updatePayload.paymentMethod = paymentMethodCode;
     }
 
-    // Handle Credit Cycle logic (prefer normalized + stored fields)
+    // Handle Credit Cycle / creditDueDate
     if (isCredit && Number.isFinite(creditDaysValue) && creditDaysValue > 0) {
       const dueDate = new Date(now);
       dueDate.setDate(dueDate.getDate() + creditDaysValue);
@@ -413,7 +499,134 @@ const TrackOrders = () => {
     if (hasRetailer && retailerOrderRef) {
       await updateDoc(retailerOrderRef, updatePayload);
     }
-    toast.success("📦 Order marked as Delivered!", { position: "top-right", autoClose: 3000, icon: "🚚" });
+
+    // ---------- Auto-create Distributor Invoice ----------
+    try {
+      const invoicesCol = collection(db, 'businesses', distributorId, 'invoices');
+      const invoiceRef = doc(invoicesCol, orderId);
+      const existingInvoiceSnap = await getDoc(invoiceRef);
+
+      if (!existingInvoiceSnap.exists()) {
+        // Fetch distributor profile for header info
+        const distributorProfileSnap = await getDoc(doc(db, 'businesses', distributorId));
+        const distributorProfile = distributorProfileSnap.exists()
+          ? distributorProfileSnap.data()
+          : {};
+
+        const retailerInfo = {
+          businessId: orderData.retailerId || null,
+          businessName:
+            orderData.retailerBusinessName ||
+            orderData.retailerName ||
+            (orderData.retailer && orderData.retailer.name) ||
+            null,
+          email:
+            orderData.retailerEmail ||
+            (orderData.retailer && orderData.retailer.email) ||
+            null,
+          phone:
+            orderData.retailerPhone ||
+            (orderData.retailer && orderData.retailer.phone) ||
+            null,
+          city: orderData.city || orderData.retailerCity || null,
+          state: orderData.state || orderData.retailerState || null,
+        };
+
+        const distributorInfo = {
+          businessId: distributorId,
+          businessName:
+            distributorProfile.businessName ||
+            distributorProfile.ownerName ||
+            distributorProfile.name ||
+            null,
+          email: distributorProfile.email || null,
+          phone: distributorProfile.phone || null,
+          city: distributorProfile.city || null,
+          state: distributorProfile.state || null,
+          gstNumber: distributorProfile.gstNumber || distributorProfile.gstin || null,
+        };
+
+        // Get full breakdown from chargesSnapshot or calculate it
+        const breakdown = orderData?.chargesSnapshot?.breakdown;
+        let invoiceTotals = {
+          grandTotal: breakdown?.grandTotal 
+            ? Number(breakdown.grandTotal)
+            : sumOrderTotal(orderData),
+        };
+
+        // If we have a full breakdown, include all details
+        if (breakdown) {
+          invoiceTotals = {
+            grossItems: Number(breakdown.grossItems || 0),
+            lineDiscountTotal: Number(breakdown.lineDiscountTotal || 0),
+            itemsSubTotal: Number(breakdown.itemsSubTotal || breakdown.subTotal || 0),
+            delivery: Number(breakdown.delivery || 0),
+            packing: Number(breakdown.packing || 0),
+            insurance: Number(breakdown.insurance || 0),
+            other: Number(breakdown.other || 0),
+            discountTotal: Number(breakdown.discountTotal || 0),
+            taxableBase: Number(breakdown.taxableBase || 0),
+            taxType: breakdown.taxType || 'CGST_SGST',
+            taxBreakup: breakdown.taxBreakup || {},
+            roundOff: Number(breakdown.roundOff || 0),
+            grandTotal: Number(breakdown.grandTotal || 0),
+          };
+        } else {
+          // Calculate breakdown if not available
+          const calculatedBreakdown = proformaPreviewFromOrder(orderData);
+          invoiceTotals = {
+            grossItems: calculatedBreakdown.grossItems,
+            lineDiscountTotal: calculatedBreakdown.lineDiscountTotal,
+            itemsSubTotal: calculatedBreakdown.itemsSubTotal,
+            delivery: calculatedBreakdown.orderCharges.delivery,
+            packing: calculatedBreakdown.orderCharges.packing,
+            insurance: calculatedBreakdown.orderCharges.insurance,
+            other: calculatedBreakdown.orderCharges.other,
+            discountTotal: calculatedBreakdown.discountTotal,
+            taxableBase: calculatedBreakdown.taxableBase,
+            taxType: calculatedBreakdown.taxType,
+            taxBreakup: calculatedBreakdown.taxBreakup,
+            roundOff: calculatedBreakdown.roundOff,
+            grandTotal: calculatedBreakdown.grandTotal,
+          };
+        }
+
+        const invoiceNumber =
+          orderData.invoiceNumber ||
+          `INV-${(orderId || '').slice(-6).toUpperCase()}`;
+
+        const invoiceDoc = {
+          orderId,
+          invoiceNumber,
+          distributorId,
+          retailerId: orderData.retailerId || null,
+          buyer: retailerInfo,
+          seller: distributorInfo,
+          totals: invoiceTotals,
+          payment: {
+            mode: paymentLabel,
+            flags: mergedFlags,
+            normalized: normalizedToStore,
+            isPaid: !!updatePayload.isPaid || updatePayload.paymentStatus === 'Paid',
+          },
+          issuedAt: nowIso,
+          createdAt: serverTimestamp(),
+          status: 'Issued',
+          source: 'distributor-track-orders',
+        };
+
+        await setDoc(invoiceRef, invoiceDoc, { merge: true });
+        console.log('[TrackOrders] Invoice created for order', orderId);
+      }
+    } catch (err) {
+      console.error('[TrackOrders] Failed to create invoice for delivered order', orderId, err);
+    }
+
+    toast.success('📦 Order marked as Delivered!', {
+      position: 'top-right',
+      autoClose: 3000,
+      icon: '🚚',
+    });
   };
 
   // Confirm COD payment
@@ -523,16 +736,62 @@ const TrackOrders = () => {
   };
 
   // ---------- Proforma-aware helpers ----------
+  // Get the calculated base/unit price for display based on pricing mode
+  const getDisplayBasePrice = (order, idx, item) => {
+    const pricingMode = item.pricingMode || "LEGACY";
+    const basePrice = Number(item.basePrice || 0);
+    const mrp = Number(item.mrp || 0);
+    const sellingPrice = Number(item.sellingPrice || item.price || item.unitPrice || 0);
+    const baseGstRate = Number(item.gstRate || item.taxRate || 0);
+
+    // Get proforma line if available
+    const pLine = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+    const lineGstRate = pLine?.gstRate !== undefined ? Number(pLine.gstRate) : baseGstRate;
+
+    if (pricingMode === "MRP_INCLUSIVE") {
+      // MRP is final, calculate base from MRP
+      if (mrp > 0 && lineGstRate > 0) {
+        const split = splitFromMrp(mrp, lineGstRate);
+        return split.base;
+      }
+      return mrp || sellingPrice;
+    } else if (pricingMode === "SELLING_PRICE") {
+      // Selling price is final (GST included), calculate base from it
+      if (sellingPrice > 0 && lineGstRate > 0) {
+        const split = splitFromMrp(sellingPrice, lineGstRate);
+        return split.base;
+      }
+      return sellingPrice;
+    } else if (pricingMode === "BASE_PLUS_TAX") {
+      // Base price is explicit
+      if (basePrice > 0) {
+        return basePrice;
+      }
+      // Fallback: calculate from selling price if base is missing
+      if (sellingPrice > 0 && lineGstRate > 0) {
+        const split = splitFromMrp(sellingPrice, lineGstRate);
+        return split.base;
+      }
+      return sellingPrice;
+    } else {
+      // LEGACY: use basePrice if available, otherwise sellingPrice
+      return basePrice || sellingPrice;
+    }
+  };
+
   const getDisplayPrice = (order, idx, item) => {
+    // Return the selling price (final price) for display
     const ln = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
     if (ln && ln.price != null) return Number(ln.price) || 0;
+    const sellingPrice = Number(item.sellingPrice || item.price || 0);
+    if (sellingPrice > 0) return sellingPrice;
     return Number(item?.price) || 0;
   };
   const getDisplaySubtotal = (order, idx, item) => {
     const ln = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
     if (ln && ln.gross != null) return Number(ln.gross) || 0;
     const qty = Number(item?.quantity) || 0;
-    const price = Number(item?.price) || 0;
+    const price = getDisplayPrice(order, idx, item);
     return qty * price;
   };
 
@@ -547,10 +806,23 @@ const TrackOrders = () => {
   const proformaPreviewFromOrder = (order) => {
     const b = order?.chargesSnapshot?.breakdown;
     if (b) {
+      // Return full breakdown from chargesSnapshot
       return {
         grossItems: Number(b.grossItems || 0),
         lineDiscountTotal: Number(b.lineDiscountTotal || 0),
         itemsSubTotal: Number(b.itemsSubTotal || b.subTotal || 0),
+        orderCharges: {
+          delivery: Number(b.delivery || 0),
+          packing: Number(b.packing || 0),
+          insurance: Number(b.insurance || 0),
+          other: Number(b.other || 0),
+        },
+        discountTotal: Number(b.discountTotal || 0),
+        taxableBase: Number(b.taxableBase || 0),
+        taxType: b.taxType || 'CGST_SGST',
+        taxBreakup: b.taxBreakup || {},
+        roundOff: Number(b.roundOff || 0),
+        grandTotal: Number(b.grandTotal || 0),
       };
     }
     const items = Array.isArray(order?.items) ? order.items : [];
@@ -581,6 +853,18 @@ const TrackOrders = () => {
       grossItems: p.grossItems,
       lineDiscountTotal: p.lineDiscountTotal,
       itemsSubTotal: p.itemsSubTotal ?? p.subTotal,
+      orderCharges: {
+        delivery: Number(orderCharges.delivery || 0),
+        packing: Number(orderCharges.packing || 0),
+        insurance: Number(orderCharges.insurance || 0),
+        other: Number(orderCharges.other || 0),
+      },
+      discountTotal: Number(p.discountTotal || 0),
+      taxableBase: Number(p.taxableBase || 0),
+      taxType: p.taxType || 'CGST_SGST',
+      taxBreakup: p.taxBreakup || {},
+      roundOff: Number(p.roundOff || 0),
+      grandTotal: Number(p.grandTotal || 0),
     };
   };
 
@@ -642,13 +926,15 @@ const TrackOrders = () => {
     matchesDate(order)
   );
 
-  let paymentDueOrders = orders.filter((order) => {
-    if (!matchesMode(order)) return false;
-    if (order.paymentMethod !== 'Credit Cycle') return false;
-    if (order.isPaid === true || order.paymentStatus === 'Paid') return false;
-    const due = computeCreditDueDate(order);
-    return !!due && matchesSearch(order) && matchesDate(order);
-  }).map((o) => ({ ...o, __dueDate: computeCreditDueDate(o) }))
+  let paymentDueOrders = orders
+    .filter((order) => {
+      if (!matchesMode(order)) return false;
+      if (!isCreditOrder(order)) return false; // robust credit detection (Active + Passive + legacy)
+      if (order.isPaid === true || order.paymentStatus === 'Paid') return false;
+      const due = computeCreditDueDate(order);
+      return !!due && matchesSearch(order) && matchesDate(order);
+    })
+    .map((o) => ({ ...o, __dueDate: computeCreditDueDate(o) }))
     .sort((a, b) => a.__dueDate - b.__dueDate);
 
   let paidOrders = orders.filter(
@@ -671,7 +957,16 @@ const TrackOrders = () => {
   return (
     <div className="p-3 sm:p-4 lg:p-6 text-white">
       <ToastContainer />
-      <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Track Orders</h2>
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
+        <h2 className="text-xl sm:text-2xl font-bold">Track Orders</h2>
+        <button
+          type="button"
+          onClick={goToInvoicesTab}
+          className="inline-flex items-center px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium bg-white/10 border border-white/20 text-white hover:bg-white/15 hover:border-emerald-400/60 transition"
+        >
+          View Invoices
+        </button>
+      </div>
 
       {/* Filters */}
       <div className="sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 supports-[backdrop-filter]:bg-[#0B0F14]/50 border border-white/15 rounded-xl p-3 sm:p-4 mb-3 sm:mb-4 flex flex-col lg:flex-row lg:items-center gap-3 sm:gap-4">
@@ -749,7 +1044,7 @@ const TrackOrders = () => {
                     <div className="flex flex-wrap gap-6 items-center text-sm text-white/60 px-4 pb-2">
                       <span><span className="font-medium text-white/80">Total:</span> ₹{sumOrderTotal(order).toFixed(2)}</span>
                       <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 text-xs font-medium">Payment: {getPaymentLabel(order)}</span>
-                      {order.paymentMethod === 'Credit Cycle' && (
+                      {isCreditOrder(order) && (
                         <div className="flex items-center gap-2">
                           <label className="text-xs text-white/70 font-medium">Credit Days:</label>
                           <input
@@ -839,38 +1134,108 @@ const TrackOrders = () => {
                             <table className="min-w-full table-auto">
                               <thead className="bg-white/5">
                                 <tr>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Name</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Details</th>
                                   <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Category</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Unit</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Base Price</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">MRP</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">GST %</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Selling Price</th>
                                   <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc %</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc ₹</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Line Total</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {(order.items || []).map((item, idx) => (
-                                  <tr key={idx} className="hover:bg-white/5 transition">
-                                    <td className="px-2 py-2">{item.productName || 'N/A'}</td>
-                                    <td className="px-2 py-2">{item.brand || '—'}</td>
-                                    <td className="px-2 py-2">{item.sku || '—'}</td>
-                                    <td className="px-2 py-2 text-center">{item.quantity}</td>
-                                    <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">{getLineDiscountPct(order, idx, item).toFixed(2)}%</td>
-                                    <td className="px-2 py-2 text-right">₹{getLineDiscountAmt(order, idx, item).toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-right">₹{getLineNet(order, idx, item).toFixed(2)}</td>
-                                  </tr>
-                                ))}
+                                {(order.items || []).map((item, idx) => {
+                                  const basePrice = getDisplayBasePrice(order, idx, item);
+                                  const mrp = Number(item.mrp || 0);
+                                  const sellingPrice = getDisplayPrice(order, idx, item);
+                                  const gstRate = Number(item.gstRate || item.taxRate || 0);
+                                  const pLine = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+                                  const displayGstRate = pLine?.gstRate !== undefined ? Number(pLine.gstRate) : gstRate;
+                                  
+                                  return (
+                                    <tr key={idx} className="hover:bg-white/5 transition">
+                                      <td className="px-2 py-2">
+                                        <div className="font-medium">{item.productName || item.name || 'N/A'}</div>
+                                        {item.hsnCode && (
+                                          <div className="text-xs text-white/60 mt-0.5">HSN: {item.hsnCode}</div>
+                                        )}
+                                      </td>
+                                      <td className="px-2 py-2">{item.sku || '—'}</td>
+                                      <td className="px-2 py-2">{item.brand || '—'}</td>
+                                      <td className="px-2 py-2">{item.category || '—'}</td>
+                                      <td className="px-2 py-2 text-right">{item.unit || '—'}</td>
+                                      <td className="px-2 py-2 text-right">
+                                        {basePrice > 0 ? `₹${basePrice.toFixed(2)}` : '—'}
+                                      </td>
+                                      <td className="px-2 py-2 text-right">
+                                        {mrp > 0 ? `₹${mrp.toFixed(2)}` : '—'}
+                                      </td>
+                                      <td className="px-2 py-2 text-right">
+                                        {displayGstRate > 0 ? `${displayGstRate}%` : '—'}
+                                      </td>
+                                      <td className="px-2 py-2 text-right">
+                                        <span className="font-semibold text-emerald-400">₹{sellingPrice.toFixed(2)}</span>
+                                      </td>
+                                      <td className="px-2 py-2 text-center">{item.quantity || item.qty || 0}</td>
+                                      <td className="px-2 py-2 text-right">{getLineDiscountPct(order, idx, item).toFixed(2)}%</td>
+                                      <td className="px-2 py-2 text-right">₹{getLineDiscountAmt(order, idx, item).toFixed(2)}</td>
+                                      <td className="px-2 py-2 text-right">₹{getLineNet(order, idx, item).toFixed(2)}</td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
-                            {(() => { const pv = proformaPreviewFromOrder(order); return (
-                              <div className="text-right mt-2 space-y-1">
-                                <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
-                                <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
-                                <div className="font-semibold">Items Sub-Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
-                              </div>
-                            ); })()}
+                            {(() => { 
+                              const pv = proformaPreviewFromOrder(order);
+                              const distributorState = order.distributorState || 'Maharashtra';
+                              const retailerState = order.retailerState || order.state || distributorState;
+                              const taxTypeLabel = pv.taxType === 'IGST'
+                                ? `IGST (Interstate: ${distributorState} → ${retailerState})`
+                                : `CGST + SGST (Intrastate: ${distributorState} → ${retailerState})`;
+                              
+                              return (
+                                <div className="mt-2 space-y-1 text-sm text-white/80">
+                                  <div className="flex justify-between"><span>Unit Price Total</span><span>₹{pv.grossItems.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>− Line Discounts</span><span>₹{pv.lineDiscountTotal.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>Items Sub‑Total</span><span>₹{pv.itemsSubTotal.toFixed(2)}</span></div>
+                                  {pv.orderCharges.delivery > 0 && (
+                                    <div className="flex justify-between"><span>+ Delivery</span><span>₹{pv.orderCharges.delivery.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.packing > 0 && (
+                                    <div className="flex justify-between"><span>+ Packing</span><span>₹{pv.orderCharges.packing.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.insurance > 0 && (
+                                    <div className="flex justify-between"><span>+ Insurance</span><span>₹{pv.orderCharges.insurance.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.other > 0 && (
+                                    <div className="flex justify-between"><span>+ Other</span><span>₹{pv.orderCharges.other.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.discountTotal > 0 && (
+                                    <div className="flex justify-between"><span>− Order Discount</span><span>₹{pv.discountTotal.toFixed(2)}</span></div>
+                                  )}
+                                  <div className="flex justify-between font-semibold"><span>Taxable Base</span><span>₹{pv.taxableBase.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>Tax Type</span><span className="text-xs">{taxTypeLabel}</span></div>
+                                  {pv.taxType === 'IGST' ? (
+                                    <div className="flex justify-between"><span>IGST</span><span>₹{Number(pv.taxBreakup?.igst || 0).toFixed(2)}</span></div>
+                                  ) : (
+                                    <>
+                                      <div className="flex justify-between"><span>CGST</span><span>₹{Number(pv.taxBreakup?.cgst || 0).toFixed(2)}</span></div>
+                                      <div className="flex justify-between"><span>SGST</span><span>₹{Number(pv.taxBreakup?.sgst || 0).toFixed(2)}</span></div>
+                                    </>
+                                  )}
+                                  {pv.roundOff !== 0 && (
+                                    <div className="flex justify-between"><span>Round Off</span><span>₹{pv.roundOff.toFixed(2)}</span></div>
+                                  )}
+                                  <div className="flex justify-between font-semibold text-white border-t border-white/20 pt-1 mt-1"><span>Grand Total</span><span>₹{pv.grandTotal.toFixed(2)}</span></div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -887,8 +1252,17 @@ const TrackOrders = () => {
 
                         {/* Badges + actions */}
                         <div className="flex flex-wrap gap-2 mt-2">
-                          <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.paymentMethod === 'Credit Cycle' ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-white/80')}>Payment: {getPaymentLabel(order)}</span>
+                          <span className={"px-2 py-1 rounded-full text-xs font-medium " + (isCreditOrder(order) ? 'bg-amber-500/15 text-amber-200' : 'bg-white/10 text-white/80')}>Payment: {getPaymentLabel(order)}</span>
                           <span className={"px-2 py-1 rounded-full text-xs font-medium " + (order.deliveryMode === 'Self Pickup' ? 'bg-emerald-500/15 text-emerald-200' : order.deliveryMode === 'Courier' ? 'bg-sky-500/15 text-sky-200' : 'bg-white/10 text-white/80')}>Delivery: {order.deliveryMode || 'N/A'}</span>
+                          {order.status === 'Delivered' && (
+                            <button
+                              onClick={() => handleViewInvoice(order)}
+                              disabled={loadingInvoice}
+                              className="px-3 py-1 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-200 hover:bg-blue-500/30 transition disabled:opacity-50"
+                            >
+                              {loadingInvoice ? 'Loading...' : 'View Invoice'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
@@ -988,11 +1362,16 @@ const TrackOrders = () => {
                             <table className="min-w-full table-auto">
                               <thead className="bg-white/5">
                                 <tr>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Name</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Details</th>
                                   <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Category</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Unit</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Base Price</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">MRP</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">GST %</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Selling Price</th>
                                   <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc %</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc ₹</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Line Total</th>
@@ -1001,11 +1380,37 @@ const TrackOrders = () => {
                               <tbody>
                                 {(order.items || []).map((item, idx) => (
                                   <tr key={idx} className="hover:bg-white/5 transition">
-                                    <td className="px-2 py-2">{item.productName || 'N/A'}</td>
-                                    <td className="px-2 py-2">{item.brand || '—'}</td>
+                                    <td className="px-2 py-2">
+                                      <div className="font-medium">{item.productName || item.name || 'N/A'}</div>
+                                      {item.hsnCode && (
+                                        <div className="text-xs text-white/60 mt-0.5">HSN: {item.hsnCode}</div>
+                                      )}
+                                    </td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
-                                    <td className="px-2 py-2 text-center">{item.quantity}</td>
-                                    <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2">{item.brand || '—'}</td>
+                                    <td className="px-2 py-2">{item.category || '—'}</td>
+                                    <td className="px-2 py-2 text-right">{item.unit || '—'}</td>
+                                    <td className="px-2 py-2 text-right">
+                                      {(() => {
+                                        const basePrice = getDisplayBasePrice(order, idx, item);
+                                        return basePrice > 0 ? `₹${basePrice.toFixed(2)}` : '—';
+                                      })()}
+                                    </td>
+                                    <td className="px-2 py-2 text-right">
+                                      {item.mrp > 0 ? `₹${item.mrp.toFixed(2)}` : '—'}
+                                    </td>
+                                    <td className="px-2 py-2 text-right">
+                                      {(() => {
+                                        const gstRate = Number(item.gstRate || item.taxRate || 0);
+                                        const pLine = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+                                        const displayGstRate = pLine?.gstRate !== undefined ? Number(pLine.gstRate) : gstRate;
+                                        return displayGstRate > 0 ? `${displayGstRate}%` : '—';
+                                      })()}
+                                    </td>
+                                    <td className="px-2 py-2 text-right">
+                                      <span className="font-semibold text-emerald-400">₹{getDisplayPrice(order, idx, item).toFixed(2)}</span>
+                                    </td>
+                                    <td className="px-2 py-2 text-center">{item.quantity || item.qty || 0}</td>
                                     <td className="px-2 py-2 text-right">{getLineDiscountPct(order, idx, item).toFixed(2)}%</td>
                                     <td className="px-2 py-2 text-right">₹{getLineDiscountAmt(order, idx, item).toFixed(2)}</td>
                                     <td className="px-2 py-2 text-right">₹{getLineNet(order, idx, item).toFixed(2)}</td>
@@ -1013,13 +1418,51 @@ const TrackOrders = () => {
                                 ))}
                               </tbody>
                             </table>
-                            {(() => { const pv = proformaPreviewFromOrder(order); return (
-                              <div className="text-right mt-2 space-y-1">
-                                <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
-                                <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
-                                <div className="font-semibold">Items Sub-Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
-                              </div>
-                            ); })()}
+                            {(() => { 
+                              const pv = proformaPreviewFromOrder(order);
+                              const distributorState = order.distributorState || 'Maharashtra';
+                              const retailerState = order.retailerState || order.state || distributorState;
+                              const taxTypeLabel = pv.taxType === 'IGST'
+                                ? `IGST (Interstate: ${distributorState} → ${retailerState})`
+                                : `CGST + SGST (Intrastate: ${distributorState} → ${retailerState})`;
+                              
+                              return (
+                                <div className="mt-2 space-y-1 text-sm text-white/80">
+                                  <div className="flex justify-between"><span>Unit Price Total</span><span>₹{pv.grossItems.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>− Line Discounts</span><span>₹{pv.lineDiscountTotal.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>Items Sub‑Total</span><span>₹{pv.itemsSubTotal.toFixed(2)}</span></div>
+                                  {pv.orderCharges.delivery > 0 && (
+                                    <div className="flex justify-between"><span>+ Delivery</span><span>₹{pv.orderCharges.delivery.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.packing > 0 && (
+                                    <div className="flex justify-between"><span>+ Packing</span><span>₹{pv.orderCharges.packing.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.insurance > 0 && (
+                                    <div className="flex justify-between"><span>+ Insurance</span><span>₹{pv.orderCharges.insurance.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.other > 0 && (
+                                    <div className="flex justify-between"><span>+ Other</span><span>₹{pv.orderCharges.other.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.discountTotal > 0 && (
+                                    <div className="flex justify-between"><span>− Order Discount</span><span>₹{pv.discountTotal.toFixed(2)}</span></div>
+                                  )}
+                                  <div className="flex justify-between font-semibold"><span>Taxable Base</span><span>₹{pv.taxableBase.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>Tax Type</span><span className="text-xs">{taxTypeLabel}</span></div>
+                                  {pv.taxType === 'IGST' ? (
+                                    <div className="flex justify-between"><span>IGST</span><span>₹{Number(pv.taxBreakup?.igst || 0).toFixed(2)}</span></div>
+                                  ) : (
+                                    <>
+                                      <div className="flex justify-between"><span>CGST</span><span>₹{Number(pv.taxBreakup?.cgst || 0).toFixed(2)}</span></div>
+                                      <div className="flex justify-between"><span>SGST</span><span>₹{Number(pv.taxBreakup?.sgst || 0).toFixed(2)}</span></div>
+                                    </>
+                                  )}
+                                  {pv.roundOff !== 0 && (
+                                    <div className="flex justify-between"><span>Round Off</span><span>₹{pv.roundOff.toFixed(2)}</span></div>
+                                  )}
+                                  <div className="flex justify-between font-semibold text-white border-t border-white/20 pt-1 mt-1"><span>Grand Total</span><span>₹{pv.grandTotal.toFixed(2)}</span></div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -1059,6 +1502,15 @@ const TrackOrders = () => {
                           >
                             Mark Credit as Paid
                           </button>
+                          {order.status === 'Delivered' && (
+                            <button
+                              onClick={() => handleViewInvoice(order)}
+                              disabled={loadingInvoice}
+                              className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-500 transition disabled:opacity-50"
+                            >
+                              {loadingInvoice ? 'Loading...' : 'View Invoice'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1174,11 +1626,16 @@ const TrackOrders = () => {
                             <table className="min-w-full table-auto">
                               <thead className="bg-white/5">
                                 <tr>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Name</th>
-                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Product Details</th>
                                   <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">SKU</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Brand</th>
+                                  <th className="px-2 py-2 text-left text-xs font-semibold text-white/70">Category</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Unit</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Base Price</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">MRP</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">GST %</th>
+                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Selling Price</th>
                                   <th className="px-2 py-2 text-center text-xs font-semibold text-white/70">Qty</th>
-                                  <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Price</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc %</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Disc ₹</th>
                                   <th className="px-2 py-2 text-right text-xs font-semibold text-white/70">Line Total</th>
@@ -1187,11 +1644,37 @@ const TrackOrders = () => {
                               <tbody>
                                 {(order.items || []).map((item, idx) => (
                                   <tr key={idx} className="hover:bg-white/5 transition">
-                                    <td className="px-2 py-2">{item.productName || 'N/A'}</td>
-                                    <td className="px-2 py-2">{item.brand || '—'}</td>
+                                    <td className="px-2 py-2">
+                                      <div className="font-medium">{item.productName || item.name || 'N/A'}</div>
+                                      {item.hsnCode && (
+                                        <div className="text-xs text-white/60 mt-0.5">HSN: {item.hsnCode}</div>
+                                      )}
+                                    </td>
                                     <td className="px-2 py-2">{item.sku || '—'}</td>
-                                    <td className="px-2 py-2 text-center">{item.quantity}</td>
-                                    <td className="px-2 py-2 text-right">₹{getDisplayPrice(order, idx, item).toFixed(2)}</td>
+                                    <td className="px-2 py-2">{item.brand || '—'}</td>
+                                    <td className="px-2 py-2">{item.category || '—'}</td>
+                                    <td className="px-2 py-2 text-right">{item.unit || '—'}</td>
+                                    <td className="px-2 py-2 text-right">
+                                      {(() => {
+                                        const basePrice = getDisplayBasePrice(order, idx, item);
+                                        return basePrice > 0 ? `₹${basePrice.toFixed(2)}` : '—';
+                                      })()}
+                                    </td>
+                                    <td className="px-2 py-2 text-right">
+                                      {item.mrp > 0 ? `₹${item.mrp.toFixed(2)}` : '—'}
+                                    </td>
+                                    <td className="px-2 py-2 text-right">
+                                      {(() => {
+                                        const gstRate = Number(item.gstRate || item.taxRate || 0);
+                                        const pLine = Array.isArray(order?.proforma?.lines) ? order.proforma.lines[idx] : undefined;
+                                        const displayGstRate = pLine?.gstRate !== undefined ? Number(pLine.gstRate) : gstRate;
+                                        return displayGstRate > 0 ? `${displayGstRate}%` : '—';
+                                      })()}
+                                    </td>
+                                    <td className="px-2 py-2 text-right">
+                                      <span className="font-semibold text-emerald-400">₹{getDisplayPrice(order, idx, item).toFixed(2)}</span>
+                                    </td>
+                                    <td className="px-2 py-2 text-center">{item.quantity || item.qty || 0}</td>
                                     <td className="px-2 py-2 text-right">{getLineDiscountPct(order, idx, item).toFixed(2)}%</td>
                                     <td className="px-2 py-2 text-right">₹{getLineDiscountAmt(order, idx, item).toFixed(2)}</td>
                                     <td className="px-2 py-2 text-right">₹{getLineNet(order, idx, item).toFixed(2)}</td>
@@ -1199,13 +1682,51 @@ const TrackOrders = () => {
                                 ))}
                               </tbody>
                             </table>
-                            {(() => { const pv = proformaPreviewFromOrder(order); return (
-                              <div className="text-right mt-2 space-y-1">
-                                <div>Gross Items Total: ₹{pv.grossItems.toFixed(2)}</div>
-                                <div>− Line Discounts: ₹{pv.lineDiscountTotal.toFixed(2)}</div>
-                                <div className="font-semibold">Items Sub-Total: ₹{pv.itemsSubTotal.toFixed(2)}</div>
-                              </div>
-                            ); })()}
+                            {(() => { 
+                              const pv = proformaPreviewFromOrder(order);
+                              const distributorState = order.distributorState || 'Maharashtra';
+                              const retailerState = order.retailerState || order.state || distributorState;
+                              const taxTypeLabel = pv.taxType === 'IGST'
+                                ? `IGST (Interstate: ${distributorState} → ${retailerState})`
+                                : `CGST + SGST (Intrastate: ${distributorState} → ${retailerState})`;
+                              
+                              return (
+                                <div className="mt-2 space-y-1 text-sm text-white/80">
+                                  <div className="flex justify-between"><span>Unit Price Total</span><span>₹{pv.grossItems.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>− Line Discounts</span><span>₹{pv.lineDiscountTotal.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>Items Sub‑Total</span><span>₹{pv.itemsSubTotal.toFixed(2)}</span></div>
+                                  {pv.orderCharges.delivery > 0 && (
+                                    <div className="flex justify-between"><span>+ Delivery</span><span>₹{pv.orderCharges.delivery.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.packing > 0 && (
+                                    <div className="flex justify-between"><span>+ Packing</span><span>₹{pv.orderCharges.packing.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.insurance > 0 && (
+                                    <div className="flex justify-between"><span>+ Insurance</span><span>₹{pv.orderCharges.insurance.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.orderCharges.other > 0 && (
+                                    <div className="flex justify-between"><span>+ Other</span><span>₹{pv.orderCharges.other.toFixed(2)}</span></div>
+                                  )}
+                                  {pv.discountTotal > 0 && (
+                                    <div className="flex justify-between"><span>− Order Discount</span><span>₹{pv.discountTotal.toFixed(2)}</span></div>
+                                  )}
+                                  <div className="flex justify-between font-semibold"><span>Taxable Base</span><span>₹{pv.taxableBase.toFixed(2)}</span></div>
+                                  <div className="flex justify-between"><span>Tax Type</span><span className="text-xs">{taxTypeLabel}</span></div>
+                                  {pv.taxType === 'IGST' ? (
+                                    <div className="flex justify-between"><span>IGST</span><span>₹{Number(pv.taxBreakup?.igst || 0).toFixed(2)}</span></div>
+                                  ) : (
+                                    <>
+                                      <div className="flex justify-between"><span>CGST</span><span>₹{Number(pv.taxBreakup?.cgst || 0).toFixed(2)}</span></div>
+                                      <div className="flex justify-between"><span>SGST</span><span>₹{Number(pv.taxBreakup?.sgst || 0).toFixed(2)}</span></div>
+                                    </>
+                                  )}
+                                  {pv.roundOff !== 0 && (
+                                    <div className="flex justify-between"><span>Round Off</span><span>₹{pv.roundOff.toFixed(2)}</span></div>
+                                  )}
+                                  <div className="flex justify-between font-semibold text-white border-t border-white/20 pt-1 mt-1"><span>Grand Total</span><span>₹{pv.grandTotal.toFixed(2)}</span></div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -1220,7 +1741,18 @@ const TrackOrders = () => {
                           </div>
                         )}
 
-                        {/* No payment buttons here */}
+                        {/* View Invoice button for paid orders */}
+                        {order.status === 'Delivered' && (
+                          <div className="mt-4">
+                            <button
+                              onClick={() => handleViewInvoice(order)}
+                              disabled={loadingInvoice}
+                              className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-500 transition disabled:opacity-50"
+                            >
+                              {loadingInvoice ? 'Loading...' : 'View Invoice'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1257,6 +1789,258 @@ const TrackOrders = () => {
             </div>
           )}
         </>
+      )}
+
+      {/* Invoice View Modal */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center p-4">
+          <div className="bg-[#1a1f2e] rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-white/10">
+            {/* Header */}
+            <div className="sticky top-0 bg-[#1a1f2e] border-b border-white/10 px-6 py-4 flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-white">Invoice Details</h2>
+              <button
+                onClick={closeInvoiceModal}
+                className="text-white/70 hover:text-white text-2xl font-bold transition"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-6 text-white">
+              {/* Invoice Header Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-white/60">Invoice Number</p>
+                  <p className="font-semibold text-lg text-white">{selectedInvoice.invoiceNumber || selectedInvoice.id}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-white/60">Issued Date</p>
+                  <p className="font-semibold text-white">
+                    {selectedInvoice.issuedAt
+                      ? new Date(selectedInvoice.issuedAt).toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Buyer and Seller Info */}
+              <div className="grid grid-cols-2 gap-6 border-t border-white/10 pt-4">
+                <div>
+                  <h3 className="font-semibold text-white mb-2">Bill To (Buyer)</h3>
+                  <div className="text-sm text-white/70 space-y-1">
+                    <p className="font-medium text-white">{selectedInvoice.buyer?.businessName || "N/A"}</p>
+                    {selectedInvoice.buyer?.email && <p>Email: {selectedInvoice.buyer.email}</p>}
+                    {selectedInvoice.buyer?.phone && <p>Phone: {selectedInvoice.buyer.phone}</p>}
+                    {(selectedInvoice.buyer?.city || selectedInvoice.buyer?.state) && (
+                      <p>
+                        {[selectedInvoice.buyer.city, selectedInvoice.buyer.state].filter(Boolean).join(", ")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white mb-2">Sold By (Seller)</h3>
+                  <div className="text-sm text-white/70 space-y-1">
+                    <p className="font-medium text-white">{selectedInvoice.seller?.businessName || "N/A"}</p>
+                    {selectedInvoice.seller?.email && <p>Email: {selectedInvoice.seller.email}</p>}
+                    {selectedInvoice.seller?.phone && <p>Phone: {selectedInvoice.seller.phone}</p>}
+                    {selectedInvoice.seller?.gstNumber && <p>GST: {selectedInvoice.seller.gstNumber}</p>}
+                    {(selectedInvoice.seller?.city || selectedInvoice.seller?.state) && (
+                      <p>
+                        {[selectedInvoice.seller.city, selectedInvoice.seller.state].filter(Boolean).join(", ")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Items */}
+              {orderDataForInvoice ? (
+                <div className="border-t border-white/10 pt-4">
+                  <h3 className="font-semibold text-white mb-4">Order Items</h3>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-white/5">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-white/70">Product Details</th>
+                          <th className="px-4 py-2 text-left text-white/70">SKU</th>
+                          <th className="px-4 py-2 text-left text-white/70">Brand</th>
+                          <th className="px-4 py-2 text-left text-white/70">Category</th>
+                          <th className="px-4 py-2 text-right text-white/70">Unit</th>
+                          <th className="px-4 py-2 text-right text-white/70">Base Price</th>
+                          <th className="px-4 py-2 text-right text-white/70">MRP</th>
+                          <th className="px-4 py-2 text-right text-white/70">GST %</th>
+                          <th className="px-4 py-2 text-right text-white/70">Selling Price</th>
+                          <th className="px-4 py-2 text-center text-white/70">Qty</th>
+                          <th className="px-4 py-2 text-right text-white/70">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(orderDataForInvoice.items || []).map((item, idx) => {
+                          const qty = Number(item.quantity || item.qty || 0);
+                          const price = getDisplayPrice(orderDataForInvoice, idx, item);
+                          const total = getDisplaySubtotal(orderDataForInvoice, idx, item);
+                          return (
+                            <tr key={idx} className="border-b border-white/10">
+                              <td className="px-4 py-2 text-white">
+                                <div className="font-medium">{item.productName || item.name || "N/A"}</div>
+                                {item.hsnCode && (
+                                  <div className="text-xs text-white/60 mt-0.5">HSN: {item.hsnCode}</div>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-white/70">{item.sku || "—"}</td>
+                              <td className="px-4 py-2 text-white/70">{item.brand || "—"}</td>
+                              <td className="px-4 py-2 text-white/70">{item.category || "—"}</td>
+                              <td className="px-4 py-2 text-right text-white/70">{item.unit || "—"}</td>
+                              <td className="px-4 py-2 text-right text-white/70">
+                                {(() => {
+                                  const basePrice = getDisplayBasePrice(orderDataForInvoice, idx, item);
+                                  return basePrice > 0 ? `₹${basePrice.toFixed(2)}` : "—";
+                                })()}
+                              </td>
+                              <td className="px-4 py-2 text-right text-white/70">
+                                {item.mrp > 0 ? `₹${item.mrp.toFixed(2)}` : "—"}
+                              </td>
+                              <td className="px-4 py-2 text-right text-white/70">
+                                {(() => {
+                                  const gstRate = Number(item.gstRate || item.taxRate || 0);
+                                  const pLine = Array.isArray(orderDataForInvoice?.proforma?.lines) ? orderDataForInvoice.proforma.lines[idx] : undefined;
+                                  const displayGstRate = pLine?.gstRate !== undefined ? Number(pLine.gstRate) : gstRate;
+                                  return displayGstRate > 0 ? `${displayGstRate}%` : "—";
+                                })()}
+                              </td>
+                              <td className="px-4 py-2 text-right text-white">
+                                <span className="font-semibold text-emerald-400">₹{price.toFixed(2)}</span>
+                              </td>
+                              <td className="px-4 py-2 text-center text-white">{qty}</td>
+                              <td className="px-4 py-2 text-right text-white">
+                                <span className="font-semibold">₹{total.toFixed(2)}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="border-t border-white/10 pt-4">
+                  <p className="text-white/60 text-sm">
+                    {selectedInvoice.orderId
+                      ? "Order data not available"
+                      : "No order ID associated with this invoice"}
+                  </p>
+                </div>
+              )}
+
+              {/* Payment and Totals */}
+              <div className="border-t border-white/10 pt-4 space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-white/70">Payment Method:</span>
+                  <span className="font-semibold text-white">
+                    {selectedInvoice.payment?.mode || selectedInvoice.payment?.normalized?.label || "N/A"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-white/70">Payment Status:</span>
+                  <span
+                    className={`font-semibold ${
+                      selectedInvoice.payment?.isPaid ? "text-emerald-400" : "text-amber-400"
+                    }`}
+                  >
+                    {selectedInvoice.payment?.isPaid ? "Paid" : "Pending"}
+                  </span>
+                </div>
+
+                {/* Full Breakdown */}
+                {selectedInvoice.totals && (
+                  <div className="border-t border-white/10 pt-4">
+                    <h4 className="font-semibold mb-3 text-white">Invoice Breakdown</h4>
+                    <div className="space-y-1 text-sm text-white/80">
+                      {selectedInvoice.totals.grossItems !== undefined && (
+                        <div className="flex justify-between"><span>Unit Price Total</span><span>₹{Number(selectedInvoice.totals.grossItems || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.lineDiscountTotal !== undefined && (
+                        <div className="flex justify-between"><span>− Line Discounts</span><span>₹{Number(selectedInvoice.totals.lineDiscountTotal || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.itemsSubTotal !== undefined && (
+                        <div className="flex justify-between"><span>Items Sub‑Total</span><span>₹{Number(selectedInvoice.totals.itemsSubTotal || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.delivery > 0 && (
+                        <div className="flex justify-between"><span>+ Delivery</span><span>₹{Number(selectedInvoice.totals.delivery || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.packing > 0 && (
+                        <div className="flex justify-between"><span>+ Packing</span><span>₹{Number(selectedInvoice.totals.packing || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.insurance > 0 && (
+                        <div className="flex justify-between"><span>+ Insurance</span><span>₹{Number(selectedInvoice.totals.insurance || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.other > 0 && (
+                        <div className="flex justify-between"><span>+ Other</span><span>₹{Number(selectedInvoice.totals.other || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.discountTotal > 0 && (
+                        <div className="flex justify-between"><span>− Order Discount</span><span>₹{Number(selectedInvoice.totals.discountTotal || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.taxableBase !== undefined && (
+                        <div className="flex justify-between font-semibold"><span>Taxable Base</span><span>₹{Number(selectedInvoice.totals.taxableBase || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.taxType && (
+                        <div className="flex justify-between">
+                          <span>Tax Type</span>
+                          <span className="text-xs">
+                            {selectedInvoice.totals.taxType === 'IGST'
+                              ? `IGST (Interstate)`
+                              : `CGST + SGST (Intrastate)`}
+                          </span>
+                        </div>
+                      )}
+                      {selectedInvoice.totals.taxType === 'IGST' && selectedInvoice.totals.taxBreakup?.igst !== undefined && (
+                        <div className="flex justify-between"><span>IGST</span><span>₹{Number(selectedInvoice.totals.taxBreakup.igst || 0).toFixed(2)}</span></div>
+                      )}
+                      {selectedInvoice.totals.taxType !== 'IGST' && (
+                        <>
+                          {selectedInvoice.totals.taxBreakup?.cgst !== undefined && (
+                            <div className="flex justify-between"><span>CGST</span><span>₹{Number(selectedInvoice.totals.taxBreakup.cgst || 0).toFixed(2)}</span></div>
+                          )}
+                          {selectedInvoice.totals.taxBreakup?.sgst !== undefined && (
+                            <div className="flex justify-between"><span>SGST</span><span>₹{Number(selectedInvoice.totals.taxBreakup.sgst || 0).toFixed(2)}</span></div>
+                          )}
+                        </>
+                      )}
+                      {selectedInvoice.totals.roundOff !== undefined && selectedInvoice.totals.roundOff !== 0 && (
+                        <div className="flex justify-between"><span>Round Off</span><span>₹{Number(selectedInvoice.totals.roundOff || 0).toFixed(2)}</span></div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center pt-2 border-t border-white/10">
+                  <span className="text-lg font-semibold text-white">Grand Total:</span>
+                  <span className="text-2xl font-bold text-white">
+                    ₹{Number(selectedInvoice.totals?.grandTotal || 0).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Order ID if available */}
+              {selectedInvoice.orderId && (
+                <div className="border-t border-white/10 pt-4">
+                  <p className="text-sm text-white/60">
+                    <span className="font-medium text-white/80">Order ID:</span> {selectedInvoice.orderId}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -80,7 +80,7 @@ const DispatchTracker = () => {
         <div className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent" />
       </div>
 
-      <div className="mb-6 sticky top-[72px] z-30">
+      <div className="mb-6 bg-[#0B0F14]/95 supports-[backdrop-filter]:bg-[#0B0F14]/80 backdrop-blur-xl pb-2 -mx-6 px-6 pt-2">
         <div className="inline-flex gap-2 p-1 rounded-full border border-white/15 bg-[#0B0F14]/80 supports-[backdrop-filter]:bg-[#0B0F14]/60 backdrop-blur-xl shadow-lg" role="tablist" aria-label="Dispatch sections">
           <TabButton id="requests" active={activeTab === "requests"} onClick={setTabAndHash}>
             Order Requests
