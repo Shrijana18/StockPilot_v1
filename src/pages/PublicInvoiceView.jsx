@@ -18,36 +18,49 @@ const PublicInvoiceView = () => {
   useEffect(() => {
     const fetchInvoice = async () => {
       if (!distributorId || !invoiceId) {
+        console.error("[PublicInvoiceView] Missing distributorId or invoiceId", { distributorId, invoiceId });
         setLoading(false);
         return;
       }
+
+      console.log("[PublicInvoiceView] Fetching invoice:", { distributorId, invoiceId });
 
       try {
         const invoiceRef = doc(db, `businesses/${distributorId}/invoices`, invoiceId);
         const invoiceSnap = await getDoc(invoiceRef);
         
         if (!invoiceSnap.exists()) {
+          console.warn("[PublicInvoiceView] Invoice not found:", invoiceId);
           setLoading(false);
           return;
         }
 
         const invoiceData = { id: invoiceSnap.id, ...invoiceSnap.data() };
+        console.log("[PublicInvoiceView] Invoice loaded:", invoiceData);
         setInvoice(invoiceData);
 
         // Fetch order data if available
         if (invoiceData.orderId) {
           try {
+            console.log("[PublicInvoiceView] Fetching order data:", invoiceData.orderId);
             const orderRef = doc(db, `businesses/${distributorId}/orderRequests`, invoiceData.orderId);
             const orderSnap = await getDoc(orderRef);
             if (orderSnap.exists()) {
-              setOrderData({ id: orderSnap.id, ...orderSnap.data() });
+              const orderData = { id: orderSnap.id, ...orderSnap.data() };
+              console.log("[PublicInvoiceView] Order data loaded:", orderData);
+              setOrderData(orderData);
+            } else {
+              console.warn("[PublicInvoiceView] Order not found:", invoiceData.orderId);
             }
           } catch (err) {
-            console.error("Error fetching order data:", err);
+            console.error("[PublicInvoiceView] Error fetching order data:", err);
           }
+        } else {
+          console.log("[PublicInvoiceView] No orderId in invoice");
         }
       } catch (err) {
-        console.error("Error fetching invoice:", err);
+        console.error("[PublicInvoiceView] Error fetching invoice:", err);
+        alert("Failed to load invoice. Please check the URL and try again.");
       } finally {
         setLoading(false);
       }

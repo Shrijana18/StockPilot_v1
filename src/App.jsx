@@ -131,6 +131,7 @@ const App = () => {
             <Route path="/auth/*" element={<AuthPage />} />
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
+            <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
             <Route element={<EmployeeRoute kind="retailer" />}>
               <Route path="/employee-dashboard" element={<EmployeeDashboard />} />

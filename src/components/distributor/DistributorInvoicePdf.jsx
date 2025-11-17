@@ -192,7 +192,33 @@ const getDisplayBasePrice = (order, idx, item) => {
 const DistributorInvoicePdf = ({ invoice = {}, order = null }) => {
   const items = Array.isArray(order?.items) ? order.items : [];
   const totals = invoice.totals || {};
-  const paymentStatus = invoice.paymentStatus || (invoice.payment?.isPaid ? "Paid" : "Pending");
+  
+  // Determine payment status - check order first (most accurate), then invoice
+  let paymentStatus = "Pending";
+  if (order) {
+    const orderIsPaid =
+      order.isPaid === true ||
+      order.paymentStatus === 'Paid' ||
+      order.payment?.isPaid === true;
+    if (orderIsPaid) {
+      paymentStatus = "Paid";
+    }
+  } else {
+    // Fallback to invoice payment fields
+    const paymentObj = invoice.payment || {};
+    if (typeof paymentObj.isPaid === "boolean") {
+      paymentStatus = paymentObj.isPaid ? "Paid" : "Pending";
+    } else {
+      const raw = paymentObj.status || invoice.paymentStatus || invoice.isPaid;
+      if (raw === true || raw === "Paid" || raw === "paid") {
+        paymentStatus = "Paid";
+      } else if (raw === false || raw === "Pending" || raw === "pending") {
+        paymentStatus = "Pending";
+      } else {
+        paymentStatus = invoice.paymentStatus || (invoice.payment?.isPaid ? "Paid" : "Pending");
+      }
+    }
+  }
 
   return (
     <Document title={invoice.invoiceNumber || invoice.id || "Invoice"}>
