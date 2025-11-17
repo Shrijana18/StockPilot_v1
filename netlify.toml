@@ -6,6 +6,17 @@
   NODE_VERSION = "22.12.0"
   NPM_FLAGS = "--legacy-peer-deps"
 
+[[redirects]]
+  from = "/assets/*"
+  to = "/assets/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
 [dev]
   command = "npm run dev"
   port = 5173

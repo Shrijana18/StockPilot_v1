@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  base: './',
+  base: '/',
   plugins: [react()],
   server: {
     port: 5173,
@@ -29,6 +29,8 @@ export default defineConfig({
         },
       },
     },
+    // Copy _redirects file to dist for Netlify
+    copyPublicDir: true,
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production'),
