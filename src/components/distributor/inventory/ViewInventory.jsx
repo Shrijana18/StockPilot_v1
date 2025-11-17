@@ -684,9 +684,9 @@ return (
                           {col.label}
                         </th>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+              </tr>
+            </thead>
+            <tbody>
                     {filtered.map((p) => (
                       <tr key={p.id} className="border-t border-white/10 hover:bg-white/5">
                         {columns.filter(c => !hiddenCols.has(c.id)).map(col => {
@@ -706,38 +706,38 @@ return (
                             case "image":
                               return (
                                 <td key={col.id} className="p-2">
-                                  <div
-                                    className="inline-block cursor-pointer"
-                                    onClick={() => handleImageClick(p)}
-                                    title="Click to upload image"
-                                  >
-                                    <img
-                                      src={p.imageUrl || "/placeholder.png"}
-                                      alt="product"
+                      <div
+                        className="inline-block cursor-pointer"
+                        onClick={() => handleImageClick(p)}
+                        title="Click to upload image"
+                      >
+                      <img
+                        src={p.imageUrl || "/placeholder.png"}
+                        alt="product"
                                       className="h-10 w-10 rounded object-cover border border-white/20 ring-1 ring-white/10"
                                     />
-                                  </div>
-                                </td>
+                    </div>
+                  </td>
                               );
                             case "productName":
                               return (
-                                <td
+                  <td
                                   key={col.id}
                                   className="p-2 max-w-[220px] break-words whitespace-normal"
                                   onClick={() => startEdit(p.id, "productName", p.productName)}
-                                >
-                                  {editingCell.rowId === p.id && editingCell.field === "productName" ? (
-                                    <input
-                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                                      value={editedValue}
-                                      onChange={(e) => setEditedValue(e.target.value)}
-                                      onBlur={() => saveEdit(p.id, "productName", editedValue)}
-                                      autoFocus
-                                    />
-                                  ) : (
-                                    p.productName
-                                  )}
-                                </td>
+                  >
+                    {editingCell.rowId === p.id && editingCell.field === "productName" ? (
+                      <input
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                        value={editedValue}
+                        onChange={(e) => setEditedValue(e.target.value)}
+                        onBlur={() => saveEdit(p.id, "productName", editedValue)}
+                        autoFocus
+                      />
+                    ) : (
+                      p.productName
+                    )}
+                  </td>
                               );
                             case "sku":
                             case "brand":
@@ -745,40 +745,40 @@ return (
                             case "hsnCode":
                             case "unit":
                               return (
-                                <td
+                  <td
                                   key={col.id}
-                                  className="p-2 max-w-[180px] break-words whitespace-normal"
+                    className="p-2 max-w-[180px] break-words whitespace-normal"
                                   onClick={() => startEdit(p.id, col.id, p[col.id])}
-                                >
+                  >
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
-                                    <input
-                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                                      value={editedValue}
-                                      onChange={(e) => setEditedValue(e.target.value)}
+                      <input
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                        value={editedValue}
+                        onChange={(e) => setEditedValue(e.target.value)}
                                       onBlur={() => saveEdit(p.id, col.id, editedValue)}
-                                      autoFocus
-                                    />
-                                  ) : (
+                        autoFocus
+                      />
+                    ) : (
                                     p[col.id] || ""
-                                  )}
-                                </td>
+                    )}
+                  </td>
                               );
                             case "quantity":
                               return (
                                 <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
-                                  {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
-                                    <input
-                                      type="number"
-                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                                      value={editedValue}
-                                      onChange={(e) => setEditedValue(e.target.value)}
-                                      onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
-                                      autoFocus
-                                    />
-                                  ) : (
-                                    p.quantity
-                                  )}
-                                </td>
+                    {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
+                      <input
+                        type="number"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                        value={editedValue}
+                        onChange={(e) => setEditedValue(e.target.value)}
+                        onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
+                        autoFocus
+                      />
+                    ) : (
+                      p.quantity
+                    )}
+                  </td>
                               );
                             case "costPrice":
                             case "sellingPrice":
@@ -786,19 +786,19 @@ return (
                               return (
                                 <td key={col.id} className="p-2" onClick={() => startEdit(p.id, col.id, p[col.id])}>
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                                      value={editedValue}
-                                      onChange={(e) => setEditedValue(e.target.value)}
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                        value={editedValue}
+                        onChange={(e) => setEditedValue(e.target.value)}
                                       onBlur={() => saveEdit(p.id, col.id, Number(editedValue))}
-                                      autoFocus
-                                    />
-                                  ) : (
+                        autoFocus
+                      />
+                    ) : (
                                     p[col.id] !== undefined ? <>₹{p[col.id]}</> : ""
-                                  )}
-                                </td>
+                    )}
+                  </td>
                               );
                             case "gstRate":
                               // Display gstRate from either field; prefer explicit gstRate, fallback to taxRate
@@ -806,19 +806,19 @@ return (
                               return (
                                 <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "gstRate", currentGst)}>
                                   {editingCell.rowId === p.id && editingCell.field === "gstRate" ? (
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                                      value={editedValue}
-                                      onChange={(e) => setEditedValue(e.target.value)}
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                        value={editedValue}
+                        onChange={(e) => setEditedValue(e.target.value)}
                                       onBlur={() => saveEdit(p.id, "gstRate", Number(editedValue))}
-                                      autoFocus
-                                    />
-                                  ) : (
+                        autoFocus
+                      />
+                    ) : (
                                     currentGst !== undefined && currentGst !== null ? <>{currentGst}%</> : ""
-                                  )}
-                                </td>
+                    )}
+                  </td>
                               );
                             case "status": {
                               const st = getStatus(p.quantity);
@@ -826,55 +826,55 @@ return (
                               const isLow = st === "Low";
                               return (
                                 <td key={col.id} className="p-2 align-middle text-center whitespace-nowrap">
-                                  <span
+                    <span
                                     title={st}
                                     className={
                                       "inline-flex items-center justify-center min-w-[72px] h-6 px-2 rounded-full text-xs font-semibold " +
                                       (isLow ? "bg-rose-500 text-white" : "bg-emerald-400 text-slate-900")
                                     }
-                                  >
+                    >
                                     {badgeText}
-                                  </span>
-                                </td>
+                    </span>
+                  </td>
                               );
                             }
                             case "source":
                               return (
                                 <td key={col.id} className="p-2 min-w-[100px] max-w-[120px] text-center">
-                                  {p.sourceOrderId ? (
-                                    <span className="inline-block px-2 py-1 rounded text-xs bg-blue-500 text-white break-words whitespace-normal leading-snug">
-                                      From Order
-                                    </span>
-                                  ) : (
+                    {p.sourceOrderId ? (
+                      <span className="inline-block px-2 py-1 rounded text-xs bg-blue-500 text-white break-words whitespace-normal leading-snug">
+                        From Order
+                      </span>
+                    ) : (
                                     ""
-                                  )}
-                                </td>
+                    )}
+                  </td>
                               );
                             case "delete":
                               return (
                                 <td key={col.id} className="p-2">
-                                  <button
-                                    onClick={() => handleDelete(p)}
+                    <button
+                      onClick={() => handleDelete(p)}
                                     className="text-rose-300 hover:text-rose-200"
-                                    title="Delete Item"
-                                  >
-                                    🗑️
-                                  </button>
-                                </td>
+                      title="Delete Item"
+                    >
+                      🗑️
+                    </button>
+                  </td>
                               );
                             case "edit":
                               return (
                                 <td key={col.id} className="p-2">
-                                  <button
-                                    onClick={() => {
-                                      setSelectedProductId(p.id);
-                                      setIsModalOpen(true);
-                                    }}
+                    <button
+                      onClick={() => {
+                        setSelectedProductId(p.id);
+                        setIsModalOpen(true);
+                      }}
                                     className="text-sm text-emerald-300 underline"
-                                  >
-                                    Edit
-                                  </button>
-                                </td>
+                    >
+                      Edit
+                    </button>
+                  </td>
                               );
                             default:
                               return (
@@ -898,18 +898,18 @@ return (
                               );
                           }
                         })}
-                      </tr>
-                    ))}
-                    {filtered.length === 0 ? (
-                      <tr>
+                </tr>
+              ))}
+              {filtered.length === 0 ? (
+                <tr>
                         <td colSpan={columns.filter(c => !hiddenCols.has(c.id)).length} className="text-center p-4 text-white/70">
-                          {products.length === 0 ? "No products found." : "Loading inventory..."}
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                  </table>
-                </div>
+                    {products.length === 0 ? "No products found." : "Loading inventory..."}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
               </div>
               {showCustomColumnsModal && (
                 <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">
@@ -971,7 +971,7 @@ return (
                       {item.mrp !== undefined && <>MRP: ₹{item.mrp}</>}
                       {(item.mrp !== undefined) && (item.gstRate !== undefined || item.taxRate !== undefined) && <> &nbsp;|&nbsp; </>}
                       {(item.gstRate !== undefined || item.taxRate !== undefined) && <>GST: {(item.gstRate ?? item.taxRate)}%</>}
-                    </p>
+                  </p>
                   )}
                   <p className="text-xs text-white/60 mb-1">
                     SKU: {item.sku || "N/A"} | Unit: {item.unit || "N/A"}

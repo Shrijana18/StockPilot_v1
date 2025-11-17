@@ -10,6 +10,7 @@ import Inventory from './pages/Inventory.jsx';
 import Billing from './pages/Billing.jsx';
 import AllInvoices from './pages/AllInvoices.jsx';
 import AuthPage from './pages/AuthPage.jsx';
+import PublicInvoiceView from './pages/PublicInvoiceView.jsx';
 import EmployeeLogin from './components/employee/EmployeeLogin.jsx';
 import EmployeeDashboard from './components/employee/EmployeeDashboard.jsx';
 import { getEmployeeSession, isEmployeePath } from './utils/employeeSession.js';
@@ -78,6 +79,7 @@ const App = () => {
             <Route path="/auth/*" element={<AuthPage />} />
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
+            <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
             <Route element={<EmployeeRoute kind="retailer" />}>
               <Route path="/employee-dashboard" element={<EmployeeDashboard />} />

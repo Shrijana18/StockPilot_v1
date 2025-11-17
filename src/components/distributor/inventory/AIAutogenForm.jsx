@@ -381,14 +381,14 @@ const AIAutogenForm = ({ userId }) => {
                         />
                       </td>
                       <td className="px-2 py-3">
-                        <input
+                          <input
                           type="number"
                           value={item.sellingPrice ?? ""}
                           onChange={(e) => handleFieldChange(idx, "sellingPrice", e.target.value)}
                           className="ai-input w-20 rounded-md px-2 py-2 outline-none focus:ring-2 focus:ring-cyan-400/40"
                           placeholder="Price"
-                        />
-                      </td>
+                          />
+                        </td>
                       <td className="px-2 py-3 text-center whitespace-nowrap">
                         <button
                           className="ai-btn ai-btn-danger hover:brightness-110"

@@ -71,7 +71,7 @@ export function calculateProforma({
   let grossItems = 0;
   let lineDiscountTotal = 0;
   let itemsSubTotal = 0;
-  
+
   // Track gross items total for proportional allocation (before any discounts)
   let totalGrossItems = 0;
 
@@ -128,7 +128,7 @@ export function calculateProforma({
   // For proportional allocation: allocate charges based on gross items (before discounts)
   // This ensures charges are divided proportionally to unit prices as per Indian GST rules
   const totalCharges = r2(delivery + packing + insurance + other);
-  
+
   // Calculate order-level discount on itemsSubTotal + charges
   const preDiscount = r2(subTotal + totalCharges);
   const orderDiscPct = r2(toNum(orderCharges.discountPct));

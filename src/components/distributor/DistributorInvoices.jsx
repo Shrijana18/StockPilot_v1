@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { db } from "../../firebase/firebaseConfig";
 import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { splitFromMrp } from "../../utils/pricing";
+import { pdf } from "@react-pdf/renderer";
+import { saveAs } from "file-saver";
+import DistributorInvoicePdf from "./DistributorInvoicePdf";
 
 const DistributorInvoices = () => {
   const auth = getAuth();
@@ -12,6 +15,46 @@ const DistributorInvoices = () => {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [orderData, setOrderData] = useState(null);
   const [loadingOrder, setLoadingOrder] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  const paymentStatusMeta = useMemo(() => {
+    if (!selectedInvoice) return { label: "Pending", isPaid: false };
+    
+    // First check orderData if available (most accurate source)
+    if (orderData) {
+      const orderIsPaid =
+        orderData.isPaid === true ||
+        orderData.paymentStatus === 'Paid' ||
+        orderData.payment?.isPaid === true;
+      if (orderIsPaid) {
+        return { label: "Paid", isPaid: true };
+      }
+    }
+    
+    // Then check invoice payment object
+    const paymentObj = selectedInvoice.payment || {};
+    if (typeof paymentObj.isPaid === "boolean") {
+      return { label: paymentObj.isPaid ? "Paid" : "Pending", isPaid: paymentObj.isPaid };
+    }
+    
+    // Check invoice-level payment status fields
+    const raw =
+      paymentObj.status ||
+      selectedInvoice.paymentStatus ||
+      selectedInvoice.payment?.paymentStatus ||
+      selectedInvoice.isPaid !== undefined ? (selectedInvoice.isPaid ? "Paid" : "Pending") : "";
+    const normalized = raw.toString().trim().toLowerCase();
+    if (["paid", "complete", "completed", "success", "successful"].includes(normalized)) {
+      return { label: "Paid", isPaid: true };
+    }
+    if (["pending", "unpaid", "due", "awaiting"].includes(normalized)) {
+      return { label: "Pending", isPaid: false };
+    }
+    return {
+      label: normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Pending",
+      isPaid: false,
+    };
+  }, [selectedInvoice, orderData]);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -90,6 +133,126 @@ const DistributorInvoices = () => {
   const closeInvoiceModal = () => {
     setSelectedInvoice(null);
     setOrderData(null);
+  };
+
+  const toDate = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value === "number") return new Date(value);
+    if (typeof value === "string") {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    if (value?.seconds) return new Date(value.seconds * 1000);
+    if (value?.toDate) return value.toDate();
+    return null;
+  };
+
+  const formatDate = (value, options = { day: "2-digit", month: "short", year: "numeric" }) => {
+    const date = toDate(value);
+    return date ? date.toLocaleDateString("en-IN", options) : "N/A";
+  };
+
+  const formatDateTime = (value) => {
+    const date = toDate(value);
+    return date
+      ? date.toLocaleString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "N/A";
+  };
+
+  const formatCurrency = (value) =>
+    `₹${Number(value || 0).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
+  const getInvoiceFileName = (invoice) => {
+    const number = invoice?.invoiceNumber || invoice?.id || "invoice";
+    const issued = formatDate(invoice?.issuedAt).replace(/\s+/g, "-");
+    return `${number}-${issued}.pdf`;
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!selectedInvoice) return;
+    try {
+      setDownloadingPdf(true);
+      const doc = (
+        <DistributorInvoicePdf invoice={selectedInvoice} order={orderData} />
+      );
+      const blob = await pdf(doc).toBlob();
+      saveAs(blob, getInvoiceFileName(selectedInvoice));
+    } catch (err) {
+      console.error("[DistributorInvoices] Failed to generate PDF", err);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const buildInvoiceShareLink = () => {
+    if (!selectedInvoice || !distributorId) return null;
+    const invoiceId = selectedInvoice.id;
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/invoice/${distributorId}/${invoiceId}`;
+  };
+
+  const buildWhatsAppLink = () => {
+    if (!selectedInvoice) return null;
+    const phoneRaw = selectedInvoice.buyer?.phone;
+    const phone = phoneRaw ? phoneRaw.toString().replace(/\D/g, "") : "";
+    const invoiceNumber = selectedInvoice.invoiceNumber || selectedInvoice.id;
+    const total = formatCurrency(selectedInvoice.totals?.grandTotal || 0);
+    const issued = formatDateTime(selectedInvoice.issuedAt);
+    const seller =
+      selectedInvoice.seller?.businessName ||
+      selectedInvoice.seller?.name ||
+      "our team";
+    const shareLink = buildInvoiceShareLink();
+    const message = [
+      `Invoice ${invoiceNumber}`,
+      `Amount: ${total}`,
+      `Issued: ${issued}`,
+      ``,
+      `View and download your digital invoice:`,
+      shareLink || "Link unavailable",
+      ``,
+      `Thank you for ordering from ${seller}.`,
+    ]
+      .join("\n")
+      .trim();
+    const encodedMessage = encodeURIComponent(message);
+    const baseUrl = phone ? `https://wa.me/${phone}` : `https://wa.me/`;
+    return `${baseUrl}?text=${encodedMessage}`;
+  };
+
+  const handleShareWhatsApp = () => {
+    const link = buildWhatsAppLink();
+    if (!link) return;
+    window.open(link, "_blank", "noopener,noreferrer");
+  };
+
+  const handleShareEmail = () => {
+    if (!selectedInvoice) return;
+    const invoiceNumber = selectedInvoice.invoiceNumber || selectedInvoice.id;
+    const seller =
+      selectedInvoice.seller?.businessName ||
+      selectedInvoice.seller?.name ||
+      "our team";
+    const total = formatCurrency(selectedInvoice.totals?.grandTotal || 0);
+    const issued = formatDateTime(selectedInvoice.issuedAt);
+    const status = paymentStatusMeta.label;
+    const recipient = selectedInvoice.buyer?.email || "";
+    const subject = `Invoice ${invoiceNumber} from ${seller}`;
+    const body = `Hello ${selectedInvoice.buyer?.businessName || ""},\n\nPlease find your invoice details below:\nInvoice: ${invoiceNumber}\nAmount: ${total}\nIssued: ${issued}\nStatus: ${status}\n\nWe have attached the invoice PDF for your reference.\n\nRegards,\n${seller}`;
+    const mailto = `mailto:${recipient}?subject=${encodeURIComponent(
+      subject
+    )}&body=${encodeURIComponent(body)}`;
+    window.open(mailto, "_blank");
   };
 
   const getPaymentModeLabel = (invoice) => {
@@ -203,48 +366,97 @@ const DistributorInvoices = () => {
       {/* Invoice View Modal */}
       {selectedInvoice && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 text-slate-100 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-white/10">
-            {/* Header */}
-            <div className="sticky top-0 bg-slate-900 border-b border-white/10 px-6 py-4 flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-slate-100">Invoice Details</h2>
-              <button
-                onClick={closeInvoiceModal}
-                className="text-slate-400 hover:text-slate-200 text-2xl font-bold"
-              >
-                ×
-              </button>
+          <div className="bg-white text-slate-900 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-slate-200">
+            {/* Header with actions */}
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap gap-3 items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Invoice</p>
+                <h2 className="text-2xl font-bold text-slate-900">
+                  {selectedInvoice.invoiceNumber || selectedInvoice.id}
+                </h2>
+              </div>
+              <div className="flex flex-wrap gap-2 ml-auto">
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={downloadingPdf || loadingOrder}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                    downloadingPdf || loadingOrder
+                      ? "bg-slate-400 text-white cursor-not-allowed"
+                      : "bg-slate-900 text-white hover:bg-slate-800"
+                  }`}
+                >
+                  {downloadingPdf ? "Preparing PDF..." : "Download PDF"}
+                </button>
+                <button
+                  onClick={handleShareWhatsApp}
+                  className="px-4 py-2 rounded-lg bg-emerald-500 text-slate-900 text-sm font-semibold hover:bg-emerald-400 transition"
+                >
+                  Share on WhatsApp
+                </button>
+                <button
+                  onClick={handleShareEmail}
+                  className="px-4 py-2 rounded-lg bg-cyan-500 text-slate-900 text-sm font-semibold hover:bg-cyan-400 transition"
+                >
+                  Send via Email
+                </button>
+                <button
+                  onClick={closeInvoiceModal}
+                  className="ml-auto text-slate-400 hover:text-slate-600 text-2xl leading-none px-2"
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
-            {/* Content */}
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-6 bg-white">
               {/* Invoice Header Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-slate-300">Invoice Number</p>
-                  <p className="font-semibold text-lg text-slate-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 border border-slate-200 rounded-lg bg-slate-50">
+                  <p className="text-xs uppercase text-slate-500">Invoice Number</p>
+                  <p className="font-semibold text-xl">
                     {selectedInvoice.invoiceNumber || selectedInvoice.id}
                   </p>
                 </div>
-                <div>
-                  <p className="text-sm text-slate-300">Issued Date</p>
-                  <p className="font-semibold text-slate-100">
-                    {selectedInvoice.issuedAt
-                      ? new Date(selectedInvoice.issuedAt).toLocaleDateString("en-GB", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                        })
-                      : "N/A"}
+                <div className="p-4 border border-slate-200 rounded-lg bg-slate-50">
+                  <p className="text-xs uppercase text-slate-500">Issued Date</p>
+                  <p className="font-semibold text-lg">
+                    {formatDate(selectedInvoice.issuedAt)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl border border-emerald-100 bg-emerald-50">
+                  <p className="text-xs uppercase text-emerald-700">Grand Total</p>
+                  <p className="text-2xl font-bold text-emerald-900">
+                    {formatCurrency(selectedInvoice.totals?.grandTotal || 0)}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+                  <p className="text-xs uppercase text-slate-500">Payment Status</p>
+                  <p
+                    className={`text-xl font-semibold ${
+                      paymentStatusMeta.isPaid ? "text-emerald-700" : "text-amber-600"
+                    }`}
+                  >
+                    {paymentStatusMeta.label}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+                  <p className="text-xs uppercase text-slate-500">Payment Method</p>
+                  <p className="text-lg font-semibold">
+                    {getPaymentModeLabel(selectedInvoice)}
                   </p>
                 </div>
               </div>
 
               {/* Buyer and Seller Info */}
-              <div className="grid grid-cols-2 gap-6 border-t pt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-slate-200 pt-6">
                 <div>
-                  <h3 className="font-semibold text-slate-100 mb-2">Bill To (Buyer)</h3>
-                  <div className="text-sm text-slate-300 space-y-1">
-                    <p className="font-medium text-slate-100">
+                  <h3 className="font-semibold text-slate-900 mb-2">Bill To (Buyer)</h3>
+                  <div className="text-sm text-slate-600 space-y-1">
+                    <p className="font-medium text-slate-900">
                       {selectedInvoice.buyer?.businessName || "N/A"}
                     </p>
                     {selectedInvoice.buyer?.email && <p>Email: {selectedInvoice.buyer.email}</p>}
@@ -257,9 +469,9 @@ const DistributorInvoices = () => {
                   </div>
                 </div>
                 <div>
-                  <h3 className="font-semibold text-slate-100 mb-2">Sold By (Seller)</h3>
-                  <div className="text-sm text-slate-300 space-y-1">
-                    <p className="font-medium text-slate-100">
+                  <h3 className="font-semibold text-slate-900 mb-2">Sold By (Seller)</h3>
+                  <div className="text-sm text-slate-600 space-y-1">
+                    <p className="font-medium text-slate-900">
                       {selectedInvoice.seller?.businessName || "N/A"}
                     </p>
                     {selectedInvoice.seller?.email && <p>Email: {selectedInvoice.seller.email}</p>}
@@ -280,23 +492,23 @@ const DistributorInvoices = () => {
                   <p className="text-gray-600">Loading order items...</p>
                 </div>
               ) : orderData ? (
-                <div className="border-t pt-4">
-                  <h3 className="font-semibold text-slate-100 mb-4">Order Items</h3>
+                <div className="border-t border-slate-200 pt-6">
+                  <h3 className="font-semibold text-slate-900 mb-4">Order Items</h3>
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
-                      <thead className="bg-slate-800">
+                      <thead className="bg-slate-100">
                         <tr>
-                          <th className="px-4 py-2 text-left text-slate-200">Product Details</th>
-                          <th className="px-4 py-2 text-left text-slate-200">SKU</th>
-                          <th className="px-4 py-2 text-left text-slate-200">Brand</th>
-                          <th className="px-4 py-2 text-left text-slate-200">Category</th>
-                          <th className="px-4 py-2 text-right text-slate-200">Unit</th>
-                          <th className="px-4 py-2 text-right text-slate-200">Base Price</th>
-                          <th className="px-4 py-2 text-right text-slate-200">MRP</th>
-                          <th className="px-4 py-2 text-right text-slate-200">GST %</th>
-                          <th className="px-4 py-2 text-right text-slate-200">Selling Price</th>
-                          <th className="px-4 py-2 text-center text-slate-200">Qty</th>
-                          <th className="px-4 py-2 text-right text-slate-200">Total</th>
+                          <th className="px-4 py-2 text-left text-slate-600">Product Details</th>
+                          <th className="px-4 py-2 text-left text-slate-600">SKU</th>
+                          <th className="px-4 py-2 text-left text-slate-600">Brand</th>
+                          <th className="px-4 py-2 text-left text-slate-600">Category</th>
+                          <th className="px-4 py-2 text-right text-slate-600">Unit</th>
+                          <th className="px-4 py-2 text-right text-slate-600">Base Price</th>
+                          <th className="px-4 py-2 text-right text-slate-600">MRP</th>
+                          <th className="px-4 py-2 text-right text-slate-600">GST %</th>
+                          <th className="px-4 py-2 text-right text-slate-600">Selling Price</th>
+                          <th className="px-4 py-2 text-center text-slate-600">Qty</th>
+                          <th className="px-4 py-2 text-right text-slate-600">Total</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -306,10 +518,10 @@ const DistributorInvoices = () => {
                           const total = qty * price;
                           return (
                             <tr key={idx} className="border-b">
-                              <td className="px-4 py-2">
-                                <div className="font-medium">{item.productName || item.name || "N/A"}</div>
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-slate-900">{item.productName || item.name || "N/A"}</div>
                                 {item.hsnCode && (
-                                  <div className="text-xs text-slate-400 mt-0.5">HSN: {item.hsnCode}</div>
+                                  <div className="text-xs text-slate-500 mt-0.5">HSN: {item.hsnCode}</div>
                                 )}
                               </td>
                               <td className="px-4 py-2">{item.sku || "—"}</td>
@@ -334,11 +546,11 @@ const DistributorInvoices = () => {
                                 })()}
                               </td>
                               <td className="px-4 py-2 text-right">
-                                <span className="font-semibold text-emerald-400">₹{price.toFixed(2)}</span>
+                                <span className="font-semibold text-emerald-600">₹{price.toFixed(2)}</span>
                               </td>
                               <td className="px-4 py-2 text-center">{qty}</td>
                               <td className="px-4 py-2 text-right">
-                                <span className="font-semibold">₹{total.toFixed(2)}</span>
+                                <span className="font-semibold text-slate-900">₹{total.toFixed(2)}</span>
                               </td>
                             </tr>
                           );
@@ -358,29 +570,12 @@ const DistributorInvoices = () => {
               )}
 
               {/* Payment and Totals */}
-              <div className="border-t pt-4 space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-300">Payment Method:</span>
-                  <span className="font-semibold">
-                    {getPaymentModeLabel(selectedInvoice)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-300">Payment Status:</span>
-                  <span
-                    className={`font-semibold ${
-                      selectedInvoice.payment?.isPaid ? "text-green-600" : "text-amber-600"
-                    }`}
-                  >
-                    {selectedInvoice.payment?.isPaid ? "Paid" : "Pending"}
-                  </span>
-                </div>
-
+                <div className="border-t border-slate-200 pt-6 space-y-4">
                 {/* Full Breakdown */}
                 {selectedInvoice.totals && (
-                  <div className="border-t pt-4">
-                    <h4 className="font-semibold mb-3 text-slate-100">Invoice Breakdown</h4>
-                    <div className="space-y-1 text-sm text-slate-300">
+                  <div className="pt-2">
+                    <h4 className="font-semibold mb-3 text-slate-900">Invoice Breakdown</h4>
+                    <div className="space-y-1 text-sm text-slate-600">
                       {selectedInvoice.totals.grossItems !== undefined && (
                         <div className="flex justify-between"><span>Unit Price Total</span><span>₹{Number(selectedInvoice.totals.grossItems || 0).toFixed(2)}</span></div>
                       )}
@@ -439,8 +634,8 @@ const DistributorInvoices = () => {
                 )}
 
                 <div className="flex justify-between items-center pt-2 border-t">
-                  <span className="text-lg font-semibold text-slate-100">Grand Total:</span>
-                  <span className="text-2xl font-bold text-slate-100">
+                  <span className="text-lg font-semibold text-slate-900">Grand Total:</span>
+                  <span className="text-2xl font-bold text-slate-900">
                     ₹{Number(selectedInvoice.totals?.grandTotal || 0).toLocaleString("en-IN", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
@@ -451,8 +646,8 @@ const DistributorInvoices = () => {
 
               {/* Order ID if available */}
               {selectedInvoice.orderId && (
-                <div className="border-t pt-4">
-                  <p className="text-sm text-slate-300">
+                <div className="border-t border-slate-200 pt-4">
+                  <p className="text-sm text-slate-600">
                     <span className="font-medium">Order ID:</span> {selectedInvoice.orderId}
                   </p>
                 </div>

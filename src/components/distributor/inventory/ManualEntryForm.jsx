@@ -847,8 +847,8 @@ const ManualEntryForm = () => {
             {/* GST % */}
             <div>
               <label className="text-xs text-white/60">GST %</label>
-              <input
-                type="number"
+        <input
+          type="number"
                 name="taxRate"
                 placeholder="GST %"
                 value={pricingValues.taxRate}
@@ -887,19 +887,19 @@ const ManualEntryForm = () => {
           onChange={handleChange}
           className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
         />
-        <textarea
-          name="description"
-          placeholder="Description"
+      <textarea
+        name="description"
+        placeholder="Description"
           value={formData.description}
-          onChange={handleChange}
+        onChange={handleChange}
           className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 col-span-2"
-        />
+      />
         <div className="col-span-2">
-          <input
-            type="file"
-            name="image"
-            accept="image/*"
-            onChange={handleChange}
+            <input
+              type="file"
+              name="image"
+              accept="image/*"
+              onChange={handleChange}
             className="mb-2 p-2 rounded bg-white/10 border border-white/20 text-white file:bg-white/10 file:border-0 file:px-3 file:py-1 file:mr-3 file:rounded cursor-pointer"
           />
           {previewUrl && (
@@ -1046,7 +1046,7 @@ const ManualEntryForm = () => {
         subtitle={batchMode ? "Capture once to detect multiple products." : "Align the product, hold steady, then tap Scan. We'll capture a quick burst for accuracy."}
         badge={batchMode ? "Batch mode" : undefined}
       />
-    </div>
+      </div>
   );
 };
 

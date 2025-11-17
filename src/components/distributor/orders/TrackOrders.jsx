@@ -595,6 +595,15 @@ const TrackOrders = () => {
           orderData.invoiceNumber ||
           `INV-${(orderId || '').slice(-6).toUpperCase()}`;
 
+        const orderIsPaid =
+          orderData?.isPaid === true ||
+          orderData?.paymentStatus === 'Paid' ||
+          orderData?.payment?.isPaid === true;
+        const invoicePaymentStatus =
+          (orderIsPaid && 'Paid') ||
+          orderData?.paymentStatus ||
+          (isCredit ? 'Payment Due' : 'Pending');
+
         const invoiceDoc = {
           orderId,
           invoiceNumber,
@@ -607,11 +616,14 @@ const TrackOrders = () => {
             mode: paymentLabel,
             flags: mergedFlags,
             normalized: normalizedToStore,
-            isPaid: !!updatePayload.isPaid || updatePayload.paymentStatus === 'Paid',
+            isPaid: orderIsPaid || updatePayload.paymentStatus === 'Paid',
+            status: invoicePaymentStatus,
           },
           issuedAt: nowIso,
           createdAt: serverTimestamp(),
-          status: 'Issued',
+          status: orderIsPaid ? 'Paid' : 'Issued',
+          paymentStatus: invoicePaymentStatus,
+          isPaid: orderIsPaid,
           source: 'distributor-track-orders',
         };
 
