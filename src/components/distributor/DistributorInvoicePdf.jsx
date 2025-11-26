@@ -4,61 +4,62 @@ import { splitFromMrp } from "../../utils/pricing";
 
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
-    fontSize: 10,
+    padding: 30,
+    fontSize: 8,
     fontFamily: "Helvetica",
     color: "#111827",
     backgroundColor: "#FFFFFF",
   },
   header: {
-    marginBottom: 24,
-    paddingBottom: 16,
+    marginBottom: 12,
+    paddingBottom: 10,
     borderBottomWidth: 2,
     borderBottomColor: "#E5E7EB",
   },
   heading: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 700,
-    marginBottom: 4,
+    marginBottom: 3,
     color: "#111827",
   },
   invoiceMeta: {
-    fontSize: 9,
+    fontSize: 7,
     color: "#6B7280",
-    marginTop: 4,
+    marginTop: 2,
+    lineHeight: 1.3,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: 700,
-    marginBottom: 8,
+    marginBottom: 5,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
     color: "#374151",
   },
   card: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 8,
     backgroundColor: "#FAFAFA",
   },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 8,
   },
   infoText: {
-    fontSize: 10,
-    lineHeight: 1.5,
+    fontSize: 8,
+    lineHeight: 1.4,
     color: "#374151",
-    marginBottom: 3,
+    marginBottom: 2,
   },
   table: {
-    marginTop: 8,
+    marginTop: 6,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 6,
+    borderRadius: 4,
     overflow: "hidden",
     backgroundColor: "#FFFFFF",
   },
@@ -70,20 +71,21 @@ const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: "row",
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.5,
     borderBottomColor: "#F3F4F6",
     backgroundColor: "#FFFFFF",
   },
   th: {
     fontWeight: 700,
-    fontSize: 9,
-    padding: 8,
+    fontSize: 7,
+    padding: 4,
     color: "#374151",
   },
   td: {
-    fontSize: 9,
-    padding: 8,
+    fontSize: 7,
+    padding: 4,
     color: "#111827",
+    lineHeight: 1.3,
   },
   bold: {
     fontWeight: 700,
@@ -91,37 +93,37 @@ const styles = StyleSheet.create({
   breakdownRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    fontSize: 9,
-    marginBottom: 4,
-    paddingVertical: 2,
+    fontSize: 7,
+    marginBottom: 2,
+    paddingVertical: 1,
   },
   breakdownTotal: {
     flexDirection: "row",
     justifyContent: "space-between",
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: 700,
-    marginTop: 8,
-    paddingTop: 8,
+    marginTop: 4,
+    paddingTop: 4,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
     color: "#111827",
   },
   footer: {
-    marginTop: 24,
-    paddingTop: 16,
+    marginTop: 12,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
     textAlign: "center",
-    fontSize: 8,
+    fontSize: 7,
     color: "#6B7280",
   },
   grandTotalBox: {
     backgroundColor: "#ECFDF5",
     borderWidth: 1,
     borderColor: "#10B981",
-    borderRadius: 6,
-    padding: 12,
-    marginTop: 12,
+    borderRadius: 4,
+    padding: 8,
+    marginTop: 8,
   },
 });
 
@@ -190,7 +192,12 @@ const getDisplayBasePrice = (order, idx, item) => {
 };
 
 const DistributorInvoicePdf = ({ invoice = {}, order = null }) => {
-  const items = Array.isArray(order?.items) ? order.items : [];
+  // Get items from order or invoice, with fallback
+  const items = Array.isArray(order?.items) 
+    ? order.items 
+    : Array.isArray(invoice?.items) 
+    ? invoice.items 
+    : [];
   const totals = invoice.totals || {};
   
   // Determine payment status - check order first (most accurate), then invoice
@@ -285,12 +292,13 @@ const DistributorInvoicePdf = ({ invoice = {}, order = null }) => {
           ) : (
             <View style={styles.table}>
               <View style={styles.tableHeader}>
-                <Text style={[styles.th, { flex: 2 }]}>Product</Text>
-                <Text style={[styles.th, { flex: 1 }]}>SKU</Text>
-                <Text style={[styles.th, { flex: 1 }]}>GST %</Text>
-                <Text style={[styles.th, { flex: 1 }]}>Base Price</Text>
-                <Text style={[styles.th, { flex: 1 }]}>Selling Price</Text>
-                <Text style={[styles.th, { width: 40 }]}>Qty</Text>
+                <Text style={[styles.th, { flex: 2.5 }]}>Product</Text>
+                <Text style={[styles.th, { flex: 0.8 }]}>SKU</Text>
+                <Text style={[styles.th, { flex: 0.6 }]}>Brand</Text>
+                <Text style={[styles.th, { flex: 0.7 }]}>GST %</Text>
+                <Text style={[styles.th, { flex: 0.9 }]}>Base</Text>
+                <Text style={[styles.th, { flex: 0.9 }]}>Selling</Text>
+                <Text style={[styles.th, { flex: 0.5 }]}>Qty</Text>
                 <Text style={[styles.th, { flex: 1 }]}>Total</Text>
               </View>
               {items.map((item, idx) => {
@@ -298,18 +306,19 @@ const DistributorInvoicePdf = ({ invoice = {}, order = null }) => {
                 const price = Number(item.sellingPrice || item.price || item.unitPrice || 0);
                 const total = qty * price;
                 const gstRate = Number(item.gstRate || item.taxRate || 0);
-                const basePrice = getDisplayBasePrice(order, idx, item);
+                const basePrice = getDisplayBasePrice(order || invoice, idx, item);
                 return (
                   <View key={idx} style={styles.tableRow}>
-                    <Text style={[styles.td, { flex: 2 }]}>
+                    <Text style={[styles.td, { flex: 2.5 }]}>
                       {item.productName || item.name || "N/A"}
                       {item.hsnCode ? `\nHSN: ${item.hsnCode}` : ""}
                     </Text>
-                    <Text style={[styles.td, { flex: 1 }]}>{item.sku || "—"}</Text>
-                    <Text style={[styles.td, { flex: 1 }]}>{gstRate > 0 ? `${gstRate}%` : "—"}</Text>
-                    <Text style={[styles.td, { flex: 1 }]}>{currency(basePrice)}</Text>
-                    <Text style={[styles.td, { flex: 1 }]}>{currency(price)}</Text>
-                    <Text style={[styles.td, { width: 40 }]}>{qty}</Text>
+                    <Text style={[styles.td, { flex: 0.8 }]}>{item.sku || "—"}</Text>
+                    <Text style={[styles.td, { flex: 0.6 }]}>{item.brand || "—"}</Text>
+                    <Text style={[styles.td, { flex: 0.7 }]}>{gstRate > 0 ? `${gstRate}%` : "—"}</Text>
+                    <Text style={[styles.td, { flex: 0.9 }]}>{currency(basePrice)}</Text>
+                    <Text style={[styles.td, { flex: 0.9 }]}>{currency(price)}</Text>
+                    <Text style={[styles.td, { flex: 0.5 }]}>{qty}</Text>
                     <Text style={[styles.td, { flex: 1 }]}>{currency(total)}</Text>
                   </View>
                 );
@@ -417,7 +426,149 @@ const DistributorInvoicePdf = ({ invoice = {}, order = null }) => {
           </View>
         )}
 
-        <Text style={styles.footer}>Generated via StockPilot · {formatDate(new Date().toISOString())}</Text>
+        {/* Delivery Details Section */}
+        {(invoice.deliveryDetails || invoice.deliveryMode || invoice.expectedDeliveryDate) && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Delivery Information</Text>
+            <View style={{ marginTop: 4 }}>
+              {invoice.deliveryMode && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Delivery Mode: </Text>
+                  {invoice.deliveryMode}
+                </Text>
+              )}
+              {invoice.expectedDeliveryDate && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Expected Delivery Date: </Text>
+                  {formatDate(invoice.expectedDeliveryDate)}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.personName && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Delivery Person: </Text>
+                  {invoice.deliveryDetails.personName}
+                  {invoice.deliveryDetails.personDesignation && ` (${invoice.deliveryDetails.personDesignation})`}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.personPhone && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Contact: </Text>
+                  {invoice.deliveryDetails.personPhone}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.vehicleType && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Vehicle Type: </Text>
+                  {invoice.deliveryDetails.vehicleType}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.vehicleNumber && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Vehicle Number: </Text>
+                  {invoice.deliveryDetails.vehicleNumber}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.transportMethod && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Transport Method: </Text>
+                  {invoice.deliveryDetails.transportMethod.replace(/-/g, ' ')}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.awbNumber && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>AWB/Tracking Number: </Text>
+                  {invoice.deliveryDetails.awbNumber}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.transportServiceName && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Transport Service: </Text>
+                  {invoice.deliveryDetails.transportServiceName}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.courierName && (
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Courier: </Text>
+                  {invoice.deliveryDetails.courierName}
+                </Text>
+              )}
+              {invoice.deliveryDetails?.deliveryNotes && (
+                <Text style={[styles.infoText, { marginTop: 4 }]}>
+                  <Text style={styles.bold}>Delivery Notes: </Text>
+                  {"\n"}
+                  {invoice.deliveryDetails.deliveryNotes}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Payment Information Section */}
+        {invoice.payment && (
+          <View style={[styles.section, { marginTop: 12, padding: 8, backgroundColor: "#F3F4F6" }]}>
+            <Text style={[styles.heading, { fontSize: 10, marginBottom: 6 }]}>💳 Payment Information</Text>
+            {invoice.payment.isPaid ? (
+              <View>
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>Status: </Text>
+                  <Text style={{ color: "#10B981" }}>Paid</Text>
+                </Text>
+                {invoice.payment.receivedMethodLabel && (
+                  <Text style={styles.infoText}>
+                    <Text style={styles.bold}>Payment Received Via: </Text>
+                    {invoice.payment.receivedMethodLabel}
+                  </Text>
+                )}
+                {invoice.payment.receivedTransactionId && (
+                  <Text style={styles.infoText}>
+                    <Text style={styles.bold}>Transaction ID: </Text>
+                    {invoice.payment.receivedTransactionId}
+                  </Text>
+                )}
+                {invoice.payment.receivedReference && (
+                  <Text style={styles.infoText}>
+                    <Text style={styles.bold}>Reference: </Text>
+                    {invoice.payment.receivedReference}
+                  </Text>
+                )}
+                {invoice.payment.receivedAt && (
+                  <Text style={styles.infoText}>
+                    <Text style={styles.bold}>Received At: </Text>
+                    {formatDate(invoice.payment.receivedAt)}
+                  </Text>
+                )}
+                {invoice.payment.receivedBy?.name && (
+                  <Text style={styles.infoText}>
+                    <Text style={styles.bold}>Received By: </Text>
+                    {invoice.payment.receivedBy.name}
+                    {invoice.payment.receivedBy.type === 'employee' && (
+                      <Text style={{ fontSize: 7, color: "#6B7280" }}> (Employee)</Text>
+                    )}
+                  </Text>
+                )}
+                {invoice.payment.receivedNotes && (
+                  <Text style={[styles.infoText, { marginTop: 4 }]}>
+                    <Text style={styles.bold}>Notes: </Text>
+                    {invoice.payment.receivedNotes}
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <Text style={styles.infoText}>
+                <Text style={styles.bold}>Status: </Text>
+                <Text style={{ color: "#F59E0B" }}>Pending</Text>
+              </Text>
+            )}
+            {invoice.payment.mode && (
+              <Text style={[styles.infoText, { marginTop: 4 }]}>
+                <Text style={styles.bold}>Original Payment Mode: </Text>
+                {invoice.payment.mode}
+              </Text>
+            )}
+          </View>
+        )}
+
+        <Text style={styles.footer}>POWERED BY FLYP · {formatDate(new Date().toISOString())}</Text>
       </Page>
     </Document>
   );

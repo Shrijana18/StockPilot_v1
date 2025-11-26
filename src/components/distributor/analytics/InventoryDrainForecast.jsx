@@ -63,31 +63,56 @@ const InventoryDrainForecast = ({ distributorId }) => {
   }, [distributorId]);
 
   return (
-    <div className="bg-white rounded-lg shadow p-4 mb-6">
-      <h2 className="text-lg font-semibold mb-2">📦 Inventory Drain Forecast</h2>
+    <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+      <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <span>📦</span> Inventory Drain Forecast
+      </h2>
       {forecastData.length === 0 ? (
-        <p>No data available for forecast.</p>
+        <p className="text-white/60">No data available for forecast.</p>
       ) : (
-        <table className="w-full text-sm mt-2">
-          <thead>
-            <tr className="text-left border-b">
-              <th className="py-1">Product</th>
-              <th className="py-1">Stock</th>
-              <th className="py-1">Avg Sold/Day</th>
-              <th className="py-1">Est. Days Left</th>
-            </tr>
-          </thead>
-          <tbody>
-            {forecastData.map((item, index) => (
-              <tr key={index} className="border-b">
-                <td className="py-1">{item.name}</td>
-                <td className="py-1">{item.currentStock}</td>
-                <td className="py-1">{item.avgDailySale}</td>
-                <td className="py-1">{item.daysLeft}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b border-white/20">
+                <th className="py-2 px-3 text-white/80">Product</th>
+                <th className="py-2 px-3 text-right text-white/80">Stock</th>
+                <th className="py-2 px-3 text-right text-white/80">Avg Sold/Day</th>
+                <th className="py-2 px-3 text-right text-white/80">Est. Days Left</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {forecastData.map((item, index) => {
+                const daysLeft = typeof item.daysLeft === "number" ? item.daysLeft : Infinity;
+                const isCritical = daysLeft < 7;
+                const isLow = daysLeft < 30;
+                return (
+                  <tr key={index} className="border-b border-white/10 hover:bg-white/5">
+                    <td className="py-2 px-3 text-white font-medium">{item.name}</td>
+                    <td className="py-2 px-3 text-right text-white">{item.currentStock}</td>
+                    <td className="py-2 px-3 text-right text-white/60">{item.avgDailySale}</td>
+                    <td className="py-2 px-3 text-right">
+                      {daysLeft === Infinity ? (
+                        <span className="text-white/40">∞</span>
+                      ) : (
+                        <span
+                          className={`px-2 py-1 rounded text-xs font-medium ${
+                            isCritical
+                              ? "bg-red-500/20 text-red-300"
+                              : isLow
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-emerald-500/20 text-emerald-300"
+                          }`}
+                        >
+                          {daysLeft} days
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

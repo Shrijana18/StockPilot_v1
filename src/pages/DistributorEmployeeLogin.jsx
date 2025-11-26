@@ -69,6 +69,7 @@ const DistributorEmployeeLogin = () => {
         distributorId: employeeData.distributorId || distributorId,
         name: employeeData.name,
         role: employeeData.role,
+        flypEmployeeId: employeeData.flypEmployeeId || employeeData.id, // Include flypEmployeeId
         accessSections: employeeData.accessSections || {}
       });
 
@@ -91,6 +92,7 @@ const DistributorEmployeeLogin = () => {
             distributorId: employeeData.distributorId || distributorId,
             name: employeeData.name,
             role: employeeData.role,
+            flypEmployeeId: employeeData.flypEmployeeId || employeeData.id, // Include flypEmployeeId
             accessSections: employeeData.accessSections || {}
           });
         }

@@ -9,6 +9,9 @@ import './index.css';
 import './firebase/firebaseConfig';
 import 'firebaseui/dist/firebaseui.css';
 
+// Initialize i18n
+import './i18n/config';
+
 import { AuthProvider } from './context/AuthContext';
 import { BrowserRouter } from 'react-router-dom';
 

@@ -191,68 +191,68 @@ const PublicInvoiceView = () => {
   const paymentStatus = getPaymentStatus();
 
   return (
-    <div className="min-h-screen bg-slate-50 py-8 px-4">
-      <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-lg p-6 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 py-6 px-4 print:py-0 print:px-0">
+      <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 md:p-6 print:p-4 print:shadow-none print:border-0 print:rounded-none print:max-w-full">
         {/* Header */}
-        <div className="flex justify-between items-start mb-6 pb-6 border-b">
+        <div className="flex justify-between items-start mb-4 pb-4 border-b-2 border-slate-200 print:mb-2 print:pb-2">
           <div>
-            <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Invoice</p>
-            <h1 className="text-3xl font-bold text-slate-900">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-1 font-semibold">Tax Invoice</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 print:text-xl">
               {invoice.invoiceNumber || invoice.id}
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 mt-0.5 print:text-[10px]">
               Issued on {formatDate(invoice.issuedAt)}
             </p>
           </div>
           <button
             onClick={handleDownloadPdf}
             disabled={downloadingPdf}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition print:hidden ${
               downloadingPdf
                 ? "bg-slate-400 text-white cursor-not-allowed"
-                : "bg-slate-900 text-white hover:bg-slate-800"
+                : "bg-gradient-to-r from-slate-900 to-slate-800 text-white hover:from-slate-800 hover:to-slate-700 shadow-md"
             }`}
           >
-            {downloadingPdf ? "Preparing PDF..." : "Download PDF"}
+            {downloadingPdf ? "Preparing..." : "Download PDF"}
           </button>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-            <p className="text-xs uppercase text-emerald-600 mb-1">Grand Total</p>
-            <p className="text-2xl font-bold text-emerald-700">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 print:grid-cols-3 print:gap-2">
+          <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-2 border-emerald-300 rounded-xl p-3 print:border print:p-2">
+            <p className="text-[10px] uppercase text-emerald-700 mb-0.5 font-semibold tracking-wide">Grand Total</p>
+            <p className="text-xl md:text-2xl font-bold text-emerald-800 print:text-lg">
               {formatCurrency(invoice.totals?.grandTotal || 0)}
             </p>
           </div>
-          <div className={`border rounded-lg p-4 ${
+          <div className={`border-2 rounded-xl p-3 print:border print:p-2 ${
             paymentStatus.isPaid
-              ? "bg-emerald-50 border-emerald-200"
-              : "bg-amber-50 border-amber-200"
+              ? "bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-300"
+              : "bg-gradient-to-br from-amber-50 to-amber-100 border-amber-300"
           }`}>
-            <p className="text-xs uppercase mb-1 text-slate-600">Payment Status</p>
-            <p className={`text-lg font-semibold ${
-              paymentStatus.isPaid ? "text-emerald-700" : "text-amber-700"
+            <p className="text-[10px] uppercase mb-0.5 font-semibold tracking-wide text-slate-700">Payment Status</p>
+            <p className={`text-lg md:text-xl font-bold print:text-base ${
+              paymentStatus.isPaid ? "text-emerald-800" : "text-amber-800"
             }`}>
               {paymentStatus.label}
             </p>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-            <p className="text-xs uppercase text-slate-600 mb-1">Payment Method</p>
-            <p className="text-lg font-semibold text-slate-900">
+          <div className="bg-gradient-to-br from-slate-50 to-slate-100 border-2 border-slate-300 rounded-xl p-3 print:border print:p-2">
+            <p className="text-[10px] uppercase text-slate-700 mb-0.5 font-semibold tracking-wide">Payment Method</p>
+            <p className="text-lg md:text-xl font-bold text-slate-900 print:text-base">
               {getPaymentModeLabel(invoice)}
             </p>
           </div>
         </div>
 
         {/* Parties */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <div className="border border-slate-200 rounded-lg p-4">
-            <p className="text-xs uppercase text-slate-500 mb-2">Bill To</p>
-            <p className="font-semibold text-lg text-slate-900">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 print:grid-cols-2 print:gap-3">
+          <div className="border-2 border-slate-200 rounded-xl p-3 bg-slate-50/50 print:border print:p-2">
+            <p className="text-[10px] uppercase text-slate-600 mb-1.5 font-semibold tracking-wide">Bill To (Buyer)</p>
+            <p className="font-bold text-base text-slate-900 print:text-sm">
               {invoice.buyer?.businessName || "N/A"}
             </p>
-            <div className="text-sm text-slate-600 mt-2 space-y-1">
+            <div className="text-xs text-slate-600 mt-1.5 space-y-0.5 print:text-[10px]">
               {invoice.buyer?.email && <p>{invoice.buyer.email}</p>}
               {invoice.buyer?.phone && <p>{invoice.buyer.phone}</p>}
               {(invoice.buyer?.city || invoice.buyer?.state) && (
@@ -260,12 +260,12 @@ const PublicInvoiceView = () => {
               )}
             </div>
           </div>
-          <div className="border border-slate-200 rounded-lg p-4">
-            <p className="text-xs uppercase text-slate-500 mb-2">Sold By</p>
-            <p className="font-semibold text-lg text-slate-900">
+          <div className="border-2 border-slate-200 rounded-xl p-3 bg-slate-50/50 print:border print:p-2">
+            <p className="text-[10px] uppercase text-slate-600 mb-1.5 font-semibold tracking-wide">Sold By (Seller)</p>
+            <p className="font-bold text-base text-slate-900 print:text-sm">
               {invoice.seller?.businessName || "N/A"}
             </p>
-            <div className="text-sm text-slate-600 mt-2 space-y-1">
+            <div className="text-xs text-slate-600 mt-1.5 space-y-0.5 print:text-[10px]">
               {invoice.seller?.email && <p>{invoice.seller.email}</p>}
               {invoice.seller?.phone && <p>{invoice.seller.phone}</p>}
               {invoice.seller?.gstNumber && <p>GSTIN: {invoice.seller.gstNumber}</p>}
@@ -277,74 +277,84 @@ const PublicInvoiceView = () => {
         </div>
 
         {/* Items Table */}
-        {orderData && orderData.items && (
-          <div className="mb-6">
-            <h3 className="font-semibold text-lg text-slate-900 mb-4">Order Items</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border border-slate-200">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Product</th>
-                    <th className="px-3 py-2 text-left">SKU</th>
-                    <th className="px-3 py-2 text-left">Brand</th>
-                    <th className="px-3 py-2 text-right">Unit</th>
-                    <th className="px-3 py-2 text-right">Base Price</th>
-                    <th className="px-3 py-2 text-right">MRP</th>
-                    <th className="px-3 py-2 text-right">GST %</th>
-                    <th className="px-3 py-2 text-right">Selling Price</th>
-                    <th className="px-3 py-2 text-center">Qty</th>
-                    <th className="px-3 py-2 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orderData.items.map((item, idx) => {
+        {(() => {
+          // Get items from orderData or invoice, with fallback
+          const items = (orderData?.items || invoice?.items || []);
+          if (!items || items.length === 0) return null;
+          
+          return (
+            <div className="mb-4 print:mb-2">
+              <h3 className="font-bold text-sm text-slate-900 mb-2 print:text-xs print:mb-1">Order Items</h3>
+              <div className="overflow-x-auto -mx-4 px-4 print:mx-0 print:px-0">
+                <div className="inline-block min-w-full align-middle">
+                  <table className="min-w-full text-[10px] border-collapse print:text-[9px]">
+                    <thead>
+                      <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
+                        <th className="px-2 py-1.5 text-left font-semibold text-slate-700 text-[10px]">Product</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-slate-700 text-[10px]">SKU</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-slate-700 text-[10px]">Brand</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-slate-700 text-[10px]">Unit</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-slate-700 text-[10px]">Base Price</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-slate-700 text-[10px]">MRP</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-slate-700 text-[10px]">GST %</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-slate-700 text-[10px]">Selling</th>
+                        <th className="px-2 py-1.5 text-center font-semibold text-slate-700 text-[10px]">Qty</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-slate-700 text-[10px]">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {items.map((item, idx) => {
                     const qty = Number(item.quantity || item.qty || 0);
                     const price = Number(item.sellingPrice || item.price || item.unitPrice || 0);
                     const total = qty * price;
-                    const basePrice = getDisplayBasePrice(orderData, idx, item);
-                    const gstRate =
-                      (Array.isArray(orderData?.proforma?.lines) &&
-                        orderData.proforma.lines[idx]?.gstRate) ||
-                      item.gstRate ||
-                      item.taxRate ||
-                      0;
-                    return (
-                      <tr key={idx} className="border-t border-slate-200">
-                        <td className="px-3 py-2">
-                          <p className="font-semibold">{item.productName || item.name || "N/A"}</p>
-                          {item.hsnCode && <p className="text-xs text-slate-500">HSN: {item.hsnCode}</p>}
-                        </td>
-                        <td className="px-3 py-2">{item.sku || "—"}</td>
-                        <td className="px-3 py-2">{item.brand || "—"}</td>
-                        <td className="px-3 py-2 text-right">{item.unit || "—"}</td>
-                        <td className="px-3 py-2 text-right">
-                          {basePrice > 0 ? formatCurrency(basePrice) : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {item.mrp > 0 ? formatCurrency(item.mrp) : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right">{gstRate ? `${gstRate}%` : "—"}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-emerald-600">
-                          {formatCurrency(price)}
-                        </td>
-                        <td className="px-3 py-2 text-center">{qty}</td>
-                        <td className="px-3 py-2 text-right font-semibold">
-                          {formatCurrency(total)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        const basePrice = getDisplayBasePrice(orderData || invoice, idx, item);
+                        const gstRate =
+                          (Array.isArray(orderData?.proforma?.lines) &&
+                            orderData.proforma.lines[idx]?.gstRate) ||
+                          (Array.isArray(invoice?.proforma?.lines) &&
+                            invoice.proforma.lines[idx]?.gstRate) ||
+                          item.gstRate ||
+                          item.taxRate ||
+                          0;
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-2 py-1.5 align-top">
+                              <p className="font-semibold text-slate-900 leading-tight">{item.productName || item.name || "N/A"}</p>
+                              {item.hsnCode && <p className="text-[9px] text-slate-400 mt-0.5">HSN: {item.hsnCode}</p>}
+                            </td>
+                            <td className="px-2 py-1.5 text-slate-600 text-[10px]">{item.sku || "—"}</td>
+                            <td className="px-2 py-1.5 text-slate-600 text-[10px]">{item.brand || "—"}</td>
+                            <td className="px-2 py-1.5 text-right text-slate-600 text-[10px]">{item.unit || "—"}</td>
+                            <td className="px-2 py-1.5 text-right text-slate-700 text-[10px]">
+                              {basePrice > 0 ? formatCurrency(basePrice) : "—"}
+                            </td>
+                            <td className="px-2 py-1.5 text-right text-slate-700 text-[10px]">
+                              {item.mrp > 0 ? formatCurrency(item.mrp) : "—"}
+                            </td>
+                            <td className="px-2 py-1.5 text-right text-slate-700 text-[10px]">{gstRate ? `${gstRate}%` : "—"}</td>
+                            <td className="px-2 py-1.5 text-right font-semibold text-emerald-600 text-[10px]">
+                              {formatCurrency(price)}
+                            </td>
+                            <td className="px-2 py-1.5 text-center text-slate-700 text-[10px] font-medium">{qty}</td>
+                            <td className="px-2 py-1.5 text-right font-semibold text-slate-900 text-[10px]">
+                              {formatCurrency(total)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Breakdown */}
         {invoice.totals && (
-          <div className="border border-slate-200 rounded-lg p-4 mb-6">
-            <h3 className="font-semibold text-base text-slate-900 mb-3">Invoice Breakdown</h3>
-            <div className="space-y-1 text-sm">
+          <div className="border-2 border-slate-200 rounded-xl p-3 mb-4 bg-slate-50/30 print:border print:p-2">
+            <h3 className="font-bold text-sm text-slate-900 mb-2 print:text-xs">Invoice Breakdown</h3>
+            <div className="space-y-0.5 text-xs print:text-[10px]">
               {invoice.totals.grossItems !== undefined && (
                 <div className="flex justify-between">
                   <span>Unit Price Total</span>
@@ -427,7 +437,7 @@ const PublicInvoiceView = () => {
                   <span>{formatCurrency(invoice.totals.roundOff)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-lg font-semibold text-slate-900 pt-3 border-t">
+              <div className="flex justify-between text-base font-bold text-slate-900 pt-2 mt-2 border-t-2 border-slate-300 print:text-sm print:pt-1 print:mt-1">
                 <span>Grand Total</span>
                 <span>{formatCurrency(invoice.totals.grandTotal || 0)}</span>
               </div>
@@ -436,7 +446,7 @@ const PublicInvoiceView = () => {
         )}
 
         {/* Footer */}
-        <div className="text-center text-xs text-slate-500 pt-4 border-t">
+        <div className="text-center text-[10px] text-slate-400 pt-3 border-t border-slate-200 print:text-[9px] print:pt-2">
           <p>Powered by FLYP — Smart Business Invoicing</p>
         </div>
       </div>

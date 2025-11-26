@@ -35,6 +35,7 @@ const { resetPin } = require("./employees/resetEmployeePin");
 exports.resetPin = resetPin;
 exports.resetDistributorEmployeePin = require("./employees/resetDistributorEmployeePin");
 exports.distributorEmployeeLogin = require("./employees/distributorEmployeeLogin");
+exports.restoreDistributorEmployeeAuth = require("./employees/restoreDistributorEmployeeAuth");
 exports.migrateEmployeeIds = require("./employees/migrateEmployeeIds");
 
 // Retailer Profile Sync

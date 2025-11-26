@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { collection, getDocs, getDoc, doc, updateDoc } from "firebase/firestore";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation } from "react-i18next";
 
 import DistributorCreditDue from "./DistributorCreditDue";
 
@@ -95,6 +96,7 @@ const SectionHeader = ({ title, icon }) => (
 );
 
 const DistributorHome = () => {
+  const { t } = useTranslation();
   const [stats, setStats] = useState({
     totalOrders: 0,
     pendingOrders: 0,
@@ -495,32 +497,32 @@ const DistributorHome = () => {
 
       {/* Top KPI Stats (glass) */}
       <motion.div variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard label="Total Orders" value={stats.totalOrders} />
+        <StatCard label={t("dashboard.totalOrders")} value={stats.totalOrders} />
         <StatCard
-          label="Pending Orders"
+          label={t("dashboard.pendingOrders")}
           value={stats.pendingOrders}
           tone="yellow"
           note={(
             <>
-              <div className="flex items-center justify-between"><span>• Yet to ship</span><span className="font-semibold text-white">{stats.yetToShip}</span></div>
-              <div className="flex items-center justify-between"><span>• Out for delivery</span><span className="font-semibold text-white">{stats.outForDelivery}</span></div>
+              <div className="flex items-center justify-between"><span>• {t("dashboard.yetToShip")}</span><span className="font-semibold text-white">{stats.yetToShip}</span></div>
+              <div className="flex items-center justify-between"><span>• {t("dashboard.outForDelivery")}</span><span className="font-semibold text-white">{stats.outForDelivery}</span></div>
             </>
           )}
         />
-        <StatCard label="Completed Orders" value={stats.completedOrders} tone="green" />
-        <StatCard label="Total Revenue (Paid)" value={`₹${stats.totalRevenue.toFixed(2)}`} tone="blue" />
-        <StatCard label="Due Credit Total" value={`₹${stats.dueCreditTotal.toFixed(2)}`} tone="purple" />
+        <StatCard label={t("dashboard.completedOrders")} value={stats.completedOrders} tone="green" />
+        <StatCard label={`${t("dashboard.revenue")} (${t("invoices.paid")})`} value={`₹${stats.totalRevenue.toFixed(2)}`} tone="blue" />
+        <StatCard label={t("dashboard.dueCredit")} value={`₹${stats.dueCreditTotal.toFixed(2)}`} tone="purple" />
       </motion.div>
 
       <GlassCard className="p-5 mt-2">
         <motion.div variants={fadeInUp} className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h3 className="font-semibold text-lg">🧾 Credit Due Snapshot</h3>
+          <h3 className="font-semibold text-lg">🧾 {t("credit.title")}</h3>
           <div className="flex flex-wrap gap-2 text-xs">
-            <Pill tone="danger">Overdue: ₹{creditBuckets.totals.overdue.toLocaleString()}</Pill>
-            <Pill tone="warning">Today: ₹{creditBuckets.totals.today.toLocaleString()}</Pill>
-            <Pill tone="amber">Tomorrow: ₹{creditBuckets.totals.tomorrow.toLocaleString()}</Pill>
-            <Pill tone="info">Upcoming: ₹{creditBuckets.totals.upcoming.toLocaleString()}</Pill>
-            <Pill tone="purple">Total: ₹{creditBuckets.totals.allDue.toLocaleString()}</Pill>
+            <Pill tone="danger">{t("credit.overdue")}: ₹{creditBuckets.totals.overdue.toLocaleString()}</Pill>
+            <Pill tone="warning">{t("credit.dueToday")}: ₹{creditBuckets.totals.today.toLocaleString()}</Pill>
+            <Pill tone="amber">{t("credit.dueTomorrow")}: ₹{creditBuckets.totals.tomorrow.toLocaleString()}</Pill>
+            <Pill tone="info">{t("credit.upcoming")}: ₹{creditBuckets.totals.upcoming.toLocaleString()}</Pill>
+            <Pill tone="purple">{t("credit.totalDue")}: ₹{creditBuckets.totals.allDue.toLocaleString()}</Pill>
           </div>
         </motion.div>
 
@@ -532,11 +534,11 @@ const DistributorHome = () => {
             onChange={(e) => setFilters((p) => ({ ...p, bucket: e.target.value }))}
             aria-label="Filter bucket"
           >
-            <option className="text-slate-900" value="ALL">All</option>
-            <option className="text-slate-900" value="OVERDUE">Overdue</option>
-            <option className="text-slate-900" value="TODAY">Due Today</option>
-            <option className="text-slate-900" value="TOMORROW">Due Tomorrow</option>
-            <option className="text-slate-900" value="UPCOMING">Upcoming</option>
+            <option className="text-slate-900" value="ALL">{t("common.all")}</option>
+            <option className="text-slate-900" value="OVERDUE">{t("credit.overdue")}</option>
+            <option className="text-slate-900" value="TODAY">{t("credit.dueToday")}</option>
+            <option className="text-slate-900" value="TOMORROW">{t("credit.dueTomorrow")}</option>
+            <option className="text-slate-900" value="UPCOMING">{t("credit.upcoming")}</option>
           </select>
           <select
             className="rounded-lg bg-white/10 border border-white/20 text-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"

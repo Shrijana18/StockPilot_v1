@@ -4,6 +4,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "../firebase/firebaseConfig";
 import { useNavigate } from "react-router-dom";
 import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import { useTranslation } from "react-i18next";
 
 import DistributorInventory from "./distributor/DistributorInventory.jsx";
 import DistributorInvoices from "./distributor/DistributorInvoices.jsx";
@@ -12,8 +13,10 @@ import DistributorAnalytics from "./distributor/analytics/DistributorAnalytics";
 import DistributorHome from "./distributor/DistributorHome";
 import RetailerPanel from "./distributor/RetailerPanel";
 import DistributorViewEmployees from "./distributor/employees/DistributorViewEmployees";
+import DistributorProfileSettings from "./distributor/DistributorProfileSettings";
 
 const DistributorDashboard = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [retailerRequestsCount, setRetailerRequestsCount] = useState(0);
@@ -60,16 +63,17 @@ const DistributorDashboard = () => {
   // --- UI-only: Command Palette state & items ---
   const [isPaletteOpen, setPaletteOpen] = useState(false);
   const PALETTE_ITEMS = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'retailerRequests', label: 'Retailer Panel' },
-    { id: 'inventory', label: 'Inventory' },
-    { id: 'dispatch', label: 'Dispatch Tracker' },
-    { id: 'invoices', label: 'Invoices' },
-    { id: 'analytics', label: 'Analytics' },
+    { id: 'dashboard', label: t('distributor.dashboard') },
+    { id: 'retailerRequests', label: t('distributor.retailerPanel') },
+    { id: 'inventory', label: t('distributor.inventory') },
+    { id: 'dispatch', label: t('distributor.dispatch') },
+    { id: 'invoices', label: t('distributor.invoices') },
+    { id: 'analytics', label: t('distributor.analytics') },
+    { id: 'profile', label: t('profile.title') },
   ];
 
   // --- UI-only: tab order for numeric shortcuts
-  const TAB_KEYS = ['dashboard','retailerRequests','inventory','dispatch','analytics'];
+  const TAB_KEYS = ['dashboard','retailerRequests','inventory','dispatch','analytics','profile'];
 
   const [showGreeting, setShowGreeting] = useState(true);
   useEffect(() => {
@@ -85,6 +89,7 @@ const DistributorDashboard = () => {
     dispatch: 'track-orders', // important: our DispatchTracker page is track-orders in URL
     invoices: 'invoices',
     analytics: 'analytics',
+    profile: 'profile',
   };
   const urlTabToId = {
     'dashboard': 'dashboard',
@@ -93,6 +98,7 @@ const DistributorDashboard = () => {
     'track-orders': 'dispatch',
     'invoices': 'invoices',
     'analytics': 'analytics',
+    'profile': 'profile',
   };
 
   // Read ?tab= from the URL hash on mount and whenever the hash changes
@@ -262,7 +268,7 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                🏠 Dashboard
+                🏠 {t('distributor.dashboard')}
               </button>
               <button
                 onClick={() => { setTabAndHash("retailerRequests"); setIsSidebarOpen(false); }}
@@ -272,7 +278,7 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                📋 Retailer Panel
+                📋 {t('distributor.retailerPanel')}
               </button>
               <button
                 onClick={() => { setTabAndHash("inventory"); setIsSidebarOpen(false); }}
@@ -282,7 +288,7 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                📦 Inventory
+                📦 {t('distributor.inventory')}
               </button>
               <button
                 onClick={() => { setTabAndHash("dispatch"); setIsSidebarOpen(false); }}
@@ -292,7 +298,7 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                🚚 Dispatch Tracker
+                🚚 {t('distributor.dispatch')}
               </button>
               <button
                 onClick={() => { setTabAndHash("invoices"); setIsSidebarOpen(false); }}
@@ -302,7 +308,7 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                🧾 Invoices
+                🧾 {t('distributor.invoices')}
               </button>
               <button
                 onClick={() => { setTabAndHash("analytics"); setIsSidebarOpen(false); }}
@@ -312,7 +318,7 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                📊 Analytics
+                📊 {t('distributor.analytics')}
               </button>
               <button
                 onClick={() => { setTabAndHash("employees"); setIsSidebarOpen(false); }}
@@ -322,7 +328,17 @@ const DistributorDashboard = () => {
                     : "text-white"
                 }`}
               >
-                👥 Employee Management
+                👥 {t('distributor.employees')}
+              </button>
+              <button
+                onClick={() => { setTabAndHash("profile"); setIsSidebarOpen(false); }}
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
+                  activeTab === "profile"
+                    ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
+                    : "text-white"
+                }`}
+              >
+                ⚙️ {t('profile.title')}
               </button>
             </nav>
           </div>
@@ -330,7 +346,7 @@ const DistributorDashboard = () => {
             onClick={handleSignOut}
             className="bg-red-600 hover:bg-red-700 active:bg-red-800 py-3 sm:py-2 rounded text-sm mt-6 min-h-[48px] touch-target w-full flex items-center justify-center"
           >
-            Sign Out
+            {t('common.signOut') || 'Sign Out'}
           </button>
         </aside>
         {/* Sidebar backdrop */}
@@ -346,7 +362,7 @@ const DistributorDashboard = () => {
           <header className="sticky top-0 z-10 bg-slate-900/70 backdrop-blur-md border-b border-slate-800 text-white px-3 sm:px-5 py-2 shadow-sm flex items-center justify-between pt-[env(safe-area-inset-top)]">
             <div>
               <div className="relative">
-                <h1 className="text-white font-semibold text-xl">Distributor Dashboard</h1>
+                <h1 className="text-white font-semibold text-xl">{t('distributor.distributorDashboard')}</h1>
                 <div className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent" />
               </div>
             </div>
@@ -449,6 +465,18 @@ const DistributorDashboard = () => {
                   <div className="w-full">
                     <DistributorViewEmployees />
                   </div>
+                </motion.div>
+              )}
+              {activeTab === "profile" && auth?.currentUser && (
+                <motion.div
+                  key="profile"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-full"
+                >
+                  <DistributorProfileSettings />
                 </motion.div>
               )}
             </AnimatePresence>

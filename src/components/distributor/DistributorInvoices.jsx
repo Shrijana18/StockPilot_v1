@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { db } from "../../firebase/firebaseConfig";
-import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, doc, getDoc, updateDoc } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { splitFromMrp } from "../../utils/pricing";
 import { pdf } from "@react-pdf/renderer";
@@ -112,13 +112,26 @@ const DistributorInvoices = () => {
     setLoadingOrder(true);
     setOrderData(null);
 
-    // Fetch order data if orderId exists
+    // Fetch order data if orderId exists (always fetch to get latest deliveryDetails)
     if (invoice.orderId && distributorId) {
       try {
         const orderRef = doc(db, `businesses/${distributorId}/orderRequests`, invoice.orderId);
         const orderSnap = await getDoc(orderRef);
         if (orderSnap.exists()) {
-          setOrderData({ id: orderSnap.id, ...orderSnap.data() });
+          const orderDataFromDb = { id: orderSnap.id, ...orderSnap.data() };
+          setOrderData(orderDataFromDb);
+          
+          // Update invoice with latest deliveryDetails if order has them and invoice doesn't
+          // This ensures deliveryDetails added after invoice creation are visible
+          if (orderDataFromDb.deliveryDetails && Object.keys(orderDataFromDb.deliveryDetails).length > 0 && (!invoice.deliveryDetails || Object.keys(invoice.deliveryDetails).length === 0)) {
+            // Update the invoice document with latest deliveryDetails
+            const invoiceRef = doc(db, `businesses/${distributorId}/invoices`, invoice.id);
+            updateDoc(invoiceRef, {
+              deliveryDetails: orderDataFromDb.deliveryDetails,
+              deliveryMode: orderDataFromDb.deliveryMode || invoice.deliveryMode,
+              expectedDeliveryDate: orderDataFromDb.expectedDeliveryDate || invoice.expectedDeliveryDate,
+            }).catch(console.error); // Fail silently, just update display
+          }
         }
       } catch (err) {
         console.error("Error fetching order data:", err);
@@ -643,6 +656,93 @@ const DistributorInvoices = () => {
                   </span>
                 </div>
               </div>
+
+              {/* Delivery Details Section */}
+              {(selectedInvoice.deliveryDetails || selectedInvoice.deliveryMode || selectedInvoice.expectedDeliveryDate || orderData?.deliveryDetails) && (
+                <div className="border-t border-slate-200 pt-6">
+                  <h4 className="font-semibold mb-3 text-slate-900">🚚 Delivery Information</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-slate-600">
+                    {(() => {
+                      const deliveryDetails = selectedInvoice.deliveryDetails || orderData?.deliveryDetails || {};
+                      return (
+                        <>
+                          {selectedInvoice.deliveryMode || orderData?.deliveryMode ? (
+                            <div>
+                              <span className="font-medium text-slate-900">Delivery Mode: </span>
+                              <span>{selectedInvoice.deliveryMode || orderData?.deliveryMode}</span>
+                            </div>
+                          ) : null}
+                          {selectedInvoice.expectedDeliveryDate || orderData?.expectedDeliveryDate ? (
+                            <div>
+                              <span className="font-medium text-slate-900">Expected Delivery Date: </span>
+                              <span>
+                                {formatDate(selectedInvoice.expectedDeliveryDate || orderData?.expectedDeliveryDate)}
+                              </span>
+                            </div>
+                          ) : null}
+                          {deliveryDetails.personName && (
+                            <div>
+                              <span className="font-medium text-slate-900">Delivery Person: </span>
+                              <span>
+                                {deliveryDetails.personName}
+                                {deliveryDetails.personDesignation && ` (${deliveryDetails.personDesignation})`}
+                              </span>
+                            </div>
+                          )}
+                          {deliveryDetails.personPhone && (
+                            <div>
+                              <span className="font-medium text-slate-900">Contact: </span>
+                              <span>{deliveryDetails.personPhone}</span>
+                            </div>
+                          )}
+                          {deliveryDetails.vehicleType && (
+                            <div>
+                              <span className="font-medium text-slate-900">Vehicle Type: </span>
+                              <span>{deliveryDetails.vehicleType}</span>
+                            </div>
+                          )}
+                          {deliveryDetails.vehicleNumber && (
+                            <div>
+                              <span className="font-medium text-slate-900">Vehicle Number: </span>
+                              <span>{deliveryDetails.vehicleNumber}</span>
+                            </div>
+                          )}
+                          {deliveryDetails.transportMethod && (
+                            <div>
+                              <span className="font-medium text-slate-900">Transport Method: </span>
+                              <span>{deliveryDetails.transportMethod.replace(/-/g, ' ')}</span>
+                            </div>
+                          )}
+                          {deliveryDetails.awbNumber && (
+                            <div>
+                              <span className="font-medium text-slate-900">AWB/Tracking Number: </span>
+                              <span>{deliveryDetails.awbNumber}</span>
+                            </div>
+                          )}
+                          {deliveryDetails.transportServiceName && (
+                            <div>
+                              <span className="font-medium text-slate-900">Transport Service: </span>
+                              <span>{deliveryDetails.transportServiceName}</span>
+                            </div>
+                          )}
+                          {deliveryDetails.courierName && (
+                            <div>
+                              <span className="font-medium text-slate-900">Courier: </span>
+                              <span>{deliveryDetails.courierName}</span>
+                            </div>
+                          )}
+                          {deliveryDetails.deliveryNotes && (
+                            <div className="sm:col-span-2">
+                              <span className="font-medium text-slate-900">Delivery Notes: </span>
+                              <p className="mt-1 text-slate-600 whitespace-pre-wrap">{deliveryDetails.deliveryNotes}</p>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
 
               {/* Order ID if available */}
               {selectedInvoice.orderId && (

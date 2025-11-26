@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
 import { db, empAuth, functions } from '../../../firebase/firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { getDistributorEmployeeSession, clearDistributorEmployeeSession, isDistributorEmployeeRedirect, clearDistributorEmployeeRedirect } from '../../../utils/distributorEmployeeSession';
 import { logoutUser } from '../../../utils/authUtils';
@@ -96,20 +96,50 @@ const DistributorEmployeeDashboard = () => {
         }
       };
 
+      // CRITICAL: Restore Firebase authentication automatically if we have a session but no auth
+      // This is essential for Firestore security rules to work (request.auth.uid)
+      const restoreAuthIfNeeded = async () => {
+        if (!empAuth.currentUser && s && eid && did) {
+          console.log('[DistributorEmployeeDashboard] 🔄 Attempting to restore Firebase authentication...');
+          try {
+            // Call Cloud Function to get a new custom token based on session
+            const restoreAuth = httpsCallable(functions, 'restoreDistributorEmployeeAuth');
+            const result = await restoreAuth({
+              distributorId: did,
+              employeeId: eid,
+            });
+
+            if (result.data.success && result.data.customToken) {
+              // Sign in with the custom token to restore authentication
+              await signInWithCustomToken(empAuth, result.data.customToken);
+              console.log('[DistributorEmployeeDashboard] ✅ Firebase authentication restored successfully');
+            } else {
+              console.warn('[DistributorEmployeeDashboard] ⚠️ Failed to restore auth:', result.data.message);
+            }
+          } catch (err) {
+            console.error('[DistributorEmployeeDashboard] ❌ Error restoring auth:', err);
+            // Non-fatal: dashboard can still load, but order creation will fail
+          }
+        }
+      };
+
       // PRODUCTION FIX: Load employee data immediately using session (works even if auth is lost)
       // The session has employeeId which is the same as the document ID
       // This ensures the dashboard loads even after page reload with in-memory persistence
       if (!loaded && eid && did) {
         // Load immediately using session data (most reliable for production)
         loadEmployeeData(did, eid);
+        
+        // Restore Firebase authentication automatically (non-blocking)
+        restoreAuthIfNeeded();
       }
 
-      // Set up auth state listener as backup (in case auth state is restored)
+      // Set up auth state listener to monitor auth restoration
       authUnsubscribe = onAuthStateChanged(empAuth, (user) => {
-        if (user && !loaded && eid && did) {
-          // Auth is restored, but we already loaded from session above
-          // This is just for consistency - no need to reload
-          console.log('[DistributorEmployeeDashboard] Auth state restored, but data already loaded from session');
+        if (user) {
+          console.log('[DistributorEmployeeDashboard] ✅ Firebase authentication active:', user.uid);
+        } else {
+          console.warn('[DistributorEmployeeDashboard] ⚠️ Firebase authentication not active');
         }
       });
 

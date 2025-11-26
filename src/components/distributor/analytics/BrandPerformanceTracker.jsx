@@ -50,32 +50,63 @@ const BrandPerformanceTracker = ({ distributorId }) => {
     }
   }, [distributorId]);
 
+  const formatCurrency = (value) =>
+    `₹${Number(value || 0).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
   return (
-    <div className="bg-white rounded-lg shadow p-4 mb-6">
-      <h2 className="text-lg font-semibold mb-2">📊 Brand Performance Tracker</h2>
+    <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+      <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <span>📊</span> Brand Performance Tracker
+      </h2>
       {brandStats.length === 0 ? (
-        <p>No brand data available.</p>
+        <p className="text-white/60">No brand data available.</p>
       ) : (
-        <table className="w-full text-sm mt-2">
-          <thead>
-            <tr className="text-left border-b">
-              <th className="py-1">Brand</th>
-              <th className="py-1">Units Sold</th>
-              <th className="py-1">Revenue</th>
-              <th className="py-1">Profit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {brandStats.map((b, index) => (
-              <tr key={index} className="border-b">
-                <td className="py-1">{b.brand}</td>
-                <td className="py-1">{b.quantity}</td>
-                <td className="py-1">₹{b.revenue}</td>
-                <td className="py-1">₹{b.profit}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b border-white/20">
+                <th className="py-2 px-3 text-white/80">Brand</th>
+                <th className="py-2 px-3 text-right text-white/80">Units Sold</th>
+                <th className="py-2 px-3 text-right text-white/80">Revenue</th>
+                <th className="py-2 px-3 text-right text-white/80">Profit</th>
+                <th className="py-2 px-3 text-right text-white/80">Margin %</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {brandStats.map((b, index) => {
+                const margin = b.revenue > 0 ? (b.profit / b.revenue) * 100 : 0;
+                return (
+                  <tr key={index} className="border-b border-white/10 hover:bg-white/5">
+                    <td className="py-2 px-3 text-white font-medium">{b.brand}</td>
+                    <td className="py-2 px-3 text-right text-white">{b.quantity.toLocaleString("en-IN")}</td>
+                    <td className="py-2 px-3 text-right text-emerald-400 font-semibold">
+                      {formatCurrency(b.revenue)}
+                    </td>
+                    <td className="py-2 px-3 text-right text-purple-400 font-semibold">
+                      {formatCurrency(b.profit)}
+                    </td>
+                    <td className="py-2 px-3 text-right">
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-medium ${
+                          margin >= 20
+                            ? "bg-emerald-500/20 text-emerald-300"
+                            : margin >= 10
+                            ? "bg-blue-500/20 text-blue-300"
+                            : "bg-amber-500/20 text-amber-300"
+                        }`}
+                      >
+                        {margin.toFixed(1)}%
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

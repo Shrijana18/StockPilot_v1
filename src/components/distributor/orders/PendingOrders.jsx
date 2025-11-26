@@ -13,16 +13,20 @@ import {
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { toast } from 'react-toastify';
-import ProformaSummary from '../../retailer/ProformaSummary';
+// Removed ProformaSummary import - using detailed breakdown instead
 import { codeOf } from '../../../constants/orderStatus';
 import * as orderPolicy from '../../../lib/orders/orderPolicy';
 import { splitFromMrp } from '../../../utils/pricing';
 import { calculateProforma } from '../../../lib/calcProforma';
+import { getDistributorEmployeeSession } from '../../../utils/distributorEmployeeSession';
+import { empAuth } from '../../../firebase/firebaseConfig';
 
 const PendingOrders = () => {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [statusFilter, setStatusFilter] = useState('All');
   const [shippingIds, setShippingIds] = useState(new Set());
+  const [employees, setEmployees] = useState([]);
+  const [expandedDeliveryDetails, setExpandedDeliveryDetails] = useState(new Set());
 
   const db = getFirestore();
   const auth = getAuth();
@@ -119,6 +123,28 @@ const PendingOrders = () => {
 
   // Get full proforma breakdown for display
   const getProformaBreakdown = (order) => {
+    // Prefer saved proforma if it exists (includes complete discount info)
+    if (order?.proforma && order.proforma.lines && Array.isArray(order.proforma.lines) && order.proforma.lines.length > 0) {
+      return {
+        grossItems: Number(order.proforma.grossItems || 0),
+        lineDiscountTotal: Number(order.proforma.lineDiscountTotal || 0),
+        itemsSubTotal: Number(order.proforma.itemsSubTotal || order.proforma.subTotal || 0),
+        orderCharges: {
+          delivery: Number(order.proforma.orderCharges?.delivery ?? 0),
+          packing: Number(order.proforma.orderCharges?.packing ?? 0),
+          insurance: Number(order.proforma.orderCharges?.insurance ?? 0),
+          other: Number(order.proforma.orderCharges?.other ?? 0),
+        },
+        discountTotal: Number(order.proforma.discountTotal || 0),
+        taxableBase: Number(order.proforma.taxableBase || 0),
+        taxType: order.proforma.taxType || 'CGST_SGST',
+        taxBreakup: order.proforma.taxBreakup || {},
+        roundOff: Number(order.proforma.roundOff || 0),
+        grandTotal: Number(order.proforma.grandTotal || 0),
+      };
+    }
+    
+    // Fallback: use chargesSnapshot.breakdown if available
     const b = order?.chargesSnapshot?.breakdown;
     if (b) {
       // Return full breakdown from chargesSnapshot
@@ -141,21 +167,43 @@ const PendingOrders = () => {
       };
     }
     // Calculate from order data if chargesSnapshot not available
+    // But prefer using saved proforma.lines if available (preserves discounts)
     const items = Array.isArray(order?.items) ? order.items : [];
-    const lines = items.map((it, idx) => ({
+    const proformaLines = Array.isArray(order?.proforma?.lines) ? order.proforma.lines : null;
+    
+    const lines = items.map((it, idx) => {
+      // Use proforma line if available (preserves discount info)
+      if (proformaLines && proformaLines[idx]) {
+        const pLine = proformaLines[idx];
+        return {
+          qty: Number(pLine.qty ?? it.quantity ?? it.qty ?? 0),
+          price: Number(pLine.price ?? it.sellingPrice ?? it.price ?? it.unitPrice ?? 0),
+          itemDiscountPct: Number(pLine.itemDiscountPct ?? 0),
+          itemDiscountAmt: Number(pLine.itemDiscountAmt ?? 0),
+          itemDiscountChangedBy: pLine.itemDiscountChangedBy || (pLine.itemDiscountAmt > 0 ? 'amt' : 'pct'),
+          gstRate: Number(pLine.gstRate ?? it.gstRate ?? it.taxRate ?? 0),
+        };
+      }
+      // Fallback: use item data
+      return {
       qty: Number(it.quantity ?? it.qty ?? 0),
       price: Number(it.sellingPrice ?? it.price ?? it.unitPrice ?? 0),
-      itemDiscountPct: Number(order?.proforma?.lines?.[idx]?.itemDiscountPct ?? it.itemDiscountPct ?? 0),
-      gstRate: Number(it.gstRate ?? order?.proforma?.lines?.[idx]?.gstRate ?? 0),
-    }));
+        itemDiscountPct: Number(it.itemDiscountPct ?? 0),
+        itemDiscountAmt: Number(it.itemDiscountAmt ?? 0),
+        itemDiscountChangedBy: it.itemDiscountChangedBy || (it.itemDiscountAmt > 0 ? 'amt' : 'pct'),
+        gstRate: Number(it.gstRate ?? it.taxRate ?? 0),
+      };
+    });
+    
+    // Get order charges from chargesSnapshot.breakdown, proforma.orderCharges, or order fields
     const orderCharges = {
-      delivery: Number(order?.chargesSnapshot?.breakdown?.delivery || order?.delivery || 0),
-      packing: Number(order?.chargesSnapshot?.breakdown?.packing || order?.packing || 0),
-      insurance: Number(order?.chargesSnapshot?.breakdown?.insurance || order?.insurance || 0),
-      other: Number(order?.chargesSnapshot?.breakdown?.other || order?.other || 0),
-      discountPct: Number(order?.chargesSnapshot?.breakdown?.discountPct || order?.orderDiscountPct || 0),
-      discountAmt: Number(order?.chargesSnapshot?.breakdown?.discountAmt || order?.orderDiscountAmt || 0),
-      discountChangedBy: order?.chargesSnapshot?.breakdown?.discountAmt ? "amt" : "pct",
+      delivery: Number(order?.chargesSnapshot?.breakdown?.delivery ?? order?.proforma?.orderCharges?.delivery ?? order?.delivery ?? 0),
+      packing: Number(order?.chargesSnapshot?.breakdown?.packing ?? order?.proforma?.orderCharges?.packing ?? order?.packing ?? 0),
+      insurance: Number(order?.chargesSnapshot?.breakdown?.insurance ?? order?.proforma?.orderCharges?.insurance ?? order?.insurance ?? 0),
+      other: Number(order?.chargesSnapshot?.breakdown?.other ?? order?.proforma?.orderCharges?.other ?? order?.other ?? 0),
+      discountPct: Number(order?.chargesSnapshot?.breakdown?.discountPct ?? order?.proforma?.orderCharges?.discountPct ?? order?.orderDiscountPct ?? 0),
+      discountAmt: Number(order?.chargesSnapshot?.breakdown?.discountAmt ?? order?.proforma?.orderCharges?.discountAmt ?? order?.orderDiscountAmt ?? 0),
+      discountChangedBy: order?.chargesSnapshot?.breakdown?.discountChangedBy ?? order?.proforma?.orderCharges?.discountChangedBy ?? (order?.orderDiscountAmt ? "amt" : "pct"),
     };
     const p = calculateProforma({
       lines,
@@ -199,6 +247,67 @@ const PendingOrders = () => {
     await updateDoc(orderRef, { deliveryMode: mode || '' });
   };
 
+  // ---------- Delivery Tracking Handlers ----------
+  const handleDeliveryFieldChange = async (orderId, field, value) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
+    
+    // Update local state immediately for responsive UI
+    setPendingOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              deliveryDetails: {
+                ...(o.deliveryDetails || {}),
+                [field]: value,
+              },
+            }
+          : o
+      )
+    );
+    
+    // Save to Firestore
+    try {
+      await updateDoc(orderRef, {
+        [`deliveryDetails.${field}`]: value || null,
+        lastUpdated: serverTimestamp(),
+      });
+      
+      // Also update retailer order if exists (for seamless flow)
+      const order = pendingOrders.find((o) => o.id === orderId);
+      if (order?.retailerId) {
+        const retailerOrderRef = doc(db, 'businesses', order.retailerId, 'sentOrders', orderId);
+        await updateDoc(retailerOrderRef, {
+          [`deliveryDetails.${field}`]: value || null,
+          lastUpdated: serverTimestamp(),
+        }).catch(console.error); // Fail silently if retailer order doesn't exist
+      }
+    } catch (err) {
+      console.error('Failed to update delivery field:', err);
+      toast.error('Failed to save delivery details');
+      // Revert local state on error
+      setPendingOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId ? pendingOrders.find((o2) => o2.id === orderId) || o : o
+        )
+      );
+    }
+  };
+
+  const toggleDeliveryDetails = (orderId) => {
+    setExpandedDeliveryDetails((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
 
   const handleItemEdit = (orderId, index, field, value) => {
     setPendingOrders((prev) =>
@@ -226,6 +335,19 @@ const PendingOrders = () => {
     if (!user) return;
     const updatedOrder = pendingOrders.find((o) => o.id === orderId);
     if (!updatedOrder) return;
+    
+    // Check if current user is an employee
+    const employeeSession = getDistributorEmployeeSession();
+    const isEmployee = !!employeeSession;
+    const employeeInfo = isEmployee ? {
+      type: 'employee',
+      employeeId: employeeSession.employeeId,
+      flypEmployeeId: employeeSession.flypEmployeeId || employeeSession.employeeId,
+      name: employeeSession.name || null,
+      role: employeeSession.role || null,
+      uid: empAuth.currentUser?.uid || user.uid,
+    } : null;
+    
     await orderPolicy.updateLines({
       db,
       auth,
@@ -236,6 +358,28 @@ const PendingOrders = () => {
       expectedDeliveryDate: updatedOrder.expectedDeliveryDate,
       paymentMode: updatedOrder.payment || updatedOrder.paymentMode,
     });
+    
+    // Add employee activity tracking
+    if (isEmployee && employeeInfo) {
+      try {
+        const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
+        await updateDoc(orderRef, {
+          'handledBy.modifiedBy': { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' },
+          employeeActivity: arrayUnion({
+            action: 'modified',
+            employeeId: employeeInfo.employeeId,
+            flypEmployeeId: employeeInfo.flypEmployeeId,
+            employeeName: employeeInfo.name,
+            employeeRole: employeeInfo.role,
+            at: new Date().toISOString(),
+            // Note: Using ISO string (at field) instead of serverTimestamp() as serverTimestamp() cannot be used inside arrays
+          }),
+        });
+      } catch (err) {
+        console.warn('Failed to log employee activity for order modification:', err);
+      }
+    }
+    
     if (typeof toast === 'function') toast.success('Changes saved');
   };
 
@@ -246,6 +390,18 @@ const PendingOrders = () => {
 
     const order = pendingOrders.find((o) => o.id === orderId);
     if (!order) return;
+
+    // Check if current user is an employee
+    const employeeSession = getDistributorEmployeeSession();
+    const isEmployee = !!employeeSession;
+    const employeeInfo = isEmployee ? {
+      type: 'employee',
+      employeeId: employeeSession.employeeId,
+      flypEmployeeId: employeeSession.flypEmployeeId || employeeSession.employeeId,
+      name: employeeSession.name || null,
+      role: employeeSession.role || null,
+      uid: empAuth.currentUser?.uid || user.uid,
+    } : null;
 
     // UI validation and loading guard
     setPendingOrders((prev) =>
@@ -272,6 +428,29 @@ const PendingOrders = () => {
         awb: order.awb || null,
       });
 
+      // Add employee activity tracking
+      if (isEmployee && employeeInfo) {
+        try {
+          const orderRef = doc(db, 'businesses', user.uid, 'orderRequests', orderId);
+          await updateDoc(orderRef, {
+            'handledBy.shippedBy': { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' },
+            employeeActivity: arrayUnion({
+              action: 'shipped',
+              employeeId: employeeInfo.employeeId,
+              flypEmployeeId: employeeInfo.flypEmployeeId,
+              employeeName: employeeInfo.name,
+              employeeRole: employeeInfo.role,
+              deliveryMode: order.deliveryMode,
+              expectedDeliveryDate: order.expectedDeliveryDate,
+              at: new Date().toISOString(),
+              // Note: Using ISO string (at field) instead of serverTimestamp() as serverTimestamp() cannot be used inside arrays
+            }),
+          });
+        } catch (err) {
+          console.warn('Failed to log employee activity for shipping:', err);
+        }
+      }
+
       // Optimistic UI update
       setPendingOrders((prev) => prev.filter((o) => o.id !== orderId));
       if (typeof toast === 'function') toast.success('Order marked as Shipped → Track Orders');
@@ -286,6 +465,23 @@ const PendingOrders = () => {
       });
     }
   };
+
+  // ---------- Load Employees ----------
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const employeesRef = collection(db, 'businesses', user.uid, 'distributorEmployees');
+    const unsubscribe = onSnapshot(employeesRef, (snapshot) => {
+      const employeeData = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setEmployees(employeeData);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // ---------- Live data ----------
   useEffect(() => {
@@ -523,16 +719,6 @@ const PendingOrders = () => {
               {order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : 'N/A'}
             </p>
 
-            {order?.proforma && (
-              <div className="mt-4">
-                <ProformaSummary
-                  proforma={order.proforma}
-                  distributorState={order.distributorState}
-                  retailerState={order.retailerState}
-                />
-              </div>
-            )}
-
             <div className="mt-4 border border-white/10 rounded-lg overflow-hidden">
               <div className="grid grid-cols-12 font-semibold bg-white/5 border-b border-white/10 px-4 py-2 text-white text-sm">
                 <div>Name</div>
@@ -703,40 +889,250 @@ const PendingOrders = () => {
               );
             })()}
 
-            <div className="mt-6 flex flex-col md:flex-row md:items-center md:gap-6 gap-3">
-              <label className="flex items-center gap-2 font-medium text-white/80">
-                Expected Delivery Date:
+            {/* Delivery Tracking Section */}
+            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
+              <button
+                type="button"
+                onClick={() => toggleDeliveryDetails(order.id)}
+                className="w-full flex items-center justify-between font-semibold text-white mb-2 hover:text-emerald-300 transition"
+              >
+                <span className="flex items-center gap-2">
+                  <span>🚚</span>
+                  <span>Delivery Tracking & Logistics</span>
+                </span>
+                <span className="text-white/60">
+                  {expandedDeliveryDetails.has(order.id) ? '▼' : '▶'}
+                </span>
+              </button>
+
+              {expandedDeliveryDetails.has(order.id) && (
+                <div className="mt-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Delivery Person Type */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-medium text-white/80">Delivery Person Type</label>
+                      <select
+                        value={order?.deliveryDetails?.personType || ''}
+                        onChange={(e) => handleDeliveryFieldChange(order.id, 'personType', e.target.value)}
+                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                      >
+                        <option value="">Select Type</option>
+                        <option value="employee">Employee</option>
+                        <option value="external">External Person</option>
+                        <option value="third-party">Third Party Service</option>
+                      </select>
+                    </div>
+
+                    {/* Delivery Person Name / Employee */}
+                    {(order?.deliveryDetails?.personType === 'employee' || !order?.deliveryDetails?.personType) && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-sm font-medium text-white/80">Select Employee</label>
+                        <select
+                          value={order?.deliveryDetails?.employeeId || ''}
+                          onChange={(e) => {
+                            const selectedEmployee = employees.find((emp) => emp.id === e.target.value);
+                            handleDeliveryFieldChange(order.id, 'employeeId', e.target.value);
+                            if (selectedEmployee) {
+                              handleDeliveryFieldChange(order.id, 'personName', selectedEmployee.name || '');
+                              handleDeliveryFieldChange(order.id, 'personPhone', selectedEmployee.phone || '');
+                              handleDeliveryFieldChange(order.id, 'personDesignation', selectedEmployee.designation || selectedEmployee.role || '');
+                            }
+                          }}
+                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        >
+                          <option value="">Select Employee</option>
+                          {employees.map((emp) => (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name || emp.flypEmployeeId || emp.id} {emp.phone ? `- ${emp.phone}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Manual Person Name */}
+                    {order?.deliveryDetails?.personType === 'external' && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-sm font-medium text-white/80">Person Name</label>
+                        <input
+                          type="text"
+                          value={order?.deliveryDetails?.personName || ''}
+                          onChange={(e) => handleDeliveryFieldChange(order.id, 'personName', e.target.value)}
+                          placeholder="Enter person name"
+                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        />
+                      </div>
+                    )}
+
+                    {/* Person Contact Number */}
+                    {(order?.deliveryDetails?.personType === 'external' || order?.deliveryDetails?.personType === 'third-party') && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-sm font-medium text-white/80">Contact Number</label>
+                        <input
+                          type="tel"
+                          value={order?.deliveryDetails?.personPhone || ''}
+                          onChange={(e) => handleDeliveryFieldChange(order.id, 'personPhone', e.target.value)}
+                          placeholder="Enter contact number"
+                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        />
+                      </div>
+                    )}
+
+                    {/* Person Designation */}
+                    {order?.deliveryDetails?.personType && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-sm font-medium text-white/80">Designation / Role</label>
+                        <input
+                          type="text"
+                          value={order?.deliveryDetails?.personDesignation || ''}
+                          onChange={(e) => handleDeliveryFieldChange(order.id, 'personDesignation', e.target.value)}
+                          placeholder="Driver, Delivery Boy, etc."
+                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        />
+                      </div>
+                    )}
+
+                    {/* Vehicle Type */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-medium text-white/80">Vehicle Type</label>
+                      <select
+                        value={order?.deliveryDetails?.vehicleType || ''}
+                        onChange={(e) => handleDeliveryFieldChange(order.id, 'vehicleType', e.target.value)}
+                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                      >
+                        <option value="">Select Vehicle</option>
+                        <option value="car">Car</option>
+                        <option value="jeep">Jeep</option>
+                        <option value="van">Van</option>
+                        <option value="truck">Truck</option>
+                        <option value="motorcycle">Motorcycle</option>
+                        <option value="auto">Auto Rickshaw</option>
+                        <option value="bicycle">Bicycle</option>
+                        <option value="e-rickshaw">E-Rickshaw</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+
+                    {/* Vehicle Number */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-medium text-white/80">Vehicle Number</label>
+                      <input
+                        type="text"
+                        value={order?.deliveryDetails?.vehicleNumber || ''}
+                        onChange={(e) => handleDeliveryFieldChange(order.id, 'vehicleNumber', e.target.value.toUpperCase())}
+                        placeholder="MH-12-AB-1234"
+                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                      />
+                    </div>
+
+                    {/* Transport Method */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-medium text-white/80">Transport Method</label>
+                      <select
+                        value={order?.deliveryDetails?.transportMethod || ''}
+                        onChange={(e) => handleDeliveryFieldChange(order.id, 'transportMethod', e.target.value)}
+                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                      >
+                        <option value="">Select Method</option>
+                        <option value="by-distributor">By Distributor (Own Vehicle)</option>
+                        <option value="transport">Transport Service</option>
+                        <option value="bus">Bus Service</option>
+                        <option value="courier">Courier Service</option>
+                        <option value="shiprocket">Shiprocket</option>
+                        <option value="delhivery">Delhivery</option>
+                        <option value="bluedart">Blue Dart</option>
+                        <option value="dtdc">DTDC</option>
+                        <option value="fedex">FedEx</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+
+                    {/* Transport Service Name */}
+                    {['transport', 'bus', 'other'].includes(order?.deliveryDetails?.transportMethod) && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-sm font-medium text-white/80">Transport Service Name</label>
+                        <input
+                          type="text"
+                          value={order?.deliveryDetails?.transportServiceName || ''}
+                          onChange={(e) => handleDeliveryFieldChange(order.id, 'transportServiceName', e.target.value)}
+                          placeholder="Enter transport service name"
+                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        />
+                      </div>
+                    )}
+
+                    {/* AWB / Tracking Number */}
+                    {['courier', 'shiprocket', 'delhivery', 'bluedart', 'dtdc', 'fedex'].includes(order?.deliveryDetails?.transportMethod) && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-sm font-medium text-white/80">AWB / Tracking Number</label>
+                        <input
+                          type="text"
+                          value={order?.deliveryDetails?.awbNumber || order?.awb || ''}
+                          onChange={(e) => {
+                            handleDeliveryFieldChange(order.id, 'awbNumber', e.target.value);
+                            // Also update the main awb field for compatibility
+                            const orderRef = doc(db, 'businesses', auth.currentUser?.uid, 'orderRequests', order.id);
+                            updateDoc(orderRef, { awb: e.target.value || null }).catch(console.error);
+                          }}
+                          placeholder="Enter AWB/Tracking number"
+                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        />
+                      </div>
+                    )}
+
+                    {/* Courier Service */}
+                    {order?.deliveryDetails?.transportMethod === 'courier' && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-sm font-medium text-white/80">Courier Service</label>
+                        <input
+                          type="text"
+                          value={order?.courier || order?.deliveryDetails?.courierName || ''}
+                          onChange={(e) => {
+                            handleDeliveryFieldChange(order.id, 'courierName', e.target.value);
+                            // Also update the main courier field for compatibility
+                            const orderRef = doc(db, 'businesses', auth.currentUser?.uid, 'orderRequests', order.id);
+                            updateDoc(orderRef, { courier: e.target.value || null }).catch(console.error);
+                          }}
+                          placeholder="Enter courier service name"
+                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        />
+                      </div>
+                    )}
+
+                    {/* Expected Delivery Date - Consolidated */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-medium text-white/80">Expected Delivery Date</label>
                 <input
                   type="date"
-                  value={order.expectedDeliveryDate || ''}
+                        value={order?.expectedDeliveryDate || order?.deliveryDetails?.expectedDeliveryDate || ''}
                   onChange={(e) => {
                     handleDateChange(order.id, e.target.value);
+                          handleDeliveryFieldChange(order.id, 'expectedDeliveryDate', e.target.value);
                     setPendingOrders((prev) =>
                       prev.map((o) =>
                         o.id === order.id ? { ...o, expectedDeliveryDate: e.target.value } : o,
                       ),
                     );
                   }}
-                  className="rounded-lg px-3 py-2 ml-1 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
                 />
-              </label>
-              {order.deliveryDateError && (
-                <p className="text-rose-300 text-sm mt-1">Please select a valid delivery date.</p>
-              )}
+                    </div>
 
-              <label className="flex items-center gap-2 font-medium text-white/80">
-                Delivery Mode:
+                    {/* Delivery Mode - Consolidated */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm font-medium text-white/80">Delivery Mode</label>
                 <select
-                  value={order.deliveryMode || ''}
+                        value={order?.deliveryMode || order?.deliveryDetails?.deliveryMode || ''}
                   onChange={(e) => {
                     handleDeliveryModeChange(order.id, e.target.value);
+                          handleDeliveryFieldChange(order.id, 'deliveryMode', e.target.value);
                     setPendingOrders((prev) =>
                       prev.map((o) =>
                         o.id === order.id ? { ...o, deliveryMode: e.target.value } : o,
                       ),
                     );
                   }}
-                  className="rounded-lg px-3 py-2 ml-1 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
                 >
                   <option value="">Select</option>
                   <option value="By Distributor">By Distributor</option>
@@ -744,11 +1140,59 @@ const PendingOrders = () => {
                   <option value="Delhivery">Delhivery</option>
                   <option value="Other">Other</option>
                 </select>
-              </label>
-              {order.deliveryModeError && (
-                <p className="text-rose-300 text-sm mt-1">Please select a delivery mode.</p>
+                    </div>
+                  </div>
+
+                  {/* Delivery Notes */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-sm font-medium text-white/80">Delivery Notes / Special Instructions</label>
+                    <textarea
+                      value={order?.deliveryDetails?.deliveryNotes || ''}
+                      onChange={(e) => handleDeliveryFieldChange(order.id, 'deliveryNotes', e.target.value)}
+                      placeholder="Enter any special instructions, delivery address details, landmark, etc."
+                      rows={3}
+                      className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition resize-none"
+                    />
+                  </div>
+
+                  {/* Display Summary */}
+                  {order?.deliveryDetails && Object.keys(order.deliveryDetails).length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/10">
+                      <h5 className="text-sm font-semibold text-white/90 mb-2">Delivery Summary:</h5>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-white/70">
+                        {order.deliveryDetails.personName && (
+                          <div><span className="font-medium">Person:</span> {order.deliveryDetails.personName}</div>
+                        )}
+                        {order.deliveryDetails.vehicleType && (
+                          <div><span className="font-medium">Vehicle:</span> {order.deliveryDetails.vehicleType}</div>
+                        )}
+                        {order.deliveryDetails.vehicleNumber && (
+                          <div><span className="font-medium">Vehicle No:</span> {order.deliveryDetails.vehicleNumber}</div>
+                        )}
+                        {order.deliveryDetails.transportMethod && (
+                          <div><span className="font-medium">Method:</span> {order.deliveryDetails.transportMethod.replace(/-/g, ' ')}</div>
+                        )}
+                        {order.deliveryDetails.awbNumber && (
+                          <div><span className="font-medium">AWB:</span> {order.deliveryDetails.awbNumber}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
+
+            {/* Error messages for delivery date and mode */}
+            {(order.deliveryDateError || order.deliveryModeError) && (
+              <div className="mt-4">
+                {order.deliveryDateError && (
+                  <p className="text-rose-300 text-sm">Please select a valid delivery date.</p>
+                )}
+              {order.deliveryModeError && (
+                  <p className="text-rose-300 text-sm">Please select a delivery mode.</p>
+              )}
+            </div>
+            )}
 
             <div className="mt-4 flex gap-3 flex-wrap">
               {order.status === 'Modified' && (

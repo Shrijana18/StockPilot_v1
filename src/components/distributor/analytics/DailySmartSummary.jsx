@@ -59,12 +59,32 @@ const DailySmartSummary = ({ distributorId }) => {
     }
   }, [distributorId]);
 
+  const formatCurrency = (value) =>
+    `₹${Number(value || 0).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
   return (
-    <div className="bg-white rounded-lg shadow p-4 mb-6">
-      <h2 className="text-lg font-semibold mb-2">📆 Today’s Smart Summary</h2>
-      <p>✅ Orders Delivered: <strong>{summary.totalOrders}</strong></p>
-      <p>💰 Revenue: <strong>₹{summary.totalRevenue}</strong></p>
-      <p>📊 Profit: <strong>₹{summary.totalProfit}</strong> ({summary.avgProfitPercent}% avg profit)</p>
+    <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+      <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <span>📆</span> Today's Smart Summary
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+          <p className="text-xs text-white/60 mb-1">Orders Delivered</p>
+          <p className="text-2xl font-bold text-emerald-400">{summary.totalOrders}</p>
+        </div>
+        <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
+          <p className="text-xs text-white/60 mb-1">Revenue</p>
+          <p className="text-2xl font-bold text-blue-400">{formatCurrency(summary.totalRevenue)}</p>
+        </div>
+        <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/20">
+          <p className="text-xs text-white/60 mb-1">Profit</p>
+          <p className="text-2xl font-bold text-purple-400">{formatCurrency(summary.totalProfit)}</p>
+          <p className="text-xs text-purple-300 mt-1">{summary.avgProfitPercent}% avg margin</p>
+        </div>
+      </div>
     </div>
   );
 };

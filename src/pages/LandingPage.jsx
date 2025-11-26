@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useCallback } from "react";
 import voiceBillingAnim from '../../public/assets/voice-billing.json';
 import aiInventory from "../../public/assets/AI_Inventory.json";
 import posMode from "../../public/assets/POS.json";
@@ -19,11 +19,15 @@ const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 
 // --- THEME TOKENS & STYLES ---
 const THEME = {
-  bg: 'from-[#0B0F14] via-[#0D1117] to-[#0B0F14]',
+  bg: 'from-[#020617] via-[#050a18] to-[#020617]',
   card: 'bg-white/5 backdrop-blur border border-white/10',
-  accent: 'from-emerald-400 via-teal-300 to-cyan-400',
-  textGrad: 'bg-gradient-to-r from-white via-white to-emerald-200 bg-clip-text text-transparent',
+  accent: 'from-[#00e676] via-[#00c853] to-[#00bfa5]',
+  textGrad: 'bg-gradient-to-r from-white via-white to-[#00e676] bg-clip-text text-transparent',
 };
+const LOGOS = {
+  hero: '/assets/flyp_logo.png',
+};
+const INTRO_VIDEO = '/assets/Logo%20Intro.MP4';
 const styles = `
   @keyframes auroraShift { 0%{ background-position: 0% 50% } 50%{ background-position: 100% 50% } 100%{ background-position: 0% 50% } }
   @keyframes shimmer { 0%{ background-position:-200% 0 } 100%{ background-position:200% 0 } }
@@ -34,7 +38,137 @@ const styles = `
   .glass { backdrop-filter: blur(10px); }
   /* Intro overlay logo size adjustment */
   .brand-logo{ height:110px; width:auto; filter: drop-shadow(0 14px 32px rgba(0,0,0,.65)); }
-  .navbar-logo{ height:56px; width:auto; }
+  .navbar-logo{ height:92px; width:auto; filter: drop-shadow(0 16px 35px rgba(0,0,0,.55)); transition: transform .35s ease; }
+  @media (min-width:768px){ .navbar-logo{ height:128px; } }
+  .logo-float{
+    position:absolute;
+    left: clamp(0.55rem, 2vw, 2.2rem);
+    top: clamp(0.3rem, 1vw, 0.9rem);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0.65rem;
+    border-radius:30px;
+    background:linear-gradient(140deg, rgba(2,8,20,0.93), rgba(3,16,32,0.82));
+    border:1px solid rgba(16,185,129,0.5);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.58);
+    z-index:60;
+    transition: transform .3s ease, box-shadow .3s ease, opacity .4s ease;
+    opacity:0;
+    transform: translate3d(-20px,-18px,0);
+    pointer-events:none;
+  }
+  @media (min-width:768px){
+    .logo-float{ padding:0.8rem; border-radius:9999px; }
+  }
+  .logo-float.show{ opacity:1; transform: translate3d(0,0,0); pointer-events:auto; }
+  .logo-float:hover{ transform:translateY(-4px); box-shadow:0 22px 60px rgba(0,0,0,0.68); }
+  .logo-ring{
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:9999px;
+    padding:0.45rem;
+    background:radial-gradient(circle at 35% 35%, rgba(34,197,94,0.45), rgba(59,130,246,0.24));
+    box-shadow: inset 0 0 32px rgba(0,0,0,0.38), 0 0 24px rgba(34,197,94,0.18);
+  }
+  .logo-ring::after{
+    content:'';
+    position:absolute;
+    inset:-9px;
+    border-radius:inherit;
+    border:1px dashed rgba(16,185,129,0.2);
+  }
+
+  .intro-video-overlay{
+    position:fixed;
+    inset:0;
+    z-index:80;
+    background:radial-gradient(circle at center, rgba(1,4,9,0.94), rgba(1,4,9,1));
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition: opacity .6s ease, visibility .6s ease;
+  }
+  .intro-video-overlay.hide{
+    opacity:0;
+    visibility:hidden;
+  }
+  .intro-video-frame{
+    width:min(460px, 78vw);
+    aspect-ratio:1;
+    border-radius:9999px;
+    overflow:hidden;
+    border:1px solid rgba(16,185,129,0.45);
+    box-shadow:0 32px 110px rgba(0,0,0,0.7);
+    background:radial-gradient(circle, rgba(34,197,94,0.3), transparent 70%);
+    position:relative;
+    transition: transform .8s cubic-bezier(.25,.8,.25,1), opacity .6s ease;
+  }
+  .intro-video-frame::before{
+    content:'';
+    position:absolute;
+    inset:-18%;
+    background:radial-gradient(circle, rgba(34,197,94,0.35), transparent 55%);
+    filter:blur(28px);
+    opacity:0.85;
+    animation:pulseGlow 3.2s ease-in-out infinite;
+  }
+  .intro-video-frame video{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+  }
+  .intro-video-overlay.hide .intro-video-frame{
+    transform: translate(-145%, -145%) scale(0.24);
+    opacity:0.15;
+  }
+  @keyframes pulseGlow{
+    0%,100%{ opacity:0.6; transform:scale(0.9); }
+    50%{ opacity:0.95; transform:scale(1.05); }
+  }
+  .intro-skip{
+    position:absolute;
+    top:1.25rem;
+    right:1.25rem;
+    background:rgba(15,23,42,0.75);
+    border:1px solid rgba(255,255,255,0.25);
+    color:#f8fafc;
+    font-size:0.62rem;
+    letter-spacing:0.32em;
+    text-transform:uppercase;
+    padding:0.45rem 1.4rem;
+    border-radius:9999px;
+    cursor:pointer;
+    transition:all .25s ease;
+  }
+  .intro-skip:hover{
+    background:rgba(16,185,129,0.25);
+    border-color:rgba(16,185,129,0.5);
+  }
+
+  @keyframes badgeSweep {
+    0% { transform: translateX(0); opacity: 0.85; }
+    30% { opacity: 1; }
+    100% { transform: translateX(120%); opacity: 0; }
+  }
+  .badge-sweep {
+    position: relative;
+    overflow: hidden;
+  }
+  .badge-sweep::before {
+    content:'';
+    position:absolute;
+    top:0;
+    bottom:0;
+    width:42%;
+    left:-40%;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,0.4), transparent);
+    opacity:0.0;
+    animation: badgeSweep 2.7s ease-out infinite;
+  }
 `;
 
 const LandingPage = () => {
@@ -50,6 +184,9 @@ const LandingPage = () => {
   const auraRef = React.useRef(null);
   const [animationData, setAnimationData] = useState(null);
   const [themeMode, setThemeMode] = useState('dark'); // 'dark' | 'dusk'
+  const [showIntroOverlay, setShowIntroOverlay] = useState(() => !prefersReducedMotion);
+  const [introFading, setIntroFading] = useState(false);
+  const [logoReady, setLogoReady] = useState(() => prefersReducedMotion);
   // Initialize theme from localStorage or system preference
   useEffect(() => {
     try {
@@ -69,6 +206,23 @@ const LandingPage = () => {
   useEffect(() => {
     try { localStorage.setItem('flyp_theme', themeMode); } catch {}
   }, [themeMode]);
+
+  const dismissIntroVideo = useCallback(() => {
+    if (!showIntroOverlay || introFading) return;
+    setIntroFading(true);
+    setTimeout(() => {
+      setShowIntroOverlay(false);
+      setLogoReady(true);
+    }, 650);
+  }, [showIntroOverlay, introFading]);
+
+  useEffect(() => {
+    if (!showIntroOverlay) return;
+    const fallback = setTimeout(() => {
+      dismissIntroVideo();
+    }, 5200);
+    return () => clearTimeout(fallback);
+  }, [showIntroOverlay, dismissIntroVideo]);
 
   // --- Headline kinetic words, scrollytelling state, metrics counters ---
   const words = ['Built to Fly', 'Automate Everything', 'Inventory that Thinks', 'Billing in Seconds', 'Analytics that Act'];
@@ -490,56 +644,38 @@ const LandingPage = () => {
   };
   const resetTilt = (e) => { e.currentTarget.style.transform = 'perspective(900px) rotateX(0deg) rotateY(0deg)'; };
 
-  // Intro overlay state and effect (staged cinematic)
-  const [showIntro, setShowIntro] = React.useState(true);
-  const [introStage, setIntroStage] = React.useState('logo'); // 'logo' | 'tagline' | 'curtain'
-  React.useEffect(() => {
-    // Progress through stages: logo -> tagline -> curtain -> unmount
-    const t1 = setTimeout(() => setIntroStage('tagline'), 900);
-    const t2 = setTimeout(() => setIntroStage('curtain'), 1800);
-    const t3 = setTimeout(() => setShowIntro(false), 2600);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, []);
 
   return (
     <div className={`text-white min-h-screen aurora-bg anim-gradient grain bg-gradient-to-b ${THEME.bg} ${themeMode==='dusk' ? 'theme-dusk' : 'theme-dark'}`}>
-      {showIntro && (
-        <div className={`intro-overlay fixed inset-0 z-50 flex items-center justify-center ${introStage==='curtain' ? 'curtain' : ''}`}>
-          {/* Kite logo + trail */}
-          <div className="intro-stack relative text-center">
-            <div className={`kite-wrapper ${introStage!=='logo' ? 'fly' : ''}`}>
-              <img src="/assets/flyp-logo.png" alt="FLYP" className="kite-logo brand-logo" />
-              <span aria-hidden className="kite-trail" />
-            </div>
-            <div className={`tagline ${introStage!=='logo' ? 'show' : ''}`}>
-              {['FLYP', '—', 'Built', 'to', 'Fly'].map((w,i)=> (
-                <span key={i} className="tag-word" style={{ '--i': i }}>
-                  {w}{i<4?' ':''}
-                </span>
-              ))}
-            </div>
+      {showIntroOverlay && (
+        <div className={`intro-video-overlay ${introFading ? 'hide' : ''}`}>
+          <button className="intro-skip" onClick={dismissIntroVideo}>
+            Skip
+          </button>
+          <div className="intro-video-frame">
+            <video
+              src={INTRO_VIDEO}
+              autoPlay
+              muted
+              playsInline
+              onEnded={dismissIntroVideo}
+            />
           </div>
         </div>
       )}
-      <div aria-hidden className="fixed inset-0 -z-10 bg-[#0B0F14]" />
+      <div aria-hidden className="fixed inset-0 -z-10 bg-[#020617]" />
       <div ref={auraRef} aria-hidden className="fixed top-0 left-0 z-0 pointer-events-none w-[300px] h-[300px] rounded-full" style={{ background: 'radial-gradient(150px 150px at center, rgba(16,185,129,0.25), rgba(16,185,129,0.0) 70%)', filter: 'blur(20px)' }} />
-      <header className={`sticky top-0 z-50 glass supports-[backdrop-filter]:bg-white/5 bg-white/10 flex justify-between items-center border-b border-white/10 transition-all duration-300 ${shrinkHeader ? 'py-1 px-3 md:py-2 md:px-4' : 'py-4 px-6 md:py-6 md:px-8'}`}>
-        <div className="flex items-center">
-            <div className="logo-shine">
-                <img
-                  src="/assets/flyp-logo.png"
-                  alt="FLYP"
-                  className="h-14 w-auto"
-                />
-            </div>
+      <header className="sticky top-0 z-50 glass supports-[backdrop-filter]:bg-[#020617f0] bg-gradient-to-b from-[#020617ee] via-[#020617e0] to-[#020617f7] relative flex items-center gap-4 border-b border-white/10 py-4 px-6 md:py-5 md:px-10">
+        <div className="hidden md:flex flex-1" aria-hidden="true" />
+        <div className="hidden md:flex flex-1 justify-center">
+          <nav className={`flex ${shrinkHeader ? 'gap-5 text-sm' : 'gap-6 text-base'} transition-all duration-300`}>
+            <a href="#story" className="hover:text-emerald-300">How It Works</a>
+            <a href="#features" className="hover:text-emerald-300">Features</a>
+            <a href="#analytics" className="hover:text-emerald-300">Analytics</a>
+            <a href="#pricing" className="hover:text-emerald-300">Pricing</a>
+          </nav>
         </div>
-        <nav className={`hidden md:flex ${shrinkHeader ? 'gap-5 text-sm' : 'gap-6 text-base'} transition-all duration-300`}>
-          <a href="#story" className="hover:text-emerald-300">How It Works</a>
-          <a href="#features" className="hover:text-emerald-300">Features</a>
-          <a href="#analytics" className="hover:text-emerald-300">Analytics</a>
-          <a href="#pricing" className="hover:text-emerald-300">Pricing</a>
-        </nav>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-1 items-center justify-end gap-3">
           <button
             className={`hidden md:inline-flex rounded-full border border-white/20 hover:border-emerald-400/60 ${shrinkHeader ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'} transition-all duration-300`}
             onClick={() => setThemeMode(m => m==='dark' ? 'dusk' : 'dark')}
@@ -560,6 +696,16 @@ const LandingPage = () => {
             Register
           </button>
         </div>
+        <Link to="/" className={`logo-float ${logoReady ? 'show' : ''}`} aria-label="FLYP home">
+          <span className="logo-ring">
+            <img
+              src={LOGOS.hero}
+              alt="FLYP logo"
+              loading="lazy"
+              className="navbar-logo select-none"
+            />
+          </span>
+        </Link>
       </header>
 
       <div className="fixed top-0 left-0 h-1 bg-gradient-to-r from-green-500 via-yellow-500 to-blue-500 z-50 transition-[width]" style={{ width: `${scrollProgress}%` }} />
@@ -586,8 +732,22 @@ const LandingPage = () => {
           {Array.from({length:12}).map((_,i)=> (<span key={i} className={`p p-${i+1}`} />))}
         </div>
         <div className="w-full md:w-1/2 text-center md:text-left z-10 space-y-6" style={{ transform: `translateY(${heroOffset.title}px)`, transition: 'transform .2s ease-out' }}>
+          <motion.div
+            className="mb-2 flex justify-center md:justify-start"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.15 }}
+          >
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-400/10 border border-emerald-300/40 text-[11px] uppercase tracking-[0.26em] text-emerald-200 badge-sweep">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+              </span>
+              <span>India's First Supply Chain OS</span>
+            </div>
+          </motion.div>
           <h1 data-aos="fade-up" className="text-5xl md:text-6xl font-extrabold leading-tight drop-shadow-[0_2px_20px_rgba(0,0,0,0.45)]">
-            <span className="block kinetic-text">FLYP</span>
+            <span className={`block kinetic-text ${THEME.textGrad}`}>FLYP</span>
             <svg className="inline-block align-middle ml-3 w-10 h-10" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
               <path id="morph" fill="url(#g1)" d="M50 10 C65 20,75 35,80 50 C75 65,65 80,50 90 C35 80,25 65,20 50 C25 35,35 20,50 10 Z"/>
               <defs>
@@ -606,8 +766,8 @@ const LandingPage = () => {
                 "/>
             </svg>
             <span key={wordIndex} className="block mt-2 bg-gradient-to-r from-white via-white to-emerald-200 bg-clip-text text-transparent drop-shadow-[0_1px_10px_rgba(0,0,0,0.35)] animate-word">{words[wordIndex]}</span>
-            <span className="block mt-3 text-xl md:text-2xl font-semibold bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">
-              Stop running your business — start flying it.
+            <span className="block mt-3 text-xl md:text-2xl font-semibold bg-gradient-to-r from-emerald-300 via-emerald-200 to-[#00e676] bg-clip-text text-transparent">
+              India's Supply Chain Operating System — built to fly.
             </span>
             <svg className="mt-4 w-56 h-6 opacity-80" viewBox="0 0 224 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M2 12 C 60 2, 120 22, 222 10" stroke="url(#grad)" strokeWidth="2" strokeLinecap="round" />

@@ -1,926 +1,533 @@
 rules_version = '2';
 
 service cloud.firestore {
-
   match /databases/{database}/documents {
-
-
 
     // ---------- Helpers ----------
 
     function isAuthed() {
-
       return request.auth != null;
-
     }
 
     function isSelf(uid) {
-
       return isAuthed() && request.auth.uid == uid;
-
     }
-
-
 
     // TEMP PHASE: Relax email verification requirement.
-
     // Later, switch back to strict: request.auth.token.email_verified == true
-
     function isEmailVerified() {
-
       return isAuthed();
-
     }
-
-
 
     // E.164 India (+91XXXXXXXXXX)
-
     function isValidPhoneFormat(phone) {
-
       return phone is string && phone.matches('^\\+91[0-9]{10}$');
-
     }
-
-
 
     // Email cannot be changed after creation
-
     function emailUnchanged(data) {
-
       return !('email' in data) || data.email == resource.data.email;
-
     }
 
-
-
     // Retailer ↔ Distributor helpers
-
     function isConnectedRetailer(distributorId) {
-
       return isAuthed()
-
         && exists(/databases/$(database)/documents/businesses/$(distributorId)/connectedRetailers/$(request.auth.uid))
-
         && get(/databases/$(database)/documents/businesses/$(distributorId)/connectedRetailers/$(request.auth.uid)).data.status == "accepted";
-
     }
 
     function isDistributorEmployee(distributorId) {
-
       return isAuthed()
-
-        && exists(/databases/$(database)/documents/businesses/$(distributorId)/distributorEmployees/$(request.auth.uid))
-
-        && get(/databases/$(database)/documents/businesses/$(distributorId)/distributorEmployees/$(request.auth.uid)).data.status == "active";
-
+        && (
+          // Original check: auth.uid matches employee document ID in Firestore
+          (
+            exists(/databases/$(database)/documents/businesses/$(distributorId)/distributorEmployees/$(request.auth.uid))
+            && get(/databases/$(database)/documents/businesses/$(distributorId)/distributorEmployees/$(request.auth.uid)).data.status == "active"
+          )
+          ||
+          // NEW: Also check custom claims for employees using custom tokens
+          (
+            request.auth.token.isDistributorEmployee == true
+            && request.auth.token.distributorId == distributorId
+          )
+        );
     }
 
     function hasEmployeeAccess(distributorId, section) {
-
       return isDistributorEmployee(distributorId)
-
-        && get(/databases/$(database)/documents/businesses/$(distributorId)/distributorEmployees/$(request.auth.uid)).data.accessSections[section] == true;
-
+        && (
+          // Original check: accessSections from Firestore document
+          (
+            exists(/databases/$(database)/documents/businesses/$(distributorId)/distributorEmployees/$(request.auth.uid))
+            && get(/databases/$(database)/documents/businesses/$(distributorId)/distributorEmployees/$(request.auth.uid)).data.accessSections[section] == true
+          )
+          ||
+          // NEW: Also check custom claims accessSections
+          (
+            request.auth.token.isDistributorEmployee == true
+            && request.auth.token.distributorId == distributorId
+            && request.auth.token.accessSections[section] == true
+          )
+        );
     }
 
-
-
     // ============================================================
-
     // BUSINESSES (one document per user)
-
     // ============================================================
-
     match /businesses/{userId} {
 
-
-
-      // CREATE: allow immediately after signup (no email-verified gate in this phase).
-
-      // Client normalizes email to lowercase, so we compare directly with auth token email (also lowercase).
-
+      // CREATE
       allow create: if isAuthed()
-
         && isSelf(userId)
-
         && request.resource.data.ownerId == userId
-
-        // Email must match auth token (both should be lowercase from client)
-
         && (!('email' in request.resource.data) || request.resource.data.email == request.auth.token.email)
-
-        // If phone is present, it must be valid format
-
         && (!('phone' in request.resource.data) || isValidPhoneFormat(request.resource.data.phone));
 
-
-
-      // Owner can read own doc immediately (needed for role-based redirect)
-
+      // READ own doc
       allow read: if isAuthed() && isSelf(userId);
 
-
-
-      // UPDATE: keep strong checks; email immutable; phone must be valid if present
-
+      // UPDATE
       allow update: if isAuthed()
-
         && isSelf(userId)
-
         && isEmailVerified()
-
         && request.resource.data.ownerId == resource.data.ownerId
-
         && emailUnchanged(request.resource.data)
-
         && (!('phone' in request.resource.data) || isValidPhoneFormat(request.resource.data.phone));
-
-
 
       allow delete: if isAuthed() && isSelf(userId);
 
-
-
       // Discovery & partner lookups
-
       allow get: if isAuthed() && (
-
         (isSelf(userId) && isEmailVerified()) ||
-
         (resource.data.role == "Distributor" || resource.data.role == "distributor") ||
-
         exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectionRequests/$(userId)) ||
-
         exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedRetailers/$(userId))
-
       );
 
-
-
       // No blind list of all businesses
-
       allow list: if false;
 
-
-
       // --- Billing Settings (preferences subcollection) ---
-
       match /preferences/{docId} {
-
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
-
       }
-
-
 
       // --- Order Settings ---
-
       match /orderSettings/{anyPath=**} {
-
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
-
       }
-
-
 
       match /orderSettings/global/retailerOverrides/{retailerId} {
-
         allow get, list: if isAuthed() && isSelf(retailerId) && isEmailVerified();
-
       }
-
       match /orderSettings/retailerOverrides/{retailerId} {
-
         allow get, list: if isAuthed() && isSelf(retailerId) && isEmailVerified();
-
       }
-
       match /orderSettings/global {
-
         allow get: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isConnectedRetailer(userId)
-
         );
-
       }
-
-
 
       // ======================== EMPLOYEES (retailer-scoped) ========================
-
       match /employees/{employeeId} {
-
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
 
         allow get: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) ||
-
           request.auth.uid == employeeId ||
-
           (request.auth.token.businessId == userId && request.auth.token.employeeId == employeeId)
-
         );
 
         allow update: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || (
-
             (request.auth.uid == employeeId || request.auth.token.employeeId == employeeId) &&
-
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['online', 'lastSeen'])
-
           )
-
         );
 
         allow create, delete: if isAuthed() && isSelf(userId) && isEmailVerified();
-
       }
 
-
-
       // ==================== DISTRIBUTOR EMPLOYEES (distributor-scoped) ====================
-
       match /distributorEmployees/{employeeId} {
-
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
 
         allow get: if isAuthed() && request.auth.uid == employeeId;
 
         allow update: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || (
-
             request.auth.uid == employeeId &&
-
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['online', 'lastSeen'])
-
           )
-
         );
 
         allow create, delete: if isAuthed() && isSelf(userId) && isEmailVerified();
-
       }
-
-
 
       // --- INVENTORY PRODUCTS ---
-
       match /products/{productId} {
-
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isConnectedRetailer(userId) ||
-
           isDistributorEmployee(userId)
-
         );
 
         allow write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       match /inventoryLogs/{logId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       // --- POS ITEMS LAYER ---
-
       match /items/{itemId} {
-
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isConnectedRetailer(userId) || 
-
           isDistributorEmployee(userId)
-
         );
 
         allow write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       // --- MENU CATEGORIES ---
-
       match /categories/{categoryId} {
-
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isConnectedRetailer(userId) || 
-
           isDistributorEmployee(userId)
-
         );
 
         allow write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
       match /menuCategories/{categoryId} {
-
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isConnectedRetailer(userId) || 
-
           isDistributorEmployee(userId)
-
         );
 
         allow write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
 
-
-
+      // --- Retailer & Distributor Invoices ---
       match /finalizedInvoices/{invoiceId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
 
-
+      // 🔥 NEW: distributor invoices created from TrackOrders.jsx
+      match /invoices/{invoiceId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
 
       match /customers/{customerId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
 
-
-
       match /connectionRequests/{retailerId} {
-
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           request.auth.uid == retailerId
-
         );
 
         allow create: if isAuthed() && request.auth.uid == retailerId;
 
         allow update: if isAuthed() && isSelf(userId) && isEmailVerified();
-
       }
 
-
-
       match /sentRequests/{distributorId} {
-
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
 
         allow update: if isAuthed() && resource.data.distributorId == request.auth.uid;
-
       }
 
-
-
       // --- Retailer copy of orders ---
-
       match /sentOrders/{orderId} {
-
+        // READ
         allow read: if request.auth != null && (
-
           (request.auth.uid == userId && isEmailVerified()) || 
-
           request.auth.uid == resource.data.distributorId ||
-
-          isDistributorEmployee(userId)
-
+          // ✅ allow distributor employees
+          isDistributorEmployee(resource.data.distributorId)
         );
 
+        // CREATE
         allow create: if request.auth != null && (
-
           (request.auth.uid == userId && isEmailVerified()) ||
-
           request.auth.uid == request.resource.data.distributorId ||
-
-          isDistributorEmployee(userId)
-
+          isDistributorEmployee(request.resource.data.distributorId)
         );
 
+        // UPDATE
         allow update: if request.auth != null && (
-
           (request.auth.uid == userId && isEmailVerified()) || 
-
           request.auth.uid == resource.data.distributorId ||
-
-          isDistributorEmployee(userId)
-
+          isDistributorEmployee(resource.data.distributorId)
         );
 
         allow delete: if request.auth != null && request.auth.uid == userId && isEmailVerified();
-
       }
-
-
 
       match /retailerRequests/{requestId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       match /dispatches/{docId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       match /dispatchTracker/{docId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       match /analytics/{docId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       match /connectedDistributors/{docId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           request.auth.uid == docId
-
         );
 
         match /assistantChats/{messageId} {
-
           allow read, write: if isAuthed() && (
-
             (isSelf(userId) && isEmailVerified()) || 
-
             request.auth.uid == docId
-
           );
-
         }
-
       }
-
-
 
       match /connectedRetailers/{retailerUid} {
-
+        // READ: Allow distributor employees to read connected retailers (needed for order creation)
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
-          request.auth.uid == retailerUid
-
+          request.auth.uid == retailerUid ||
+          isDistributorEmployee(userId)
         );
-
-
 
         allow update: if isAuthed()
-
           && request.auth.uid == retailerUid
-
           && request.resource.data.retailerId == retailerUid
-
           && !('status' in request.resource.data)
-
           && !('connectedAt' in request.resource.data)
-
           && request.resource.data.keys().hasOnly([
-
             'retailerId','retailerName','retailerEmail','retailerPhone',
-
             'city','businessName','gstNumber','logoUrl','updatedAt'
-
           ]);
 
-
-
         allow create: if isAuthed() && (
-
           (request.auth.uid == retailerUid &&
-
             request.resource.data.retailerId == retailerUid &&
-
             request.resource.data.keys().hasOnly([
-
               'retailerId','retailerName','retailerEmail','retailerPhone',
-
               'city','businessName','gstNumber','logoUrl','updatedAt'
-
             ])
-
           ) ||
-
           (request.auth.uid == userId && isEmailVerified()) ||
-
           isDistributorEmployee(userId)
-
         );
-
-
 
         match /assistantChats/{messageId} {
-
           allow read, write: if isAuthed() && (
-
             (isSelf(userId) && isEmailVerified()) || 
-
             request.auth.uid == retailerUid
-
           );
-
         }
-
       }
-
-
 
       match /incomingOrders/{orderId} {
-
         allow create: if isAuthed() && (
-
           (request.auth.uid != userId && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
 
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       // --- DIRECT ORDERS ---
-
       match /orders/{orderId} {
-
         allow create: if isAuthed() && (
-
           ((isSelf(userId) && isEmailVerified()) &&
-
             request.resource.data.distributorId == userId &&
-
             request.resource.data.retailerId is string)
-
           ||
-
           (!isSelf(userId) &&
-
             isConnectedRetailer(userId) &&
-
             request.resource.data.retailerId == request.auth.uid &&
-
             request.resource.data.distributorId == userId)
-
           ||
-
           (isDistributorEmployee(userId) &&
-
             request.resource.data.distributorId == userId &&
-
             request.resource.data.retailerId is string)
-
         );
-
-
 
         allow read: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           request.auth.uid == resource.data.retailerId || 
-
           isDistributorEmployee(userId)
-
         );
-
-
 
         allow update, delete: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       // --- ORDER REQUESTS (active & passive) ---
-
       match /orderRequests/{orderId} {
-
         allow create: if isAuthed() && (
-
           (
-
             // Passive (distributor-initiated)
-
             (isSelf(userId) && isEmailVerified()) &&
-
             request.resource.data.createdBy == "distributor" &&
-
             request.resource.data.creatorUid == request.auth.uid &&
-
             request.resource.data.distributorId == userId
-
           )
-
           ||
-
           (
-
             // Active (retailer-initiated)
-
             !isSelf(userId) &&
-
             isConnectedRetailer(userId) &&
-
             request.resource.data.createdBy == "retailer" &&
-
             request.resource.data.creatorUid == request.auth.uid &&
-
             request.resource.data.distributorId == userId &&
-
             request.resource.data.retailerId == request.auth.uid
-
           )
-
           ||
-
           (
-
-            // Passive (distributor employee-initiated)
-
+            // Passive (distributor employee-initiated with createdBy: "distributor" - original logic)
             isDistributorEmployee(userId) &&
-
             hasEmployeeAccess(userId, "createOrders") &&
-
             request.resource.data.createdBy == "distributor" &&
-
             request.resource.data.creatorUid == request.auth.uid &&
-
             request.resource.data.distributorId == userId
-
           )
-
+          ||
+          (
+            // NEW: Passive (distributor employee-initiated with createdBy: "employee")
+            isDistributorEmployee(userId) &&
+            hasEmployeeAccess(userId, "createOrders") &&
+            request.resource.data.createdBy == "employee" &&
+            request.resource.data.creatorUid == request.auth.uid &&
+            request.resource.data.distributorId == userId
+          )
         );
-
-
 
         // Owner and employees with manageOrders access can manage orderRequests
-
         allow read, update, delete: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           (isDistributorEmployee(userId) && hasEmployeeAccess(userId, "manageOrders"))
-
         );
-
       }
-
-
 
       // --- Custom Columns for Inventory ---
-
       match /customColumns/{columnId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
-
 
       // --- Employee Activity Tracking ---
-
       match /employeeActivity/{activityId} {
-
         allow read, write: if isAuthed() && (
-
           (isSelf(userId) && isEmailVerified()) || 
-
           isDistributorEmployee(userId)
-
         );
-
       }
-
     }
 
-
-
     // ============================================================
-
     // PROVISIONAL RETAILERS (Distributor-added temporary accounts)
-
     // ============================================================
-
     match /provisionalRetailers/{pid} {
-
       allow read: if isAuthed() && (
-
         (request.auth.uid == resource.data.createdBy && isEmailVerified()) ||
-
         (isDistributorEmployee(resource.data.createdBy) &&
-
          hasEmployeeAccess(resource.data.createdBy, "addRetailers"))
-
       );
-
       allow write: if false; // CF only
-
     }
 
-
-
     // ============================================================
-
     // GLOBAL COLLECTIONS
-
     // ============================================================
-
     match /assistantQueries/{docId} {
-
       allow create: if isAuthed();
 
       allow read: if isAuthed() && request.auth.uid == resource.data.userId && isEmailVerified();
 
       allow update: if isAuthed() && request.auth.uid == resource.data.userId && isEmailVerified();
-
     }
 
-
-
     match /channels/{channelId} {
-
       allow read, write: if isAuthed();
 
       match /messages/{messageId} {
-
         allow read, write: if isAuthed();
-
       }
-
     }
-
-
 
     // Global employee index lookup (read-only helper)
-
     match /employeeIndex/{flypId} {
-
       allow read: if isAuthed();
-
     }
 
-
-
-    // 🔐 PHONE UNIQUENESS & RESERVATION (server-managed; allow creation but not required for business doc create)
-
+    // 🔐 PHONE UNIQUENESS & RESERVATION
     match /phoneIndex/{e164} {
-
       allow create: if isAuthed()
-
         && request.resource.data.uid == request.auth.uid
-
         && !exists(/databases/$(database)/documents/phoneIndex/$(e164));
-
-      // Allow owner to read their reservation
-
       allow read: if isAuthed() && request.auth.uid == resource.data.uid;
-
       allow update, delete: if false;
-
     }
-
-
 
     // Block any future OTP scratch from client
-
     match /otpRequests/{docId} {
-
       allow read: if false;
-
       allow write: if false;
-
     }
-
   }
-
 }
-

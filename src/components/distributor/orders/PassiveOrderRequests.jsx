@@ -11,7 +11,7 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "../../../firebase/firebaseConfig";
-import { doc, updateDoc, arrayUnion, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, serverTimestamp, getDoc } from "firebase/firestore";
 import { ORDER_STATUSES, canTransition, codeOf } from "../../../constants/orderStatus";
 import { normalizePaymentMode, VERSION as ORDER_POLICY_VERSION } from '../../../lib/orders/orderPolicy';
 
@@ -122,6 +122,40 @@ async function setOrderStatus(distributorId, orderId, currentStatus, nextStatus,
     delete extra._forceTransition;
   }
   const ref = doc(db, "businesses", distributorId, "orderRequests", orderId);
+  
+  // When accepting, preserve existing proforma/chargesSnapshot if they exist
+  // This ensures discounts edited in OrderRequests are preserved
+  if (nextStatus === ORDER_STATUSES.ACCEPTED) {
+    try {
+      const orderSnap = await getDoc(ref);
+      if (orderSnap.exists()) {
+        const orderData = orderSnap.data();
+        // Preserve proforma and chargesSnapshot if they exist (contains discounts)
+        if (orderData.proforma) {
+          extra.proforma = orderData.proforma;
+        }
+        if (orderData.chargesSnapshot) {
+          extra.chargesSnapshot = orderData.chargesSnapshot;
+        }
+        // Also preserve items with discounts if they were edited
+        if (orderData.items && Array.isArray(orderData.items)) {
+          extra.items = orderData.items;
+        }
+        // Preserve proformaLocked flag
+        if (orderData.proformaLocked !== undefined) {
+          extra.proformaLocked = orderData.proformaLocked;
+        }
+        // Preserve directFlow flag
+        if (orderData.directFlow !== undefined) {
+          extra.directFlow = orderData.directFlow;
+        }
+      }
+    } catch (err) {
+      console.warn('[PassiveOrderRequests] Failed to read order for proforma preservation:', err);
+      // Continue with status update even if preservation fails
+    }
+  }
+  
   const tsField = TS_FIELDS[nextStatus] || null;
   const patch = {
     statusCode: nextStatus,

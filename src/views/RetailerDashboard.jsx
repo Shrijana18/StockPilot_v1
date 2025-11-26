@@ -26,8 +26,10 @@ import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 const RetailerDashboardInner = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('home');
   const { mode } = useMode();
   const [selectedDistributor, setSelectedDistributor] = useState(null);
@@ -119,15 +121,15 @@ const RetailerDashboardInner = () => {
   };
 
   const sidebarItems = [
-    { id: 'home', label: 'Home', icon: <FaHome /> },
-    { id: 'billing', label: 'Billing', icon: <FaFileInvoice /> },
-    { id: 'inventory', label: 'Inventory', icon: <FaBoxes /> },
-    { id: 'analytics', label: 'Business Analytics', icon: <FaChartLine /> },
-    { id: 'distributors', label: 'Distributor Connection', icon: <FaBuilding /> },
-    { id: 'orderHistory', label: 'Order History', icon: <FaFileInvoice /> },
-    { id: 'customers', label: 'Customer Analysis', icon: <FaUsers /> },
-    { id: 'employees', label: 'Manage Employee', icon: <FaUserPlus /> },
-    { id: 'profile', label: 'Profile Settings', icon: <FaUser /> },
+    { id: 'home', label: t('retailer.home'), icon: <FaHome /> },
+    { id: 'billing', label: t('retailer.billing'), icon: <FaFileInvoice /> },
+    { id: 'inventory', label: t('retailer.inventory'), icon: <FaBoxes /> },
+    { id: 'analytics', label: t('retailer.analytics'), icon: <FaChartLine /> },
+    { id: 'distributors', label: t('retailer.distributors'), icon: <FaBuilding /> },
+    { id: 'orderHistory', label: t('retailer.orderHistory'), icon: <FaFileInvoice /> },
+    { id: 'customers', label: t('retailer.customers'), icon: <FaUsers /> },
+    { id: 'employees', label: t('retailer.employees'), icon: <FaUserPlus /> },
+    { id: 'profile', label: t('retailer.profile'), icon: <FaUser /> },
   ];
 
   // Scene transition variants (content swap)
@@ -558,19 +560,19 @@ const RetailerDashboardInner = () => {
                         onClick={() => setDistributorTab('search')}
                         className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${distributorTab === 'search' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
-                        🔍 Search Distributor
+                        🔍 {t('retailer.searchDistributor')}
                       </button>
                       <button
                         onClick={() => setDistributorTab('sent')}
                         className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${distributorTab === 'sent' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
-                        📤 Sent Requests
+                        📤 {t('retailer.sentRequests')}
                       </button>
                       <button
                         onClick={() => setDistributorTab('connected')}
                         className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center ${distributorTab === 'connected' ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'}`}
                       >
-                        🤝 View Distributors
+                        🤝 {t('retailer.connected')}
                       </button>
                     </div>
 

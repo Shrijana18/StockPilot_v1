@@ -11,6 +11,8 @@ import { ORDER_STATUSES, codeOf } from "../../../constants/orderStatus";
 import * as orderPolicy from "../../../lib/orders/orderPolicy";
 import { calculateProforma } from "../../../lib/calcProforma";
 import { splitFromMrp } from "../../../utils/pricing";
+import { getDistributorEmployeeSession } from "../../../utils/distributorEmployeeSession";
+import { empAuth } from "../../../firebase/firebaseConfig";
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -701,6 +703,21 @@ const OrderRequests = () => {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
 
+      // Check if current user is an employee
+      const employeeSession = getDistributorEmployeeSession();
+      const isEmployee = !!employeeSession;
+      const employeeInfo = isEmployee ? {
+        type: 'employee',
+        employeeId: employeeSession.employeeId,
+        flypEmployeeId: employeeSession.flypEmployeeId || employeeSession.employeeId,
+        name: employeeSession.name || null,
+        role: employeeSession.role || null,
+        uid: empAuth.currentUser?.uid || uid,
+      } : {
+        type: 'distributor',
+        uid: uid,
+      };
+
       // Normalize next status string/code defensively
       const next = (newStatus || '').toString().toUpperCase();
       const nextCode = codeOf(newStatus);
@@ -745,10 +762,14 @@ const OrderRequests = () => {
                     const currentQty = Number(product.quantity || 0);
                     const newQty = Math.max(currentQty - orderedQty, 0);
                     tx.update(productRef, { quantity: newQty });
+                    // IMPORTANT: Preserve the original item price from order to maintain calculation consistency
+                    // Only update metadata (sku, category, brand) but NOT price
+                    // This ensures the preview total matches the acceptance total
                     result.push({
                       ...item,
-                      price: product.sellingPrice ?? product.price ?? item.price ?? 0,
-                      subtotal: (product.sellingPrice ?? product.price ?? item.price ?? 0) * orderedQty,
+                      // DO NOT overwrite price - use original item price to maintain calculation consistency
+                      // price: product.sellingPrice ?? product.price ?? item.price ?? 0, // REMOVED - causes mismatch
+                      // subtotal: (product.sellingPrice ?? product.price ?? item.price ?? 0) * orderedQty, // REMOVED
                       sku: product.sku || item.sku || '',
                       category: product.category || item.category || '',
                       brand: product.brand || item.brand || '',
@@ -766,10 +787,74 @@ const OrderRequests = () => {
           }
         }
 
-        // Recalculate chargesSnapshot using calculateProforma for accuracy
-        const draft = directChargesDraft || {};
+        // Use the draft from chargesDraftMap if available (includes already calculated breakdown)
+        // This ensures consistency between preview and acceptance
+        let draft = directChargesDraft || {};
         const lineEdits = getLineEdits(order.id);
-        const recalculated = recalculateCharges(order, draft, lineEdits);
+        
+        // If chargesDraftMap has a calculated breakdown, prefer using it directly
+        // But we still need to extract just the draft charges (not the breakdown) for recalculation
+        // Check if directChargesDraft has breakdown values (means it was already calculated)
+        const hasBreakdown = directChargesDraft && (
+          directChargesDraft.lineDiscountTotal !== undefined ||
+          directChargesDraft.grandTotal !== undefined ||
+          directChargesDraft.grossItems !== undefined
+        );
+        
+        // Extract just the draft charges (order-level inputs), not the calculated breakdown
+        const draftCharges = hasBreakdown ? {
+          delivery: draft.delivery,
+          packing: draft.packing,
+          insurance: draft.insurance,
+          other: draft.other,
+          discountPct: draft.discountPct,
+          discountAmt: draft.discountAmt,
+          discountChangedBy: draft.discountChangedBy,
+        } : draft;
+        
+        // CRITICAL: If we have a cached breakdown from chargesDraftMap, ALWAYS use it
+        // This ensures the preview total (₹988.35) matches the acceptance total
+        // The cached breakdown was calculated with the exact same inputs as the preview
+        // We use cached breakdown directly without recalculation to avoid any discrepancies
+        const useCachedBreakdown = hasBreakdown && 
+          draft.lineDiscountTotal !== undefined &&
+          draft.grandTotal !== undefined &&
+          draft.grossItems !== undefined;
+        
+        // Recalculate chargesSnapshot using calculateProforma for accuracy
+        // Only recalculate if we don't have a cached breakdown to use
+        // This ensures consistency - if preview shows ₹988.35, acceptance should also be ₹988.35
+        const recalculated = useCachedBreakdown ? null : recalculateCharges(order, draftCharges, lineEdits);
+        
+        // Update enrichedItems with discounts and GST rates from lineEdits
+        // This ensures discounts are saved to the items array, not just in chargesSnapshot
+        enrichedItems = enrichedItems.map((item, idx) => {
+          const lineEdit = lineEdits[idx] || {};
+          const updatedItem = { ...item };
+          
+          // Apply itemDiscountPct from lineEdits if present
+          if (lineEdit.itemDiscountPct !== undefined) {
+            updatedItem.itemDiscountPct = Number(lineEdit.itemDiscountPct) || 0;
+          }
+          
+          // Apply itemDiscountAmt from lineEdits if present
+          if (lineEdit.itemDiscountAmt !== undefined) {
+            updatedItem.itemDiscountAmt = Number(lineEdit.itemDiscountAmt) || 0;
+          }
+          
+          // Apply itemDiscountChangedBy from lineEdits if present
+          if (lineEdit.itemDiscountChangedBy) {
+            updatedItem.itemDiscountChangedBy = lineEdit.itemDiscountChangedBy;
+          }
+          
+          // Apply gstRate from lineEdits if present
+          if (lineEdit.gstRate !== undefined) {
+            updatedItem.gstRate = Number(lineEdit.gstRate) || 0;
+            updatedItem.taxRate = Number(lineEdit.gstRate) || 0; // Keep both for compatibility
+          }
+          
+          return updatedItem;
+        });
         
         // Build proper chargesSnapshot structure
         const existingCharges = order?.chargesSnapshot || {};
@@ -783,24 +868,99 @@ const OrderRequests = () => {
           discountChangedBy = draftAmt > 0 ? 'amt' : 'pct';
         }
         
-        const finalBreakdown = {
+        // Save proforma with lines for PendingOrders and TrackOrders to read discounts
+        // Use the calculated lines from cached breakdown or recalculated breakdown
+        // If using cached breakdown, extract lines from draft; otherwise use recalculated
+        const proformaLines = useCachedBreakdown && draft.lines && Array.isArray(draft.lines) && draft.lines.length > 0
+          ? draft.lines.map((line) => ({
+              qty: line.qty || 0,
+              price: line.price || 0,
+              itemDiscountPct: line.itemDiscountPct || 0,
+              itemDiscountAmt: line.itemDiscountAmt || line.discountAmount || 0,
+              itemDiscountChangedBy: line.itemDiscountChangedBy || (line.itemDiscountAmt > 0 || line.discountAmount > 0 ? 'amt' : 'pct'),
+              gstRate: line.gstRate || 0,
+              gross: line.gross || 0,
+              discountAmount: line.discountAmount || 0,
+              taxable: line.taxable || 0,
+            }))
+          : Array.isArray(recalculated?.breakdown?.lines) && recalculated.breakdown.lines.length > 0
+          ? recalculated.breakdown.lines.map((line) => ({
+              qty: line.qty || 0,
+              price: line.price || 0,
+              itemDiscountPct: line.itemDiscountPct || 0,
+              itemDiscountAmt: line.itemDiscountAmt || line.discountAmount || 0,
+              itemDiscountChangedBy: line.itemDiscountChangedBy || (line.itemDiscountAmt > 0 || line.discountAmount > 0 ? 'amt' : 'pct'),
+              gstRate: line.gstRate || 0,
+              gross: line.gross || 0,
+              discountAmount: line.discountAmount || 0,
+              taxable: line.taxable || 0,
+            }))
+          : (order.items || []).map((item, idx) => {
+              const lineEdit = lineEdits[idx] || {};
+              const qty = Number(item.quantity || item.qty || 0);
+              const price = Number(item.sellingPrice || item.price || item.unitPrice || 0);
+              const itemDiscountPct = lineEdit.itemDiscountPct !== undefined 
+                ? Number(lineEdit.itemDiscountPct) 
+                : Number(item.itemDiscountPct || 0);
+              const itemDiscountAmt = lineEdit.itemDiscountAmt !== undefined
+                ? Number(lineEdit.itemDiscountAmt)
+                : Number(item.itemDiscountAmt || 0);
+              const itemDiscountChangedBy = lineEdit.itemDiscountChangedBy || item.itemDiscountChangedBy || (itemDiscountAmt > 0 ? 'amt' : 'pct');
+              const gstRate = lineEdit.gstRate !== undefined
+                ? Number(lineEdit.gstRate)
+                : Number(item.gstRate || item.taxRate || 0);
+              const gross = qty * price;
+              
+              // Calculate discount using same logic as calculateProforma
+              let discountAmount = 0;
+              if (itemDiscountChangedBy === 'amt' && itemDiscountAmt > 0) {
+                discountAmount = Math.max(0, Math.min(gross, itemDiscountAmt));
+              } else if (itemDiscountChangedBy === 'pct' && itemDiscountPct > 0) {
+                discountAmount = Math.round((gross * Math.max(0, Math.min(100, itemDiscountPct))) / 100 * 100) / 100;
+              } else if (itemDiscountAmt > 0) {
+                discountAmount = Math.max(0, Math.min(gross, itemDiscountAmt));
+              } else if (itemDiscountPct > 0) {
+                discountAmount = Math.round((gross * Math.max(0, Math.min(100, itemDiscountPct))) / 100 * 100) / 100;
+              }
+              
+              const taxable = gross - discountAmount;
+              
+              return {
+                qty,
+                price,
+                itemDiscountPct,
+                itemDiscountAmt,
+                itemDiscountChangedBy,
+                gstRate,
+                gross,
+                discountAmount,
+                taxable,
+              };
+            });
+        
+        // Use cached breakdown if it exists and matches recalculation (ensures consistency with preview)
+        // Otherwise use recalculated values
+        const finalBreakdown = useCachedBreakdown ? {
+          // Use cached breakdown from chargesDraftMap (already calculated with correct lineEdits)
+          ...draft,
+          // Ensure we use current draft charges values (in case they changed)
+          delivery: Number(draftCharges.delivery ?? draft.delivery ?? existingCharges?.breakdown?.delivery ?? 0),
+          packing: Number(draftCharges.packing ?? draft.packing ?? existingCharges?.breakdown?.packing ?? 0),
+          insurance: Number(draftCharges.insurance ?? draft.insurance ?? existingCharges?.breakdown?.insurance ?? 0),
+          other: Number(draftCharges.other ?? draft.other ?? existingCharges?.breakdown?.other ?? 0),
+          discountPct: Number(draftCharges.discountPct ?? draft.discountPct ?? existingCharges?.breakdown?.discountPct ?? 0),
+          discountAmt: Number(draftCharges.discountAmt ?? draft.discountAmt ?? existingCharges?.breakdown?.discountAmt ?? 0),
+          discountChangedBy: draftCharges.discountChangedBy ?? draft.discountChangedBy ?? discountChangedBy,
+        } : {
+          // Use recalculated values if no cached breakdown or if it doesn't match
           ...recalculated.breakdown,
-          delivery: Number(draft.delivery ?? existingCharges?.breakdown?.delivery ?? 0),
-          packing: Number(draft.packing ?? existingCharges?.breakdown?.packing ?? 0),
-          insurance: Number(draft.insurance ?? existingCharges?.breakdown?.insurance ?? 0),
-          other: Number(draft.other ?? existingCharges?.breakdown?.other ?? 0),
-          discountPct: Number(draft.discountPct ?? existingCharges?.breakdown?.discountPct ?? 0),
-          discountAmt: Number(draft.discountAmt ?? existingCharges?.breakdown?.discountAmt ?? 0),
-          discountChangedBy,
-          discountTotal: recalculated.breakdown.discountTotal,
-          grossItems: recalculated.breakdown.grossItems,
-          lineDiscountTotal: recalculated.breakdown.lineDiscountTotal,
-          itemsSubTotal: recalculated.breakdown.itemsSubTotal,
-          subTotal: recalculated.breakdown.subTotal,
-          taxableBase: recalculated.breakdown.taxableBase,
-          taxBreakup: recalculated.breakdown.taxBreakup,
-          roundOff: recalculated.breakdown.roundOff,
-          grandTotal: recalculated.grandTotal,
+          delivery: Number(draftCharges.delivery ?? existingCharges?.breakdown?.delivery ?? 0),
+          packing: Number(draftCharges.packing ?? existingCharges?.breakdown?.packing ?? 0),
+          insurance: Number(draftCharges.insurance ?? existingCharges?.breakdown?.insurance ?? 0),
+          other: Number(draftCharges.other ?? existingCharges?.breakdown?.other ?? 0),
+          discountPct: Number(draftCharges.discountPct ?? existingCharges?.breakdown?.discountPct ?? 0),
+          discountAmt: Number(draftCharges.discountAmt ?? existingCharges?.breakdown?.discountAmt ?? 0),
+          discountChangedBy: draftCharges.discountChangedBy ?? discountChangedBy,
         };
         
         if (isDirectFlag) {
@@ -816,6 +976,35 @@ const OrderRequests = () => {
         if (isDirectFlag) {
           finalCharges.directFlow = true;
         }
+        
+        // Build proforma object with lines for PendingOrders/TrackOrders
+        // Use lines from cached breakdown if available, otherwise use calculated lines
+        const proformaLinesToSave = useCachedBreakdown && draft.lines && Array.isArray(draft.lines) && draft.lines.length > 0
+          ? draft.lines
+          : proformaLines;
+        
+        const proforma = {
+          lines: proformaLinesToSave,
+          grossItems: finalBreakdown.grossItems,
+          lineDiscountTotal: finalBreakdown.lineDiscountTotal,
+          itemsSubTotal: finalBreakdown.itemsSubTotal,
+          subTotal: finalBreakdown.subTotal,
+          orderCharges: {
+            delivery: finalBreakdown.delivery,
+            packing: finalBreakdown.packing,
+            insurance: finalBreakdown.insurance,
+            other: finalBreakdown.other,
+            discountPct: finalBreakdown.discountPct,
+            discountAmt: finalBreakdown.discountAmt,
+            discountChangedBy: finalBreakdown.discountChangedBy,
+          },
+          discountTotal: finalBreakdown.discountTotal,
+          taxableBase: finalBreakdown.taxableBase,
+          taxType: finalBreakdown.taxType || 'CGST_SGST',
+          taxBreakup: finalBreakdown.taxBreakup,
+          roundOff: finalBreakdown.roundOff,
+          grandTotal: finalBreakdown.grandTotal,
+        };
 
         const baseMode = order.retailerMode || (order.provisionalRetailerId ? 'passive' : 'active');
         // --- Payment mode normalization ---
@@ -823,14 +1012,14 @@ const OrderRequests = () => {
 
         const timelineEntry = {
           status: 'ACCEPTED',
-          by: { uid, type: 'distributor' },
+          by: isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
           at: new Date().toISOString(),
           ...(baseMode ? { mode: baseMode } : {}),
         };
         const auditEntry = {
           at: new Date().toISOString(),
           event: 'acceptOrder',
-          by: { uid, type: 'distributor' },
+          by: isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
           meta: { fastAccept: true },
         };
         const acceptanceBase = {
@@ -845,6 +1034,7 @@ const OrderRequests = () => {
           promotionReady: true,
           directFlow: true,
           items: enrichedItems,
+          proforma: proforma, // Save proforma with lines for PendingOrders/TrackOrders
           chargesSnapshot: finalCharges,
           paymentMode: normalizedPaymentMode,
           paymentMethod: order.paymentMethod || order.payment_method || undefined,
@@ -854,7 +1044,23 @@ const OrderRequests = () => {
         await updateDoc(distRef, {
           ...acceptanceBase,
           'statusTimestamps.acceptedAt': serverTimestamp(),
-          'handledBy.acceptedBy': { uid, type: 'distributor' },
+          'handledBy.acceptedBy': isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
+          // Save employee activity tracking
+          ...(isEmployee ? {
+            createdBy: 'employee',
+            creatorDetails: employeeInfo,
+            employeeActivity: arrayUnion({
+              action: 'accepted',
+              employeeId: employeeInfo.employeeId,
+              flypEmployeeId: employeeInfo.flypEmployeeId,
+              employeeName: employeeInfo.name,
+              employeeRole: employeeInfo.role,
+              at: new Date().toISOString(),
+              // Note: Using ISO string (at field) instead of serverTimestamp() as serverTimestamp() cannot be used inside arrays
+            }),
+          } : {
+            createdBy: order.createdBy || 'distributor',
+          }),
           updatedAt: serverTimestamp(),
           timeline: arrayUnion(timelineEntry),
           auditTrail: arrayUnion(auditEntry),
@@ -864,7 +1070,21 @@ const OrderRequests = () => {
         await setDoc(canonicalRef, acceptanceBase, { merge: true });
         await updateDoc(canonicalRef, {
           'statusTimestamps.acceptedAt': serverTimestamp(),
-          'handledBy.acceptedBy': { uid, type: 'distributor' },
+          'handledBy.acceptedBy': isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
+          // Save employee activity tracking
+          ...(isEmployee ? {
+            createdBy: 'employee',
+            creatorDetails: employeeInfo,
+            employeeActivity: arrayUnion({
+              action: 'accepted',
+              employeeId: employeeInfo.employeeId,
+              flypEmployeeId: employeeInfo.flypEmployeeId,
+              employeeName: employeeInfo.name,
+              employeeRole: employeeInfo.role,
+              at: new Date().toISOString(),
+              // Note: Using ISO string (at field) instead of serverTimestamp() as serverTimestamp() cannot be used inside arrays
+            }),
+          } : {}),
           updatedAt: serverTimestamp(),
           timeline: arrayUnion(timelineEntry),
           auditTrail: arrayUnion(auditEntry),
@@ -879,6 +1099,7 @@ const OrderRequests = () => {
               distributorId: uid,
               retailerId: order.retailerId,
               items: enrichedItems,
+              proforma: proforma, // Save proforma with lines for consistency
               chargesSnapshot: finalCharges,
               proformaLocked: true,
               directFlow: true,
@@ -908,13 +1129,13 @@ const OrderRequests = () => {
 
         const rejectedTimeline = {
           status: 'REJECTED',
-          by: { uid, type: 'distributor' },
+          by: isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
           at: new Date().toISOString(),
         };
         const rejectedAudit = {
           at: new Date().toISOString(),
           event: 'rejectOrder',
-          by: { uid, type: 'distributor' },
+          by: isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
           meta: { reason },
         };
         const rejectionBase = {
@@ -931,6 +1152,19 @@ const OrderRequests = () => {
         await setDoc(canonicalRef, rejectionBase, { merge: true });
         await updateDoc(canonicalRef, {
           'statusTimestamps.rejectedAt': serverTimestamp(),
+          'handledBy.rejectedBy': isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
+          ...(isEmployee ? {
+            employeeActivity: arrayUnion({
+              action: 'rejected',
+              employeeId: employeeInfo.employeeId,
+              flypEmployeeId: employeeInfo.flypEmployeeId,
+              employeeName: employeeInfo.name,
+              employeeRole: employeeInfo.role,
+              reason: reason,
+              at: new Date().toISOString(),
+              // Note: Using ISO string (at field) instead of serverTimestamp() as serverTimestamp() cannot be used inside arrays
+            }),
+          } : {}),
           timeline: arrayUnion(rejectedTimeline),
           auditTrail: arrayUnion(rejectedAudit),
           updatedAt: serverTimestamp(),
@@ -939,6 +1173,19 @@ const OrderRequests = () => {
         await updateDoc(distRef, {
           ...rejectionBase,
           'statusTimestamps.rejectedAt': serverTimestamp(),
+          'handledBy.rejectedBy': isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
+          ...(isEmployee ? {
+            employeeActivity: arrayUnion({
+              action: 'rejected',
+              employeeId: employeeInfo.employeeId,
+              flypEmployeeId: employeeInfo.flypEmployeeId,
+              employeeName: employeeInfo.name,
+              employeeRole: employeeInfo.role,
+              reason: reason,
+              at: new Date().toISOString(),
+              // Note: Using ISO string (at field) instead of serverTimestamp() as serverTimestamp() cannot be used inside arrays
+            }),
+          } : {}),
           timeline: arrayUnion(rejectedTimeline),
           auditTrail: arrayUnion(rejectedAudit),
           updatedAt: serverTimestamp(),
@@ -1200,6 +1447,17 @@ if (!loading && orders.length === 0) {
                   <span>
                     Items: {order.items?.length || 0}
                   </span>
+                  {/* Employee Activity Display */}
+                  {order.handledBy?.acceptedBy?.type === 'employee' && (
+                    <span className="text-emerald-300">
+                      ✓ Accepted by: {order.handledBy.acceptedBy.name || order.handledBy.acceptedBy.flypEmployeeId || 'Employee'} ({order.handledBy.acceptedBy.role || 'Employee'})
+                    </span>
+                  )}
+                  {order.creatorDetails?.type === 'employee' && order.createdBy === 'employee' && (
+                    <span className="text-blue-300">
+                      📝 Created by: {order.creatorDetails.name || order.creatorDetails.flypEmployeeId || 'Employee'} ({order.creatorDetails.role || 'Employee'})
+                    </span>
+                  )}
                   <span>
                     Total: <span className="font-semibold text-emerald-300">₹{orderGrandTotal(order).toFixed(2)}</span>
                   </span>
@@ -1355,6 +1613,48 @@ if (!loading && orders.length === 0) {
                       )}
                     </div>
                   )}
+                  {/* Show who created the order - Priority: Employee > Distributor > Fallback */}
+                  {(() => {
+                    // First check if it's an employee-created order
+                    if (order.createdBy === 'employee' || order.creatorDetails?.type === 'employee') {
+                      const empName = order.creatorDetails?.name || order.creatorDetails?.flypEmployeeId || 'Employee';
+                      const empRole = order.creatorDetails?.role;
+                      return (
+                        <div className="mb-1">
+                          <span className="font-medium text-white/70">Created By:</span>
+                          <span className="ml-2 text-blue-300 font-medium">
+                            👤 {empName}
+                            {empRole && ` (${empRole})`}
+                          </span>
+                        </div>
+                      );
+                    }
+                    // Then check if it's a distributor-created order
+                    if (order.createdBy === 'distributor' || order.creatorDetails?.type === 'distributor') {
+                      const distName = order.creatorDetails?.name || 'Distributor Owner';
+                      return (
+                        <div className="mb-1">
+                          <span className="font-medium text-white/70">Created By:</span>
+                          <span className="ml-2 text-emerald-300 font-medium">
+                            👤 {distName}
+                          </span>
+                        </div>
+                      );
+                    }
+                    // Fallback: If no creatorDetails but we have createdBy, show generic
+                    if (order.createdBy === 'employee') {
+                      return (
+                        <div className="mb-1">
+                          <span className="font-medium text-white/70">Created By:</span>
+                          <span className="ml-2 text-blue-300 font-medium">
+                            👤 Employee
+                          </span>
+                        </div>
+                      );
+                    }
+                    // Last fallback: show nothing if we can't determine
+                    return null;
+                  })()}
                   <div className="mb-1">
                     <span className="font-medium text-white/70">Order Note:</span>
                     <span className="ml-2 text-white">{order.notes || '—'}</span>
