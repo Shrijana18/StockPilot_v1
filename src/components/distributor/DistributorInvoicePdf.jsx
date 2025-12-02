@@ -1,5 +1,5 @@
 import React from "react";
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
 import { splitFromMrp } from "../../utils/pricing";
 
 const styles = StyleSheet.create({
@@ -568,7 +568,14 @@ const DistributorInvoicePdf = ({ invoice = {}, order = null }) => {
           </View>
         )}
 
-        <Text style={styles.footer}>POWERED BY FLYP · {formatDate(new Date().toISOString())}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#E5E7EB" }}>
+          <Image 
+            src="/assets/flyp_logo.png" 
+            style={{ width: 24, height: 24, opacity: 0.8 }}
+            cache={false}
+          />
+          <Text style={styles.footer}>Powered by FLYP · {formatDate(new Date().toISOString())}</Text>
+        </View>
       </Page>
     </Document>
   );

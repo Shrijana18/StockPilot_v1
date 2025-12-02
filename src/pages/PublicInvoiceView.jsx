@@ -5,6 +5,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { pdf } from "@react-pdf/renderer";
 import { saveAs } from "file-saver";
 import DistributorInvoicePdf from "../components/distributor/DistributorInvoicePdf";
+import DistributorManualInvoicePdf from "../components/distributor/DistributorManualInvoicePdf";
 import { splitFromMrp } from "../utils/pricing";
 
 const PublicInvoiceView = () => {
@@ -14,6 +15,7 @@ const PublicInvoiceView = () => {
   const [orderData, setOrderData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     const fetchInvoice = async () => {
@@ -71,8 +73,18 @@ const PublicInvoiceView = () => {
 
   const formatDate = (value) => {
     if (!value) return "N/A";
-    const d = value?.seconds ? new Date(value.seconds * 1000) : new Date(value);
-    return d.toLocaleDateString("en-GB", {
+    let d;
+    if (value?.seconds) {
+      d = new Date(value.seconds * 1000);
+    } else if (value?.toDate) {
+      d = value.toDate();
+    } else if (value instanceof Date) {
+      d = value;
+    } else {
+      d = new Date(value);
+    }
+    if (isNaN(d.getTime())) return "N/A";
+    return d.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -157,9 +169,15 @@ const PublicInvoiceView = () => {
     if (!invoice) return;
     try {
       setDownloadingPdf(true);
-      const doc = <DistributorInvoicePdf invoice={invoice} order={orderData} />;
-      const blob = await pdf(doc).toBlob();
-      const fileName = `${invoice.invoiceNumber || invoice.id}-${formatDate(invoice.issuedAt).replace(/\s+/g, "-")}.pdf`;
+      // Use DistributorManualInvoicePdf for manual invoices (no orderId), otherwise use DistributorInvoicePdf
+      const isManualInvoice = !invoice.orderId;
+      const pdfDoc = isManualInvoice 
+        ? <DistributorManualInvoicePdf invoice={invoice} />
+        : <DistributorInvoicePdf invoice={invoice} order={orderData} />;
+      const blob = await pdf(pdfDoc).toBlob();
+      const invoiceNumber = invoice.invoiceNumber || invoice.invoiceId || invoice.id;
+      const issued = formatDate(invoice.issuedAt || invoice.createdAt).replace(/\s+/g, "-");
+      const fileName = `${invoiceNumber}-${issued}.pdf`;
       saveAs(blob, fileName);
     } catch (err) {
       console.error("Failed to generate PDF", err);
@@ -201,20 +219,35 @@ const PublicInvoiceView = () => {
               {invoice.invoiceNumber || invoice.id}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5 print:text-[10px]">
-              Issued on {formatDate(invoice.issuedAt)}
+              Issued on {formatDate(invoice.issuedAt || invoice.createdAt)}
             </p>
           </div>
-          <button
-            onClick={handleDownloadPdf}
-            disabled={downloadingPdf}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition print:hidden ${
-              downloadingPdf
-                ? "bg-slate-400 text-white cursor-not-allowed"
-                : "bg-gradient-to-r from-slate-900 to-slate-800 text-white hover:from-slate-800 hover:to-slate-700 shadow-md"
-            }`}
-          >
-            {downloadingPdf ? "Preparing..." : "Download PDF"}
-          </button>
+          <div className="flex gap-2 print:hidden">
+            <button
+              onClick={handleDownloadPdf}
+              disabled={downloadingPdf}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                downloadingPdf
+                  ? "bg-slate-400 text-white cursor-not-allowed"
+                  : "bg-gradient-to-r from-slate-900 to-slate-800 text-white hover:from-slate-800 hover:to-slate-700 shadow-md"
+              }`}
+            >
+              {downloadingPdf ? "Preparing..." : "Download PDF"}
+            </button>
+            <button
+              onClick={() => {
+                const url = window.location.href;
+                navigator.clipboard.writeText(url).then(() => {
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 2000);
+                });
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 shadow-md transition"
+              title="Copy invoice link"
+            >
+              {linkCopied ? "✓ Copied!" : "Copy Link"}
+            </button>
+          </div>
         </div>
 
         {/* Summary Cards */}
@@ -250,13 +283,17 @@ const PublicInvoiceView = () => {
           <div className="border-2 border-slate-200 rounded-xl p-3 bg-slate-50/50 print:border print:p-2">
             <p className="text-[10px] uppercase text-slate-600 mb-1.5 font-semibold tracking-wide">Bill To (Buyer)</p>
             <p className="font-bold text-base text-slate-900 print:text-sm">
-              {invoice.buyer?.businessName || "N/A"}
+              {invoice.buyer?.businessName || invoice.buyer?.name || invoice.customer?.name || invoice.customer?.businessName || "N/A"}
             </p>
             <div className="text-xs text-slate-600 mt-1.5 space-y-0.5 print:text-[10px]">
-              {invoice.buyer?.email && <p>{invoice.buyer.email}</p>}
-              {invoice.buyer?.phone && <p>{invoice.buyer.phone}</p>}
-              {(invoice.buyer?.city || invoice.buyer?.state) && (
-                <p>{[invoice.buyer?.city, invoice.buyer?.state].filter(Boolean).join(", ")}</p>
+              {(invoice.buyer?.email || invoice.customer?.email) && <p>{invoice.buyer?.email || invoice.customer?.email}</p>}
+              {(invoice.buyer?.phone || invoice.customer?.phone) && <p>{invoice.buyer?.phone || invoice.customer?.phone}</p>}
+              {(invoice.buyer?.address || invoice.customer?.address) && <p>{invoice.buyer?.address || invoice.customer?.address}</p>}
+              {((invoice.buyer?.city || invoice.customer?.city) || (invoice.buyer?.state || invoice.customer?.state)) && (
+                <p>{[
+                  invoice.buyer?.city || invoice.customer?.city,
+                  invoice.buyer?.state || invoice.customer?.state
+                ].filter(Boolean).join(", ")}</p>
               )}
             </div>
           </div>
@@ -279,7 +316,8 @@ const PublicInvoiceView = () => {
         {/* Items Table */}
         {(() => {
           // Get items from orderData or invoice, with fallback
-          const items = (orderData?.items || invoice?.items || []);
+          // For manual invoices, check cartItems as well
+          const items = (orderData?.items || invoice?.items || invoice?.cartItems || []);
           if (!items || items.length === 0) return null;
           
           return (
@@ -447,7 +485,13 @@ const PublicInvoiceView = () => {
 
         {/* Footer */}
         <div className="text-center text-[10px] text-slate-400 pt-3 border-t border-slate-200 print:text-[9px] print:pt-2">
-          <p>Powered by FLYP — Smart Business Invoicing</p>
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <img src="/assets/flyp_logo.png" alt="FLYP Logo" className="w-6 h-6 opacity-80" />
+            <p>Powered by FLYP — Smart Business Invoicing</p>
+          </div>
+          <p className="mt-2 text-[9px] text-slate-500">
+            This is a digital invoice. You can download the PDF using the button above.
+          </p>
         </div>
       </div>
     </div>

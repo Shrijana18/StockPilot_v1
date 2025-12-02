@@ -4,7 +4,9 @@ import InvoicePreview from "./InvoicePreview";
 import { collection, getDocs, doc as docRef, getDoc, updateDoc, doc } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 import moment from "moment";
-import html2pdf from "html2pdf.js";
+import { pdf } from "@react-pdf/renderer";
+import { saveAs } from "file-saver";
+import RetailerInvoicePdf from "./RetailerInvoicePdf";
 import MarkPaidModal from "./MarkPaidModal";
 import { createPortal } from "react-dom";
 
@@ -51,6 +53,8 @@ const ViewInvoices = () => {
   const [endDate, setEndDate] = useState("");
   const [showMarkPaidModal, setShowMarkPaidModal] = useState(false);
   const [billingSettings, setBillingSettings] = useState(DEFAULT_BILLING);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [userInfo, setUserInfo] = useState(null);
   useEffect(() => {
     const loadBilling = async () => {
       const uid = auth.currentUser?.uid;
@@ -87,6 +91,23 @@ const ViewInvoices = () => {
       }
     };
     loadBilling();
+  }, []);
+
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+      try {
+        const userRef = doc(db, "businesses", uid);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          setUserInfo(snap.data());
+        }
+      } catch (e) {
+        console.warn("Failed to load user info:", e);
+      }
+    };
+    loadUserInfo();
   }, []);
 
   useEffect(() => {
@@ -345,41 +366,68 @@ const ViewInvoices = () => {
                   </button>
                 );
               })()}
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
-                  className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                  className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={async () => {
-                    try { await (document.fonts?.ready ?? Promise.resolve()); } catch {}
-                    window.print();
+                    if (!selectedInvoice) return;
+                    try {
+                      setDownloadingPdf(true);
+                      const invoiceData = {
+                        ...selectedInvoice,
+                        customer: selectedInvoice.customer || {},
+                        userInfo: userInfo || selectedInvoice.userInfo || {},
+                      };
+                      const doc = (
+                        <RetailerInvoicePdf 
+                          invoice={invoiceData} 
+                          userInfo={userInfo || selectedInvoice.userInfo || {}}
+                          billingSettings={billingSettings}
+                        />
+                      );
+                      const blob = await pdf(doc).toBlob();
+                      const invoiceNumber = selectedInvoice.id || `INV-${moment(selectedInvoice.createdAt).format("YYYYMMDD")}`;
+                      const issued = moment(selectedInvoice.createdAt).format("DD-MMM-YYYY");
+                      const filename = `${invoiceNumber}-${issued}.pdf`;
+                      saveAs(blob, filename);
+                      toast.success("PDF downloaded successfully!");
+                    } catch (err) {
+                      console.error("[ViewInvoices] Failed to generate PDF", err);
+                      toast.error("Failed to generate PDF. Please try again.");
+                    } finally {
+                      setDownloadingPdf(false);
+                    }
                   }}
+                  disabled={downloadingPdf}
                 >
-                  Download PDF (A4)
+                  {downloadingPdf ? "Generating PDF..." : "Download PDF"}
                 </button>
                 <a
-                  href={`https://wa.me/91${selectedInvoice.customer?.phone}?text=Here%20is%20your%20invoice%20from%20${encodeURIComponent(selectedInvoice.userInfo?.businessName || "FLYP")}%20-%20Total%3A%20₹${Number(selectedInvoice.totalAmount || 0).toFixed(2)}%20on%20${encodeURIComponent(moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A"))}`}
+                  href={(() => {
+                    const phoneRaw = selectedInvoice.customer?.phone || "";
+                    const phone = phoneRaw.toString().replace(/\D/g, "");
+                    const invoiceNumber = selectedInvoice.id || "Invoice";
+                    const total = `₹${Number(selectedInvoice.totalAmount || 0).toFixed(2)}`;
+                    const issued = moment(selectedInvoice.createdAt).format("DD MMM YYYY, hh:mm A");
+                    const businessName = selectedInvoice.userInfo?.businessName || userInfo?.businessName || "FLYP";
+                    const message = [
+                      `📄 Invoice ${invoiceNumber}`,
+                      `💰 Amount: ${total}`,
+                      `📅 Issued: ${issued}`,
+                      ``,
+                      `Thank you for your business!`,
+                      `— ${businessName}`,
+                    ].join("\n");
+                    const encodedMessage = encodeURIComponent(message);
+                    return phone ? `https://wa.me/${phone}?text=${encodedMessage}` : `https://wa.me/?text=${encodedMessage}`;
+                  })()}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-4 py-2 rounded-lg inline-block font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                  title={selectedInvoice.customer?.phone ? `Send to ${selectedInvoice.customer.phone}` : "Open WhatsApp"}
                 >
-                  Send via WhatsApp
+                  Share via WhatsApp
                 </a>
-                <button
-                  className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
-                  onClick={() => {
-                    const element = document.querySelector(".invoice-preview-container");
-                    if (!element) return alert("Invoice content not found.");
-                    const opt = {
-                      margin: 0.5,
-                      filename: `Invoice-${selectedInvoice.id}.pdf`,
-                      image: { type: 'jpeg', quality: 0.98 },
-                      html2canvas: { scale: 2 },
-                      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
-                    };
-                    html2pdf().set(opt).from(element).save();
-                  }}
-                >
-                  Send via Email
-                </button>
               </div>
               <p className="mt-2 text-xs text-white/70 italic">Powered by FLYP — smart business invoicing</p>
             </div>

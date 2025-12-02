@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { motion } from "framer-motion";
 import { db, functions } from "../../firebase/firebaseConfig";
 import {
   collection,
@@ -63,7 +64,7 @@ const ManageRetailers = ({ distributorId }) => {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const searchRef = useRef(null);
   const [cityFilter, setCityFilter] = useState("all");
-  const [viewMode, setViewMode] = useState("grid"); // "grid" | "list"
+  // Removed viewMode - keeping only list view with clean design
   const [itemsPerPage, setItemsPerPage] = useState(18);
   const [page, setPage] = useState(1);
   // UI state for global/bulk Order Settings hub
@@ -237,39 +238,66 @@ const ManageRetailers = ({ distributorId }) => {
       }
     }, [distributorId, retailer?.id]);
 
-    const toggleAct = () => {
+    const toggleAct = (e) => {
+      e.stopPropagation();
       const next = !showAct;
       setShowAct(next);
       if (next && actItems.length === 0) loadActivity();
     };
+    
+    // Close activity popup when clicking outside
+    useEffect(() => {
+      if (!showAct) return;
+      const handleClickOutside = (e) => {
+        if (!e.target.closest('.activity-popup-container')) {
+          setShowAct(false);
+        }
+      };
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }, [showAct]);
     return (
-        <div className="flex items-start justify-between gap-3 relative min-h-[6.5rem]">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center justify-between gap-4 relative z-0">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
           <div
-            className="h-9 w-9 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-sm font-bold"
+            className="h-14 w-14 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 text-emerald-300 flex items-center justify-center text-lg font-bold shadow-lg border border-emerald-500/30 flex-shrink-0"
             aria-label={`Retailer avatar ${retailer.businessName || retailer.name || 'Retailer'}`}
             role="img"
           >
             {initials || "R"}
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <div
-                className="text-white font-semibold truncate"
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <h3
+                className="text-white font-bold text-lg truncate"
                 title={retailer.businessName || retailer.name || "Retailer"}
               >
                 {toTitleCase(retailer.businessName || retailer.name || "Retailer")}
-              </div>
+              </h3>
               <StatusBadge status={retailer.status || "provisioned"} />
             </div>
-            <div
-              className="text-xs text-white/70 truncate"
-              title={`${toTitleCase(retailer.city || "—")} • ${(retailer.email || retailer.phone || "—")}`}
-            >
-              {toTitleCase(retailer.city || "—")} • {retailer.email || retailer.phone || "—"}
+            <div className="flex items-center gap-3 text-sm text-white/70 mb-1">
+              {retailer.city && (
+                <span className="flex items-center gap-1">
+                  <span>📍</span>
+                  <span className="truncate">{toTitleCase(retailer.city)}</span>
+                </span>
+              )}
+              {retailer.email && (
+                <span className="flex items-center gap-1 truncate" title={retailer.email}>
+                  <span>📧</span>
+                  <span className="truncate">{retailer.email}</span>
+                </span>
+              )}
+              {retailer.phone && !retailer.email && (
+                <span className="flex items-center gap-1">
+                  <span>📞</span>
+                  <span>{retailer.phone}</span>
+                </span>
+              )}
             </div>
             {retailer.addedBy?.type === 'employee' && (
-              <div className="text-[11px] text-white/50 truncate mt-0.5">
+              <div className="text-xs text-white/50 truncate">
                 Added by: {retailer.addedBy.name || employeeCache[retailer.addedBy.id]?.name || 'Employee'}
                 { (retailer.addedBy.flypEmployeeId || employeeCache[retailer.addedBy.id]?.flypEmployeeId) &&
                   ` (${retailer.addedBy.flypEmployeeId || employeeCache[retailer.addedBy.id]?.flypEmployeeId})`}
@@ -277,8 +305,7 @@ const ManageRetailers = ({ distributorId }) => {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end max-w-[45%]">
-          {/* StatusBadge removed here */}
+        <div className="flex items-center gap-2 shrink-0 relative">
           {(/^provisioned/.test(retailer.status || '')) && (
             <button
               onClick={async () => {
@@ -306,50 +333,73 @@ const ManageRetailers = ({ distributorId }) => {
                   alert('Failed to create invite');
                 }
               }}
-              className="rounded-md px-2.5 py-1 text-xs bg-amber-400/90 text-black hover:bg-amber-300 border border-amber-500/40 transition"
+              className="rounded-lg px-4 py-2 text-sm bg-amber-500/90 text-black hover:bg-amber-400 border border-amber-400/40 transition-all shadow-md hover:shadow-lg font-medium"
               title="Send invite"
             >
               Send Invite
             </button>
           )}
-          <button
-            onClick={toggleAct}
-            title="Recent activity"
-            className="rounded-md px-2 py-1 text-xs bg-white/10 hover:bg-white/15 border border-white/15 text-white"
-            aria-label="View recent activity"
-          >
-            ⓘ
-          </button>
+          <div className="relative activity-popup-container">
+            <button
+              onClick={toggleAct}
+              title="Recent activity"
+              className="rounded-lg p-2 bg-white/10 hover:bg-white/15 border border-white/20 text-white transition-all"
+              aria-label="View recent activity"
+            >
+              ⓘ
+            </button>
+            {showAct && (
+              <div 
+                className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-white/20 bg-gradient-to-br from-slate-900 to-slate-800 shadow-2xl z-[9999] overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-4 py-3 border-b border-white/10 bg-white/5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-white">Recent Activity</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAct(false);
+                      }}
+                      className="text-white/60 hover:text-white transition"
+                      aria-label="Close"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-60 overflow-y-auto" aria-live="polite">
+                  {actLoading ? (
+                    <div className="p-4 text-sm text-white/60 text-center">Loading…</div>
+                  ) : actItems.length === 0 ? (
+                    <div className="p-4 text-sm text-white/60 text-center">No activity yet.</div>
+                  ) : (
+                    <ul className="p-2 space-y-1">
+                      {actItems.map(a => (
+                        <li key={a.id} className="text-xs text-white/80 flex items-center justify-between gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition">
+                          <span className="truncate flex-1">
+                            <span className="capitalize font-medium text-emerald-300">{a.type}</span>
+                            {a.meta?.name && <span className="text-white/60"> – {a.meta.name}</span>}
+                          </span>
+                          <span className="text-white/50 text-xs whitespace-nowrap">
+                            {a.createdAt?.toDate?.().toLocaleDateString?.() || ''}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <button
             onClick={onManage}
-            className="rounded-md px-2.5 py-1.5 text-xs font-semibold bg-emerald-500 text-black hover:bg-emerald-400 shadow"
+            className="rounded-lg px-5 py-2 text-sm font-semibold bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:from-emerald-400 hover:to-cyan-400 shadow-lg hover:shadow-emerald-500/25 transition-all transform hover:scale-105"
             aria-label="Manage retailer"
           >
             Manage
           </button>
         </div>
-
-        {showAct && (
-          <div className="absolute right-0 top-full mt-2 w-72 rounded-lg border border-white/10 bg-[#0B0F14] shadow-xl z-10">
-            <div className="px-3 py-2 border-b border-white/10 text-xs text-white/70">Recent activity</div>
-            <div className="max-h-60 overflow-y-auto" aria-live="polite">
-              {actLoading ? (
-                <div className="p-3 text-xs text-white/60">Loading…</div>
-              ) : actItems.length === 0 ? (
-                <div className="p-3 text-xs text-white/60">No activity yet.</div>
-              ) : (
-                <ul className="p-2 space-y-1">
-                  {actItems.map(a => (
-                    <li key={a.id} className="text-xs text-white/80 flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-white/5">
-                      <span className="truncate"><span className="capitalize font-medium">{a.type}</span>{a.meta?.name ? ` – ${a.meta.name}` : ''}</span>
-                      <span className="text-white/50">{a.createdAt?.toDate?.().toLocaleDateString?.() || ''}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -394,24 +444,6 @@ const ManageRetailers = ({ distributorId }) => {
                 {[12,18,24,36].map(n => <option key={n} value={n}>{n}/page</option>)}
               </select>
             </div>
-            <div className="flex items-center gap-1 self-start sm:self-auto">
-              <button
-                onClick={()=>setViewMode("grid")}
-                className={`px-3 py-2 rounded-l-lg text-sm border transition-all ${viewMode==="grid" ? "bg-emerald-500 text-black border-emerald-500" : "bg-white/10 text-white border-white/20 hover:bg-white/15"}`}
-                title="Grid view"
-                aria-pressed={viewMode==="grid"}
-              >
-                ⬛⬛
-              </button>
-              <button
-                onClick={()=>setViewMode("list")}
-                className={`px-3 py-2 rounded-r-lg text-sm border transition-all ${viewMode==="list" ? "bg-emerald-500 text-black border-emerald-500" : "bg-white/10 text-white border-white/20 hover:bg-white/15"}`}
-                title="List view"
-                aria-pressed={viewMode==="list"}
-              >
-                ☰
-              </button>
-            </div>
             <button
               onClick={() => setShowOrderSettings(true)}
               className="px-3 py-2 rounded-lg text-sm border bg-white/10 text-white border-white/20 hover:bg-white/15 flex items-center gap-2 transition-all"
@@ -438,23 +470,19 @@ const ManageRetailers = ({ distributorId }) => {
         </div>
       ) : (
         <>
-          {viewMode === "grid" ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {paginated.map((retailer) => (
-                <div key={retailer.id} className="rounded-xl border border-white/10 bg-white/5 p-4 hover:border-emerald-400/50 hover:bg-white/10 transition transform hover:-translate-y-[2px]">
-                  <CompactRetailerTile retailer={retailer} onManage={() => openDrawerFor(retailer)} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="divide-y divide-white/10 rounded-xl border border-white/10 bg-white/5">
-              {paginated.map((retailer) => (
-                <div key={retailer.id} className="p-4 hover:bg-white/5 transition">
-                  <CompactRetailerTile retailer={retailer} onManage={() => openDrawerFor(retailer)} />
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="space-y-3">
+            {paginated.map((retailer) => (
+              <motion.div
+                key={retailer.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                whileHover={{ scale: 1.01 }}
+                className="rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-white/[0.02] backdrop-blur-sm p-5 hover:border-emerald-500/50 hover:from-white/10 hover:to-white/5 transition-all duration-200 shadow-lg hover:shadow-emerald-500/10"
+              >
+                <CompactRetailerTile retailer={retailer} onManage={() => openDrawerFor(retailer)} />
+              </motion.div>
+            ))}
+          </div>
           {/* Pagination */}
           <div className="mt-6 flex items-center justify-between text-sm text-white/70 border-t border-white/10 pt-4">
             <div>Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length}</div>

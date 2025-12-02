@@ -94,6 +94,27 @@ service cloud.firestore {
         && emailUnchanged(request.resource.data)
         && (!('phone' in request.resource.data) || isValidPhoneFormat(request.resource.data.phone));
 
+      // Allow territory management (add/update/remove) - distributors can manage their territories at any time
+      // Supports both old single territory format and new multiple territories array format
+      allow update: if isAuthed()
+        && isSelf(userId)
+        && isEmailVerified()
+        && (
+          // Only territory-related fields can change (new array format)
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'territories', 'territoryUpdatedAt', 'updatedAt'
+          ])
+          // Or old single territory format (for backward compatibility)
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'territoryCenter', 'territoryZoom', 'territoryName', 'territoryUpdatedAt', 'updatedAt'
+          ])
+          // Or allow removing territory fields (for deletion)
+          || (
+            !('territoryCenter' in request.resource.data) && 'territoryCenter' in resource.data
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['territoryCenter', 'territoryZoom', 'territoryName', 'territoryUpdatedAt'])
+          )
+        );
+
       allow delete: if isAuthed() && isSelf(userId);
 
       // Discovery & partner lookups
@@ -110,6 +131,22 @@ service cloud.firestore {
       // --- Billing Settings (preferences subcollection) ---
       match /preferences/{docId} {
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
+      // --- Store Layout (for location management) ---
+      match /storeLayout/{docId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- Virtual Store Layout (for virtual store builder/viewer) ---
+      match /virtualStore/{docId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
       }
 
       // --- Order Settings ---
@@ -344,6 +381,7 @@ service cloud.firestore {
           isDistributorEmployee(userId)
         );
 
+        // UPDATE: Allow retailer to update their own profile fields
         allow update: if isAuthed()
           && request.auth.uid == retailerUid
           && request.resource.data.retailerId == retailerUid
@@ -353,6 +391,21 @@ service cloud.firestore {
             'retailerId','retailerName','retailerEmail','retailerPhone',
             'city','businessName','gstNumber','logoUrl','updatedAt'
           ]);
+
+        // UPDATE: Allow distributor/employees to update location fields (lat, lng, formattedAddress)
+        // Rule allows updating ONLY location-related fields for distributors and their employees
+        allow update: if isAuthed()
+          && (
+            (isSelf(userId) && isEmailVerified()) ||
+            isDistributorEmployee(userId)
+          )
+          // Get changed keys
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'lat','lng','formattedAddress','locationUpdatedAt','updatedAt'
+          ])
+          // Validate lat/lng data types
+          && (request.resource.data.lat is number || request.resource.data.lat == null)
+          && (request.resource.data.lng is number || request.resource.data.lng == null);
 
         allow create: if isAuthed() && (
           (request.auth.uid == retailerUid &&

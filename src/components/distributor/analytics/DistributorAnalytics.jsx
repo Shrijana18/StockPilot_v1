@@ -6,8 +6,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 
 // Import analytics components
-import ProductAnalytics from "./ProductAnalytics";
-import RetailerAnalytics from "./RetailerAnalytics";
+import OverviewAnalytics from "./OverviewAnalytics";
+import EnhancedProductAnalytics from "./EnhancedProductAnalytics";
+import EnhancedRetailerAnalytics from "./EnhancedRetailerAnalytics";
 import RevenueProfitAnalytics from "./RevenueProfitAnalytics";
 import CategoryBrandAnalytics from "./CategoryBrandAnalytics";
 import DispatchSpeedTracker from "./DispatchSpeedTracker";
@@ -277,7 +278,7 @@ const DistributorAnalytics = ({ distributorId }) => {
           0% { background-position: -1000px 0; }
           100% { background-position: 1000px 0; }
         }
-        .shimmer {
+        .animate-shimmer {
           background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
           background-size: 1000px 100%;
           animation: shimmer 3s infinite;
@@ -364,114 +365,11 @@ const DistributorAnalytics = ({ distributorId }) => {
                 transition={{ duration: 0.3 }}
               >
                 {activeTab === "overview" && (
-                  <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-6">
-                    {/* Summary Cards - Only in Overview */}
-                    <motion.div variants={stagger} className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
-                      {[
-                        { label: t("analytics.totalOrders"), value: loading ? "..." : summaryStats.totalOrders, subtitle: t("analytics.delivered"), colorClass: "text-emerald-300/90", glowClass: "bg-emerald-500/10" },
-                        { label: t("analytics.totalRevenue"), value: loading ? "..." : formatCurrency(summaryStats.totalRevenue), subtitle: t("analytics.allTime"), colorClass: "text-blue-300/90", glowClass: "bg-blue-500/10" },
-                        { label: t("analytics.totalProfit"), value: loading ? "..." : formatCurrency(summaryStats.totalProfit), subtitle: t("analytics.estimated"), colorClass: "text-purple-300/90", glowClass: "bg-purple-500/10" },
-                        { label: t("analytics.activeRetailers"), value: loading ? "..." : summaryStats.activeRetailers, subtitle: t("analytics.last30Days"), colorClass: "text-amber-300/90", glowClass: "bg-amber-500/10" },
-                        { label: t("analytics.totalProducts"), value: loading ? "..." : summaryStats.totalProducts, subtitle: t("analytics.inInventory"), colorClass: "text-pink-300/90", glowClass: "bg-pink-500/10" },
-                      ].map((stat, idx) => (
-                        <motion.div
-                          key={stat.label}
-                          variants={cardVariant}
-                          whileHover={{ scale: 1.03, y: -4 }}
-                          whileTap={{ scale: 0.98 }}
-                          className="relative rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-4 transition-all duration-300 vignette group overflow-hidden"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-br from-white/0 via-white/0 to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                          <div className="relative z-10">
-                            <p className="text-xs uppercase tracking-wide text-white/70 mb-1">{stat.label}</p>
-                            <p className="text-2xl md:text-3xl font-bold text-white mb-1">
-                              {stat.value}
-                            </p>
-                            <p className={`text-xs ${stat.colorClass} font-medium`}>{stat.subtitle}</p>
-                          </div>
-                          <div className={`absolute top-0 right-0 w-20 h-20 ${stat.glowClass} rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-                        </motion.div>
-                      ))}
-                    </motion.div>
-
-                    {/* Overview Filters */}
-                    <motion.div variants={cardVariant} className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 vignette">
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                        <div>
-                          <label className="block text-xs text-white/60 mb-1.5 font-medium">{t("analytics.dateRangeStart")}</label>
-                          <input
-                            type="date"
-                            value={dateRange.start}
-                            onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                            className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-white/60 mb-1.5 font-medium">{t("analytics.dateRangeEnd")}</label>
-                          <input
-                            type="date"
-                            value={dateRange.end}
-                            onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                            className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-white/60 mb-1.5 font-medium">{t("analytics.quickFilters")}</label>
-                          <select
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (value) handleQuickFilter(value);
-                              e.target.value = "";
-                            }}
-                            className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-                          >
-                            <option value="">{t("analytics.customRange")}</option>
-                            <option value="today">{t("analytics.today")}</option>
-                            <option value="week">{t("analytics.last7Days")}</option>
-                            <option value="month">{t("analytics.last30Days")}</option>
-                            <option value="quarter">{t("analytics.last90Days")}</option>
-                            <option value="year">{t("analytics.lastYear")}</option>
-                          </select>
-                        </div>
-                        <div className="flex items-end">
-                          <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => {
-                              setDateRange({
-                                start: dayjs().subtract(30, "day").format("YYYY-MM-DD"),
-                                end: dayjs().format("YYYY-MM-DD"),
-                              });
-                              setFilters({
-                                brand: "",
-                                category: "",
-                                retailerType: "",
-                                state: "",
-                                minRevenue: 0,
-                                minProfit: 0,
-                              });
-                            }}
-                            className="w-full px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-all border border-white/20 hover:border-white/30"
-                          >
-                            {t("analytics.resetFilters")}
-                          </motion.button>
-                        </div>
-                      </div>
-                    </motion.div>
-
-                    {/* Overview Content */}
-                    <DailySmartSummary distributorId={distributorId} />
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <DispatchSpeedTracker distributorId={distributorId} />
-                      <InventoryDrainForecast distributorId={distributorId} />
-                    </div>
-                    <RetailerDependencyRisk distributorId={distributorId} />
-                    <BrandPerformanceTracker distributorId={distributorId} />
-                  </motion.div>
+                  <OverviewAnalytics distributorId={distributorId} dateRange={dateRange} />
                 )}
 
               {activeTab === "products" && (
-                <ProductAnalytics
+                <EnhancedProductAnalytics
                   distributorId={distributorId}
                   dateRange={dateRange}
                   filters={filters}
@@ -481,7 +379,7 @@ const DistributorAnalytics = ({ distributorId }) => {
               )}
 
               {activeTab === "retailers" && (
-                <RetailerAnalytics
+                <EnhancedRetailerAnalytics
                   distributorId={distributorId}
                   dateRange={dateRange}
                   filters={filters}

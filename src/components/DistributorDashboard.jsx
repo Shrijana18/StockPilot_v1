@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 
 import DistributorInventory from "./distributor/DistributorInventory.jsx";
 import DistributorInvoices from "./distributor/DistributorInvoices.jsx";
+import DistributorManualBilling from "./distributor/DistributorManualBilling.jsx";
 import DispatchTracker from "./distributor/DispatchTracker";
 import DistributorAnalytics from "./distributor/analytics/DistributorAnalytics";
 import DistributorHome from "./distributor/DistributorHome";
@@ -67,6 +68,7 @@ const DistributorDashboard = () => {
     { id: 'retailerRequests', label: t('distributor.retailerPanel') },
     { id: 'inventory', label: t('distributor.inventory') },
     { id: 'dispatch', label: t('distributor.dispatch') },
+    { id: 'manualBilling', label: 'Manual Billing' },
     { id: 'invoices', label: t('distributor.invoices') },
     { id: 'analytics', label: t('distributor.analytics') },
     { id: 'profile', label: t('profile.title') },
@@ -87,6 +89,7 @@ const DistributorDashboard = () => {
     retailerRequests: 'retailer-requests',
     inventory: 'inventory',
     dispatch: 'track-orders', // important: our DispatchTracker page is track-orders in URL
+    manualBilling: 'manual-billing',
     invoices: 'invoices',
     analytics: 'analytics',
     profile: 'profile',
@@ -96,6 +99,7 @@ const DistributorDashboard = () => {
     'retailer-requests': 'retailerRequests',
     'inventory': 'inventory',
     'track-orders': 'dispatch',
+    'manual-billing': 'manualBilling',
     'invoices': 'invoices',
     'analytics': 'analytics',
     'profile': 'profile',
@@ -301,6 +305,16 @@ const DistributorDashboard = () => {
                 🚚 {t('distributor.dispatch')}
               </button>
               <button
+                onClick={() => { setTabAndHash("manualBilling"); setIsSidebarOpen(false); }}
+                className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
+                  activeTab === "manualBilling"
+                    ? "border-l-4 border-emerald-300 bg-white/10 shadow-inner text-white"
+                    : "text-white"
+                }`}
+              >
+                💰 Manual Billing
+              </button>
+              <button
                 onClick={() => { setTabAndHash("invoices"); setIsSidebarOpen(false); }}
                 className={`w-full text-left px-2 sm:px-3 py-3 sm:py-2 rounded font-medium transition-transform duration-200 hover:scale-[1.02] hover:bg-white/5 active:bg-white/10 text-sm sm:text-base min-h-[48px] touch-target flex items-center ${
                   activeTab === "invoices"
@@ -425,6 +439,19 @@ const DistributorDashboard = () => {
                 >
                   <div className="w-full">
                     <DispatchTracker db={db} auth={auth} />
+                  </div>
+                </motion.div>
+              )}
+              {activeTab === "manualBilling" && auth?.currentUser && (
+                <motion.div
+                  key="manualBilling"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="w-full">
+                    <DistributorManualBilling />
                   </div>
                 </motion.div>
               )}

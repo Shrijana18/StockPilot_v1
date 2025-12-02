@@ -88,18 +88,83 @@ const CategoryBrandAnalytics = ({ distributorId, dateRange, filters, onDateRange
       productMap[p.id] = p;
     });
 
+    // Create lookup maps for fallback matching
+    const productByNameBrand = {};
+    const productBySku = {};
+    products.forEach((p) => {
+      const name = (p.name || p.productName || "").toLowerCase().trim();
+      const brand = (p.brand || "").toLowerCase().trim();
+      const sku = (p.sku || "").toLowerCase().trim();
+      if (name && brand) {
+        productByNameBrand[`${name}::${brand}`] = p;
+      }
+      if (sku) {
+        productBySku[sku] = p;
+      }
+    });
+
     // Process orders
     filteredOrders.forEach((order) => {
-      if (order.status !== "Delivered" && order.statusCode !== "DELIVERED") return;
+      // Check if order is delivered (handle multiple status formats)
+      const status = String(order.status || "").toUpperCase();
+      const statusCode = String(order.statusCode || "").toUpperCase();
+      const isDelivered = 
+        status === "DELIVERED" || 
+        statusCode === "DELIVERED" ||
+        status === "INVOICED" ||
+        statusCode === "INVOICED" ||
+        String(order.status || "").toLowerCase() === "delivered" ||
+        String(order.statusCode || "").toLowerCase() === "delivered";
+      
+      if (!isDelivered) return;
       if (!order.items || !Array.isArray(order.items)) return;
 
       order.items.forEach((item) => {
-        const productId = item.distributorProductId || item.productId;
-        const product = productMap[productId] || {};
+        let productId = item.distributorProductId || item.productId || item.inventoryId || item.id;
+        let matchedProduct = null;
+        
+        // If we have a product ID, try to find it in inventory
+        if (productId) {
+          matchedProduct = productMap[productId];
+        }
+        
+        // If no product ID or product not found, try to match by name and brand
+        if (!matchedProduct) {
+          const itemName = (item.productName || item.name || "").toLowerCase().trim();
+          const itemBrand = (item.brand || "").toLowerCase().trim();
+          const itemSku = (item.sku || "").toLowerCase().trim();
+          
+          // Try SKU first (most reliable)
+          if (itemSku && productBySku[itemSku]) {
+            matchedProduct = productBySku[itemSku];
+            productId = matchedProduct.id;
+          }
+          // Then try name+brand
+          else if (itemName && itemBrand) {
+            const key = `${itemName}::${itemBrand}`;
+            if (productByNameBrand[key]) {
+              matchedProduct = productByNameBrand[key];
+              productId = matchedProduct.id;
+            }
+          }
+          
+          // If still no match, try fuzzy matching
+          if (!matchedProduct && itemName) {
+            matchedProduct = products.find((p) => {
+              const pName = (p.name || p.productName || "").toLowerCase().trim();
+              return pName && itemName && (pName.includes(itemName) || itemName.includes(pName));
+            });
+            if (matchedProduct) {
+              productId = matchedProduct.id;
+            }
+          }
+        }
+        
+        const product = matchedProduct || productMap[productId] || {};
         const category = item.category || product.category || "Uncategorized";
         const qty = Number(item.quantity || item.qty || 0);
         const sellingPrice = Number(item.sellingPrice || item.price || item.unitPrice || 0);
-        const costPrice = Number(product.costPrice || product.price || 0);
+        const costPrice = Number(product.costPrice || product.price || product.distributorPrice || 0);
         const revenue = sellingPrice * qty;
         const cost = costPrice * qty;
         const profit = revenue - cost;
@@ -146,18 +211,83 @@ const CategoryBrandAnalytics = ({ distributorId, dateRange, filters, onDateRange
       productMap[p.id] = p;
     });
 
+    // Create lookup maps for fallback matching
+    const productByNameBrand = {};
+    const productBySku = {};
+    products.forEach((p) => {
+      const name = (p.name || p.productName || "").toLowerCase().trim();
+      const brand = (p.brand || "").toLowerCase().trim();
+      const sku = (p.sku || "").toLowerCase().trim();
+      if (name && brand) {
+        productByNameBrand[`${name}::${brand}`] = p;
+      }
+      if (sku) {
+        productBySku[sku] = p;
+      }
+    });
+
     // Process orders
     filteredOrders.forEach((order) => {
-      if (order.status !== "Delivered" && order.statusCode !== "DELIVERED") return;
+      // Check if order is delivered (handle multiple status formats)
+      const status = String(order.status || "").toUpperCase();
+      const statusCode = String(order.statusCode || "").toUpperCase();
+      const isDelivered = 
+        status === "DELIVERED" || 
+        statusCode === "DELIVERED" ||
+        status === "INVOICED" ||
+        statusCode === "INVOICED" ||
+        String(order.status || "").toLowerCase() === "delivered" ||
+        String(order.statusCode || "").toLowerCase() === "delivered";
+      
+      if (!isDelivered) return;
       if (!order.items || !Array.isArray(order.items)) return;
 
       order.items.forEach((item) => {
-        const productId = item.distributorProductId || item.productId;
-        const product = productMap[productId] || {};
+        let productId = item.distributorProductId || item.productId || item.inventoryId || item.id;
+        let matchedProduct = null;
+        
+        // If we have a product ID, try to find it in inventory
+        if (productId) {
+          matchedProduct = productMap[productId];
+        }
+        
+        // If no product ID or product not found, try to match by name and brand
+        if (!matchedProduct) {
+          const itemName = (item.productName || item.name || "").toLowerCase().trim();
+          const itemBrand = (item.brand || "").toLowerCase().trim();
+          const itemSku = (item.sku || "").toLowerCase().trim();
+          
+          // Try SKU first (most reliable)
+          if (itemSku && productBySku[itemSku]) {
+            matchedProduct = productBySku[itemSku];
+            productId = matchedProduct.id;
+          }
+          // Then try name+brand
+          else if (itemName && itemBrand) {
+            const key = `${itemName}::${itemBrand}`;
+            if (productByNameBrand[key]) {
+              matchedProduct = productByNameBrand[key];
+              productId = matchedProduct.id;
+            }
+          }
+          
+          // If still no match, try fuzzy matching
+          if (!matchedProduct && itemName) {
+            matchedProduct = products.find((p) => {
+              const pName = (p.name || p.productName || "").toLowerCase().trim();
+              return pName && itemName && (pName.includes(itemName) || itemName.includes(pName));
+            });
+            if (matchedProduct) {
+              productId = matchedProduct.id;
+            }
+          }
+        }
+        
+        const product = matchedProduct || productMap[productId] || {};
         const brand = item.brand || product.brand || "Unbranded";
         const qty = Number(item.quantity || item.qty || 0);
         const sellingPrice = Number(item.sellingPrice || item.price || item.unitPrice || 0);
-        const costPrice = Number(product.costPrice || product.price || 0);
+        const costPrice = Number(product.costPrice || product.price || product.distributorPrice || 0);
         const revenue = sellingPrice * qty;
         const cost = costPrice * qty;
         const profit = revenue - cost;

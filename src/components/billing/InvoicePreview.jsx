@@ -3,7 +3,7 @@ import moment from "moment";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { doc, getDoc } from "firebase/firestore";
 
-const FLYPLogo = "/assets/flyp-logo.png";
+const FLYPLogo = "/assets/flyp_logo.png";
 
 const PreviewStyles = () => (
   <style>{`
@@ -399,13 +399,13 @@ const InvoicePreview = (props) => {
               <div className="text-sm"><span className="text-white/60">Address:</span> {customer?.address || "—"}</div>
             </div>
             <div className="space-y-1 md:text-right">
-              <h3 className="font-semibold">Retailer</h3>
-              <div className="text-sm"><span className="text-white/60">Business:</span> {retailerData?.businessName || "Retailer"}</div>
-              <div className="text-sm"><span className="text-white/60">Owner:</span> {retailerData?.ownerName || "—"}</div>
-              <div className="text-sm"><span className="text-white/60">Phone:</span> {retailerData?.phone || "—"}</div>
-              <div className="text-sm"><span className="text-white/60">Email:</span> {retailerData?.email || "—"}</div>
-              <div className="text-sm"><span className="text-white/60">Address:</span> {retailerData?.address || "—"}</div>
-              <div className="text-sm"><span className="text-white/60">GSTIN:</span> {retailerData?.gstNumber || "N/A"}  <span className="ml-4 text-white/60">PAN:</span> {retailerData?.pan || "N/A"}</div>
+              <h3 className="font-semibold">{userInfo ? "Distributor" : "Retailer"}</h3>
+              <div className="text-sm"><span className="text-white/60">Business:</span> {(userInfo?.businessName || retailerData?.businessName || retailerData?.distributorName || "").trim() || (userInfo ? "Distributor" : "Retailer")}</div>
+              <div className="text-sm"><span className="text-white/60">Owner:</span> {(userInfo?.ownerName || retailerData?.ownerName || retailerData?.name || "").trim() || "—"}</div>
+              <div className="text-sm"><span className="text-white/60">Phone:</span> {(userInfo?.phone || retailerData?.phone || "").trim() || "—"}</div>
+              <div className="text-sm"><span className="text-white/60">Email:</span> {(userInfo?.email || retailerData?.email || "").trim() || "—"}</div>
+              <div className="text-sm"><span className="text-white/60">Address:</span> {(userInfo?.address || retailerData?.address || "").trim() || "—"}</div>
+              <div className="text-sm"><span className="text-white/60">GSTIN:</span> {(userInfo?.gstin || userInfo?.gstNumber || retailerData?.gstNumber || "").trim() || "N/A"}  <span className="ml-4 text-white/60">PAN:</span> {(userInfo?.pan || retailerData?.pan || "").trim() || "N/A"}</div>
             </div>
           </div>
         </div>
@@ -694,7 +694,10 @@ const InvoicePreview = (props) => {
 
         <div className="mt-8 avoid-break">
           <div className="flex items-center justify-between">
-            <img src={FLYPLogo} alt="FLYP Logo" className="w-20 opacity-70" />
+            <div className="flex items-center gap-2">
+              <img src={FLYPLogo} alt="FLYP Logo" className="w-16 h-16 opacity-80" />
+              <div className="text-xs text-white/60">Powered by FLYP</div>
+            </div>
             <div className="text-right text-sm text-white/70 italic">Thank you for your business!</div>
           </div>
         </div>

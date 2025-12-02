@@ -10,6 +10,9 @@ import { db, auth } from "../../../firebase/firebaseConfig";
 import EditProductModal from "../../inventory/EditProductModal";
 import QRCodeGenerator from "../../inventory/QRCodeGenerator";
 import AddColumnInventory from "../../inventory/AddColumnInventory";
+import LocationPicker from "./LocationPicker";
+import SmartShelfView from "./SmartShelfView";
+import SmartStoreDesigner from "./SmartStoreDesigner";
 
 // === Column Preferences: defaults + storage keys ===
 const COLUMN_DEFAULTS = [
@@ -27,6 +30,7 @@ const COLUMN_DEFAULTS = [
   { id: "mrp", label: "MRP", minWidth: 110 },
   { id: "gstRate", label: "GST %", minWidth: 90 },
   { id: "status", label: "Status", minWidth: 100, align: "center" },
+  { id: "location", label: "Location", minWidth: 180 },
   { id: "source", label: "Source", minWidth: 120 },
   { id: "qr", label: "QR", minWidth: 80 },
   { id: "delete", label: "Delete", minWidth: 80 },
@@ -133,6 +137,13 @@ const ViewInventory = ({ userId }) => {
   // QR modal states
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrTargetProduct, setQrTargetProduct] = useState(null);
+  // Location management states
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [locationTargetProduct, setLocationTargetProduct] = useState(null);
+  const [locationFilter, setLocationFilter] = useState("");
+  // Unified Smart Store Designer state
+  const [showSmartStoreDesigner, setShowSmartStoreDesigner] = useState(false);
+  const [storeDesignerMode, setStoreDesignerMode] = useState('designer'); // 'designer' or 'viewer'
   // Column preferences state
   const [columns, setColumns] = useState(COLUMN_DEFAULTS);
   const [hiddenCols, setHiddenCols] = useState(new Set());
@@ -308,15 +319,22 @@ const ViewInventory = ({ userId }) => {
         p.productName?.toLowerCase().includes(s) ||
         p.sku?.toLowerCase().includes(s) ||
         p.brand?.toLowerCase().includes(s) ||
-        p.category?.toLowerCase().includes(s);
+        p.category?.toLowerCase().includes(s) ||
+        p.location?.fullPath?.toLowerCase().includes(s);
       const matchesStatus = !statusFilter || getStatus(p.quantity) === statusFilter;
       // Multi-select: match if product's brand is in selected brands (OR logic)
       const matchesBrand =
         brandFilter.length === 0 || (p.brand && brandFilter.includes(p.brand));
-      return matchesSearch && matchesStatus && matchesBrand;
+      // Location filter
+      const matchesLocation = !locationFilter || 
+        (p.location?.fullPath?.toLowerCase().includes(locationFilter.toLowerCase()) ||
+         p.location?.shelf === locationFilter ||
+         p.location?.rack === locationFilter ||
+         p.location?.aisle === locationFilter);
+      return matchesSearch && matchesStatus && matchesBrand && matchesLocation;
     });
     setFiltered(result);
-  }, [search, products, statusFilter, brandFilter]);
+  }, [search, products, statusFilter, brandFilter, locationFilter]);
 
   useEffect(() => {
     if (!sortKey) {
@@ -368,6 +386,25 @@ const ViewInventory = ({ userId }) => {
       setEditingCell({ rowId: null, field: null });
       setEditedValue("");
     }
+  };
+
+  const handleLocationSave = async (location) => {
+    if (!locationTargetProduct) return;
+    try {
+      const productRef = doc(db, "businesses", userId, "products", locationTargetProduct.id);
+      await updateDoc(productRef, { location });
+      toast.success("Location updated successfully!");
+      setShowLocationPicker(false);
+      setLocationTargetProduct(null);
+    } catch (error) {
+      console.error("Error saving location:", error);
+      toast.error("Failed to save location");
+    }
+  };
+
+  const handleLocationClick = (product) => {
+    setLocationTargetProduct(product);
+    setShowLocationPicker(true);
   };
 
   const getStatus = (qty) => {
@@ -560,6 +597,13 @@ return (
             <option value="In Stock">In Stock</option>
             <option value="Low">Low</option>
           </select>
+          <input
+            type="text"
+            placeholder="Filter by location..."
+            value={locationFilter}
+            onChange={(e) => setLocationFilter(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+          />
           <div className="relative">
             <button
               className="px-3 py-2 rounded-lg min-w-[140px] text-left bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
@@ -618,7 +662,7 @@ return (
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex mb-2 gap-2">
+      <div className="flex mb-2 gap-2 flex-wrap">
         <button
           onClick={() => setSelectedTab("view")}
           className={`px-4 py-2 rounded-lg border ${
@@ -628,6 +672,14 @@ return (
           Inventory
         </button>
         <button
+          onClick={() => setSelectedTab("shelf")}
+          className={`px-4 py-2 rounded-lg border ${
+            selectedTab === "shelf" ? "bg-white/15 border-white/20 text-white" : "bg-white/5 border-white/10 text-white/70 hover:text-white"
+          }`}
+        >
+          Smart Shelf View
+        </button>
+        <button
           onClick={() => setSelectedTab("recent")}
           className={`px-4 py-2 rounded-lg border ${
             selectedTab === "recent" ? "bg-white/15 border-white/20 text-white" : "bg-white/5 border-white/10 text-white/70 hover:text-white"
@@ -635,6 +687,28 @@ return (
         >
           Recently Modified
         </button>
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={() => {
+              setStoreDesignerMode('designer');
+              setShowSmartStoreDesigner(true);
+            }}
+            className="px-4 py-2 rounded-lg border bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-purple-400/30 text-white hover:from-purple-500/30 hover:to-pink-500/30 font-semibold"
+            title="🧠 Smart Store Designer - Unified intelligent store design system"
+          >
+            🧠 Smart Designer
+          </button>
+          <button
+            onClick={() => {
+              setStoreDesignerMode('viewer');
+              setShowSmartStoreDesigner(true);
+            }}
+            className="px-4 py-2 rounded-lg border bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-blue-400/30 text-white hover:from-blue-500/30 hover:to-purple-500/30"
+            title="View your store layout with real-time inventory status"
+          >
+            👁️ View Store
+          </button>
+        </div>
       </div>
 
       {/* Inventory Tab Content */}
@@ -838,6 +912,32 @@ return (
                   </td>
                               );
                             }
+                            case "location":
+                              return (
+                                <td key={col.id} className="p-2">
+                                  {p.location?.fullPath ? (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-white/80 truncate max-w-[150px]" title={p.location.fullPath}>
+                                        📍 {p.location.fullPath}
+                                      </span>
+                                      <button
+                                        onClick={() => handleLocationClick(p)}
+                                        className="text-xs px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
+                                        title="Change location"
+                                      >
+                                        Edit
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleLocationClick(p)}
+                                      className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white/70"
+                                    >
+                                      Set Location
+                                    </button>
+                                  )}
+                                </td>
+                              );
                             case "source":
                               return (
                                 <td key={col.id} className="p-2 min-w-[100px] max-w-[120px] text-center">
@@ -1010,6 +1110,11 @@ return (
         </>
       )}
 
+      {/* Smart Shelf View Tab Content */}
+      {selectedTab === "shelf" && (
+        <SmartShelfView userId={userId} products={products} />
+      )}
+
       {/* Recently Modified Tab Content */}
       {selectedTab === "recent" && (
         <div className="p-4">
@@ -1129,6 +1234,30 @@ return (
           </div>
         </div>
       )}
+
+      {/* Location Picker Modal */}
+      {showLocationPicker && locationTargetProduct && (
+        <LocationPicker
+          userId={userId}
+          productId={locationTargetProduct.id}
+          currentLocation={locationTargetProduct.location}
+          onSave={handleLocationSave}
+          onCancel={() => {
+            setShowLocationPicker(false);
+            setLocationTargetProduct(null);
+          }}
+        />
+      )}
+
+      {/* Unified Smart Store Designer */}
+      {showSmartStoreDesigner && (
+        <SmartStoreDesigner
+          userId={userId}
+          products={products}
+          mode={storeDesignerMode}
+          onClose={() => setShowSmartStoreDesigner(false)}
+        />
+      )}
     </div>
   );
 };
@@ -1160,7 +1289,18 @@ const UploadProductImageModal = ({
     try {
       let results = [];
       if (imageSource === "unsplash") {
-        results = await fetchUnsplashImages(searchTerm);
+        // Use Unsplash API directly
+        try {
+          const accessKey = 'n_BViYvOrSv2B6zb_SIHtZu3fnUEijs_KVuD7IXYTVc';
+          const res = await fetch(
+            `https://api.unsplash.com/search/photos?query=${searchTerm}&client_id=${accessKey}`
+          );
+          const data = await res.json();
+          results = data.results?.map(r => r.urls?.regular || r.urls?.small) || [];
+        } catch (err) {
+          console.error('Unsplash error:', err);
+          results = [];
+        }
       } else {
         const fetchGoogleImages2 = (await import("../../../utils/fetchGoogleImages")).default;
         results = await fetchGoogleImages2(searchTerm);

@@ -1,3 +1,0 @@
-# Redirect all routes to index.html for client-side routing
-# Netlify will automatically serve static assets (JS, CSS, etc.) correctly
-/*    /index.html   200

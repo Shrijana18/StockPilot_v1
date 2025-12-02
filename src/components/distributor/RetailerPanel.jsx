@@ -4,6 +4,7 @@ import { auth } from "../../firebase/firebaseConfig";
 import RetailerRequests from "./RetailerRequests";
 import ManageRetailer from "./ManageRetailers";
 import AddRetailerModal from "./AddRetailerModal";
+import TerritoryMapView from "./TerritoryMapView";
 import { useAuth } from "../../context/AuthContext";
 
 /**
@@ -25,7 +26,9 @@ function useQueryParamTab(defaultTab = "retailer-requests") {
   const currentTab = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const t = params.get("tab");
-    return t || defaultTab;
+    // Validate tab value
+    const validTabs = ["retailer-requests", "manage-retailers", "territory-view"];
+    return validTabs.includes(t) ? t : defaultTab;
   }, [location.search, defaultTab]);
 
   const setTab = (t) => {
@@ -114,6 +117,18 @@ export default function RetailerPanel() {
             >
               Manage Retailers
             </button>
+            <button
+              id="tab-territory-view"
+              role="tab"
+              aria-selected={tab === "territory-view"}
+              aria-controls="tab-panel-territory"
+              onClick={() => setTabSafe("territory-view")}
+              className={`px-3 md:px-4 py-2 text-sm rounded-lg border transition ${
+                tab === "territory-view" ? "bg-emerald-500 text-black border-emerald-400" : "bg-white/5 text-white border-white/10 hover:bg-white/10"
+              }`}
+            >
+              Territory View
+            </button>
           </div>
         </div>
       </header>
@@ -128,6 +143,12 @@ export default function RetailerPanel() {
       {tab === "manage-retailers" ? (
         <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6" role="tabpanel" id="tab-panel-manage">
           <ManageRetailer distributorId={distributorUid} />
+        </section>
+      ) : null}
+
+      {tab === "territory-view" ? (
+        <section className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6" role="tabpanel" id="tab-panel-territory">
+          <TerritoryMapView distributorId={distributorUid} />
         </section>
       ) : null}
 
