@@ -610,5 +610,18 @@ service cloud.firestore {
       // No deletes from client (admin can delete via console if needed)
       allow delete: if false;
     }
+
+    // Website Analytics - Allow unauthenticated users to track page views and events
+    match /websiteAnalytics/{docId} {
+      // Allow anyone to create analytics events (page views, button clicks, etc.)
+      allow create: if true;
+
+      // Only authenticated admins can read analytics data
+      allow read: if isAuthed() && isEmailVerified();
+
+      // No updates or deletes from client
+      allow update: if false;
+      allow delete: if false;
+    }
   }
 }

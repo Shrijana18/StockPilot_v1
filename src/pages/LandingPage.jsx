@@ -8,13 +8,14 @@ import secureCloud from "../../public/assets/Secure_Cloud.json";
 import customerAnalysis from "../../public/assets/Customer_Analysis.json";
 import fastOnboard from "../../public/assets/Fast_Onboard.json";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import Lottie from "lottie-react";
 import { motion } from "framer-motion";
 import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { app } from "../firebase/firebaseConfig";
+import { initGA4, trackPageView, trackEvent, trackDemoSubmission, trackButtonClick, trackSectionView } from "../utils/analytics";
 
 // --- Magical UI helpers ---
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
@@ -187,6 +188,7 @@ const styles = `
 
 const LandingPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [scrollProgress, setScrollProgress] = useState(0);
   const [heroOffset, setHeroOffset] = useState({ title: 0, art: 0 });
@@ -335,6 +337,10 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
       
       // Success - form was saved to Firestore
       setDemoSuccess(true);
+      
+      // Track demo submission in analytics
+      trackDemoSubmission(demoForm);
+      
       setTimeout(() => {
         setDemoSuccess(false);
         setDemoForm({ name: '', businessCategory: '', role: '', phone: '', email: '' });
@@ -745,6 +751,10 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
   useEffect(() => {
     AOS.init({ duration: 1000, once: true, easing: 'cubic-bezier(.2,.7,.3,1)' });
 
+    // Initialize Analytics
+    initGA4();
+    trackPageView();
+
     // Lazy-load Lottie JSON
     const target = heroAnimRef.current;
     if (target && !prefersReducedMotion) {
@@ -836,13 +846,19 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
         <div className="flex flex-1 items-center justify-end gap-3">
           <button
             className={`rounded border border-white/20 hover:border-emerald-400/60 ${shrinkHeader ? 'px-3 py-0.5 text-sm' : 'px-4 py-1'} transition-all duration-300`}
-            onClick={() => navigate("/auth?type=login")}
+            onClick={() => {
+              trackButtonClick('Sign In', 'header');
+              navigate("/auth?type=login");
+            }}
           >
             Sign In
           </button>
           <button
             className={`rounded bg-emerald-400 hover:bg-emerald-300 text-gray-900 font-semibold shadow-[0_8px_30px_rgba(16,185,129,0.25)] ${shrinkHeader ? 'px-3 py-1 text-sm' : 'px-4 py-1'} transition-all duration-300`}
-            onClick={() => navigate("/auth?type=register")}
+            onClick={() => {
+              trackButtonClick('Register', 'header');
+              navigate("/auth?type=register");
+            }}
           >
             Register
           </button>
@@ -944,7 +960,10 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
             <div data-aos="fade-up" data-aos-delay="400" className={`px-4 py-2 rounded ${THEME.card} shadow-[0_10px_40px_rgba(0,0,0,0.35)]`}><div className="text-2xl font-bold">{metrics.growth}%</div><div className="text-white/60">Faster Billing</div></div>
           </div>
           <div data-aos="fade-up" data-aos-delay="500" className="mt-4 flex gap-3 flex-wrap">
-            <Link to="/auth?type=register">
+            <Link 
+              to="/auth?type=register"
+              onClick={() => trackButtonClick('Get Started Free', 'hero')}
+            >
               <button
                 className="relative group px-6 py-2 rounded font-semibold text-gray-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover-raise magnetic"
                 onMouseMove={onMagnetMove}
@@ -955,13 +974,20 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
             </Link>
             <button 
               onClick={() => {
+                trackButtonClick('Book a Demo', 'hero');
                 document.getElementById('book-demo')?.scrollIntoView({ behavior: 'smooth' });
               }}
               className="px-6 py-2 rounded border border-white/20 hover:border-emerald-300/60 hover:bg-emerald-400/10 transition-all"
             >
               Book a Demo
             </button>
-            <a href="#story" className="px-6 py-2 rounded border border-white/20 hover:border-emerald-300/60">See How It Works</a>
+            <a 
+              href="#story" 
+              onClick={() => trackButtonClick('See How It Works', 'hero')}
+              className="px-6 py-2 rounded border border-white/20 hover:border-emerald-300/60"
+            >
+              See How It Works
+            </a>
           </div>
         </div>
         <div className="w-full md:w-1/2 flex justify-center z-10 md:-mt-10 -mt-4" style={{ transform: `translateY(${heroOffset.art - 20}px)`, transition: 'transform .2s ease-out' }}>
