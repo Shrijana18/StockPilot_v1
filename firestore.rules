@@ -582,5 +582,33 @@ service cloud.firestore {
       allow read: if false;
       allow write: if false;
     }
+
+    // ============================================================
+    // DEMO REQUESTS (Landing Page Form Submissions)
+    // ============================================================
+    match /demoRequests/{requestId} {
+      // Allow anyone (even unauthenticated) to create demo requests from landing page
+      allow create: if request.resource.data.keys().hasOnly([
+        'name', 'businessCategory', 'role', 'phone', 'email', 
+        'submittedAt', 'timestamp', 'status'
+      ])
+      && request.resource.data.name is string
+      && request.resource.data.businessCategory is string
+      && request.resource.data.role is string
+      && request.resource.data.phone is string
+      && request.resource.data.email is string
+      && request.resource.data.status == 'new';
+
+      // Allow authenticated users to read (for admin dashboard)
+      allow read: if isAuthed() && isEmailVerified();
+
+      // Allow updates only for status changes (for marking as contacted/processed)
+      allow update: if isAuthed() && isEmailVerified()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['new', 'contacted', 'converted', 'rejected'];
+
+      // No deletes from client (admin can delete via console if needed)
+      allow delete: if false;
+    }
   }
 }

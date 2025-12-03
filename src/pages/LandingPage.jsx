@@ -13,6 +13,8 @@ import AOS from 'aos';
 import 'aos/dist/aos.css';
 import Lottie from "lottie-react";
 import { motion } from "framer-motion";
+import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { app } from "../firebase/firebaseConfig";
 
 // --- Magical UI helpers ---
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
@@ -27,7 +29,14 @@ const THEME = {
 const LOGOS = {
   hero: '/assets/flyp_logo.png',
 };
-const INTRO_VIDEO = '/assets/Logo%20Intro.MP4';
+// Try multiple video paths for better compatibility
+const INTRO_VIDEO_PATHS = [
+  '/assets/Logo%20Intro.MP4',
+  '/assets/Logo Intro.MP4',
+  '/assets/logo-intro.mp4',
+  '/assets/LogoIntro.mp4',
+];
+const INTRO_VIDEO = INTRO_VIDEO_PATHS[0];
 const styles = `
   @keyframes auroraShift { 0%{ background-position: 0% 50% } 50%{ background-position: 100% 50% } 100%{ background-position: 0% 50% } }
   @keyframes shimmer { 0%{ background-position:-200% 0 } 100%{ background-position:200% 0 } }
@@ -95,6 +104,7 @@ const styles = `
   .intro-video-overlay.hide{
     opacity:0;
     visibility:hidden;
+    pointer-events:none;
   }
   .intro-video-frame{
     width:min(460px, 78vw);
@@ -115,11 +125,15 @@ const styles = `
     filter:blur(28px);
     opacity:0.85;
     animation:pulseGlow 3.2s ease-in-out infinite;
+    z-index:0;
   }
   .intro-video-frame video{
     width:100%;
     height:100%;
     object-fit:cover;
+    position:relative;
+    z-index:1;
+    background:#000;
   }
   .intro-video-overlay.hide .intro-video-frame{
     transform: translate(-145%, -145%) scale(0.24);
@@ -187,6 +201,20 @@ const LandingPage = () => {
   const [showIntroOverlay, setShowIntroOverlay] = useState(() => !prefersReducedMotion);
   const [introFading, setIntroFading] = useState(false);
   const [logoReady, setLogoReady] = useState(() => prefersReducedMotion);
+  const [videoError, setVideoError] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
+  
+  // Book Demo Form State
+  const [showDemoModal, setShowDemoModal] = useState(false);
+  const [demoForm, setDemoForm] = useState({
+    name: '',
+    businessCategory: '',
+    role: '',
+    phone: '',
+    email: ''
+  });
+  const [demoSubmitting, setDemoSubmitting] = useState(false);
+  const [demoSuccess, setDemoSuccess] = useState(false);
   // Initialize theme from localStorage or system preference
   useEffect(() => {
     try {
@@ -216,6 +244,109 @@ const LandingPage = () => {
     }, 650);
   }, [showIntroOverlay, introFading]);
 
+  // Handle video loading errors
+  const handleVideoError = useCallback(() => {
+    console.warn('Intro video failed to load, skipping intro');
+    setVideoError(true);
+    setTimeout(() => {
+      dismissIntroVideo();
+    }, 500);
+  }, [dismissIntroVideo]);
+
+  const handleVideoLoaded = useCallback(() => {
+    setVideoLoaded(true);
+  }, []);
+
+  // Handle Demo Form Submission
+  const handleDemoSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Validate required fields
+    if (!demoForm.name || !demoForm.businessCategory || !demoForm.role || !demoForm.phone || !demoForm.email) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    
+    setDemoSubmitting(true);
+    
+    const submissionData = {
+      name: demoForm.name,
+      businessCategory: demoForm.businessCategory,
+      role: demoForm.role,
+      phone: demoForm.phone,
+      email: demoForm.email,
+      submittedAt: serverTimestamp(),
+      timestamp: new Date().toISOString(),
+      status: 'new'
+    };
+    
+    try {
+      // Always save to Firestore first (backup)
+      const firestore = getFirestore(app);
+      const demoRequestsRef = collection(firestore, 'demoRequests');
+      await addDoc(demoRequestsRef, submissionData);
+      console.log('✅ Demo request saved to Firestore');
+      
+      // Try to send email via EmailJS if configured
+      try {
+        const emailjs = await import('@emailjs/browser');
+        
+        const SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID || 'YOUR_SERVICE_ID';
+        const TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || 'YOUR_TEMPLATE_ID';
+        const PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'YOUR_PUBLIC_KEY';
+        
+        // Only try EmailJS if credentials are configured
+        if (SERVICE_ID !== 'YOUR_SERVICE_ID' && TEMPLATE_ID !== 'YOUR_TEMPLATE_ID' && PUBLIC_KEY !== 'YOUR_PUBLIC_KEY') {
+          const templateParams = {
+            to_email: 'admin@flypnow.com',
+            from_name: demoForm.name,
+            from_email: demoForm.email,
+            subject: `New Demo Request - ${demoForm.name}`,
+            name: demoForm.name,
+            business_category: demoForm.businessCategory,
+            role: demoForm.role,
+            phone: demoForm.phone,
+            email: demoForm.email,
+            submitted_at: new Date().toLocaleString('en-IN', { 
+              timeZone: 'Asia/Kolkata',
+              dateStyle: 'full',
+              timeStyle: 'long'
+            }),
+            message: `New Demo Request from FLYP Landing Page
+
+Name: ${demoForm.name}
+Business Category: ${demoForm.businessCategory}
+Role: ${demoForm.role}
+Phone: ${demoForm.phone}
+Email: ${demoForm.email}
+
+Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`
+          };
+          
+          await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams, PUBLIC_KEY);
+          console.log('✅ Email sent via EmailJS');
+        } else {
+          console.log('ℹ️ EmailJS not configured, but data saved to Firestore');
+        }
+      } catch (emailError) {
+        // EmailJS failed, but Firestore save succeeded, so continue
+        console.warn('EmailJS error (non-critical):', emailError);
+      }
+      
+      // Success - form was saved to Firestore
+      setDemoSuccess(true);
+      setTimeout(() => {
+        setDemoSuccess(false);
+        setDemoForm({ name: '', businessCategory: '', role: '', phone: '', email: '' });
+      }, 3000);
+    } catch (error) {
+      console.error('Error submitting demo request:', error);
+      alert('There was an error submitting your request. Please try again or email us directly at admin@flypnow.com');
+    } finally {
+      setDemoSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     if (!showIntroOverlay) return;
     const fallback = setTimeout(() => {
@@ -225,7 +356,7 @@ const LandingPage = () => {
   }, [showIntroOverlay, dismissIntroVideo]);
 
   // --- Headline kinetic words, scrollytelling state, metrics counters ---
-  const words = ['Built to Fly', 'Automate Everything', 'Inventory that Thinks', 'Billing in Seconds', 'Analytics that Act'];
+  const words = ['Built to Fly', 'Inventory that Thinks', 'Analytics that Act', 'Stop running your business start flying it', 'Automate Everything', 'Billing in Seconds'];
   const [wordIndex, setWordIndex] = useState(0);
   const [metrics, setMetrics] = useState({ hours: 0, accuracy: 0, growth: 0 });
   const [isYearly, setIsYearly] = useState(false); // pricing toggle
@@ -423,6 +554,7 @@ const LandingPage = () => {
   const sections = [
     { id: 'hero', label: 'Intro' },
     { id: 'story', label: 'Story' },
+    { id: 'recent-features', label: 'New Features' },
     { id: 'features', label: 'Features' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'mission', label: 'Mission' },
@@ -647,19 +779,43 @@ const LandingPage = () => {
 
   return (
     <div className={`text-white min-h-screen aurora-bg anim-gradient grain bg-gradient-to-b ${THEME.bg} ${themeMode==='dusk' ? 'theme-dusk' : 'theme-dark'}`}>
-      {showIntroOverlay && (
+      {showIntroOverlay && !videoError && (
         <div className={`intro-video-overlay ${introFading ? 'hide' : ''}`}>
           <button className="intro-skip" onClick={dismissIntroVideo}>
             Skip
           </button>
           <div className="intro-video-frame">
+            {!videoLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+              </div>
+            )}
             <video
-              src={INTRO_VIDEO}
               autoPlay
               muted
               playsInline
+              preload="auto"
               onEnded={dismissIntroVideo}
-            />
+              onError={handleVideoError}
+              onLoadedData={handleVideoLoaded}
+              onCanPlay={handleVideoLoaded}
+              style={{ opacity: videoLoaded ? 1 : 0, transition: 'opacity 0.5s ease' }}
+            >
+              <source src={INTRO_VIDEO_PATHS[0]} type="video/mp4" />
+              <source src={INTRO_VIDEO_PATHS[1]} type="video/mp4" />
+              <source src={INTRO_VIDEO_PATHS[2]} type="video/mp4" />
+              <source src={INTRO_VIDEO_PATHS[3]} type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+            {/* Fallback if video doesn't load */}
+            {videoError && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="text-6xl mb-4">🚀</div>
+                  <div className="text-2xl font-bold text-white">FLYP</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -670,19 +826,14 @@ const LandingPage = () => {
         <div className="hidden md:flex flex-1 justify-center">
           <nav className={`flex ${shrinkHeader ? 'gap-5 text-sm' : 'gap-6 text-base'} transition-all duration-300`}>
             <a href="#story" className="hover:text-emerald-300">How It Works</a>
+            <span className="text-white/30">•</span>
+            <a href="#recent-features" className="hover:text-emerald-300">What's New</a>
             <a href="#features" className="hover:text-emerald-300">Features</a>
             <a href="#analytics" className="hover:text-emerald-300">Analytics</a>
             <a href="#pricing" className="hover:text-emerald-300">Pricing</a>
           </nav>
         </div>
         <div className="flex flex-1 items-center justify-end gap-3">
-          <button
-            className={`hidden md:inline-flex rounded-full border border-white/20 hover:border-emerald-400/60 ${shrinkHeader ? 'px-2.5 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'} transition-all duration-300`}
-            onClick={() => setThemeMode(m => m==='dark' ? 'dusk' : 'dark')}
-            title="Toggle theme"
-          >
-            {themeMode==='dark' ? 'Dusk Mode' : 'Dark Mode'}
-          </button>
           <button
             className={`rounded border border-white/20 hover:border-emerald-400/60 ${shrinkHeader ? 'px-3 py-0.5 text-sm' : 'px-4 py-1'} transition-all duration-300`}
             onClick={() => navigate("/auth?type=login")}
@@ -712,6 +863,7 @@ const LandingPage = () => {
       {/* Section Navigator (floating dots) */}
       <nav aria-label="Section navigator" className="hidden md:flex fixed right-4 top-1/2 -translate-y-1/2 z-40 flex-col gap-3">
         {[
+          { id: 'recent-features', label: 'New Features' },
           { id: 'features', label: 'Features' },
           { id: 'mission', label: 'Mission' },
           { id: 'pricing', label: 'Pricing' },
@@ -765,9 +917,9 @@ const LandingPage = () => {
                 M50 10 C65 20,75 35,80 50 C75 65,65 80,50 90 C35 80,25 65,20 50 C25 35,35 20,50 10 Z
                 "/>
             </svg>
-            <span key={wordIndex} className="block mt-2 bg-gradient-to-r from-white via-white to-emerald-200 bg-clip-text text-transparent drop-shadow-[0_1px_10px_rgba(0,0,0,0.35)] animate-word">{words[wordIndex]}</span>
+            <span key={wordIndex} className="block mt-2 text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-white via-white to-emerald-200 bg-clip-text text-transparent drop-shadow-[0_1px_10px_rgba(0,0,0,0.35)] animate-word">{words[wordIndex]}</span>
             <span className="block mt-3 text-xl md:text-2xl font-semibold bg-gradient-to-r from-emerald-300 via-emerald-200 to-[#00e676] bg-clip-text text-transparent">
-              India's Supply Chain Operating System — built to fly.
+              India's <span className="font-bold">First</span> • <span className="font-bold">Fastest</span> • <span className="font-bold">Frictionless</span>
             </span>
             <svg className="mt-4 w-56 h-6 opacity-80" viewBox="0 0 224 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M2 12 C 60 2, 120 22, 222 10" stroke="url(#grad)" strokeWidth="2" strokeLinecap="round" />
@@ -791,7 +943,7 @@ const LandingPage = () => {
             <div data-aos="fade-up" data-aos-delay="300" className={`px-4 py-2 rounded ${THEME.card} shadow-[0_10px_40px_rgba(0,0,0,0.35)]`}><div className="text-2xl font-bold">{metrics.accuracy}%</div><div className="text-white/60">OCR Accuracy</div></div>
             <div data-aos="fade-up" data-aos-delay="400" className={`px-4 py-2 rounded ${THEME.card} shadow-[0_10px_40px_rgba(0,0,0,0.35)]`}><div className="text-2xl font-bold">{metrics.growth}%</div><div className="text-white/60">Faster Billing</div></div>
           </div>
-          <div data-aos="fade-up" data-aos-delay="500" className="mt-4 flex gap-3">
+          <div data-aos="fade-up" data-aos-delay="500" className="mt-4 flex gap-3 flex-wrap">
             <Link to="/auth?type=register">
               <button
                 className="relative group px-6 py-2 rounded font-semibold text-gray-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover-raise magnetic"
@@ -801,6 +953,14 @@ const LandingPage = () => {
                 <span className="relative z-10">Get Started Free</span>
               </button>
             </Link>
+            <button 
+              onClick={() => {
+                document.getElementById('book-demo')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="px-6 py-2 rounded border border-white/20 hover:border-emerald-300/60 hover:bg-emerald-400/10 transition-all"
+            >
+              Book a Demo
+            </button>
             <a href="#story" className="px-6 py-2 rounded border border-white/20 hover:border-emerald-300/60">See How It Works</a>
           </div>
         </div>
@@ -816,17 +976,20 @@ const LandingPage = () => {
         </div>
       </section>
 
-      <section id="story" ref={storyRef} className="relative px-6 md:px-10 py-24 section-divider">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center md:text-left mb-10">
-            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em]">How It Works</div>
-            <h2 data-aos="fade-up" className="text-4xl md:text-5xl font-extrabold mt-1">A Living Network for Your Supply Chain</h2>
-            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 mt-2 max-w-2xl">
-              FLYP connects Product Owners, Distributors, and Retailers on a single, intelligent data layer. Catalogs and bills flow downstream, while sales insights and analytics flow back up — all in real time.
+      <section id="story" ref={storyRef} className="relative px-6 md:px-10 py-28 section-divider">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">How It Works</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-6xl font-extrabold mb-6">
+              A <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">Living Network</span> for Your Supply Chain
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 max-w-3xl mx-auto text-lg leading-relaxed">
+              FLYP connects Product Owners, Distributors, and Retailers on a single, intelligent data layer. 
+              Catalogs and bills flow downstream, while sales insights and analytics flow back up — all in real time.
             </p>
           </div>
-          <div className="grid md:grid-cols-2 gap-10 items-start">
-            <div className="relative md:sticky md:top-24 h-[340px] md:h-[520px] flex items-center justify-center">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div className="relative h-[400px] md:h-[600px] flex items-center justify-center order-2 md:order-1">
               <svg viewBox="0 0 900 300" className="w-full h-full">
                 <defs>
                   <linearGradient id="route" x1="0" y1="0" x2="1" y2="0">
@@ -891,35 +1054,362 @@ const LandingPage = () => {
                 )}
               </svg>
             </div>
-            <div className="space-y-8">
-              <div data-aos="fade-left" data-supply-chain-role="0" className={`p-6 rounded-xl ${THEME.card} transition-all duration-500 ${activeSupplyChainRole===0?'ring-2 ring-emerald-400/80 scale-[1.02] shadow-2xl':''}`}>
-                <div className="text-sm uppercase tracking-widest text-emerald-300">Product Owner</div>
-                <h4 className="text-2xl font-bold mt-1">Orchestrate Your Network</h4>
-                <ul className="mt-3 text-white/80 text-sm space-y-2 list-disc list-inside">
-                  <li>Push catalogs & price lists downstream instantly.</li>
-                  <li>Get realtime sell-through visibility from retailers.</li>
-                  <li>Use AI Inventory Generator for new product lines.</li>
-                </ul>
+            <div className="space-y-6 order-1 md:order-2">
+              <div 
+                data-aos="fade-right" 
+                data-supply-chain-role="0" 
+                className={`p-8 rounded-2xl ${THEME.card} transition-all duration-500 border ${activeSupplyChainRole===0?'ring-2 ring-emerald-400/80 border-emerald-400/40 scale-[1.02] shadow-2xl bg-emerald-400/5':'border-white/10 hover:border-emerald-400/20'}`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${activeSupplyChainRole===0?'bg-emerald-400/20':'bg-white/5'}`}>
+                    📦
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs uppercase tracking-widest text-emerald-300 mb-2">Product Owner</div>
+                    <h4 className="text-xl font-bold mb-3 text-white">Orchestrate Your Network</h4>
+                    <ul className="text-white/70 text-sm space-y-2">
+                      <li className="flex items-start gap-2">
+                        <span className="text-emerald-400 mt-1">→</span>
+                        <span>Push catalogs & price lists downstream instantly</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-emerald-400 mt-1">→</span>
+                        <span>Get realtime sell-through visibility from retailers</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-emerald-400 mt-1">→</span>
+                        <span>Use AI Inventory Generator for new product lines</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
-              <div data-aos="fade-left" data-aos-delay="100" data-supply-chain-role="1" className={`p-6 rounded-xl ${THEME.card} transition-all duration-500 ${activeSupplyChainRole===1?'ring-2 ring-teal-300/80 scale-[1.02] shadow-2xl':''}`}>
-                <div className="text-sm uppercase tracking-widest text-teal-300">Distributor</div>
-                <h4 className="text-2xl font-bold mt-1">Manage with Precision</h4>
-                <ul className="mt-3 text-white/80 text-sm space-y-2 list-disc list-inside">
-                  <li>Smart cart with AI-powered quantity suggestions.</li>
-                  <li>Automated billing, credit control, and reminders.</li>
-                  <li>Live inventory sync across all your branches.</li>
-                </ul>
+              <div 
+                data-aos="fade-right" 
+                data-aos-delay="100" 
+                data-supply-chain-role="1" 
+                className={`p-8 rounded-2xl ${THEME.card} transition-all duration-500 border ${activeSupplyChainRole===1?'ring-2 ring-teal-300/80 border-teal-400/40 scale-[1.02] shadow-2xl bg-teal-400/5':'border-white/10 hover:border-teal-400/20'}`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${activeSupplyChainRole===1?'bg-teal-400/20':'bg-white/5'}`}>
+                    🏭
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs uppercase tracking-widest text-teal-300 mb-2">Distributor</div>
+                    <h4 className="text-xl font-bold mb-3 text-white">Manage with Precision</h4>
+                    <ul className="text-white/70 text-sm space-y-2">
+                      <li className="flex items-start gap-2">
+                        <span className="text-teal-400 mt-1">→</span>
+                        <span>Smart cart with AI-powered quantity suggestions</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-teal-400 mt-1">→</span>
+                        <span>Automated billing, credit control, and reminders</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-teal-400 mt-1">→</span>
+                        <span>Live inventory sync across all your branches</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
-              <div data-aos="fade-left" data-aos-delay="200" data-supply-chain-role="2" className={`p-6 rounded-xl ${THEME.card} transition-all duration-500 ${activeSupplyChainRole===2?'ring-2 ring-cyan-300/80 scale-[1.02] shadow-2xl':''}`}>
-                <div className="text-sm uppercase tracking-widest text-cyan-300">Retailer</div>
-                <h4 className="text-2xl font-bold mt-1">Grow and Delight</h4>
-                <ul className="mt-3 text-white/80 text-sm space-y-2 list-disc list-inside">
-                  <li>One-click OCR billing to import paper invoices.</li>
-                  <li>Customer analytics to drive repeat purchases.</li>
-                  <li>Instant invoice sharing via WhatsApp & Email.</li>
-                </ul>
+              <div 
+                data-aos="fade-right" 
+                data-aos-delay="200" 
+                data-supply-chain-role="2" 
+                className={`p-8 rounded-2xl ${THEME.card} transition-all duration-500 border ${activeSupplyChainRole===2?'ring-2 ring-cyan-300/80 border-cyan-400/40 scale-[1.02] shadow-2xl bg-cyan-400/5':'border-white/10 hover:border-cyan-400/20'}`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${activeSupplyChainRole===2?'bg-cyan-400/20':'bg-white/5'}`}>
+                    🛒
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs uppercase tracking-widest text-cyan-300 mb-2">Retailer</div>
+                    <h4 className="text-xl font-bold mb-3 text-white">Grow and Delight</h4>
+                    <ul className="text-white/70 text-sm space-y-2">
+                      <li className="flex items-start gap-2">
+                        <span className="text-cyan-400 mt-1">→</span>
+                        <span>One-click OCR billing to import paper invoices</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-cyan-400 mt-1">→</span>
+                        <span>Customer analytics to drive repeat purchases</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-cyan-400 mt-1">→</span>
+                        <span>Instant invoice sharing via WhatsApp & Email</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Smartest Supply Chain OS Section - What's New - Immediately after How It Works */}
+      <section id="recent-features" className="py-28 px-6 md:px-10 section-divider relative overflow-hidden">
+        <div aria-hidden className="absolute inset-0 -z-10 pointer-events-none">
+          <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-emerald-500/8 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-cyan-500/8 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        </div>
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">The Future of Supply Chain</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-5xl md:text-6xl font-extrabold mb-4 leading-tight">
+              <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">Smartest Supply Chain OS</span>
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/80 max-w-3xl mx-auto text-lg md:text-xl leading-relaxed mb-4">
+              <span className="font-semibold text-emerald-300">India's First</span> • <span className="font-semibold text-cyan-300">Fastest</span> • <span className="font-semibold text-teal-300">Frictionless</span>
+            </p>
+            <p data-aos="fade-up" data-aos-delay="120" className="text-white/70 max-w-3xl mx-auto text-base md:text-lg leading-relaxed mb-6">
+              Connect your entire supply chain. Automate operations. Track everything in real-time. Experience analytics that transform how you do business.
+            </p>
+            {/* Marketing Genius Badges */}
+            <div className="flex flex-wrap justify-center gap-4 mt-8" data-aos="fade-up" data-aos-delay="150">
+              <div className="px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-400/20 to-emerald-500/10 border border-emerald-400/40 backdrop-blur-sm hover:scale-105 transition-transform">
+                <div className="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                  <span>🏆</span>
+                  <span>India's First</span>
+                </div>
+              </div>
+              <div className="px-5 py-2.5 rounded-full bg-gradient-to-r from-cyan-400/20 to-cyan-500/10 border border-cyan-400/40 backdrop-blur-sm hover:scale-105 transition-transform">
+                <div className="text-sm font-bold text-cyan-300 flex items-center gap-2">
+                  <span>⚡</span>
+                  <span>Fastest</span>
+                </div>
+              </div>
+              <div className="px-5 py-2.5 rounded-full bg-gradient-to-r from-teal-400/20 to-teal-500/10 border border-teal-400/40 backdrop-blur-sm hover:scale-105 transition-transform">
+                <div className="text-sm font-bold text-teal-300 flex items-center gap-2">
+                  <span>✨</span>
+                  <span>Frictionless</span>
+                </div>
+              </div>
+              <div className="px-5 py-2.5 rounded-full bg-gradient-to-r from-purple-400/20 to-purple-500/10 border border-purple-400/40 backdrop-blur-sm hover:scale-105 transition-transform">
+                <div className="text-sm font-bold text-purple-300 flex items-center gap-2">
+                  <span>🚀</span>
+                  <span>AI-Powered</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Unified Feature Card */}
+          <div 
+            data-aos="zoom-in-up" 
+            data-aos-delay="200"
+            onMouseMove={handleTilt} 
+            onMouseLeave={resetTilt}
+            className={`relative p-10 md:p-12 rounded-3xl ${THEME.card} shadow-[0_30px_80px_rgba(0,0,0,0.5)] overflow-hidden group border border-white/10`}
+          >
+            {/* Animated background gradient */}
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-400/10 via-transparent to-cyan-400/10 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+            <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-400/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+            <div className="absolute bottom-0 left-0 w-96 h-96 bg-cyan-400/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+            
+            <div className="relative z-10">
+              {/* Main Features Grid */}
+              <div className="grid md:grid-cols-2 gap-8 mb-10">
+                {/* Left Column */}
+                <div className="space-y-8">
+                  {/* Distributor Connection */}
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-400/20 to-emerald-600/20 border border-emerald-400/30 flex items-center justify-center text-2xl">
+                      🔗
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold mb-2 text-white">Distributor Connection</h3>
+                      <p className="text-white/70 text-sm leading-relaxed">
+                        Seamlessly connect Distributors with Retailers and Product Owners. Real-time catalog sharing, automated order processing, and instant inventory sync across the entire network.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Automate & Track */}
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-400/20 to-cyan-600/20 border border-cyan-400/30 flex items-center justify-center text-2xl">
+                      ⚡
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold mb-2 text-white">Automate & Track All Operations</h3>
+                      <p className="text-white/70 text-sm leading-relaxed">
+                        Automate billing, inventory updates, order fulfillment, and credit management. Track every operation in real-time with complete visibility across your supply chain.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-8">
+                  {/* Live Analytics */}
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-gradient-to-br from-purple-400/20 to-purple-600/20 border border-purple-400/30 flex items-center justify-center text-2xl">
+                      📊
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold mb-2 text-white">Live Analytics Beyond Imagination</h3>
+                      <p className="text-white/70 text-sm leading-relaxed">
+                        Real-time dashboards with predictive insights, customer behavior analysis, revenue forecasting, and AI-powered recommendations that drive growth.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Smart Store */}
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-gradient-to-br from-pink-400/20 to-pink-600/20 border border-pink-400/30 flex items-center justify-center text-2xl">
+                      🏪
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold mb-2 text-white">Smart Store - Virtual Real-Time Store</h3>
+                      <p className="text-white/70 text-sm leading-relaxed">
+                        Create a virtual, real-time store to track inventory. Design multi-floor layouts, place products visually, and navigate in stunning 3D. Know exactly where everything is, instantly.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Benefits */}
+              <div className="grid md:grid-cols-3 gap-6 pt-8 border-t border-white/10">
+                <div className="text-center">
+                  <div className="text-3xl mb-2">🌐</div>
+                  <div className="text-sm font-semibold text-white/90">Unified Platform</div>
+                  <div className="text-xs text-white/60 mt-1">One OS for everything</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-3xl mb-2">🤖</div>
+                  <div className="text-sm font-semibold text-white/90">AI-Powered</div>
+                  <div className="text-xs text-white/60 mt-1">Intelligent automation</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-3xl mb-2">⚡</div>
+                  <div className="text-sm font-semibold text-white/90">Real-Time Sync</div>
+                  <div className="text-xs text-white/60 mt-1">Instant updates everywhere</div>
+                </div>
+              </div>
+
+              {/* CTA */}
+              <div className="mt-10 text-center space-y-4">
+                <button 
+                  onClick={() => {
+                    document.getElementById('book-demo')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="px-8 py-4 rounded-xl font-bold text-lg text-gray-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover-raise shadow-[0_10px_40px_rgba(16,185,129,0.3)] mr-4"
+                >
+                  Book a Free Demo →
+                </button>
+                <Link to="/auth?type=register">
+                  <button className="px-8 py-4 rounded-xl font-bold text-lg border-2 border-emerald-400/50 text-emerald-300 hover:bg-emerald-400/10 transition-all">
+                    Start Free Trial
+                  </button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Book a Demo Section */}
+      <section id="book-demo" className="py-20 px-6 md:px-10 section-divider relative overflow-hidden">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-12">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">Get Started</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-5xl font-extrabold mb-4">
+              See <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">FLYP in Action</span>
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 text-lg max-w-2xl mx-auto">
+              Book a personalized demo and discover how FLYP can transform your supply chain operations.
+            </p>
+          </div>
+          
+          <div data-aos="zoom-in-up" data-aos-delay="150" className={`p-8 md:p-12 rounded-3xl ${THEME.card} shadow-[0_30px_80px_rgba(0,0,0,0.5)] border border-white/10`}>
+            <form onSubmit={handleDemoSubmit} className="space-y-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold text-white/90 mb-2">Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={demoForm.name}
+                    onChange={(e) => setDemoForm({...demoForm, name: e.target.value})}
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+                    placeholder="Enter your full name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-white/90 mb-2">Business Category *</label>
+                  <input
+                    type="text"
+                    required
+                    value={demoForm.businessCategory}
+                    onChange={(e) => setDemoForm({...demoForm, businessCategory: e.target.value})}
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+                    placeholder="Retail, FMCG, Electronics, etc."
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-white/90 mb-2">Who are you? *</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {['Retailer', 'Distributor', 'Product Owner'].map((role) => (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => setDemoForm({...demoForm, role})}
+                      className={`px-4 py-3 rounded-xl border transition-all ${
+                        demoForm.role === role
+                          ? 'bg-emerald-400/20 border-emerald-400/50 text-emerald-300'
+                          : 'bg-white/5 border-white/10 text-white/70 hover:border-emerald-400/30'
+                      }`}
+                    >
+                      {role}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold text-white/90 mb-2">Phone Number *</label>
+                  <input
+                    type="tel"
+                    required
+                    value={demoForm.phone}
+                    onChange={(e) => setDemoForm({...demoForm, phone: e.target.value})}
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+                    placeholder="+91 98765 43210"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-white/90 mb-2">Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    value={demoForm.email}
+                    onChange={(e) => setDemoForm({...demoForm, email: e.target.value})}
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+                    placeholder="you@business.com"
+                  />
+                </div>
+              </div>
+              
+              <button
+                type="submit"
+                disabled={demoSubmitting || demoSuccess}
+                className="w-full px-8 py-4 rounded-xl font-bold text-lg text-gray-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:from-emerald-300 hover:via-teal-200 hover:to-cyan-300 transition-all shadow-[0_10px_40px_rgba(16,185,129,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {demoSubmitting ? 'Submitting...' : demoSuccess ? '✓ Request Sent!' : 'Book Your Free Demo'}
+              </button>
+              
+              {demoSuccess && (
+                <p className="text-center text-emerald-300 text-sm">
+                  We'll contact you within 24 hours to schedule your demo!
+                </p>
+              )}
+            </form>
           </div>
         </div>
       </section>
@@ -1019,6 +1509,7 @@ const LandingPage = () => {
           </div>
         </div>
       </section>
+
 
       <section id="ai-inventory-demo" className="py-20 px-6 md:px-10 section-divider">
         <div className="max-w-5xl mx-auto">

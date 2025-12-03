@@ -13,6 +13,7 @@ import AddColumnInventory from "../../inventory/AddColumnInventory";
 import LocationPicker from "./LocationPicker";
 import SmartShelfView from "./SmartShelfView";
 import SmartStoreDesigner from "./SmartStoreDesigner";
+import ViewStore from "./ViewStore";
 
 // === Column Preferences: defaults + storage keys ===
 const COLUMN_DEFAULTS = [
@@ -143,6 +144,7 @@ const ViewInventory = ({ userId }) => {
   const [locationFilter, setLocationFilter] = useState("");
   // Unified Smart Store Designer state
   const [showSmartStoreDesigner, setShowSmartStoreDesigner] = useState(false);
+  const [showViewStore, setShowViewStore] = useState(false);
   const [storeDesignerMode, setStoreDesignerMode] = useState('designer'); // 'designer' or 'viewer'
   // Column preferences state
   const [columns, setColumns] = useState(COLUMN_DEFAULTS);
@@ -392,10 +394,28 @@ const ViewInventory = ({ userId }) => {
     if (!locationTargetProduct) return;
     try {
       const productRef = doc(db, "businesses", userId, "products", locationTargetProduct.id);
-      await updateDoc(productRef, { location });
-      toast.success("Location updated successfully!");
+      
+      // Ensure location format matches SmartStoreDesigner structure
+      // LocationPicker should return: { floor, aisle, rack, shelf, lane, fullPath }
+      // But we'll normalize it to ensure compatibility
+      const normalizedLocation = location ? {
+        floor: location.floor || null,
+        aisle: location.aisle || null,
+        rack: location.rack || null,
+        shelf: location.shelf || null,
+        lane: location.lane || null,
+        fullPath: location.fullPath || (location.floor || location.aisle || location.rack || location.shelf || location.lane 
+          ? [location.floor, location.aisle, location.rack, location.shelf, location.lane].filter(Boolean).join(' > ')
+          : null)
+      } : null;
+      
+      await updateDoc(productRef, { location: normalizedLocation });
+      toast.success("Location updated successfully! Changes will sync to Store Designer.");
       setShowLocationPicker(false);
       setLocationTargetProduct(null);
+      
+      // Force a small delay to ensure Firestore has processed the update
+      // The onSnapshot listeners in both components will pick up the change automatically
     } catch (error) {
       console.error("Error saving location:", error);
       toast.error("Failed to save location");
@@ -699,12 +719,9 @@ return (
             🧠 Smart Designer
           </button>
           <button
-            onClick={() => {
-              setStoreDesignerMode('viewer');
-              setShowSmartStoreDesigner(true);
-            }}
+            onClick={() => setShowViewStore(true)}
             className="px-4 py-2 rounded-lg border bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-blue-400/30 text-white hover:from-blue-500/30 hover:to-purple-500/30"
-            title="View your store layout with real-time inventory status"
+            title="View your store layout and find product locations"
           >
             👁️ View Store
           </button>
@@ -731,46 +748,64 @@ return (
 
           {viewMode === "list" ? (
             <>
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
             <button
-              className="px-3 py-2 rounded bg-white/10 border border-white/20 text-white hover:bg-white/15"
+              className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/15 transition-all duration-200 text-sm font-medium"
               onClick={() => setShowCustomColumnsModal(true)}
               type="button"
               title="Manage columns"
             >
-              Manage Columns
+              ⚙️ Manage Columns
             </button>
+            <div className="ml-auto text-xs sm:text-sm text-white/60">
+              Showing {filtered.length} of {products.length} products
+            </div>
           </div>
-              <div className="overflow-x-auto w-full">
-                <div className="overflow-x-auto">
-                  <table className="table-fixed w-full text-xs sm:text-sm border border-white/10 bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden min-w-[800px]">
-                  <thead className="bg-white/10 text-left sticky top-0">
-                    <tr>
-                      {columns.filter(c => !hiddenCols.has(c.id)).map(col => (
-                        <th
-                          key={col.id}
-                          className={
-                            "p-2 text-white/80 border-b border-white/10 truncate " +
-                            (col.id === "status" ? "text-center" : "")
-                          }
-                          style={{ minWidth: col.minWidth ? `${col.minWidth}px` : undefined }}
-                        >
-                          {col.label}
-                        </th>
-                      ))}
-              </tr>
-            </thead>
-            <tbody>
-                    {filtered.map((p) => (
-                      <tr key={p.id} className="border-t border-white/10 hover:bg-white/5">
+              {/* Responsive Table Container */}
+              <div className="w-full overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-white/5 via-white/3 to-white/5 backdrop-blur-xl shadow-2xl">
+                {/* Desktop/Tablet View - Horizontal Scroll */}
+                <div className="overflow-x-auto overflow-y-visible scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent" style={{ scrollbarWidth: 'thin' }}>
+                  <div className="inline-block min-w-full align-middle">
+                    <table className="w-full text-xs sm:text-sm md:text-base">
+                      <thead className="bg-gradient-to-r from-white/15 via-white/10 to-white/15 text-left sticky top-0 z-10 backdrop-blur-md border-b-2 border-white/20">
+                        <tr>
+                          {columns.filter(c => !hiddenCols.has(c.id)).map(col => (
+                            <th
+                              key={col.id}
+                              className={
+                                "px-3 py-3 sm:px-4 sm:py-4 text-white font-semibold border-r border-white/10 last:border-r-0 " +
+                                (col.id === "status" ? "text-center" : "text-left") +
+                                " whitespace-nowrap"
+                              }
+                              style={{ 
+                                minWidth: col.minWidth ? `${col.minWidth}px` : 'auto',
+                                maxWidth: col.id === 'location' ? '350px' : col.id === 'productName' ? '250px' : 'auto'
+                              }}
+                            >
+                              <div className="flex items-center gap-1">
+                                <span>{col.label}</span>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {filtered.map((p, idx) => (
+                          <tr 
+                            key={p.id} 
+                            className="border-b border-white/5 hover:bg-white/10 transition-all duration-200 group/row bg-white/0 hover:bg-gradient-to-r hover:from-white/5 hover:to-white/0"
+                            style={{
+                              animation: `fadeIn 0.3s ease-out ${idx * 0.02}s both`
+                            }}
+                          >
                         {columns.filter(c => !hiddenCols.has(c.id)).map(col => {
                           switch (col.id) {
                             case "qr":
                               return (
-                                <td key={col.id} className="p-2">
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0">
                                   <button
                                     onClick={() => { setQrTargetProduct(p); setShowQrModal(true); }}
-                                    className="px-2 py-1 text-xs rounded bg-white/10 border border-white/20 hover:bg-white/15 text-white"
+                                    className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-blue-500/20 to-blue-600/20 border border-blue-400/30 hover:from-blue-500/30 hover:to-blue-600/30 text-blue-300 transition-all duration-200 shadow-sm hover:shadow-md"
                                     title="Generate QR"
                                   >
                                     Generate
@@ -779,7 +814,7 @@ return (
                               );
                             case "image":
                               return (
-                                <td key={col.id} className="p-2">
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0">
                       <div
                         className="inline-block cursor-pointer"
                         onClick={() => handleImageClick(p)}
@@ -788,8 +823,8 @@ return (
                       <img
                         src={p.imageUrl || "/placeholder.png"}
                         alt="product"
-                                      className="h-10 w-10 rounded object-cover border border-white/20 ring-1 ring-white/10"
-                                    />
+                        className="h-12 w-12 sm:h-14 sm:w-14 rounded-lg object-cover border-2 border-white/20 ring-2 ring-white/10 shadow-md hover:shadow-lg hover:scale-105 transition-all duration-200"
+                      />
                     </div>
                   </td>
                               );
@@ -797,7 +832,7 @@ return (
                               return (
                   <td
                                   key={col.id}
-                                  className="p-2 max-w-[220px] break-words whitespace-normal"
+                                  className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[220px] sm:max-w-[250px]"
                                   onClick={() => startEdit(p.id, "productName", p.productName)}
                   >
                     {editingCell.rowId === p.id && editingCell.field === "productName" ? (
@@ -809,7 +844,7 @@ return (
                         autoFocus
                       />
                     ) : (
-                      p.productName
+                      <span className="text-sm sm:text-base font-medium text-white group-hover/row:text-emerald-300 transition-colors">{p.productName}</span>
                     )}
                   </td>
                               );
@@ -821,7 +856,7 @@ return (
                               return (
                   <td
                                   key={col.id}
-                    className="p-2 max-w-[180px] break-words whitespace-normal"
+                    className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[150px] sm:max-w-[180px] break-words whitespace-normal"
                                   onClick={() => startEdit(p.id, col.id, p[col.id])}
                   >
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
@@ -833,13 +868,13 @@ return (
                         autoFocus
                       />
                     ) : (
-                                    p[col.id] || ""
+                                    <span className="text-xs sm:text-sm text-white/80">{p[col.id] || "-"}</span>
                     )}
                   </td>
                               );
                             case "quantity":
                               return (
-                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
                     {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
                       <input
                         type="number"
@@ -850,7 +885,7 @@ return (
                         autoFocus
                       />
                     ) : (
-                      p.quantity
+                      <span className="text-sm sm:text-base font-semibold text-white">{p.quantity || 0}</span>
                     )}
                   </td>
                               );
@@ -858,7 +893,7 @@ return (
                             case "sellingPrice":
                             case "mrp":
                               return (
-                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, col.id, p[col.id])}>
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0" onClick={() => startEdit(p.id, col.id, p[col.id])}>
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
                       <input
                         type="number"
@@ -870,7 +905,7 @@ return (
                         autoFocus
                       />
                     ) : (
-                                    p[col.id] !== undefined ? <>₹{p[col.id]}</> : ""
+                                    p[col.id] !== undefined ? <span className="text-sm sm:text-base font-medium text-white/90">₹{Number(p[col.id]).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-white/40">-</span>
                     )}
                   </td>
                               );
@@ -878,7 +913,7 @@ return (
                               // Display gstRate from either field; prefer explicit gstRate, fallback to taxRate
                               const currentGst = p.gstRate !== undefined && p.gstRate !== null ? p.gstRate : p.taxRate;
                               return (
-                                <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "gstRate", currentGst)}>
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center" onClick={() => startEdit(p.id, "gstRate", currentGst)}>
                                   {editingCell.rowId === p.id && editingCell.field === "gstRate" ? (
                       <input
                         type="number"
@@ -889,9 +924,9 @@ return (
                                       onBlur={() => saveEdit(p.id, "gstRate", Number(editedValue))}
                         autoFocus
                       />
-                    ) : (
-                                    currentGst !== undefined && currentGst !== null ? <>{currentGst}%</> : ""
-                    )}
+                                    ) : (
+                                    <span className="text-sm sm:text-base font-medium text-white/80">{currentGst !== undefined && currentGst !== null ? `${currentGst}%` : "-"}</span>
+                                    )}
                   </td>
                               );
                             case "status": {
@@ -899,12 +934,12 @@ return (
                               const badgeText = st === "In Stock" ? "In\u00A0Stock" : st; // keep on one line
                               const isLow = st === "Low";
                               return (
-                                <td key={col.id} className="p-2 align-middle text-center whitespace-nowrap">
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center whitespace-nowrap">
                     <span
                                     title={st}
                                     className={
-                                      "inline-flex items-center justify-center min-w-[72px] h-6 px-2 rounded-full text-xs font-semibold " +
-                                      (isLow ? "bg-rose-500 text-white" : "bg-emerald-400 text-slate-900")
+                                      "inline-flex items-center justify-center min-w-[80px] sm:min-w-[90px] h-7 sm:h-8 px-3 sm:px-4 rounded-full text-xs sm:text-sm font-bold shadow-md " +
+                                      (isLow ? "bg-gradient-to-r from-rose-500 to-rose-600 text-white border border-rose-400/50" : "bg-gradient-to-r from-emerald-400 to-emerald-500 text-slate-900 border border-emerald-300/50")
                                     }
                     >
                                     {badgeText}
@@ -913,16 +948,27 @@ return (
                               );
                             }
                             case "location":
+                              // Display location - fullPath contains the readable names (e.g., "Floor 1 > Aisle A1 > Rack 1")
+                              const locationPath = p.location?.fullPath;
+                              
                               return (
-                                <td key={col.id} className="p-2">
-                                  {p.location?.fullPath ? (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs text-white/80 truncate max-w-[150px]" title={p.location.fullPath}>
-                                        📍 {p.location.fullPath}
-                                      </span>
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 min-w-[200px] sm:min-w-[220px] max-w-[300px] sm:max-w-[350px]">
+                                  {locationPath ? (
+                                    <div className="flex items-start gap-2 group/loc">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-emerald-400 text-sm flex-shrink-0">📍</span>
+                                          <span 
+                                            className="text-xs text-emerald-300 font-medium break-words whitespace-normal leading-relaxed" 
+                                            title={locationPath}
+                                          >
+                                            {locationPath}
+                                          </span>
+                                        </div>
+                                      </div>
                                       <button
                                         onClick={() => handleLocationClick(p)}
-                                        className="text-xs px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
+                                        className="text-xs px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 opacity-0 group-hover/loc:opacity-100 transition-opacity flex-shrink-0"
                                         title="Change location"
                                       >
                                         Edit
@@ -931,9 +977,10 @@ return (
                                   ) : (
                                     <button
                                       onClick={() => handleLocationClick(p)}
-                                      className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white/70"
+                                      className="text-xs px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-white/70 border border-white/20 hover:border-white/30 transition-all flex items-center gap-1"
                                     >
-                                      Set Location
+                                      <span>📍</span>
+                                      <span>Set Location</span>
                                     </button>
                                   )}
                                 </td>
@@ -952,10 +999,10 @@ return (
                               );
                             case "delete":
                               return (
-                                <td key={col.id} className="p-2">
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center">
                     <button
                       onClick={() => handleDelete(p)}
-                                    className="text-rose-300 hover:text-rose-200"
+                                    className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 p-2 rounded-lg transition-all duration-200"
                       title="Delete Item"
                     >
                       🗑️
@@ -964,7 +1011,7 @@ return (
                               );
                             case "edit":
                               return (
-                                <td key={col.id} className="p-2">
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0">
                     <button
                       onClick={() => {
                         setSelectedProductId(p.id);
@@ -980,7 +1027,7 @@ return (
                               return (
                                 <td
                                   key={col.id}
-                                  className="p-2 max-w-[180px] break-words whitespace-normal"
+                                  className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[180px] break-words whitespace-normal"
                                   onClick={() => startEdit(p.id, col.id, p[col.id])}
                                 >
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
@@ -992,7 +1039,7 @@ return (
                                       autoFocus
                                     />
                                   ) : (
-                                    p[col.id] || ""
+                                    <span className="text-xs sm:text-sm text-white/80">{p[col.id] || "-"}</span>
                                   )}
                                 </td>
                               );
@@ -1002,14 +1049,19 @@ return (
               ))}
               {filtered.length === 0 ? (
                 <tr>
-                        <td colSpan={columns.filter(c => !hiddenCols.has(c.id)).length} className="text-center p-4 text-white/70">
-                    {products.length === 0 ? "No products found." : "Loading inventory..."}
-                  </td>
+                        <td colSpan={columns.filter(c => !hiddenCols.has(c.id)).length} className="text-center px-3 py-8 sm:py-12 text-white/70">
+                          <div className="flex flex-col items-center gap-2">
+                            <span className="text-4xl">📦</span>
+                            <p className="text-base sm:text-lg font-medium">{products.length === 0 ? "No products found" : "Loading inventory..."}</p>
+                            {products.length > 0 && <p className="text-sm text-white/50">Try adjusting your filters</p>}
+                          </div>
+                        </td>
                 </tr>
               ) : null}
             </tbody>
-          </table>
-        </div>
+                  </table>
+                  </div>
+                </div>
               </div>
               {showCustomColumnsModal && (
                 <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">
@@ -1256,6 +1308,13 @@ return (
           products={products}
           mode={storeDesignerMode}
           onClose={() => setShowSmartStoreDesigner(false)}
+        />
+      )}
+      {showViewStore && (
+        <ViewStore
+          userId={userId}
+          products={products}
+          onClose={() => setShowViewStore(false)}
         />
       )}
     </div>

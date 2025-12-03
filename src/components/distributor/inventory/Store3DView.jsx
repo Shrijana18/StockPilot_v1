@@ -3,6 +3,38 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera, OrthographicCamera, Environment, ContactShadows, Text } from '@react-three/drei';
 import * as THREE from 'three';
 
+// Error boundary wrapper for 3D components - handles Text component errors gracefully
+const SafeText = React.memo(({ children, ...props }) => {
+  try {
+    // Check if Text component is available
+    if (typeof Text === 'undefined' || !Text) {
+      throw new Error('Text component not available');
+    }
+    
+    // Remove problematic props that might cause issues
+    const { font, maxWidth, ...safeProps } = props;
+    const cleanProps = {
+      ...safeProps,
+      fontSize: props.fontSize || 0.1,
+      color: props.color || '#ffffff',
+      anchorX: props.anchorX || 'center',
+      anchorY: props.anchorY || 'middle',
+    };
+    
+    return <Text {...cleanProps}>{String(children || '')}</Text>;
+  } catch (error) {
+    console.warn('Text component error:', error);
+    // Fallback: render a simple mesh with text-like appearance
+    return (
+      <mesh position={props.position || [0, 0, 0]}>
+        <boxGeometry args={[0.1, 0.1, 0.01]} />
+        <meshStandardMaterial color={props.color || '#ffffff'} />
+      </mesh>
+    );
+  }
+});
+SafeText.displayName = 'SafeText';
+
 /**
  * World's First Advanced 3D Virtual Store
  * Features:
@@ -59,7 +91,7 @@ const Floor3D = ({ floor, selected, onSelect }) => {
       </mesh>
       
       {/* Floor label - Clean and readable */}
-      <Text
+      <SafeText
         position={[0, 0.2, 0]}
         fontSize={0.6}
         color={selected ? '#10b981' : '#ffffff'}
@@ -67,14 +99,13 @@ const Floor3D = ({ floor, selected, onSelect }) => {
         anchorY="middle"
         outlineWidth={0.02}
         outlineColor="#000000"
-        font="/fonts/inter-bold.woff"
       >
         🏢 {floor.name}
-      </Text>
+      </SafeText>
       
       {/* Aisle count badge */}
       {floor.aisles && floor.aisles.length > 0 && (
-        <Text
+        <SafeText
           position={[0, -0.1, 0]}
           fontSize={0.3}
           color="#ffffff"
@@ -84,7 +115,7 @@ const Floor3D = ({ floor, selected, onSelect }) => {
           outlineColor="#000000"
         >
           {floor.aisles.length} aisle{floor.aisles.length !== 1 ? 's' : ''}
-        </Text>
+        </SafeText>
       )}
     </group>
   );
@@ -122,7 +153,7 @@ const Aisle3D = ({ aisle, floor, selected, onSelect }) => {
       </mesh>
       
       {/* Aisle label */}
-      <Text
+      <SafeText
         position={[0, aisle.height / 200 + 0.3, 0]}
         fontSize={0.3}
         color="#ffffff"
@@ -132,7 +163,7 @@ const Aisle3D = ({ aisle, floor, selected, onSelect }) => {
         outlineColor="#000000"
       >
         {aisle.name}
-      </Text>
+      </SafeText>
       
       {/* Category badge */}
       {aisle.category && (
@@ -141,6 +172,46 @@ const Aisle3D = ({ aisle, floor, selected, onSelect }) => {
           <meshStandardMaterial color={color} />
         </mesh>
       )}
+      
+      {/* Products directly in aisle (if any) - Real-time visualization */}
+      {(aisle.products || []).map((product, idx) => {
+        const stockColor = product.quantity === 0 ? '#ef4444' : 
+                          product.quantity <= 10 ? '#f59e0b' : '#10b981';
+        return (
+          <group
+            key={product.id || idx}
+            position={[
+              (idx % 3 - 1) * 0.3,
+              aisle.height / 200 + 0.5,
+              (Math.floor(idx / 3) * 0.2) - 0.2
+            ]}
+          >
+            <mesh castShadow>
+              <boxGeometry args={[0.2, 0.2, 0.2]} />
+              <meshStandardMaterial
+                color={stockColor}
+                metalness={0.3}
+                roughness={0.7}
+                emissive={stockColor}
+                emissiveIntensity={0.2}
+              />
+            </mesh>
+            {product.name && (
+              <SafeText
+                position={[0, 0.15, 0]}
+                fontSize={0.08}
+                color="#ffffff"
+                anchorX="center"
+                anchorY="middle"
+                outlineWidth={0.01}
+                outlineColor="#000000"
+              >
+                {product.name.substring(0, 8)}
+              </SafeText>
+            )}
+          </group>
+        );
+      })}
       
       {/* Racks inside aisle */}
       {(aisle.racks || []).map((rack, idx) => (
@@ -155,25 +226,111 @@ const Aisle3D = ({ aisle, floor, selected, onSelect }) => {
   );
 };
 
-// 3D Rack Component
+// 3D Rack Component with Products - Optimized for performance
 const Rack3D = ({ rack, aisle, floor }) => {
+  const rackProducts = rack.products || [];
+  const rackRef = useRef();
+  
+  // Subtle animation for alive feel
+  useFrame((state) => {
+    if (rackRef.current && rackProducts.length > 0) {
+      rackRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.01;
+    }
+  });
+  
   return (
     <group
+      ref={rackRef}
       position={[
         (rack.x - aisle.x) / 100,
         0.3,
         (rack.y - aisle.y) / 100
       ]}
     >
-      {/* Rack structure */}
+      {/* Rack structure - Realistic metal frame */}
       <mesh castShadow receiveShadow>
         <boxGeometry args={[rack.width / 100, rack.height / 100, 0.3]} />
         <meshStandardMaterial
           color="#4b5563"
-          metalness={0.5}
-          roughness={0.4}
+          metalness={0.7}
+          roughness={0.3}
+          transparent
+          opacity={0.4}
         />
       </mesh>
+      
+      {/* Rack frame edges - More realistic */}
+      <mesh position={[0, 0, 0.15]} castShadow>
+        <boxGeometry args={[rack.width / 100, rack.height / 100, 0.02]} />
+        <meshStandardMaterial 
+          color="#374151" 
+          metalness={0.8} 
+          roughness={0.2}
+          emissive="#1f2937"
+          emissiveIntensity={0.1}
+        />
+      </mesh>
+      
+      {/* Rack vertical supports - More realistic structure */}
+      <mesh position={[-rack.width / 200, 0, 0.16]} castShadow>
+        <boxGeometry args={[0.02, rack.height / 100, 0.02]} />
+        <meshStandardMaterial color="#2d3748" metalness={0.8} roughness={0.2} />
+      </mesh>
+      <mesh position={[rack.width / 200, 0, 0.16]} castShadow>
+        <boxGeometry args={[0.02, rack.height / 100, 0.02]} />
+        <meshStandardMaterial color="#2d3748" metalness={0.8} roughness={0.2} />
+      </mesh>
+      
+      {/* Products directly on rack (if any) - Real-time visualization */}
+      {rackProducts.map((product, idx) => {
+        const stockColor = product.quantity === 0 ? '#ef4444' : 
+                          product.quantity <= 10 ? '#f59e0b' : '#10b981';
+        return (
+          <group
+            key={product.id || idx}
+            position={[0, (idx * 0.2) - (rackProducts.length * 0.1), 0.16]}
+          >
+            <mesh castShadow>
+              <boxGeometry args={[rack.width / 100 - 0.1, 0.15, 0.1]} />
+              <meshStandardMaterial
+                color={stockColor}
+                metalness={0.2}
+                roughness={0.8}
+                emissive={stockColor}
+                emissiveIntensity={0.2}
+              />
+            </mesh>
+            {product.name && (
+              <SafeText
+                position={[0, 0.1, 0.05]}
+                fontSize={0.06}
+                color="#ffffff"
+                anchorX="center"
+                anchorY="middle"
+                outlineWidth={0.01}
+                outlineColor="#000000"
+              >
+                {product.name.substring(0, 8)}
+              </SafeText>
+            )}
+          </group>
+        );
+      })}
+      
+      {/* Rack label with product count */}
+      {rackProducts.length > 0 && (
+        <SafeText
+          position={[0, rack.height / 200 + 0.1, 0.16]}
+          fontSize={0.1}
+          color="#ffffff"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.01}
+          outlineColor="#000000"
+        >
+          {rack.name} ({rackProducts.length})
+        </SafeText>
+      )}
       
       {/* Shelves */}
       {(rack.shelves || []).map((shelf, idx) => (
@@ -189,25 +346,135 @@ const Rack3D = ({ rack, aisle, floor }) => {
   );
 };
 
-// 3D Shelf Component
+// 3D Shelf Component with Products - Realistic and performant
 const Shelf3D = ({ shelf, rack, aisle, floor }) => {
+  const shelfProducts = (shelf.products || []).concat(
+    ...(shelf.lanes || []).flatMap(lane => lane.products || [])
+  );
+  const shelfRef = useRef();
+  
+  // Subtle animation for alive feel
+  useFrame((state) => {
+    if (shelfRef.current && shelfProducts.length > 0) {
+      shelfRef.current.position.y = (shelf.y - rack.y) / 100 + Math.sin(state.clock.elapsedTime * 0.3) * 0.005;
+    }
+  });
+
   return (
-    <mesh
+    <group
+      ref={shelfRef}
       position={[
         0,
         (shelf.y - rack.y) / 100,
         0
       ]}
-      castShadow
-      receiveShadow
     >
-      <boxGeometry args={[shelf.width / 100, 0.05, 0.3]} />
-      <meshStandardMaterial
-        color="#6b7280"
-        metalness={0.6}
-        roughness={0.3}
-      />
-    </mesh>
+      {/* Shelf surface - Realistic wood/metal shelf */}
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[shelf.width / 100, 0.05, 0.3]} />
+        <meshStandardMaterial
+          color="#6b7280"
+          metalness={0.6}
+          roughness={0.3}
+          emissive="#4b5563"
+          emissiveIntensity={0.05}
+        />
+      </mesh>
+      
+      {/* Shelf front edge - More realistic */}
+      <mesh position={[0, 0.025, 0.15]} castShadow>
+        <boxGeometry args={[shelf.width / 100, 0.01, 0.01]} />
+        <meshStandardMaterial color="#4b5563" metalness={0.7} roughness={0.2} />
+      </mesh>
+      
+      {/* Products on shelf - Real-time visualization */}
+      {shelfProducts.map((product, idx) => {
+        const productsPerRow = Math.max(1, Math.floor(shelf.width / 30));
+        const row = Math.floor(idx / productsPerRow);
+        const col = idx % productsPerRow;
+        const spacing = shelf.width / 100 / (productsPerRow + 1);
+        const depth = 0.3 / Math.max(1, Math.floor(shelfProducts.length / productsPerRow) + 1);
+        
+        // Use product image if available, otherwise use color based on stock
+        const stockColor = product.quantity === 0 ? '#ef4444' : 
+                          product.quantity <= 10 ? '#f59e0b' : '#10b981';
+        
+        return (
+          <group
+            key={product.id || idx}
+            position={[
+              -shelf.width / 200 + spacing * (col + 1),
+              0.05,
+              -depth + (row * depth * 2)
+            ]}
+          >
+            {/* Product box - Real-time product visualization */}
+            <mesh castShadow>
+              <boxGeometry args={[0.15, 0.15, 0.15]} />
+              <meshStandardMaterial
+                color={product.imageUrl ? '#ffffff' : '#10b981'}
+                metalness={0.2}
+                roughness={0.8}
+              />
+            </mesh>
+            {/* Product label */}
+            <SafeText
+              position={[0, 0.2, 0]}
+              fontSize={0.08}
+              color="#000000"
+              anchorX="center"
+              anchorY="middle"
+              maxWidth={0.3}
+            >
+              {product.name?.substring(0, 10) || 'Product'}
+            </SafeText>
+          </group>
+        );
+      })}
+      
+      {/* Lanes visualization - Real-time product display */}
+      {(shelf.lanes || []).map((lane, laneIdx) => {
+        const laneProducts = lane.products || [];
+        return (
+          <group key={lane.id} position={[(lane.x - shelf.x) / 100, 0.06, 0]}>
+            {laneProducts.map((product, pIdx) => {
+              const stockColor = product.quantity === 0 ? '#ef4444' : 
+                                product.quantity <= 10 ? '#f59e0b' : '#10b981';
+              return (
+                <group
+                  key={product.id || pIdx}
+                  position={[0, 0, (pIdx * 0.1) - (laneProducts.length * 0.05)]}
+                >
+                  <mesh castShadow>
+                    <boxGeometry args={[lane.width / 100 - 0.02, 0.12, 0.08]} />
+                    <meshStandardMaterial
+                      color={stockColor}
+                      metalness={0.3}
+                      roughness={0.7}
+                      emissive={stockColor}
+                      emissiveIntensity={0.2}
+                    />
+                  </mesh>
+                  {product.name && (
+                    <SafeText
+                      position={[0, 0.08, 0.04]}
+                      fontSize={0.06}
+                      color="#ffffff"
+                      anchorX="center"
+                      anchorY="middle"
+                      outlineWidth={0.01}
+                      outlineColor="#000000"
+                    >
+                      {product.name.substring(0, 8)}
+                    </SafeText>
+                  )}
+                </group>
+              );
+            })}
+          </group>
+        );
+      })}
+    </group>
   );
 };
 
@@ -242,8 +509,60 @@ const Lighting = () => {
   );
 };
 
-// Main 3D Scene
-const Scene3D = ({ floors, selectedFloor, onFloorSelect, selectedAisle, onAisleSelect }) => {
+// Main 3D Scene - Optimized for large inventories (1000+ racks)
+const Scene3D = ({ floors, selectedFloor, onFloorSelect, selectedAisle, onAisleSelect, searchQuery = '' }) => {
+  // Filter aisles/racks/shelves based on search query for performance
+  const filteredFloors = React.useMemo(() => {
+    if (!searchQuery) return floors;
+    
+    const query = searchQuery.toLowerCase();
+    return floors.map(floor => ({
+      ...floor,
+      aisles: (floor.aisles || []).map(aisle => {
+        const aisleMatches = aisle.name?.toLowerCase().includes(query) || 
+                            aisle.category?.toLowerCase().includes(query);
+        const rackMatches = (aisle.racks || []).some(rack => 
+          rack.name?.toLowerCase().includes(query) ||
+          (rack.products || []).some(p => p.name?.toLowerCase().includes(query))
+        );
+        
+        if (aisleMatches || rackMatches) {
+          return {
+            ...aisle,
+            racks: (aisle.racks || []).map(rack => {
+              const shelfMatches = (rack.shelves || []).some(shelf =>
+                shelf.name?.toLowerCase().includes(query) ||
+                (shelf.products || []).some(p => p.name?.toLowerCase().includes(query))
+              );
+              if (rackMatches || shelfMatches) {
+                return {
+                  ...rack,
+                  shelves: (rack.shelves || []).map(shelf => ({
+                    ...shelf,
+                    // Only show products that match search
+                    products: searchQuery ? 
+                      (shelf.products || []).filter(p => p.name?.toLowerCase().includes(query)) :
+                      shelf.products
+                  }))
+                };
+              }
+              return rack;
+            })
+          };
+        }
+        return aisle;
+      }).filter(aisle => {
+        // Only show aisles that have matches
+        return aisle.name?.toLowerCase().includes(query) ||
+               aisle.category?.toLowerCase().includes(query) ||
+               (aisle.racks || []).some(rack => 
+                 rack.name?.toLowerCase().includes(query) ||
+                 (rack.products || []).some(p => p.name?.toLowerCase().includes(query))
+               );
+      })
+    }));
+  }, [floors, searchQuery]);
+  
   return (
     <>
       <Lighting />
@@ -255,8 +574,8 @@ const Scene3D = ({ floors, selectedFloor, onFloorSelect, selectedAisle, onAisleS
         far={4.5}
       />
       
-      {/* Render floors */}
-      {floors.map(floor => (
+      {/* Render floors - Optimized */}
+      {filteredFloors.map(floor => (
         <Floor3D
           key={floor.id}
           floor={floor}
@@ -265,9 +584,9 @@ const Scene3D = ({ floors, selectedFloor, onFloorSelect, selectedAisle, onAisleS
         />
       ))}
       
-      {/* Render aisles */}
-      {floors.map(floor =>
-        (floor.aisles || []).map(aisle => (
+      {/* Render aisles - Only render visible ones for performance (limit to 100 aisles) */}
+      {filteredFloors.map(floor =>
+        (floor.aisles || []).slice(0, 100).map(aisle => (
           <Aisle3D
             key={aisle.id}
             aisle={aisle}
@@ -282,7 +601,7 @@ const Scene3D = ({ floors, selectedFloor, onFloorSelect, selectedAisle, onAisleS
 };
 
 
-// Main 3D View Component
+// Main 3D View Component - Enhanced with search
 const Store3DView = ({
   floors = [],
   selectedFloor,
@@ -290,9 +609,16 @@ const Store3DView = ({
   selectedAisle,
   onAisleSelect,
   viewMode = 'orbit', // 'orbit', 'first-person', 'top-down'
+  searchQuery = '', // Search filter for products/aisles
 }) => {
   const controlsRef = useRef();
   const [currentFloorIndex, setCurrentFloorIndex] = useState(0);
+  const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery);
+  
+  // Sync with parent search query
+  useEffect(() => {
+    setLocalSearchQuery(searchQuery);
+  }, [searchQuery]);
   
   // Filter floors to show only selected floor in 3D
   const floorsToRender = selectedFloor 
@@ -309,14 +635,43 @@ const Store3DView = ({
     }
   }, [selectedFloor, floors]);
 
+  // Error boundary for Canvas
+  if (!floors || floors.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-white/60">
+        <div className="text-center">
+          <div className="text-4xl mb-4">🏢</div>
+          <p className="text-lg mb-2 font-semibold">No Store Layout</p>
+          <p className="text-sm">Create floors and aisles in 2D view first</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-full relative">
       <Canvas
         shadows
-        gl={{ antialias: true, alpha: true }}
+        gl={{ 
+          antialias: true, 
+          alpha: true,
+          powerPreference: "high-performance",
+          stencil: false,
+          depth: true
+        }}
         camera={{ position: [10, 10, 10], fov: 50 }}
+        dpr={[1, 2]}
+        onCreated={({ gl }) => {
+          // Ensure WebGL context is properly initialized
+          gl.setClearColor('#0a0a0a', 1);
+        }}
       >
-        <Suspense fallback={null}>
+        <Suspense fallback={
+          <mesh>
+            <boxGeometry args={[1, 1, 1]} />
+            <meshStandardMaterial color="#10b981" />
+          </mesh>
+        }>
           {/* Camera based on view mode */}
           {viewMode === 'top-down' ? (
             <OrthographicCamera
@@ -338,7 +693,7 @@ const Store3DView = ({
             />
           )}
 
-          {/* 3D Scene */}
+          {/* 3D Scene - Optimized for large inventories */}
           {floors.length > 0 && (
             <Scene3D
               floors={floorsToRender}
@@ -346,20 +701,25 @@ const Store3DView = ({
               onFloorSelect={onFloorSelect}
               selectedAisle={selectedAisle}
               onAisleSelect={onAisleSelect}
+              searchQuery={localSearchQuery}
             />
           )}
 
-          {/* Camera controls */}
+          {/* Camera controls - 360 degree rotation */}
           {viewMode !== 'first-person' && (
             <OrbitControls
               ref={controlsRef}
               enablePan={true}
               enableZoom={true}
               enableRotate={true}
-              minDistance={5}
-              maxDistance={50}
+              minDistance={3}
+              maxDistance={100}
               minPolarAngle={viewMode === 'top-down' ? Math.PI / 2 : 0}
-              maxPolarAngle={viewMode === 'top-down' ? Math.PI / 2 : Math.PI / 2}
+              maxPolarAngle={viewMode === 'top-down' ? Math.PI / 2 : Math.PI}
+              autoRotate={false}
+              autoRotateSpeed={0.5}
+              enableDamping={true}
+              dampingFactor={0.05}
             />
           )}
 
@@ -368,11 +728,27 @@ const Store3DView = ({
         </Suspense>
       </Canvas>
       
-      {/* View mode indicator */}
+      {/* View mode indicator with search status */}
       <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm px-3 py-2 rounded-lg text-white text-sm">
         <div className="flex items-center gap-2">
           <span className="text-emerald-400">●</span>
           <span>3D View: {viewMode}</span>
+        </div>
+        {localSearchQuery && (
+          <div className="mt-2 text-xs text-emerald-300">
+            🔍 Filtering: "{localSearchQuery}"
+          </div>
+        )}
+      </div>
+      
+      {/* 360 View Instructions */}
+      <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm px-3 py-2 rounded-lg text-white text-xs max-w-xs">
+        <div className="font-semibold mb-1">🎮 360° View Controls</div>
+        <div className="space-y-0.5 text-white/70">
+          <div>🖱️ <strong>Left Click + Drag:</strong> Rotate view</div>
+          <div>🖱️ <strong>Right Click + Drag:</strong> Pan view</div>
+          <div>🖱️ <strong>Scroll:</strong> Zoom in/out</div>
+          <div>📦 Products shown as colored boxes</div>
         </div>
       </div>
       

@@ -7,11 +7,11 @@ import ErrorBoundary from './ErrorBoundary';
 
 // Lazy load 3D components to prevent breaking the app if there are compatibility issues
 const Store3DView = lazy(() => {
-  return import('./Store3DView').catch((error) => {
+  return Promise.resolve(import('./Store3DView')).catch((error) => {
     console.error('Failed to load Store3DView:', error);
     // Return a simple fallback component
     return {
-      default: () => (
+      default: ({ floors, selectedFloor, onFloorSelect, selectedAisle, onAisleSelect, viewMode }) => (
         <div className="flex items-center justify-center h-full text-white/60">
           <div className="text-center max-w-md">
             <div className="text-4xl mb-4">🎮</div>
@@ -23,6 +23,12 @@ const Store3DView = lazy(() => {
               <p>• Check browser console for details</p>
             </div>
             <p className="text-xs text-white/40 mt-4">Error: {error?.message || 'Unknown error'}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-sm"
+            >
+              Refresh Page
+            </button>
           </div>
         </div>
       )
@@ -54,10 +60,10 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
   
   // Store categories - simplified universal list
   const STORE_CATEGORIES = [
-    'Healthcare', 'Grocery', 'Dairy', 'Beverages', 'Personal Care', 'Household',
-    'Snacks', 'Pharma', 'Electronics', 'Stationery', 'Bakery', 'Frozen',
-    'Clothing', 'Home & Garden', 'Automotive', 'Sports', 'Toys', 'Books'
-  ];
+        'Healthcare', 'Grocery', 'Dairy', 'Beverages', 'Personal Care', 'Household',
+        'Snacks', 'Pharma', 'Electronics', 'Stationery', 'Bakery', 'Frozen',
+        'Clothing', 'Home & Garden', 'Automotive', 'Sports', 'Toys', 'Books'
+      ];
   
   const [viewMode, setViewMode] = useState('2d'); // '2d', '3d'
   const [cameraMode, setCameraMode] = useState('orbit'); // 'orbit', 'first-person', 'top-down'
@@ -82,6 +88,10 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
   const [selectedAisle, setSelectedAisle] = useState(null);
   const [selectedElement, setSelectedElement] = useState(null);
   
+  // Element placement mode - tracks what element is being placed
+  const [placementMode, setPlacementMode] = useState(null); // 'aisle', 'rack', 'shelf', null
+  const [pendingElement, setPendingElement] = useState(null); // Stores element data waiting to be placed
+  
   
   // Canvas & UI
   const [canvasSize, setCanvasSize] = useState({ width: 2000, height: 1500 });
@@ -91,6 +101,11 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize, setGridSize] = useState(20);
   
+  // Store image upload for photo overlay design
+  const [storeImageUrl, setStoreImageUrl] = useState(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [designMode, setDesignMode] = useState('hierarchical'); // 'hierarchical' or 'photo-overlay'
+  
   // Products & Interaction
   const [draggedProduct, setDraggedProduct] = useState(null);
   const [showProductPalette, setShowProductPalette] = useState(false);
@@ -99,8 +114,27 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState(null);
   
+  // Product placement state
+  const [hoveredLocation, setHoveredLocation] = useState(null);
+  const [placementPreview, setPlacementPreview] = useState(null);
+  const [selectedProductForPlacement, setSelectedProductForPlacement] = useState(null);
+  const [recentlyPlacedProducts, setRecentlyPlacedProducts] = useState(new Set()); // Track recently placed products for animation
+  
+  // View mode search
+  const [viewSearchQuery, setViewSearchQuery] = useState('');
+  const [selectedProductDetails, setSelectedProductDetails] = useState(null); // Product details modal
+  
+  // Resize state
+  const [resizingElement, setResizingElement] = useState(null); // {type: 'aisle'|'rack'|'shelf', id: string, edge: 'se'|'sw'|'ne'|'nw'|'e'|'w'|'n'|'s'}
+  const [resizeStartPos, setResizeStartPos] = useState(null);
+  const [resizeStartSize, setResizeStartSize] = useState(null);
+  
   // Canvas ref
   const canvasRef = useRef(null);
+  
+  // Virtualization for large product lists (10,000+ products)
+  const [visibleProductRange, setVisibleProductRange] = useState({ start: 0, end: 50 });
+  const PRODUCTS_PER_PAGE = 50;
   
   // Drag and Drop for Elements
   const handleElementDragStart = useCallback((e, elementType, elementId) => {
@@ -244,6 +278,13 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
             
             return {
               ...aisle,
+              products: aisleProducts.map(p => ({
+                id: p.id,
+                name: p.productName || p.name,
+                sku: p.sku,
+                quantity: p.quantity || 0,
+                imageUrl: p.imageUrl || p.image || null,
+              })),
               racks: (aisle.racks || []).map(rack => {
                 // Find products at rack level
                 const rackProducts = productList.filter(p => 
@@ -253,6 +294,13 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                 
                 return {
                   ...rack,
+                  products: rackProducts.map(p => ({
+                    id: p.id,
+                    name: p.productName || p.name,
+                    sku: p.sku,
+                    quantity: p.quantity || 0,
+                    imageUrl: p.imageUrl || p.image || null,
+                  })),
                   shelves: (rack.shelves || []).map(shelf => {
                     // Find products at shelf level (not in lanes)
                     const shelfProducts = productList.filter(p => {
@@ -270,10 +318,22 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                           p.location?.lane === lane.id ||
                           (p.location?.lane && typeof p.location.lane === 'string' && p.location.lane.includes(lane.id)) ||
                           (p.location?.shelf === shelf.id && p.location?.lane === lane.id)
-                        );
+                        ).map(p => ({
+                          id: p.id,
+                          name: p.productName || p.name,
+                          sku: p.sku,
+                          quantity: p.quantity || 0,
+                          imageUrl: p.imageUrl || p.image || null,
+                        }));
                         return { ...lane, products: laneProducts };
                       }),
-                      products: shelfProducts,
+                      products: shelfProducts.map(p => ({
+                        id: p.id,
+                        name: p.productName || p.name,
+                        sku: p.sku,
+                        quantity: p.quantity || 0,
+                        imageUrl: p.imageUrl || p.image || null,
+                      })),
                     };
                   }),
                   products: rackProducts,
@@ -305,6 +365,10 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
         const data = snap.data();
         setFloors(data.floors || []);
         setCanvasSize(data.canvasSize || { width: 2000, height: 1500 });
+        if (data.storeImageUrl) {
+          setStoreImageUrl(data.storeImageUrl);
+          setDesignMode('photo-overlay');
+        }
         
         // Sync products after loading layout
         if (products && products.length > 0) {
@@ -388,36 +452,111 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
   }, [floors.length, products, syncProductsToLayout]);
 
   // Real-time product sync - updates layout when products change
+  // This ensures location changes from ViewInventory are reflected in the store design
   useEffect(() => {
     if (!userId) return;
     const productsRef = collection(db, 'businesses', userId, 'products');
     const unsubscribe = onSnapshot(productsRef, (snapshot) => {
       // Update products in store structure
-      const updatedProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Only sync if we have floors loaded
-      if (floors.length > 0) {
-        syncProductsToLayout(updatedProducts);
+      const updatedProducts = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data(),
+        // Ensure imageUrl is included
+        imageUrl: doc.data().imageUrl || doc.data().image || null
+      }));
+      
+      // Update products state to trigger re-render
+      if (products !== updatedProducts) {
+        // Only sync if we have floors loaded
+        if (floors.length > 0) {
+          syncProductsToLayout(updatedProducts);
+        }
       }
     });
     return () => unsubscribe();
   }, [userId, floors.length, syncProductsToLayout]);
+  
+  // Also sync when products prop changes (from parent component)
+  useEffect(() => {
+    if (products && products.length > 0 && floors.length > 0) {
+      syncProductsToLayout(products);
+    }
+  }, [products, floors.length, syncProductsToLayout]);
+
+  // Handle store image upload
+  const handleStoreImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image size should be less than 10MB');
+      return;
+    }
+
+    setImageUploading(true);
+    try {
+      const storage = getStorage();
+      const storageRef = ref(storage, `storeLayouts/${userId}/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setStoreImageUrl(url);
+      setDesignMode('photo-overlay');
+      
+      // Save image URL to layout
+      const layoutRef = doc(db, 'businesses', userId, 'virtualStore', 'layout');
+      await setDoc(layoutRef, {
+        storeImageUrl: url,
+        updatedAt: Date.now(),
+      }, { merge: true });
+      
+      toast.success('Store image uploaded! You can now design on it.');
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      toast.error('Failed to upload image');
+    } finally {
+      setImageUploading(false);
+    }
+  };
 
   const saveStoreLayout = async (floorsToSave = null, silent = false) => {
     try {
-      const floorsToStore = floorsToSave || floors;
+      // Ensure we're not receiving an event object
+      let floorsToStore = floorsToSave;
+      if (floorsToSave && typeof floorsToSave === 'object' && floorsToSave.preventDefault) {
+        // This is an event object, ignore it
+        floorsToStore = null;
+      }
+      floorsToStore = floorsToStore || floors;
+      
+      // Deep clone to avoid any React synthetic events or proxies
+      const cleanFloors = JSON.parse(JSON.stringify(floorsToStore));
+      
       const layoutRef = doc(db, 'businesses', userId, 'virtualStore', 'layout');
       await setDoc(layoutRef, {
-        floors: floorsToStore,
+        floors: cleanFloors,
+        storeImageUrl,
         canvasSize,
+        designMode,
         updatedAt: Date.now(),
       }, { merge: true });
+      
+      // Mark that we've saved, so don't reload
+      isLocalChangeRef.current = false;
+      
       if (!silent) {
         toast.success('Store layout saved!');
       }
     } catch (error) {
       console.error('Error saving store layout:', error);
       if (!silent) {
-        toast.error('Failed to save layout');
+        toast.error(`Failed to save layout: ${error.message}`);
       }
     }
   };
@@ -468,12 +607,33 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
     }
   };
 
-  // Add Aisle to Floor
-  const addAisle = (floorId, category = null) => {
+  // Add Aisle to Floor - Auto-creates floor if none exists
+  const addAisle = (floorId = null, category = null, x = null, y = null) => {
     try {
-      const floor = floors.find(f => f.id === floorId);
+      // Auto-create floor if none exists
+      let targetFloorId = floorId || selectedFloor;
+      let currentFloors = floors;
+      
+      if (!targetFloorId || floors.length === 0) {
+        const newFloor = {
+          id: `floor_${Date.now()}`,
+          name: 'Main Floor',
+          aisles: [],
+          x: 0,
+          y: 0,
+          width: canvasSize.width,
+          height: canvasSize.height,
+        };
+        currentFloors = [...floors, newFloor];
+        targetFloorId = newFloor.id;
+        setSelectedFloor(targetFloorId);
+        setFloors(currentFloors);
+        toast.success('✅ Floor created automatically');
+      }
+
+      const floor = currentFloors.find(f => f.id === targetFloorId);
       if (!floor) {
-        toast.error('Please select a floor first');
+        toast.error('Floor not found');
         return;
       }
 
@@ -484,8 +644,8 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
         name: `Aisle ${String.fromCharCode(64 + aisleNumber)}${aisleNumber}`,
         category: category || '',
         racks: [],
-        x: 100 + (aisleNumber - 1) * 250,
-        y: 100,
+        x: x !== null ? x : (100 + (aisleNumber - 1) * 250),
+        y: y !== null ? y : 100,
         width: 200,
         height: 800,
         color: category ? getCategoryColorLocal(category) : '#a855f7',
@@ -494,7 +654,7 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
 
       setFloors(prevFloors => {
         const updatedFloors = prevFloors.map(f => 
-          f.id === floorId 
+          f.id === targetFloorId 
             ? { ...f, aisles: [...(f.aisles || []), newAisle] }
             : f
         );
@@ -503,7 +663,14 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
         return updatedFloors;
       });
       setSelectedAisle(newAisle.id);
-      // Silent feedback - no toast
+      
+      // Enable placement mode if x/y not provided
+      if (x === null || y === null) {
+        setPlacementMode('aisle');
+        setPendingElement({ floorId: targetFloorId, category });
+      } else {
+        toast.success(`✅ ${newAisle.name} added`);
+      }
     } catch (error) {
       console.error('Error adding aisle:', error);
       showCriticalNotification('Failed to add aisle');
@@ -511,15 +678,56 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
     }
   };
 
-  // Add Rack to Aisle
-  const addRack = (floorId, aisleId) => {
+  // Add Rack to Aisle - Auto-generates shelves and auto-creates floor/aisle if needed
+  const addRack = (floorId = null, aisleId = null, autoShelves = true, x = null, y = null) => {
     try {
-      const floor = floors.find(f => f.id === floorId);
-      if (!floor) {
-        toast.error('Floor not found');
-        return;
+      // Auto-create floor if none exists
+      let targetFloorId = floorId || selectedFloor;
+      let currentFloors = floors;
+      
+      if (!targetFloorId || floors.length === 0) {
+        const newFloor = {
+          id: `floor_${Date.now()}`,
+          name: 'Main Floor',
+          aisles: [],
+          x: 0,
+          y: 0,
+          width: canvasSize.width,
+          height: canvasSize.height,
+        };
+        currentFloors = [...floors, newFloor];
+        targetFloorId = newFloor.id;
+        setSelectedFloor(targetFloorId);
+        setFloors(currentFloors);
+        toast.success('✅ Floor created automatically');
       }
-      const aisle = (floor.aisles || []).find(a => a.id === aisleId);
+
+      // Auto-create aisle if none exists
+      let targetAisleId = aisleId || selectedAisle;
+      let floor = currentFloors.find(f => f.id === targetFloorId);
+      
+      if (!targetAisleId || !floor || !floor.aisles || floor.aisles.length === 0) {
+        const newAisle = {
+          id: `aisle_${Date.now()}`,
+          name: 'Aisle A1',
+          category: '',
+          racks: [],
+          x: x !== null ? x : 100,
+          y: y !== null ? y : 100,
+          width: 200,
+          height: 800,
+          color: '#a855f7',
+          products: [],
+        };
+        floor = { ...floor, aisles: [...(floor.aisles || []), newAisle] };
+        currentFloors = currentFloors.map(f => f.id === targetFloorId ? floor : f);
+        targetAisleId = newAisle.id;
+        setSelectedAisle(targetAisleId);
+        setFloors(currentFloors);
+        toast.success('✅ Aisle created automatically');
+      }
+
+      const aisle = floor.aisles.find(a => a.id === targetAisleId);
       if (!aisle) {
         toast.error('Aisle not found');
         return;
@@ -530,19 +738,38 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
         id: `rack_${Date.now()}`,
         name: `Rack ${rackNumber}`,
         shelves: [],
-        x: aisle.x + 20 + (rackNumber - 1) * 60,
-        y: aisle.y + 50,
+        x: x !== null ? x : (aisle.x + 20 + (rackNumber - 1) * 60),
+        y: y !== null ? y : (aisle.y + 50),
         width: 50,
         height: 200,
         products: [],
       };
 
-      const updatedFloors = floors.map(f => 
-        f.id === floorId 
+      // Auto-generate 4 shelves when rack is created (Walmart-style efficiency)
+      if (autoShelves) {
+        const shelfCount = 4;
+        const shelfHeight = (newRack.height - 20) / shelfCount;
+        for (let i = 0; i < shelfCount; i++) {
+          newRack.shelves.push({
+            id: `shelf_${Date.now()}_${i}`,
+            name: `Shelf ${i + 1}`,
+            lanes: [],
+            x: newRack.x,
+            y: newRack.y + 10 + (i * shelfHeight),
+            width: newRack.width,
+            height: shelfHeight - 5,
+            products: [],
+          });
+        }
+      }
+
+      isLocalChangeRef.current = true;
+      const updatedFloors = currentFloors.map(f => 
+        f.id === targetFloorId 
           ? { 
               ...f, 
               aisles: (f.aisles || []).map(a => 
-                a.id === aisleId 
+                a.id === targetAisleId 
                   ? { ...a, racks: [...(a.racks || []), newRack] }
                   : a
               )
@@ -551,7 +778,14 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
       );
       setFloors(updatedFloors);
       saveToHistory(updatedFloors);
-      toast.success(`Rack "${newRack.name}" created!`);
+      
+      // Enable placement mode if x/y not provided
+      if (x === null || y === null) {
+        setPlacementMode('rack');
+        setPendingElement({ floorId: targetFloorId, aisleId: targetAisleId });
+      } else {
+        toast.success(`✅ Rack "${newRack.name}" created${autoShelves ? ' with 4 shelves' : ''}!`);
+      }
     } catch (error) {
       console.error('Error adding rack:', error);
       toast.error('Failed to add rack');
@@ -883,16 +1117,92 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
     toast.success(`Smart layout created! ${analysis.estimatedAisles} aisles, ${analysis.estimatedRacks} racks. Click Save to persist changes.`);
   };
 
-  // Drop product onto location
-  const handleDropProduct = async (e, locationPath) => {
+  // Remove product from location
+  const removeProductFromLocation = async (productId) => {
+    try {
+      const productRef = doc(db, 'businesses', userId, 'products', productId);
+      await updateDoc(productRef, { 
+        location: null 
+      });
+      
+      // Refresh products
+      const productsRef = collection(db, 'businesses', userId, 'products');
+      const snapshot = await getDocs(productsRef);
+      const updatedProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      syncProductsToLayout(updatedProducts);
+      
+      toast.success('Product location removed!');
+    } catch (error) {
+      console.error('Error removing location:', error);
+      toast.error('Failed to remove location');
+    }
+  };
+
+  // Change product location
+  const changeProductLocation = async (productId, newLocationPath) => {
+    await handleDropProduct(null, newLocationPath, productId);
+  };
+
+  // Drop product onto location - Enhanced with direct placement
+  const handleDropProduct = async (e, locationPath, productIdOverride = null) => {
+    if (e) {
     e.preventDefault();
-    if (!draggedProduct) return;
+      e.stopPropagation();
+    }
+    
+    const productId = productIdOverride || draggedProduct;
+    if (!productId) {
+      console.log('No product ID available for drop');
+      return;
+    }
 
     const productList = products || [];
-    const product = productList.find(p => p.id === draggedProduct);
-    if (!product) return;
+    const product = productList.find(p => p.id === productId);
+    if (!product) {
+      console.log('Product not found:', productId);
+      return;
+    }
+
+    if (!locationPath) {
+      console.log('No location path provided');
+      return;
+    }
 
     const [floorId, aisleId, rackId, shelfId, laneId] = locationPath.split('/');
+    
+    // Determine location type for better feedback
+    let locationType = 'Floor';
+    let locationName = '';
+    if (laneId) {
+      locationType = 'Lane';
+      const floor = floors.find(f => f.id === floorId);
+      const aisle = floor?.aisles?.find(a => a.id === aisleId);
+      const rack = aisle?.racks?.find(r => r.id === rackId);
+      const shelf = rack?.shelves?.find(s => s.id === shelfId);
+      const lane = shelf?.lanes?.find(l => l.id === laneId);
+      locationName = lane?.name || 'Lane';
+    } else if (shelfId) {
+      locationType = 'Shelf';
+      const floor = floors.find(f => f.id === floorId);
+      const aisle = floor?.aisles?.find(a => a.id === aisleId);
+      const rack = aisle?.racks?.find(r => r.id === rackId);
+      const shelf = rack?.shelves?.find(s => s.id === shelfId);
+      locationName = shelf?.name || 'Shelf';
+    } else if (rackId) {
+      locationType = 'Rack';
+      const floor = floors.find(f => f.id === floorId);
+      const aisle = floor?.aisles?.find(a => a.id === aisleId);
+      const rack = aisle?.racks?.find(r => r.id === rackId);
+      locationName = rack?.name || 'Rack';
+    } else if (aisleId) {
+      locationType = 'Aisle';
+      const floor = floors.find(f => f.id === floorId);
+      const aisle = floor?.aisles?.find(a => a.id === aisleId);
+      locationName = aisle?.name || 'Aisle';
+    } else {
+      const floor = floors.find(f => f.id === floorId);
+      locationName = floor?.name || 'Floor';
+    }
     
     // Update floors structure
     const updatedFloors = floors.map(floor => {
@@ -996,16 +1306,51 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
         }
       }, 200);
       
-      toast.success(`Product placed at ${location.fullPath}!`);
+      toast.success(`✅ ${product.productName} placed at ${locationType}: ${locationName} (${location.fullPath})`);
+      
+      // Add to recently placed for animation effect
+      setRecentlyPlacedProducts(prev => new Set([...prev, product.id]));
+      setTimeout(() => {
+        setRecentlyPlacedProducts(prev => {
+          const next = new Set(prev);
+          next.delete(product.id);
+          return next;
+        });
+      }, 2000);
     } catch (error) {
       console.error('Error syncing location:', error);
       toast.error('Failed to sync location');
     }
 
     setDraggedProduct(null);
+    setPlacementPreview(null);
+    setHoveredLocation(null);
     // Note: floors state is updated above, so we use current floors
     saveToHistory(updatedFloors);
   };
+
+  // Handle drag over for visual feedback
+  const handleDragOverLocation = useCallback((e, locationPath) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHoveredLocation(locationPath);
+    
+    if (draggedProduct) {
+      const product = products.find(p => p.id === draggedProduct);
+      if (product) {
+        setPlacementPreview({
+          product,
+          locationPath,
+        });
+      }
+    }
+  }, [draggedProduct, products]);
+
+  // Handle drag leave
+  const handleDragLeave = useCallback(() => {
+    setHoveredLocation(null);
+    setPlacementPreview(null);
+  }, []);
 
   const getLocationPathString = (pathArray) => {
     const floor = floors.find(f => f.id === pathArray[0]);
@@ -1042,7 +1387,7 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
     return floors.map(floor => (
       <div 
         key={floor.id} 
-        className={`absolute border-2 rounded-xl transition-all ${
+        className={`absolute border-2 rounded-xl transition-all duration-300 ${
           selectedFloor === floor.id 
             ? 'border-emerald-400 bg-emerald-500/10 shadow-2xl shadow-emerald-500/30' 
             : 'border-dashed border-white/20 bg-white/5'
@@ -1052,6 +1397,10 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
           top: `${floor.y}px`,
           width: `${Math.max(floor.width, 400)}px`,
           height: `${Math.max(floor.height, 300)}px`,
+          boxShadow: selectedFloor === floor.id 
+            ? '0 0 40px rgba(16, 185, 129, 0.4), 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 2px 0 rgba(255, 255, 255, 0.1)'
+            : '0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+          transformStyle: 'preserve-3d',
         }}
       >
         {/* Floor label - Clean and prominent */}
@@ -1099,27 +1448,57 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
           return (
             <div
               key={aisle.id}
-              className="absolute border-2 rounded-lg transition-all group"
+              className="absolute border-2 rounded-lg transition-all duration-300 group"
               style={{
                 left: `${aisle.x}px`,
                 top: `${aisle.y}px`,
                 width: `${aisle.width}px`,
                 height: `${aisle.height}px`,
                 borderColor: aisle.color,
-                backgroundColor: `${aisle.color}20`,
+                backgroundColor: `${aisle.color}15`,
                 cursor: activeMode === 'designer' ? 'move' : 'default',
+                boxShadow: `
+                  ${hoveredLocation === `${currentFloorId}/${aisle.id}` ? '0 0 30px rgba(16, 185, 129, 0.6),' : ''}
+                  0 4px 20px rgba(0, 0, 0, 0.3),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                  inset 0 -2px 10px rgba(0, 0, 0, 0.2)
+                `,
+                transform: hoveredLocation === `${currentFloorId}/${aisle.id}` ? 'scale(1.02) translateY(-2px)' : 'scale(1)',
+                transformStyle: 'preserve-3d',
+                perspective: '1000px',
               }}
               draggable={activeMode === 'designer'}
               onDragStart={(e) => handleElementDragStart(e, 'aisle', aisle.id)}
-              onDrop={activeMode === 'designer' ? (e) => handleDropProduct(e, `${currentFloorId}/${aisle.id}`) : undefined}
-              onDragOver={activeMode === 'designer' ? (e) => e.preventDefault() : undefined}
+              onDrop={activeMode === 'designer' && draggedProduct ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleDropProduct(e, `${currentFloorId}/${aisle.id}`);
+              } : undefined}
+              onDragOver={activeMode === 'designer' && draggedProduct ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleDragOverLocation(e, `${currentFloorId}/${aisle.id}`);
+              } : undefined}
+              onDragLeave={activeMode === 'designer' ? handleDragLeave : undefined}
               onClick={activeMode === 'designer' ? () => setSelectedAisle(aisle.id) : undefined}
             >
-              {/* Aisle Header */}
-              <div className="absolute top-0 left-0 right-0 p-2 bg-black/80 rounded-t-lg">
+              {/* Aisle Header - Enhanced with depth */}
+              <div 
+                className="absolute top-0 left-0 right-0 p-2 rounded-t-lg backdrop-blur-sm"
+                style={{
+                  background: `linear-gradient(135deg, ${aisle.color}40 0%, ${aisle.color}20 50%, rgba(0,0,0,0.8) 100%)`,
+                  boxShadow: '0 2px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                  borderBottom: `2px solid ${aisle.color}60`,
+                }}
+              >
                 <div className="text-xs font-bold flex items-center justify-between">
-                  <span>{aisle.name}</span>
+                  <span className="text-white drop-shadow-lg">{aisle.name}</span>
                   <div className="flex items-center gap-1">
+                    {hoveredLocation === `${currentFloorId}/${aisle.id}` && draggedProduct && (
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500 animate-pulse">
+                        📍 Drop here (Aisle)
+                      </span>
+                    )}
                     {aisleProducts.length > 0 && (
                       <span className={`px-1.5 py-0.5 rounded text-[10px] ${
                         hasOutOfStock ? 'bg-red-500' :
@@ -1160,97 +1539,535 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                   <div className="text-[10px] text-white/70">{aisle.category}</div>
                 )}
               </div>
+              
+              {/* Products on Aisle - Enhanced visualization */}
+              {aisle.products && aisle.products.length > 0 && (
+                <div className="absolute top-10 left-0 right-0 p-2 flex gap-2 overflow-x-auto">
+                  {aisle.products.slice(0, 8).map((product, idx) => (
+                    <div
+                      key={product.id}
+                      className="relative flex-shrink-0 group/product"
+                      style={{
+                        animation: `fadeInUp 0.3s ease-out ${idx * 0.05}s both`,
+                      }}
+                      title={`${product.name} - Qty: ${product.quantity}`}
+                    >
+                      <div 
+                        className="relative rounded-lg overflow-hidden transition-all duration-300 hover:scale-110 hover:z-10"
+                        style={{
+                          width: '48px',
+                          height: '48px',
+                          boxShadow: `
+                            0 4px 12px rgba(0, 0, 0, 0.4),
+                            0 2px 4px rgba(0, 0, 0, 0.2),
+                            inset 0 1px 0 rgba(255, 255, 255, 0.2)
+                          `,
+                          transform: 'translateZ(10px)',
+                        }}
+                      >
+                      {product.imageUrl ? (
+                        <img 
+                          src={product.imageUrl} 
+                          alt={product.name} 
+                          className="w-full h-full object-cover cursor-pointer"
+                          style={{
+                            filter: 'brightness(1.1) contrast(1.05)',
+                          }}
+                          onError={(e) => {
+                            // Fallback if image fails to load
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'flex';
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const fullProduct = products.find(p => p.id === product.id);
+                            if (fullProduct) {
+                              setSelectedProductDetails(fullProduct);
+                            }
+                          }}
+                        />
+                      ) : null}
+                      <div 
+                        className={`w-full h-full bg-gradient-to-br from-white/20 to-white/5 rounded-lg flex items-center justify-center text-lg cursor-pointer ${product.imageUrl ? 'hidden' : ''}`}
+                        style={{
+                          background: 'linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 100%)',
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const fullProduct = products.find(p => p.id === product.id);
+                          if (fullProduct) {
+                            setSelectedProductDetails(fullProduct);
+                          }
+                        }}
+                      >
+                        📦
+                      </div>
+                      {/* Success animation when product is placed */}
+                      {recentlyPlacedProducts.has(product.id) && (
+                        <div 
+                          className="absolute inset-0 rounded-lg pointer-events-none"
+                          style={{
+                            animation: 'pulseGlow 1s ease-out',
+                            boxShadow: '0 0 20px rgba(16, 185, 129, 0.8)',
+                          }}
+                        />
+                      )}
+                        {/* Stock status indicator */}
+                        <div 
+                          className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white/80 ${getStockStatusColor(product.quantity)}`}
+                          style={{
+                            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)',
+                          }}
+                        />
+                        {/* Hover effect */}
+                        <div className="absolute inset-0 bg-emerald-500/0 group-hover/product:bg-emerald-500/20 transition-all duration-300 rounded-lg" />
+                      </div>
+                      {/* Product name tooltip on hover */}
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover/product:opacity-100 transition-opacity pointer-events-none z-20">
+                        <div className="bg-black/90 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap shadow-xl border border-white/20">
+                          {product.name}
+                          <div className="text-[9px] text-white/70 mt-0.5">Qty: {product.quantity}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {aisle.products.length > 6 && (
+                    <div className="flex-shrink-0 p-1 rounded bg-emerald-500/20 text-[8px] text-center text-emerald-300 flex items-center">
+                      +{aisle.products.length - 6}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Racks */}
               <div className="absolute top-10 left-0 right-0 bottom-0 p-2 overflow-y-auto">
-                {(aisle.racks || []).map(rack => (
+                {(aisle.racks || []).map(rack => {
+                  // Filter rack by search in view mode
+                  const rackProducts = rack.products || [];
+                  const rackMatchesSearch = !viewSearchQuery || 
+                    rack.name?.toLowerCase().includes(viewSearchQuery.toLowerCase()) ||
+                    rackProducts.some(p => p.name?.toLowerCase().includes(viewSearchQuery.toLowerCase()) || p.sku?.toLowerCase().includes(viewSearchQuery.toLowerCase()));
+                  
+                  if (activeMode === 'viewer' && !rackMatchesSearch) return null;
+                  
+                  return (
                   <div
                     key={rack.id}
-                    className="absolute border border-white/30 bg-white/10"
+                    className="absolute border-2 transition-all duration-300 group/rack"
                     style={{
                       left: `${rack.x - aisle.x}px`,
                       top: `${rack.y - aisle.y}px`,
                       width: `${rack.width}px`,
                       height: `${rack.height}px`,
+                      borderColor: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}` ? '#10b981' : 'rgba(255, 255, 255, 0.3)',
+                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                      boxShadow: `
+                        ${hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}` ? '0 0 25px rgba(16, 185, 129, 0.5),' : ''}
+                        0 3px 15px rgba(0, 0, 0, 0.25),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                        inset 0 -2px 8px rgba(0, 0, 0, 0.15)
+                      `,
+                      transform: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}` ? 'scale(1.05) translateY(-1px)' : 'scale(1)',
+                      transformStyle: 'preserve-3d',
+                      opacity: activeMode === 'viewer' && viewSearchQuery && !rackMatchesSearch ? 0.3 : 1,
                     }}
-                    onDrop={activeMode === 'designer' ? (e) => handleDropProduct(e, `${currentFloorId}/${aisle.id}/${rack.id}`) : undefined}
-                    onDragOver={activeMode === 'designer' ? (e) => e.preventDefault() : undefined}
+                    onDrop={activeMode === 'designer' && draggedProduct ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDropProduct(e, `${currentFloorId}/${aisle.id}/${rack.id}`);
+                    } : undefined}
+                    onDragOver={activeMode === 'designer' && draggedProduct ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDragOverLocation(e, `${currentFloorId}/${aisle.id}/${rack.id}`);
+                    } : undefined}
+                    onDragLeave={activeMode === 'designer' ? handleDragLeave : undefined}
                   >
-                    <div className="absolute top-0 left-0 right-0 p-1 bg-black/60 text-[10px] text-center">
-                      {rack.name}
+                    {/* Resize Handles for Rack */}
+                    {activeMode === 'designer' && (
+                      <>
+                        <div
+                          className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize bg-blue-500/80 hover:bg-blue-500 border border-white rounded-tl z-50"
+                          style={{ transform: 'translate(50%, 50%)' }}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setResizingElement({ type: 'rack', id: rack.id, aisleId: aisle.id, floorId: currentFloorId, edge: 'se' });
+                            setResizeStartPos({ x: e.clientX, y: e.clientY });
+                            setResizeStartSize({ width: rack.width, height: rack.height });
+                          }}
+                          title="Resize rack"
+                        />
+                      </>
+                    )}
+                    <div 
+                      className="absolute top-0 left-0 right-0 p-1.5 text-[10px] text-center font-semibold backdrop-blur-sm"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.5) 100%)',
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.2)',
+                        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+                      }}
+                    >
+                      <span className="text-white drop-shadow-md">{rack.name}</span>
+                      {hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}` && draggedProduct && (
+                        <span className="ml-2 text-emerald-300 animate-pulse font-bold">📍 Drop (Rack)</span>
+                      )}
                     </div>
+                    
+                    {/* Products on Rack - Enhanced with realistic appearance */}
+                    {rack.products && rack.products.length > 0 && (
+                      <div className="absolute top-8 left-0 right-0 p-2 grid grid-cols-2 gap-1.5">
+                        {rack.products.slice(0, 4).map((product, idx) => (
+                          <div
+                            key={product.id}
+                            className="relative group/product-rack"
+                            style={{
+                              animation: `fadeInScale 0.4s ease-out ${idx * 0.1}s both`,
+                            }}
+                            title={`${product.name} - Qty: ${product.quantity}`}
+                          >
+                            <div 
+                              className="relative rounded-md overflow-hidden transition-all duration-300 hover:scale-110 hover:z-10"
+                              style={{
+                                height: '40px',
+                                boxShadow: `
+                                  0 3px 10px rgba(0, 0, 0, 0.35),
+                                  0 1px 3px rgba(0, 0, 0, 0.2),
+                                  inset 0 1px 0 rgba(255, 255, 255, 0.15)
+                                `,
+                                transform: 'translateZ(8px)',
+                              }}
+                            >
+                              {product.imageUrl ? (
+                                <img 
+                                  src={product.imageUrl} 
+                                  alt={product.name} 
+                                  className="w-full h-full object-cover cursor-pointer"
+                                  style={{
+                                    filter: 'brightness(1.15) contrast(1.1) saturate(1.1)',
+                                  }}
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.nextElementSibling.style.display = 'flex';
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const fullProduct = products.find(p => p.id === product.id);
+                                    if (fullProduct) {
+                                      setSelectedProductDetails(fullProduct);
+                                    }
+                                  }}
+                                />
+                              ) : null}
+                              <div 
+                                className={`w-full h-full bg-gradient-to-br from-white/25 to-white/8 rounded-md flex items-center justify-center text-sm cursor-pointer ${product.imageUrl ? 'hidden' : ''}`}
+                                style={{
+                                  background: 'linear-gradient(135deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.08) 100%)',
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const fullProduct = products.find(p => p.id === product.id);
+                                  if (fullProduct) {
+                                    setSelectedProductDetails(fullProduct);
+                                  }
+                                }}
+                              >
+                                📦
+                              </div>
+                              {/* Success animation */}
+                              {recentlyPlacedProducts.has(product.id) && (
+                                <div 
+                                  className="absolute inset-0 rounded-md pointer-events-none"
+                                  style={{
+                                    animation: 'pulseGlow 1s ease-out',
+                                    boxShadow: '0 0 15px rgba(16, 185, 129, 0.7)',
+                                  }}
+                                />
+                              )}
+                              {/* Stock status with glow */}
+                              <div 
+                                className={`absolute top-1 right-1 w-2.5 h-2.5 rounded-full border-2 border-white/90 ${getStockStatusColor(product.quantity)}`}
+                                style={{
+                                  boxShadow: `0 0 8px ${getStockStatusColor(product.quantity) === 'bg-red-500' ? 'rgba(239, 68, 68, 0.6)' : getStockStatusColor(product.quantity) === 'bg-yellow-500' ? 'rgba(245, 158, 11, 0.6)' : 'rgba(16, 185, 129, 0.6)'}`,
+                                }}
+                              />
+                              {/* Hover overlay */}
+                              <div className="absolute inset-0 bg-emerald-500/0 group-hover/product-rack:bg-emerald-500/25 transition-all duration-300" />
+                            </div>
+                          </div>
+                        ))}
+                        {rack.products.length > 4 && (
+                          <div className="p-0.5 rounded bg-emerald-500/20 text-[8px] text-center text-emerald-300">
+                            +{rack.products.length - 4}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Shelves */}
-                    {(rack.shelves || []).map(shelf => (
+                    {(rack.shelves || []).map(shelf => {
+                      // Filter shelf by search in view mode
+                      const shelfProducts = (shelf.products || []).concat(
+                        ...(shelf.lanes || []).flatMap(lane => lane.products || [])
+                      );
+                      const shelfMatchesSearch = !viewSearchQuery || 
+                        shelf.name?.toLowerCase().includes(viewSearchQuery.toLowerCase()) ||
+                        shelfProducts.some(p => p.name?.toLowerCase().includes(viewSearchQuery.toLowerCase()) || p.sku?.toLowerCase().includes(viewSearchQuery.toLowerCase()));
+                      
+                      if (activeMode === 'viewer' && !shelfMatchesSearch) return null;
+                      
+                      return (
                       <div
                         key={shelf.id}
-                        className="absolute border-t border-white/20 bg-white/5"
+                        className="absolute border-t-2 transition-all duration-300 group/shelf"
                         style={{
                           left: '0px',
                           top: `${shelf.y - rack.y}px`,
                           width: '100%',
                           height: `${shelf.height}px`,
+                          borderColor: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}` ? '#10b981' : 'rgba(255, 255, 255, 0.25)',
+                          backgroundColor: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}` 
+                            ? 'rgba(16, 185, 129, 0.15)' 
+                            : 'rgba(255, 255, 255, 0.06)',
+                          boxShadow: `
+                            ${hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}` ? '0 0 15px rgba(16, 185, 129, 0.4),' : ''}
+                            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                            inset 0 -1px 5px rgba(0, 0, 0, 0.1)
+                          `,
+                          transform: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}` ? 'translateY(-1px)' : 'translateY(0)',
+                          opacity: activeMode === 'viewer' && viewSearchQuery && !shelfMatchesSearch ? 0.3 : 1,
                         }}
-                        onDrop={activeMode === 'designer' ? (e) => handleDropProduct(e, `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}`) : undefined}
-                        onDragOver={activeMode === 'designer' ? (e) => e.preventDefault() : undefined}
+                        onDrop={activeMode === 'designer' && draggedProduct ? (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDropProduct(e, `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}`);
+                        } : undefined}
+                        onDragOver={activeMode === 'designer' && draggedProduct ? (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDragOverLocation(e, `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}`);
+                        } : undefined}
+                        onDragLeave={activeMode === 'designer' ? handleDragLeave : undefined}
                       >
-                        {/* Product Lanes */}
+                        {/* Resize Handle for Shelf Height */}
+                        {activeMode === 'designer' && (
+                          <div
+                            className="absolute bottom-0 right-2 w-6 h-2 cursor-ns-resize bg-purple-500/80 hover:bg-purple-500 border border-white rounded-t z-50"
+                            style={{ transform: 'translateY(50%)' }}
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              setResizingElement({ type: 'shelf', id: shelf.id, rackId: rack.id, aisleId: aisle.id, floorId: currentFloorId, edge: 's' });
+                              setResizeStartPos({ x: e.clientX, y: e.clientY });
+                              setResizeStartSize({ width: shelf.width, height: shelf.height });
+                            }}
+                            title="Resize shelf height"
+                          />
+                        )}
+                        {/* Product Lanes - Enhanced with depth */}
                         {(shelf.lanes || []).map(lane => (
                           <div
                             key={lane.id}
-                            className="absolute border-l border-white/10"
+                            className="absolute border-l-2 transition-all duration-300"
                             style={{
                               left: `${lane.x - shelf.x}px`,
                               top: '0px',
                               width: `${lane.width}px`,
                               height: '100%',
+                              borderColor: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}/${lane.id}` 
+                                ? '#10b981' 
+                                : 'rgba(255, 255, 255, 0.15)',
+                              backgroundColor: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}/${lane.id}` 
+                                ? 'rgba(16, 185, 129, 0.15)' 
+                                : 'rgba(255, 255, 255, 0.03)',
+                              boxShadow: hoveredLocation === `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}/${lane.id}`
+                                ? '0 0 12px rgba(16, 185, 129, 0.4), inset 0 0 10px rgba(16, 185, 129, 0.1)'
+                                : 'inset 0 0 5px rgba(0, 0, 0, 0.1)',
                             }}
-                            onDrop={activeMode === 'designer' ? (e) => handleDropProduct(e, `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}/${lane.id}`) : undefined}
-                            onDragOver={activeMode === 'designer' ? (e) => e.preventDefault() : undefined}
+                            onDrop={activeMode === 'designer' && draggedProduct ? (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDropProduct(e, `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}/${lane.id}`);
+                            } : undefined}
+                            onDragOver={activeMode === 'designer' && draggedProduct ? (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDragOverLocation(e, `${currentFloorId}/${aisle.id}/${rack.id}/${shelf.id}/${lane.id}`);
+                            } : undefined}
+                            onDragLeave={activeMode === 'designer' ? handleDragLeave : undefined}
                           >
-                            {/* Products in Lane */}
-                            <div className="p-0.5 space-y-0.5">
-                              {(lane.products || []).map(product => (
+                            {/* Products in Lane - Enhanced visualization */}
+                            <div className="p-1 space-y-1">
+                              {(lane.products || []).map((product, idx) => (
                                 <div
                                   key={product.id}
-                                  className="relative p-0.5 rounded bg-black/40"
+                                  className="relative group/product-lane"
+                                  style={{
+                                    animation: `slideInLeft 0.3s ease-out ${idx * 0.05}s both`,
+                                  }}
                                   title={`${product.name} - Qty: ${product.quantity}`}
                                 >
-                                  {product.imageUrl ? (
-                                    <img src={product.imageUrl} alt={product.name} className="w-full h-8 object-cover rounded" />
-                                  ) : (
-                                    <div className="w-full h-8 bg-white/10 rounded flex items-center justify-center text-xs">📦</div>
-                                  )}
-                                  <div className={`absolute top-0 right-0 w-2 h-2 rounded-full ${getStockStatusColor(product.quantity)}`} />
+                                  <div 
+                                    className="relative rounded-lg overflow-hidden transition-all duration-300 hover:scale-105 hover:z-10"
+                                    style={{
+                                      height: '36px',
+                                      boxShadow: `
+                                        0 2px 8px rgba(0, 0, 0, 0.3),
+                                        0 1px 2px rgba(0, 0, 0, 0.2),
+                                        inset 0 1px 0 rgba(255, 255, 255, 0.2)
+                                      `,
+                                    }}
+                                  >
+                                    {product.imageUrl ? (
+                                      <img 
+                                        src={product.imageUrl} 
+                                        alt={product.name} 
+                                        className="w-full h-full object-cover cursor-pointer"
+                                        style={{
+                                          filter: 'brightness(1.2) contrast(1.15)',
+                                        }}
+                                        onError={(e) => {
+                                          e.target.style.display = 'none';
+                                          e.target.nextElementSibling.style.display = 'flex';
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const fullProduct = products.find(p => p.id === product.id);
+                                          if (fullProduct) {
+                                            setSelectedProductDetails(fullProduct);
+                                          }
+                                        }}
+                                      />
+                                    ) : null}
+                                    <div 
+                                      className={`w-full h-full bg-gradient-to-br from-white/20 to-white/5 rounded-lg flex items-center justify-center text-xs cursor-pointer ${product.imageUrl ? 'hidden' : ''}`}
+                                      style={{
+                                        background: 'linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 100%)',
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const fullProduct = products.find(p => p.id === product.id);
+                                        if (fullProduct) {
+                                          setSelectedProductDetails(fullProduct);
+                                        }
+                                      }}
+                                    >
+                                      📦
+                                    </div>
+                                    {/* Success animation */}
+                                    {recentlyPlacedProducts.has(product.id) && (
+                                      <div 
+                                        className="absolute inset-0 rounded-lg pointer-events-none"
+                                        style={{
+                                          animation: 'pulseGlow 1s ease-out',
+                                          boxShadow: '0 0 12px rgba(16, 185, 129, 0.6)',
+                                        }}
+                                      />
+                                    )}
+                                    {/* Stock status */}
+                                    <div 
+                                      className={`absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full border border-white/80 ${getStockStatusColor(product.quantity)}`}
+                                      style={{
+                                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.3)',
+                                      }}
+                                    />
+                                    {/* Hover effect */}
+                                    <div className="absolute inset-0 bg-emerald-500/0 group-hover/product-lane:bg-emerald-500/20 transition-all duration-300" />
+                                  </div>
                                 </div>
                               ))}
                             </div>
                           </div>
                         ))}
 
-                        {/* Products on Shelf (if no lanes) */}
+                        {/* Products on Shelf (if no lanes) - Enhanced visualization */}
                         {(!shelf.lanes || shelf.lanes.length === 0) && shelf.products && shelf.products.length > 0 && (
-                          <div className="p-1 grid grid-cols-2 gap-0.5">
-                            {shelf.products.map(product => (
+                          <div className="p-2 grid grid-cols-2 gap-1.5">
+                            {shelf.products.map((product, idx) => (
                               <div
                                 key={product.id}
-                                className="relative p-0.5 rounded bg-black/40"
+                                className="relative group/product-shelf"
+                                style={{
+                                  animation: `fadeInScale 0.4s ease-out ${idx * 0.08}s both`,
+                                }}
                                 title={`${product.name} - Qty: ${product.quantity}`}
                               >
-                                {product.imageUrl ? (
-                                  <img src={product.imageUrl} alt={product.name} className="w-full h-6 object-cover rounded" />
-                                ) : (
-                                  <div className="w-full h-6 bg-white/10 rounded flex items-center justify-center text-[10px]">📦</div>
-                                )}
-                                <div className={`absolute top-0 right-0 w-2 h-2 rounded-full ${getStockStatusColor(product.quantity)}`} />
+                                <div 
+                                  className="relative rounded-md overflow-hidden transition-all duration-300 hover:scale-110 hover:z-10"
+                                  style={{
+                                    height: '38px',
+                                    boxShadow: `
+                                      0 3px 10px rgba(0, 0, 0, 0.35),
+                                      0 1px 3px rgba(0, 0, 0, 0.2),
+                                      inset 0 1px 0 rgba(255, 255, 255, 0.15)
+                                    `,
+                                    transform: 'translateZ(8px)',
+                                  }}
+                                >
+                              {product.imageUrl ? (
+                                <img 
+                                  src={product.imageUrl} 
+                                  alt={product.name} 
+                                  className="w-full h-full object-cover cursor-pointer"
+                                  style={{
+                                    filter: 'brightness(1.15) contrast(1.1) saturate(1.1)',
+                                  }}
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.nextElementSibling.style.display = 'flex';
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const fullProduct = products.find(p => p.id === product.id);
+                                    if (fullProduct) {
+                                      setSelectedProductDetails(fullProduct);
+                                    }
+                                  }}
+                                />
+                              ) : null}
+                              <div 
+                                className={`w-full h-full bg-gradient-to-br from-white/25 to-white/8 rounded-md flex items-center justify-center text-xs cursor-pointer ${product.imageUrl ? 'hidden' : ''}`}
+                                style={{
+                                  background: 'linear-gradient(135deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.08) 100%)',
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const fullProduct = products.find(p => p.id === product.id);
+                                  if (fullProduct) {
+                                    setSelectedProductDetails(fullProduct);
+                                  }
+                                }}
+                              >
+                                📦
+                              </div>
+                              {/* Success animation */}
+                              {recentlyPlacedProducts.has(product.id) && (
+                                <div 
+                                  className="absolute inset-0 rounded-md pointer-events-none"
+                                  style={{
+                                    animation: 'pulseGlow 1s ease-out',
+                                    boxShadow: '0 0 15px rgba(16, 185, 129, 0.7)',
+                                  }}
+                                />
+                              )}
+                                  {/* Stock status with glow */}
+                                  <div 
+                                    className={`absolute top-1 right-1 w-2.5 h-2.5 rounded-full border-2 border-white/90 ${getStockStatusColor(product.quantity)}`}
+                                    style={{
+                                      boxShadow: `0 0 6px ${getStockStatusColor(product.quantity) === 'bg-red-500' ? 'rgba(239, 68, 68, 0.5)' : getStockStatusColor(product.quantity) === 'bg-yellow-500' ? 'rgba(245, 158, 11, 0.5)' : 'rgba(16, 185, 129, 0.5)'}`,
+                                    }}
+                                  />
+                                  {/* Hover overlay */}
+                                  <div className="absolute inset-0 bg-emerald-500/0 group-hover/product-shelf:bg-emerald-500/25 transition-all duration-300" />
+                                </div>
                               </div>
                             ))}
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
@@ -1371,7 +2188,11 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
               📦 Products ({products.length})
             </button>
             <button
-              onClick={saveStoreLayout}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                saveStoreLayout();
+              }}
               className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 font-medium"
             >
               💾 Save
@@ -1639,8 +2460,42 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                         <div className="text-xs text-white/60 p-2">No racks yet. Add racks to organize shelves.</div>
                       ) : (
                         displayAisle.racks.map(rack => (
-                          <div key={rack.id} className="p-2 rounded bg-white/5 text-xs">
+                          <div key={rack.id} className="p-2 rounded bg-white/5 text-xs group">
+                            <div className="flex items-center justify-between">
                             <div className="font-medium">{rack.name}</div>
+                              {activeMode === 'designer' && (
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (window.confirm(`Delete ${rack.name}? This will remove all shelves and products in this rack.`)) {
+                                      isLocalChangeRef.current = true;
+                                      setFloors(prev => {
+                                        const updatedFloors = prev.map(f => 
+                                          f.id === selectedFloor 
+                                            ? { 
+                                                ...f, 
+                                                aisles: (f.aisles || []).map(a => 
+                                                  a.id === displayAisle.id 
+                                                    ? { ...a, racks: (a.racks || []).filter(r => r.id !== rack.id) }
+                                                    : a
+                                                )
+                                              }
+                                            : f
+                                        );
+                                        saveToHistory(updatedFloors);
+                                        return updatedFloors;
+                                      });
+                                      toast.success(`${rack.name} removed. Click Save to persist changes.`);
+                                    }
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity px-1.5 py-0.5 text-red-400 hover:text-red-300 text-xs"
+                                  title="Delete rack"
+                                >
+                                  🗑️
+                                </button>
+                              )}
+                            </div>
                             <div className="flex gap-1 mt-1">
                               <button
                                 onClick={(e) => {
@@ -1659,8 +2514,49 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                               <span className="text-[10px] text-white/60">({(rack.shelves || []).length} shelves)</span>
                             </div>
                             {(rack.shelves || []).map(shelf => (
-                              <div key={shelf.id} className="ml-2 mt-1 p-1 rounded bg-black/20 text-[10px]">
+                              <div key={shelf.id} className="ml-2 mt-1 p-1 rounded bg-black/20 text-[10px] group/shelf">
+                                <div className="flex items-center justify-between">
                                 <div>{shelf.name}</div>
+                                  {activeMode === 'designer' && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        if (window.confirm(`Delete ${shelf.name}? This will remove all lanes and products on this shelf.`)) {
+                                          isLocalChangeRef.current = true;
+                                          setFloors(prev => {
+                                            const updatedFloors = prev.map(f => 
+                                              f.id === selectedFloor 
+                                                ? { 
+                                                    ...f, 
+                                                    aisles: (f.aisles || []).map(a => 
+                                                      a.id === displayAisle.id 
+                                                        ? { 
+                                                            ...a, 
+                                                            racks: (a.racks || []).map(r => 
+                                                              r.id === rack.id 
+                                                                ? { ...r, shelves: (r.shelves || []).filter(s => s.id !== shelf.id) }
+                                                                : r
+                                                            )
+                                                          }
+                                                        : a
+                                                    )
+                                                  }
+                                                : f
+                                            );
+                                            saveToHistory(updatedFloors);
+                                            return updatedFloors;
+                                          });
+                                          toast.success(`${shelf.name} removed. Click Save to persist changes.`);
+                                        }
+                                      }}
+                                      className="opacity-0 group-hover/shelf:opacity-100 transition-opacity px-1 py-0.5 text-red-400 hover:text-red-300 text-[9px]"
+                                      title="Delete shelf"
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
                                 <button
                                   onClick={(e) => {
                                     e.preventDefault();
@@ -1688,6 +2584,84 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                 );
               })()}
 
+
+              {/* Store Image Upload */}
+                <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-400/30">
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                  📷 Store Photo
+                </h3>
+                {storeImageUrl ? (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <img 
+                        src={storeImageUrl} 
+                        alt="Store layout" 
+                        className="w-full h-32 object-cover rounded-lg border border-white/20"
+                      />
+                    <button
+                      onClick={() => {
+                          setStoreImageUrl(null);
+                          setDesignMode('hierarchical');
+                          toast.info('Store image removed');
+                      }}
+                        className="absolute top-1 right-1 px-2 py-1 rounded bg-red-500/80 hover:bg-red-500 text-xs"
+                    >
+                        ✕
+                    </button>
+                    </div>
+                    <div className="flex gap-2">
+                    <button
+                        onClick={() => setDesignMode('photo-overlay')}
+                        className={`flex-1 px-2 py-1 rounded text-xs ${
+                          designMode === 'photo-overlay' 
+                            ? 'bg-emerald-500' 
+                            : 'bg-white/10 hover:bg-white/20'
+                        }`}
+                      >
+                        Design on Photo
+                    </button>
+                      <button
+                        onClick={() => setDesignMode('hierarchical')}
+                        className={`flex-1 px-2 py-1 rounded text-xs ${
+                          designMode === 'hierarchical' 
+                            ? 'bg-emerald-500' 
+                            : 'bg-white/10 hover:bg-white/20'
+                        }`}
+                      >
+                        Grid View
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block w-full">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleStoreImageUpload}
+                        disabled={imageUploading}
+                        className="hidden"
+                        id="store-image-upload"
+                      />
+                      <div className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 hover:bg-white/20 cursor-pointer text-center text-xs transition-all">
+                        {imageUploading ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <span className="animate-spin">⏳</span>
+                            Uploading...
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center gap-2">
+                            📤 Upload Store Photo
+                          </span>
+                    )}
+                  </div>
+                    </label>
+                    <p className="text-[10px] text-white/50 mt-1 text-center">
+                      Upload your store image to design on it
+                    </p>
+                </div>
+              )}
+              </div>
 
               {/* Canvas Settings */}
               <div className="p-3 rounded-lg bg-white/5 border border-white/10">
@@ -1719,6 +2693,26 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
           ) : (
             <div className="w-80 border-r border-white/10 p-4 overflow-y-auto bg-[#0B0F14]">
               <h3 className="text-sm font-semibold mb-4">👁️ Store View</h3>
+              
+              {/* Search in View Mode */}
+              <div className="mb-4">
+                <input
+                  type="text"
+                  placeholder="🔍 Search products, aisles, racks..."
+                  value={viewSearchQuery}
+                  onChange={(e) => setViewSearchQuery(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                />
+                {viewSearchQuery && (
+                  <button
+                    onClick={() => setViewSearchQuery('')}
+                    className="mt-1 text-xs text-emerald-400 hover:text-emerald-300"
+                  >
+                    Clear search
+                  </button>
+                )}
+              </div>
+              
               <div className="space-y-4">
                 <div className="p-3 rounded-lg bg-white/5 border border-white/10">
                   <div className="text-xs text-white/60 mb-1">Floors</div>
@@ -1778,6 +2772,7 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                       selectedAisle={selectedAisle}
                       onAisleSelect={setSelectedAisle}
                       viewMode={cameraMode}
+                      searchQuery={productSearchQuery}
                     />
                   </Suspense>
                 </ErrorBoundary>
@@ -1824,9 +2819,86 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                 }
               }}
               onDragOver={(e) => e.preventDefault()}
+              onClick={(e) => {
+                // Don't trigger if clicking on an element (aisle, rack, etc.)
+                if (e.target.closest('.absolute.border-2') || e.target.closest('.absolute.border')) {
+                  return;
+                }
+                
+                // Click to place elements on canvas
+                if (placementMode && pendingElement) {
+                  const rect = canvasRef.current?.getBoundingClientRect();
+                  if (!rect) return;
+                  const x = (e.clientX - rect.left) / zoom - pan.x;
+                  const y = (e.clientY - rect.top) / zoom - pan.y;
+                  
+                  if (placementMode === 'aisle') {
+                    addAisle(pendingElement.floorId, pendingElement.category, x, y);
+                  } else if (placementMode === 'rack') {
+                    addRack(pendingElement.floorId, pendingElement.aisleId, true, x, y);
+                  }
+                  
+                  setPlacementMode(null);
+                  setPendingElement(null);
+                  toast.success('✅ Element placed!');
+                }
+              }}
+              style={{
+                cursor: placementMode ? 'crosshair' : 'default',
+                backgroundImage: designMode === 'photo-overlay' && storeImageUrl 
+                  ? `url(${storeImageUrl})` 
+                  : designMode === 'hierarchical'
+                  ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 50%, rgba(15, 23, 42, 0.95) 100%)'
+                  : 'none',
+                backgroundSize: designMode === 'photo-overlay' && storeImageUrl 
+                  ? 'contain' 
+                  : 'auto',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                backgroundColor: designMode === 'photo-overlay' && storeImageUrl 
+                  ? '#0a0a0a' 
+                  : designMode === 'hierarchical'
+                  ? 'transparent'
+                  : 'transparent',
+                position: 'relative',
+              }}
             >
-              {/* Grid */}
-              {showGrid && (
+              {/* Ambient lighting effect for immersive feel */}
+              {designMode === 'hierarchical' && (
+                <div 
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background: `
+                      radial-gradient(circle at 20% 30%, rgba(16, 185, 129, 0.1) 0%, transparent 50%),
+                      radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+                      radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 70%)
+                    `,
+                    mixBlendMode: 'screen',
+                  }}
+                />
+              )}
+              {/* Placement Mode Indicator */}
+              {placementMode && (
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 bg-emerald-500/90 text-white px-4 py-2 rounded-lg shadow-xl border-2 border-emerald-300 flex items-center gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">📍 Click on canvas to place {placementMode}</div>
+                    <div className="text-xs opacity-90 mt-1">Or click Cancel to abort</div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPlacementMode(null);
+                      setPendingElement(null);
+                      toast.info('Placement cancelled');
+                    }}
+                    className="px-3 py-1 bg-red-500/80 hover:bg-red-500 rounded text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {/* Grid - only show if not in photo overlay mode or if explicitly enabled */}
+              {showGrid && (!storeImageUrl || designMode === 'hierarchical') && (
                 <div
                   className="absolute inset-0 pointer-events-none"
                   style={{
@@ -1848,46 +2920,112 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                   position: 'relative',
                 }}
               >
-                {renderHierarchicalView()}
+                        {renderHierarchicalView()}
+                
+                {/* Photo Overlay Mode - Direct Product Placement */}
+                {designMode === 'photo-overlay' && storeImageUrl && draggedProduct && (
+                  <div className="absolute inset-0 pointer-events-none z-40">
+                    <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-emerald-500/90 text-white px-4 py-2 rounded-lg shadow-xl border-2 border-emerald-300">
+                      <div className="text-sm font-semibold">📦 Drag product and drop on any location</div>
+                      <div className="text-xs opacity-90 mt-1">Aisle • Rack • Shelf • Lane</div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Placement Preview Overlay */}
+                {placementPreview && draggedProduct && (
+                  <div 
+                    className="fixed pointer-events-none z-50 bg-emerald-500/90 text-white px-3 py-2 rounded-lg shadow-xl border-2 border-emerald-300"
+                            style={{
+                      left: `${placementPreview.mouseX || 0}px`,
+                      top: `${placementPreview.mouseY || 0}px`,
+                      transform: 'translate(-50%, -100%)',
+                    }}
+                  >
+                    <div className="text-xs font-semibold">Place {placementPreview.product.productName}</div>
+                    <div className="text-[10px] opacity-90">Drop to place here</div>
+                          </div>
+                        )}
               </div>
             </div>
             )}
           </div>
 
-          {/* Product Palette */}
+          {/* Product Palette - Optimized for 10,000+ products */}
           {showProductPalette && (
             <div className="w-80 border-l border-white/10 p-4 overflow-y-auto bg-[#0B0F14]">
-              <h3 className="text-sm font-semibold mb-2">Product Inventory</h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold">Product Inventory</h3>
+                <span className="text-xs text-white/60">{products.length.toLocaleString()} products</span>
+              </div>
               <input
                 type="text"
                 placeholder="Search products..."
                 value={searchProducts}
-                onChange={(e) => setSearchProducts(e.target.value)}
+                onChange={(e) => {
+                  setSearchProducts(e.target.value);
+                  setVisibleProductRange({ start: 0, end: PRODUCTS_PER_PAGE });
+                }}
                 className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 text-sm mb-2"
               />
-              <div className="space-y-2 max-h-[calc(96vh-200px)] overflow-y-auto">
+              
+              {/* Virtualized product list for performance */}
+              <div className="space-y-2 max-h-[calc(96vh-200px)] overflow-y-auto"
+                onScroll={(e) => {
+                  const target = e.target;
+                  const scrollTop = target.scrollTop;
+                  const itemHeight = 80; // Approximate height per product
+                  const start = Math.floor(scrollTop / itemHeight);
+                  const end = start + PRODUCTS_PER_PAGE;
+                  setVisibleProductRange({ start, end });
+                }}
+              >
                 {(!products || products.length === 0) ? (
                   <div className="text-xs text-white/60 p-4 text-center">No products in inventory</div>
-                ) : (
-                  products
-                    .filter(p => 
+                ) : (() => {
+                  const filteredProducts = products.filter(p => 
                       !searchProducts || 
                       p.productName?.toLowerCase().includes(searchProducts.toLowerCase()) ||
                       p.sku?.toLowerCase().includes(searchProducts.toLowerCase())
-                    )
-                    .map(product => (
+                  );
+                  
+                  // Virtualization: only render visible products
+                  const visibleProducts = filteredProducts.slice(
+                    visibleProductRange.start,
+                    Math.min(visibleProductRange.end, filteredProducts.length)
+                  );
+                  
+                  return (
+                    <>
+                      {visibleProducts.map(product => (
                       <div
                         key={product.id}
-                        draggable
-                        onDragStart={() => setDraggedProduct(product.id)}
-                        onDragEnd={() => setDraggedProduct(null)}
-                        className="p-2 rounded-lg border border-white/20 bg-white/5 hover:bg-white/10 cursor-move"
+                          draggable={activeMode === 'designer'}
+                          onDragStart={(e) => {
+                            if (activeMode === 'designer') {
+                              setDraggedProduct(product.id);
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setData('text/plain', product.id);
+                              // Visual feedback
+                              e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
+                            }
+                          }}
+                          onDragEnd={() => {
+                            setDraggedProduct(null);
+                            setHoveredLocation(null);
+                            setPlacementPreview(null);
+                          }}
+                          className={`p-2 rounded-lg border transition-all ${
+                            activeMode === 'designer' 
+                              ? 'border-white/20 bg-white/5 hover:bg-white/10 cursor-move hover:scale-[1.02]' 
+                              : 'border-white/10 bg-white/5'
+                          }`}
                       >
                         <div className="flex items-start gap-2">
                           {product.imageUrl ? (
                             <img src={product.imageUrl} alt={product.productName} className="w-12 h-12 object-cover rounded" />
                           ) : (
-                            <div className="w-12 h-12 bg-white/10 rounded flex items-center justify-center">📦</div>
+                              <div className="w-12 h-12 bg-white/10 rounded flex items-center justify-center text-lg">📦</div>
                           )}
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate">{product.productName}</div>
@@ -1896,18 +3034,160 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                               {product.quantity} {product.unit}
                             </div>
                             {product.location && (
-                              <div className="text-[10px] text-emerald-300 mt-0.5">📍 {product.location.fullPath || 'Placed'}</div>
+                                <div className="mt-1 space-y-1">
+                                  <div className="text-[10px] text-emerald-300 flex items-center gap-1">
+                                    <span>📍</span>
+                                    <span className="truncate">{product.location.fullPath || 'Placed'}</span>
+                                  </div>
+                                  {activeMode === 'designer' && (
+                                    <div className="flex gap-1 mt-1">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (window.confirm('Remove this product from its current location?')) {
+                                            removeProductFromLocation(product.id);
+                                          }
+                                        }}
+                                        className="px-2 py-0.5 rounded text-[9px] bg-red-500/20 hover:bg-red-500/30 text-red-300"
+                                        title="Remove location"
+                                      >
+                                        🗑️ Remove
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedProductForPlacement(product.id);
+                                          toast.info('Drag this product to a new location or click on a location');
+                                        }}
+                                        className="px-2 py-0.5 rounded text-[9px] bg-blue-500/20 hover:bg-blue-500/30 text-blue-300"
+                                        title="Change location"
+                                      >
+                                        📍 Change
+                                      </button>
+                                    </div>
                             )}
                           </div>
+                              )}
+                              {!product.location && activeMode === 'designer' && (
+                                <div className="text-[10px] text-yellow-300 mt-1">⚠️ No location assigned</div>
+                              )}
                         </div>
                       </div>
-                    ))
-                )}
+                        </div>
+                      ))}
+                      {filteredProducts.length > visibleProductRange.end && (
+                        <div className="text-xs text-white/40 text-center py-2">
+                          Showing {visibleProductRange.start + 1}-{Math.min(visibleProductRange.end, filteredProducts.length)} of {filteredProducts.length}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
         </div>
       </div>
+      
+      {/* Product Details Modal */}
+      {selectedProductDetails && (
+        <div 
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setSelectedProductDetails(null)}
+        >
+          <div 
+            className="bg-[#0B0F14] rounded-xl border border-white/20 p-6 max-w-md w-[90%] max-h-[90vh] overflow-y-auto shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white">Product Details</h3>
+              <button
+                onClick={() => setSelectedProductDetails(null)}
+                className="text-white/60 hover:text-white text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Product Image */}
+              {selectedProductDetails.imageUrl && (
+                <div className="flex justify-center">
+                  <img 
+                    src={selectedProductDetails.imageUrl} 
+                    alt={selectedProductDetails.productName || selectedProductDetails.name}
+                    className="w-32 h-32 object-cover rounded-lg border border-white/20"
+                  />
+                </div>
+              )}
+              
+              {/* Product Name */}
+              <div>
+                <div className="text-xs text-white/60 mb-1">Product Name</div>
+                <div className="text-lg font-semibold text-white">
+                  {selectedProductDetails.productName || selectedProductDetails.name || 'N/A'}
+                </div>
+              </div>
+              
+              {/* SKU */}
+              {selectedProductDetails.sku && (
+                <div>
+                  <div className="text-xs text-white/60 mb-1">SKU</div>
+                  <div className="text-sm text-white">{selectedProductDetails.sku}</div>
+                </div>
+              )}
+              
+              {/* Quantity */}
+              <div>
+                <div className="text-xs text-white/60 mb-1">Quantity</div>
+                <div className={`text-lg font-bold ${
+                  Number(selectedProductDetails.quantity || 0) === 0 ? 'text-red-400' :
+                  Number(selectedProductDetails.quantity || 0) <= lowStockThreshold ? 'text-yellow-400' :
+                  'text-emerald-400'
+                }`}>
+                  {selectedProductDetails.quantity || 0} {selectedProductDetails.unit || ''}
+                </div>
+              </div>
+              
+              {/* Location */}
+              {selectedProductDetails.location && (
+                <div>
+                  <div className="text-xs text-white/60 mb-1">Location</div>
+                  <div className="text-sm text-emerald-300 font-medium">
+                    {selectedProductDetails.location.fullPath || 'N/A'}
+                  </div>
+                </div>
+              )}
+              
+              {/* Brand */}
+              {selectedProductDetails.brand && (
+                <div>
+                  <div className="text-xs text-white/60 mb-1">Brand</div>
+                  <div className="text-sm text-white">{selectedProductDetails.brand}</div>
+                </div>
+              )}
+              
+              {/* Category */}
+              {selectedProductDetails.category && (
+                <div>
+                  <div className="text-xs text-white/60 mb-1">Category</div>
+                  <div className="text-sm text-white">{selectedProductDetails.category}</div>
+                </div>
+              )}
+              
+              {/* Price */}
+              {selectedProductDetails.sellingPrice && (
+                <div>
+                  <div className="text-xs text-white/60 mb-1">Selling Price</div>
+                  <div className="text-lg font-semibold text-white">
+                    ₹{Number(selectedProductDetails.sellingPrice).toFixed(2)}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
