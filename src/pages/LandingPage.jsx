@@ -1939,7 +1939,7 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
           </div>
         </div>
       )}
-      <footer id="contact" className="relative bg-gray-900 text-white p-6 mt-10 text-center text-sm overflow-hidden border-t border-white/10"><div aria-hidden className="absolute inset-x-0 -top-16 h-32 bg-gradient-to-r from-green-500/10 via-yellow-500/10 to-blue-500/10 blur-2xl" /><p>© {new Date().getFullYear()} FLYP — All Rights Reserved.</p><p className="mt-1">Contact: support@flypnow.com</p></footer>
+      <footer id="contact" className="relative bg-gray-900 text-white p-6 mt-10 text-center text-sm overflow-hidden border-t border-white/10"><div aria-hidden className="absolute inset-x-0 -top-16 h-32 bg-gradient-to-r from-green-500/10 via-yellow-500/10 to-blue-500/10 blur-2xl" /><p>© {new Date().getFullYear()} FLYP — All Rights Reserved.</p><p className="mt-1">Contact: admin@flypnow.com</p></footer>
       {showStickyCta && (<div className="fixed md:hidden bottom-4 right-4 z-50"><a href="#pricing" className="px-5 py-3 rounded-full font-semibold text-gray-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">Start Free</a></div>)}
       
       <style>{`
