@@ -3,7 +3,13 @@
 // Modular, Clean, and Production-Ready
 // ============================
 
-require("dotenv").config();
+// Load .env only for local development (emulator)
+// In production, use Firebase Secrets instead
+// NOTE: .env file should NOT contain META_SYSTEM_USER_TOKEN or META_APP_SECRET
+// These are loaded from Firebase Secrets in production
+if (process.env.FUNCTIONS_EMULATOR) {
+  require("dotenv").config();
+}
 
 const admin = require("firebase-admin");
 const { setGlobalOptions } = require("firebase-functions/v2");
@@ -37,6 +43,8 @@ exports.resetDistributorEmployeePin = require("./employees/resetDistributorEmplo
 exports.distributorEmployeeLogin = require("./employees/distributorEmployeeLogin");
 exports.restoreDistributorEmployeeAuth = require("./employees/restoreDistributorEmployeeAuth");
 exports.migrateEmployeeIds = require("./employees/migrateEmployeeIds");
+exports.createEmployeeSession = require("./employees/createEmployeeSession");
+exports.logDistributorActivity = require("./employees/logDistributorActivity");
 
 // Retailer Profile Sync
 exports.resyncRetailerProfile = require("./profile/resyncRetailerProfile");
@@ -65,6 +73,28 @@ const { reservePhone } = require("./otp/reservePhone");
 exports.reservePhone = reservePhone;
 const { checkUniqueness } = require("./otp/checkUniqueness");
 exports.checkUniqueness = checkUniqueness;
+
+// Payment Gateway
+exports.createMerchantAccount = require("./payment/createMerchantAccount");
+exports.generatePaymentLink = require("./payment/generatePaymentLink");
+
+// Location Data (India)
+exports.fetchIndiaLocationData = require("./location/fetchIndiaLocationData");
+
+// WhatsApp Business API
+exports.whatsappWebhook = require("./whatsapp/webhook");
+const whatsappConnect = require("./whatsapp/connect");
+exports.whatsappConnectStart = whatsappConnect.whatsappConnectStart;
+exports.whatsappConnectCallback = whatsappConnect.whatsappConnectCallback;
+
+// WhatsApp Tech Provider (New Gateway)
+const whatsappTechProvider = require("./whatsapp/techProvider");
+exports.createClientWABA = whatsappTechProvider.createClientWABA;
+exports.getClientWABA = whatsappTechProvider.getClientWABA;
+exports.requestPhoneNumber = whatsappTechProvider.requestPhoneNumber;
+exports.sendMessageViaTechProvider = whatsappTechProvider.sendMessageViaTechProvider;
+exports.setupWebhookForClient = whatsappTechProvider.setupWebhookForClient;
+exports.whatsappTechProviderWebhook = whatsappTechProvider.whatsappTechProviderWebhook;
 
 // ============================
 // Utility Modules (Internal use)

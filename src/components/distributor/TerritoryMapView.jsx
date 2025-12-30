@@ -7,7 +7,9 @@ import { toast } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE";
-const GOOGLE_MAPS_LIBRARIES = ["places"];
+// IMPORTANT: Must match libraries used in TerritoryManagement to avoid loader conflicts
+// Using union of all needed libraries across components
+const GOOGLE_MAPS_LIBRARIES = ["drawing", "places"];
 
 const mapContainerStyle = {
   width: "100%",
@@ -63,6 +65,7 @@ const createRetailerMarkerIcon = (name, color = "#10b981") => {
 
 export default function TerritoryMapView({ distributorId }) {
   const { isLoaded: isMapLoaded, loadError } = useJsApiLoader({
+    id: 'google-map-script', // Same ID as TerritoryManagement to share loader
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
     libraries: GOOGLE_MAPS_LIBRARIES,
   });

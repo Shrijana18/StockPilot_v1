@@ -14,12 +14,19 @@ import { db } from "../../../firebase/firebaseConfig";
 import { doc, updateDoc, arrayUnion, serverTimestamp, getDoc } from "firebase/firestore";
 import { ORDER_STATUSES, canTransition, codeOf } from "../../../constants/orderStatus";
 import { normalizePaymentMode, VERSION as ORDER_POLICY_VERSION } from '../../../lib/orders/orderPolicy';
+import { 
+  checkStockAvailability, 
+  deductStockOnAccept, 
+  releaseReservedStock 
+} from "../../../services/stockManagement";
+import { toast } from "react-toastify";
 
 // Convert status codes to human-readable labels
 const toHuman = (code) => {
   switch ((code || "").toString().toUpperCase()) {
     case ORDER_STATUSES.REQUESTED: return "Requested";
     case ORDER_STATUSES.QUOTED: return "Quoted";
+    case ORDER_STATUSES.ON_HOLD: return "On Hold";
     case ORDER_STATUSES.ACCEPTED: return "Accepted";
     case ORDER_STATUSES.PACKED: return "Packed";
     case ORDER_STATUSES.SHIPPED: return "Shipped";
@@ -33,6 +40,7 @@ const toHuman = (code) => {
 const TS_FIELDS = {
   REQUESTED: "requestedAt",
   QUOTED: "quotedAt",
+  ON_HOLD: "onHoldAt",
   ACCEPTED: "acceptedAt",
   PACKED: "packedAt",
   SHIPPED: "shippedAt",
@@ -70,7 +78,7 @@ const paymentUi = (row) => {
 };
 
 // allowed statuses used in UI
-const STATUSES = ["All", "Requested", "Quoted", "Accepted", "Packed", "Shipped", "Delivered", "Rejected"];
+const STATUSES = ["All", "Requested", "Quoted", "On Hold", "Accepted", "Packed", "Shipped", "Delivered", "Rejected"];
 
 function Drawer({ open, onClose, children, title }) {
   if (!open) return null;
@@ -175,6 +183,7 @@ async function setOrderStatus(distributorId, orderId, currentStatus, nextStatus,
 
 const quoteOrder   = (distId, id, cur, quote) => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.QUOTED,   { quote });
 const acceptOrder  = (distId, id, cur)        => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.ACCEPTED);
+const holdOrder    = (distId, id, cur, note)  => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.ON_HOLD, { holdNote: note || null });
 const pendOrder    = (distId, id, cur)        => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.PACKED);
 const shipOrder    = (distId, id, cur, ship)  => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.SHIPPED,  { shipment: ship });
 const deliverOrder = (distId, id, cur, info)  => setOrderStatus(distId, id, codeOf(cur), ORDER_STATUSES.DELIVERED, { shipment: { ...(info||{}), deliveredAt: serverTimestamp() }});
@@ -192,6 +201,8 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [stockStatus, setStockStatus] = useState(null);
+  const [checkingStock, setCheckingStock] = useState(false);
 
   // If Firestore requires an index, we switch to fallback mode (no server orderBy, JS sorts)
   const [fallbackMode, setFallbackMode] = useState(false);
@@ -324,6 +335,30 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
     });
   }, [rows, search]);
 
+  // Check stock availability when order is selected
+  useEffect(() => {
+    if (!selected || !distributorId || !selected.items || selected.items.length === 0) {
+      setStockStatus(null);
+      return;
+    }
+
+    const checkStock = async () => {
+      setCheckingStock(true);
+      try {
+        const status = await checkStockAvailability(distributorId, selected.items);
+        setStockStatus(status);
+      } catch (error) {
+        console.error('[PassiveOrderRequests] Error checking stock:', error);
+        toast.error('Failed to check stock availability');
+        setStockStatus(null);
+      } finally {
+        setCheckingStock(false);
+      }
+    };
+
+    checkStock();
+  }, [selected, distributorId]);
+
   return (
     <div className="space-y-4">
       {/* Controls */}
@@ -411,6 +446,7 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                           "text-xs px-2 py-0.5 rounded-full border",
                           code === ORDER_STATUSES.REQUESTED ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
                           : code === ORDER_STATUSES.QUOTED ? "bg-yellow-500/10 text-yellow-300 border-yellow-500/30"
+                          : code === ORDER_STATUSES.ON_HOLD ? "bg-orange-500/10 text-orange-300 border-orange-500/30"
                           : code === ORDER_STATUSES.ACCEPTED ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
                           : code === ORDER_STATUSES.PACKED ? "bg-sky-500/10 text-sky-300 border-sky-500/30"
                           : code === ORDER_STATUSES.SHIPPED ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"
@@ -483,6 +519,35 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                 <div className="font-semibold">{selected.retailerInfo?.name || "Retailer"}</div>
                 <div className="text-xs text-slate-400">{selected.retailerInfo?.phone || "-"} • {selected.retailerInfo?.email || "-"}</div>
                 <div className="text-xs text-slate-400 mt-1">Mode: passive{selected.isProvisional ? " • provisional" : ""}</div>
+                {/* Show who created the order */}
+                {(() => {
+                  if (selected.creatorDetails?.type === 'employee') {
+                    const empName = selected.creatorDetails?.name || selected.creatorDetails?.flypEmployeeId || 'Employee';
+                    const empRole = selected.creatorDetails?.role;
+                    return (
+                      <div className="text-xs text-blue-300 mt-1">
+                        Created by: {empName}{empRole && ` (${empRole})`}
+                      </div>
+                    );
+                  }
+                  if (selected.creatorDetails?.type === 'distributor' || selected.createdBy === 'distributor') {
+                    const distName = selected.creatorDetails?.name || 'Distributor Owner';
+                    return (
+                      <div className="text-xs text-emerald-300 mt-1">
+                        Created by: {distName}
+                      </div>
+                    );
+                  }
+                  if (selected.createdBy === 'employee') {
+                    const empName = selected.creatorDetails?.name || selected.creatorDetails?.flypEmployeeId || 'Employee';
+                    return (
+                      <div className="text-xs text-blue-300 mt-1">
+                        Created by: {empName}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               <div className="rounded-lg border border-slate-700/50 p-3">
@@ -498,27 +563,85 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
               </div>
 
               <div className="rounded-lg border border-slate-700/50 p-3 overflow-hidden">
-                <div className="text-xs text-slate-400 mb-2">Items ({(selected.items || []).length})</div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs text-slate-400">Items ({(selected.items || []).length})</div>
+                  {checkingStock && (
+                    <div className="text-xs text-amber-400">Checking stock...</div>
+                  )}
+                  {stockStatus && !checkingStock && (
+                    <div className={`text-xs font-semibold ${
+                      stockStatus.available 
+                        ? 'text-emerald-400' 
+                        : stockStatus.warnings.length > 0 
+                          ? 'text-amber-400' 
+                          : 'text-rose-400'
+                    }`}>
+                      {stockStatus.available 
+                        ? '✓ Stock Available' 
+                        : stockStatus.warnings.length > 0 
+                          ? '⚠ Stock Issues' 
+                          : '✗ Insufficient Stock'}
+                    </div>
+                  )}
+                </div>
+                {stockStatus && stockStatus.warnings.length > 0 && (
+                  <div className="mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                    <div className="text-xs font-semibold text-amber-300 mb-1">Stock Warnings:</div>
+                    <ul className="text-xs text-amber-200 space-y-1">
+                      {stockStatus.warnings.map((warning, idx) => (
+                        <li key={idx}>• {warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <table className="min-w-full text-sm">
                   <thead className="text-xs uppercase text-slate-300 bg-white/5">
                     <tr>
                       <th className="text-left px-2 py-1">Item</th>
                       <th className="text-left px-2 py-1">SKU</th>
                       <th className="text-right px-2 py-1">Qty</th>
+                      <th className="text-right px-2 py-1">Stock</th>
                       <th className="text-right px-2 py-1">MRP</th>
                       <th className="text-right px-2 py-1">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(selected.items || []).map((it, idx) => (
-                      <tr key={idx} className="border-t border-slate-800/60">
-                        <td className="px-2 py-1">{it.name}</td>
-                        <td className="px-2 py-1">{it.sku || "-"}</td>
-                        <td className="px-2 py-1 text-right">{it.qty}</td>
-                        <td className="px-2 py-1 text-right">₹{money(it.mrp)}</td>
-                        <td className="px-2 py-1 text-right">₹{money(Number(it.qty) * Number(it.mrp))}</td>
-                      </tr>
-                    ))}
+                    {(selected.items || []).map((it, idx) => {
+                      const itemStock = stockStatus?.items?.find(s => s.sku === (it.sku || it.SKU));
+                      const stockStatusClass = itemStock?.status === 'available' 
+                        ? 'text-emerald-400' 
+                        : itemStock?.status === 'insufficient' 
+                          ? 'text-rose-400' 
+                          : itemStock?.status === 'exact'
+                            ? 'text-amber-400'
+                            : 'text-slate-400';
+                      return (
+                        <tr key={idx} className="border-t border-slate-800/60">
+                          <td className="px-2 py-1">{it.name || it.productName}</td>
+                          <td className="px-2 py-1">{it.sku || it.SKU || "-"}</td>
+                          <td className="px-2 py-1 text-right">{it.qty || it.quantity}</td>
+                          <td className={`px-2 py-1 text-right text-xs font-medium ${stockStatusClass}`}>
+                            {itemStock ? (
+                              <div className="flex flex-col items-end">
+                                <span>{itemStock.available} available</span>
+                                {itemStock.reserved > 0 && (
+                                  <span className="text-slate-500 text-[10px]">({itemStock.reserved} reserved)</span>
+                                )}
+                                {itemStock.status === 'insufficient' && (
+                                  <span className="text-rose-400 text-[10px]">⚠ Low</span>
+                                )}
+                              </div>
+                            ) : checkingStock ? (
+                              <span className="text-slate-500">...</span>
+                            ) : (
+                              <span className="text-slate-500">N/A</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-1 text-right">₹{money(it.mrp || it.price || 0)}</td>
+                          <td className="px-2 py-1 text-right">₹{money(Number(it.qty || it.quantity || 0) * Number(it.mrp || it.price || 0))}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
                 <div className="mt-3 text-right text-sm">Subtotal: <span className="font-semibold">₹{money(selected.itemsSubTotal || 0)}</span></div>
@@ -545,28 +668,72 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                             onClick={async () => { await quoteOrder(distributorId, selected.id, cur, null); reload(); setDetailOpen(false); }}
                           >Send Quote</button>
                       )}
-                      {/* Accept: show if can transition OR (passive + requested) */}
-                      {(canTransition(cur, ORDER_STATUSES.ACCEPTED) ||
-                        (selected?.retailerMode === "passive" && cur === ORDER_STATUSES.REQUESTED)) && (
+                      {/* Put on Hold: show for REQUESTED or QUOTED */}
+                      {(canTransition(cur, ORDER_STATUSES.ON_HOLD) ||
+                        (cur === ORDER_STATUSES.REQUESTED || cur === ORDER_STATUSES.QUOTED)) && (
                         <button
-                          className="px-3 py-1.5 rounded-lg bg-emerald-400/20 text-emerald-200 border border-emerald-400/40 hover:bg-emerald-400/30"
+                          className="px-3 py-1.5 rounded-lg bg-yellow-400/20 text-yellow-200 border border-yellow-400/40 hover:bg-yellow-400/30"
                           onClick={async () => {
-                            const norm = normalizePaymentMode(selected?.payment || selected?.paymentMode || null);
-                            await setOrderStatus(
-                              distributorId,
-                              selected.id,
-                              cur,
-                              ORDER_STATUSES.ACCEPTED,
-                              {
-                                _forceTransition: true,
-                                retailerMode: 'passive',
-                                policyVersion: ORDER_POLICY_VERSION,
-                                paymentNormalized: norm || null,
-                                paymentFlags: norm?.flags || {},
-                              }
-                            );
+                            await holdOrder(distributorId, selected.id, cur, null);
                             reload();
                             setDetailOpen(false);
+                            toast.info('Order put on hold');
+                          }}
+                        >Put on Hold</button>
+                      )}
+                      {/* Accept: show if can transition OR (passive + requested) */}
+                      {(canTransition(cur, ORDER_STATUSES.ACCEPTED) ||
+                        (selected?.retailerMode === "passive" && cur === ORDER_STATUSES.REQUESTED) ||
+                        cur === ORDER_STATUSES.ON_HOLD) && (
+                        <button
+                          className={`px-3 py-1.5 rounded-lg border ${
+                            stockStatus && !stockStatus.available && stockStatus.warnings.length === 0
+                              ? 'bg-slate-400/20 text-slate-300 border-slate-400/40 cursor-not-allowed opacity-50'
+                              : 'bg-emerald-400/20 text-emerald-200 border-emerald-400/40 hover:bg-emerald-400/30'
+                          }`}
+                          disabled={stockStatus && !stockStatus.available && stockStatus.warnings.length === 0}
+                          onClick={async () => {
+                            try {
+                              // Check stock again before accepting
+                              if (selected.items && selected.items.length > 0) {
+                                const finalCheck = await checkStockAvailability(distributorId, selected.items);
+                                if (!finalCheck.available && finalCheck.warnings.length === 0) {
+                                  toast.error('Cannot accept order: Insufficient stock available');
+                                  return;
+                                }
+
+                                // Deduct stock when accepting
+                                try {
+                                  await deductStockOnAccept(distributorId, selected.id, selected.items);
+                                  toast.success('Stock deducted from inventory');
+                                } catch (stockError) {
+                                  console.error('[PassiveOrderRequests] Stock deduction error:', stockError);
+                                  toast.error(`Order accepted but stock deduction failed: ${stockError.message}`);
+                                }
+                              }
+
+                              const norm = normalizePaymentMode(selected?.payment || selected?.paymentMode || null);
+                              await setOrderStatus(
+                                distributorId,
+                                selected.id,
+                                cur,
+                                ORDER_STATUSES.ACCEPTED,
+                                {
+                                  _forceTransition: true,
+                                  retailerMode: 'passive',
+                                  policyVersion: ORDER_POLICY_VERSION,
+                                  paymentNormalized: norm || null,
+                                  paymentFlags: norm?.flags || {},
+                                  stockDeductedAt: serverTimestamp(),
+                                }
+                              );
+                              toast.success('Order accepted successfully');
+                              reload();
+                              setDetailOpen(false);
+                            } catch (error) {
+                              console.error('[PassiveOrderRequests] Error accepting order:', error);
+                              toast.error('Failed to accept order. Please try again.');
+                            }
                           }}
                         >Accept</button>
                       )}
@@ -590,19 +757,35 @@ export default function PassiveOrderRequests({ pageSize = 25, defaultStatus = "A
                       )}
                       {/* Reject: show if can transition OR (passive + requested) */}
                       {(canTransition(cur, ORDER_STATUSES.REJECTED) ||
-                        (selected?.retailerMode === "passive" && cur === ORDER_STATUSES.REQUESTED)) && (
+                        (selected?.retailerMode === "passive" && cur === ORDER_STATUSES.REQUESTED) ||
+                        cur === ORDER_STATUSES.ON_HOLD) && (
                         <button
                           className="px-3 py-1.5 rounded-lg bg-rose-400/20 text-rose-200 border border-rose-400/40 hover:bg-rose-400/30"
                           onClick={async () => {
-                            await setOrderStatus(
-                              distributorId,
-                              selected.id,
-                              cur,
-                              ORDER_STATUSES.REJECTED,
-                              { _forceTransition: true }
-                            );
-                            reload();
-                            setDetailOpen(false);
+                            try {
+                              // Release any reserved stock if order was on hold
+                              if (cur === ORDER_STATUSES.ON_HOLD && selected.items && selected.items.length > 0) {
+                                try {
+                                  await releaseReservedStock(distributorId, selected.items);
+                                } catch (releaseError) {
+                                  console.warn('[PassiveOrderRequests] Failed to release reserved stock:', releaseError);
+                                }
+                              }
+
+                              await setOrderStatus(
+                                distributorId,
+                                selected.id,
+                                cur,
+                                ORDER_STATUSES.REJECTED,
+                                { _forceTransition: true }
+                              );
+                              toast.info('Order rejected');
+                              reload();
+                              setDetailOpen(false);
+                            } catch (error) {
+                              console.error('[PassiveOrderRequests] Error rejecting order:', error);
+                              toast.error('Failed to reject order. Please try again.');
+                            }
                           }}
                         >Reject</button>
                       )}

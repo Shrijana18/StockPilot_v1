@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion, runTransaction } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion, runTransaction, query, where } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import html2pdf from 'html2pdf.js';
 import * as XLSX from 'xlsx';
@@ -13,6 +13,8 @@ import { calculateProforma } from "../../../lib/calcProforma";
 import { splitFromMrp } from "../../../utils/pricing";
 import { getDistributorEmployeeSession } from "../../../utils/distributorEmployeeSession";
 import { empAuth } from "../../../firebase/firebaseConfig";
+import { deductStockOnAccept, releaseReservedStock } from "../../../services/stockManagement";
+import { toast } from "react-toastify";
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -555,20 +557,56 @@ const OrderRequests = () => {
 
         const enrichedItems = await Promise.all(
           (order.items || []).map(async (item) => {
-            if (!item?.distributorProductId || typeof item.distributorProductId !== 'string') {
-              return { ...item };
-            }
-            try {
-              const prodSnap = await getDoc(
-                doc(db, 'businesses', user.uid, 'products', item.distributorProductId)
-              );
-              if (prodSnap.exists()) {
-                const stock = prodSnap.data().quantity;
-                return { ...item, availableStock: stock };
+            // Try to find product by SKU first (most reliable)
+            const sku = item.sku || item.SKU;
+            if (sku) {
+              try {
+                // Use getFirestore() to get the Firestore instance
+                const productsRef = collection(getFirestore(), 'businesses', user.uid, 'products');
+                const productQuery = query(productsRef, where('sku', '==', sku));
+                const productSnap = await getDocs(productQuery);
+                
+                if (!productSnap.empty) {
+                  const productData = productSnap.docs[0].data();
+                  const currentStock = Number(productData.quantity || 0);
+                  const reservedStock = Number(productData.reservedQuantity || 0);
+                  const availableStock = currentStock - reservedStock;
+                  
+                  return { 
+                    ...item, 
+                    availableStock,
+                    totalStock: currentStock,
+                    reservedStock
+                  };
+                }
+              } catch (err) {
+                // Silent fail - will try productId fallback
               }
-            } catch (err) {
-              console.warn('Stock lookup failed:', err);
             }
+            
+            // Fallback: Try distributorProductId if SKU lookup failed
+            if (item?.distributorProductId && typeof item.distributorProductId === 'string') {
+              try {
+                const prodSnap = await getDoc(
+                  doc(db, 'businesses', user.uid, 'products', item.distributorProductId)
+                );
+                if (prodSnap.exists()) {
+                  const productData = prodSnap.data();
+                  const currentStock = Number(productData.quantity || 0);
+                  const reservedStock = Number(productData.reservedQuantity || 0);
+                  const availableStock = currentStock - reservedStock;
+                  return { 
+                    ...item, 
+                    availableStock,
+                    totalStock: currentStock,
+                    reservedStock
+                  };
+                }
+              } catch (err) {
+                console.warn('Stock lookup by productId failed:', err);
+              }
+            }
+            
             return { ...item };
           })
         );
@@ -746,44 +784,60 @@ const OrderRequests = () => {
       if (isDirectFlag && (nextCode === ORDER_STATUSES.ACCEPTED)) {
         const sourceItems = Array.isArray(order.items) ? order.items : [];
         let enrichedItems = sourceItems.map((item) => ({ ...item }));
-        const needsStockUpdate = sourceItems.some((item) => item?.distributorProductId);
-
-        if (needsStockUpdate) {
+        
+        // CRITICAL: Deduct stock from inventory when accepting order (same approach as billing)
+        // Use simple direct update like billing does - no complex SKU lookups
+        if (sourceItems.length > 0) {
           try {
-            enrichedItems = await runTransaction(db, async (tx) => {
-              const result = [];
-              for (const item of sourceItems) {
-                if (item?.distributorProductId) {
-                  const productRef = doc(db, 'businesses', uid, 'products', item.distributorProductId);
-                  const productSnap = await tx.get(productRef);
+            let totalDeducted = 0;
+            for (const item of sourceItems) {
+              // Try productId first (most direct, like billing)
+              const productId = item.distributorProductId || item.id;
+              if (productId) {
+                try {
+                  const productRef = doc(db, 'businesses', uid, 'products', productId);
+                  const productSnap = await getDoc(productRef);
                   if (productSnap.exists()) {
                     const product = productSnap.data();
-                    const orderedQty = Number(item.quantity || 0);
+                    const orderedQty = Number(item.quantity || item.qty || 0);
                     const currentQty = Number(product.quantity || 0);
                     const newQty = Math.max(currentQty - orderedQty, 0);
-                    tx.update(productRef, { quantity: newQty });
-                    // IMPORTANT: Preserve the original item price from order to maintain calculation consistency
-                    // Only update metadata (sku, category, brand) but NOT price
-                    // This ensures the preview total matches the acceptance total
-                    result.push({
-                      ...item,
-                      // DO NOT overwrite price - use original item price to maintain calculation consistency
-                      // price: product.sellingPrice ?? product.price ?? item.price ?? 0, // REMOVED - causes mismatch
-                      // subtotal: (product.sellingPrice ?? product.price ?? item.price ?? 0) * orderedQty, // REMOVED
-                      sku: product.sku || item.sku || '',
-                      category: product.category || item.category || '',
-                      brand: product.brand || item.brand || '',
-                    });
+                    await updateDoc(productRef, { quantity: newQty });
+                    totalDeducted += orderedQty;
                     continue;
                   }
+                } catch (err) {
+                  // If productId fails, try SKU lookup
                 }
-                result.push({ ...item });
               }
-              return result;
-            });
-          } catch (transactionError) {
-            console.error('Failed to update inventory transactionally:', transactionError);
-            enrichedItems = sourceItems.map((item) => ({ ...item }));
+              
+              // Fallback: Try SKU lookup if productId not available
+              const sku = item.sku || item.SKU;
+              if (sku) {
+                try {
+                  const productsRef = collection(db, 'businesses', uid, 'products');
+                  const productQuery = query(productsRef, where('sku', '==', sku));
+                  const productSnap = await getDocs(productQuery);
+                  if (!productSnap.empty) {
+                    const productDoc = productSnap.docs[0];
+                    const product = productDoc.data();
+                    const orderedQty = Number(item.quantity || item.qty || 0);
+                    const currentQty = Number(product.quantity || 0);
+                    const newQty = Math.max(currentQty - orderedQty, 0);
+                    await updateDoc(productDoc.ref, { quantity: newQty });
+                    totalDeducted += orderedQty;
+                  }
+                } catch (err) {
+                  // Skip this item if both methods fail
+                }
+              }
+            }
+            
+            if (totalDeducted > 0) {
+              toast.success(`✅ Order accepted! Stock deducted: ${totalDeducted} units from inventory.`);
+            }
+          } catch (stockError) {
+            toast.error(`Order accepted but stock deduction failed. Please check inventory manually.`);
           }
         }
 
@@ -1127,6 +1181,23 @@ const OrderRequests = () => {
         const reason = (providedReason || '').trim();
         if (!reason) return;
 
+        // CRITICAL: Release reserved stock when order is rejected
+        // This frees up stock for other orders
+        const orderItems = order.items || [];
+        const hasValidSKUs = orderItems.some(item => item.sku || item.SKU);
+        
+        if (hasValidSKUs && orderItems.length > 0 && order.stockReserved) {
+          try {
+            await releaseReservedStock(uid, orderItems);
+            console.log('[OrderRequests] ✅ Reserved stock released for rejected order:', orderId);
+            toast.info('Reserved stock has been released');
+          } catch (releaseError) {
+            console.error('[OrderRequests] ❌ Failed to release reserved stock:', releaseError);
+            // Continue with rejection even if stock release fails
+            toast.warn('Order rejected, but stock release failed. Please check inventory manually.');
+          }
+        }
+
         const rejectedTimeline = {
           status: 'REJECTED',
           by: isEmployee ? { ...employeeInfo, uid: employeeInfo.uid, type: 'employee' } : { uid, type: 'distributor' },
@@ -1147,6 +1218,10 @@ const OrderRequests = () => {
           items: order.items || [],
           chargesSnapshot: order.chargesSnapshot || null,
           paymentMode: (orderPolicy && orderPolicy.normalizePaymentMode ? orderPolicy.normalizePaymentMode(order.paymentMode || order.payment_method || order.payment) : (order.paymentMode || order.payment_method || order.payment || undefined)),
+          ...(order.stockReserved ? {
+            stockReleasedAt: serverTimestamp(),
+            stockReleased: true,
+          } : {}),
         };
 
         await setDoc(canonicalRef, rejectionBase, { merge: true });
@@ -1613,10 +1688,10 @@ if (!loading && orders.length === 0) {
                       )}
                     </div>
                   )}
-                  {/* Show who created the order - Priority: Employee > Distributor > Fallback */}
+                  {/* Show who created the order - Priority: Check creatorDetails first, then createdBy */}
                   {(() => {
-                    // First check if it's an employee-created order
-                    if (order.createdBy === 'employee' || order.creatorDetails?.type === 'employee') {
+                    // Priority 1: Check creatorDetails.type (most reliable)
+                    if (order.creatorDetails?.type === 'employee') {
                       const empName = order.creatorDetails?.name || order.creatorDetails?.flypEmployeeId || 'Employee';
                       const empRole = order.creatorDetails?.role;
                       return (
@@ -1629,8 +1704,8 @@ if (!loading && orders.length === 0) {
                         </div>
                       );
                     }
-                    // Then check if it's a distributor-created order
-                    if (order.createdBy === 'distributor' || order.creatorDetails?.type === 'distributor') {
+                    
+                    if (order.creatorDetails?.type === 'distributor') {
                       const distName = order.creatorDetails?.name || 'Distributor Owner';
                       return (
                         <div className="mb-1">
@@ -1641,17 +1716,35 @@ if (!loading && orders.length === 0) {
                         </div>
                       );
                     }
-                    // Fallback: If no creatorDetails but we have createdBy, show generic
+                    
+                    // Priority 2: Check createdBy field (fallback if creatorDetails missing)
                     if (order.createdBy === 'employee') {
+                      // Try to get name from creatorDetails even if type is missing
+                      const empName = order.creatorDetails?.name || order.creatorDetails?.flypEmployeeId || 'Employee';
+                      const empRole = order.creatorDetails?.role;
                       return (
                         <div className="mb-1">
                           <span className="font-medium text-white/70">Created By:</span>
                           <span className="ml-2 text-blue-300 font-medium">
-                            👤 Employee
+                            👤 {empName}
+                            {empRole && ` (${empRole})`}
                           </span>
                         </div>
                       );
                     }
+                    
+                    if (order.createdBy === 'distributor') {
+                      const distName = order.creatorDetails?.name || 'Distributor Owner';
+                      return (
+                        <div className="mb-1">
+                          <span className="font-medium text-white/70">Created By:</span>
+                          <span className="ml-2 text-emerald-300 font-medium">
+                            👤 {distName}
+                          </span>
+                        </div>
+                      );
+                    }
+                    
                     // Last fallback: show nothing if we can't determine
                     return null;
                   })()}
@@ -1781,13 +1874,29 @@ if (!loading && orders.length === 0) {
                                   item.availableStock >= qty ? 'text-emerald-300' :
                           item.availableStock > 0 ? 'text-amber-300' : 'text-rose-300'
                         }`}>
-                          {item.availableStock === undefined
-                            ? 'N/A'
-                                    : item.availableStock >= qty
-                            ? `${item.availableStock} In Stock`
-                            : item.availableStock > 0
-                            ? `${item.availableStock} Low`
-                            : 'Out of Stock'}
+                          {item.availableStock === undefined ? (
+                            <span className="text-white/50">N/A</span>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <span className={item.availableStock >= qty ? 'text-emerald-300' : item.availableStock > 0 ? 'text-amber-300' : 'text-rose-300'}>
+                                {item.availableStock >= qty
+                                  ? `✓ ${item.availableStock} Available`
+                                  : item.availableStock > 0
+                                  ? `⚠ ${item.availableStock} Low`
+                                  : '✗ Out of Stock'}
+                              </span>
+                              {item.reservedStock > 0 && (
+                                <span className="text-xs text-amber-400/70 mt-0.5">
+                                  ({item.reservedStock} reserved)
+                                </span>
+                              )}
+                              {item.totalStock !== undefined && item.totalStock !== item.availableStock && (
+                                <span className="text-xs text-white/40 mt-0.5">
+                                  Total: {item.totalStock}
+                                </span>
+                              )}
+                            </div>
+                          )}
                                 </td>
                               </tr>
                             );

@@ -8,6 +8,7 @@ import { pdf } from "@react-pdf/renderer";
 import { saveAs } from "file-saver";
 import DistributorManualInvoicePdf from "./DistributorManualInvoicePdf";
 import MarkPaidModal from "../billing/MarkPaidModal";
+import PaymentLinkSender from "../payment/PaymentLinkSender";
 import { createPortal } from "react-dom";
 
 const DEFAULT_BILLING = {
@@ -117,6 +118,7 @@ const DistributorViewManualInvoices = () => {
   const [billingSettings, setBillingSettings] = useState(DEFAULT_BILLING);
   const [loading, setLoading] = useState(true);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [showPaymentLinkSender, setShowPaymentLinkSender] = useState(false);
 
   useEffect(() => {
     const loadBilling = async () => {
@@ -497,8 +499,26 @@ const DistributorViewManualInvoices = () => {
                   className="px-4 py-2 rounded-lg inline-block font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
                   title={selectedInvoice.customer?.phone ? `Send to ${selectedInvoice.customer.phone}` : "Open WhatsApp to share invoice link"}
                 >
-                  Send via WhatsApp
+                  Send Invoice Link
                 </a>
+                {/* Payment Link Sender Button - Show for UPI, Card, or Credit invoices */}
+                {(() => {
+                  const mode = deriveMode(selectedInvoice);
+                  const isPaid = deriveIsPaid(selectedInvoice);
+                  const showPaymentLink = (mode === "upi" || mode === "card" || (mode === "credit" && !isPaid));
+                  
+                  if (!showPaymentLink) return null;
+                  
+                  return (
+                    <button
+                      className="px-4 py-2 rounded-lg font-medium text-white bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 hover:shadow-[0_8px_24px_rgba(99,102,241,0.35)]"
+                      onClick={() => setShowPaymentLinkSender(true)}
+                      title="Send payment link to customer"
+                    >
+                      💳 Send Payment Link
+                    </button>
+                  );
+                })()}
               </div>
               <p className="mt-2 text-xs text-white/70 italic">Powered by FLYP — smart business invoicing</p>
             </div>
@@ -557,6 +577,15 @@ const DistributorViewManualInvoices = () => {
               toast.error("Failed to mark invoice as paid. Please try again.");
             }
           }}
+        />
+      )}
+      
+      {showPaymentLinkSender && selectedInvoice && (
+        <PaymentLinkSender
+          isOpen={showPaymentLinkSender}
+          onClose={() => setShowPaymentLinkSender(false)}
+          invoice={selectedInvoice}
+          customer={selectedInvoice.customer || selectedInvoice.buyer}
         />
       )}
     </div>

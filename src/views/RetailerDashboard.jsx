@@ -18,11 +18,15 @@ import ConnectedDistributorPanel from "../components/distributor/ConnectedDistri
 import SearchDistributor from "../components/distributor/SearchDistributor";
 import ViewSentRequests from "../components/distributor/ViewSentRequests";
 import ManageEmployee from "../components/employee/ManageEmployee";
+import RetailerAIForecast from "../components/retailer/aiForecast/RetailerAIForecast";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek } from 'date-fns';
-import { FaUser, FaSignOutAlt, FaHome, FaBoxes, FaFileInvoice, FaChartLine, FaUsers, FaUserPlus, FaBuilding } from 'react-icons/fa';
+import { 
+  FaUser, FaSignOutAlt, FaHome, FaBoxes, FaFileInvoice, FaChartLine, FaUsers, FaUserPlus, FaBuilding, FaBrain,
+  FaBell, FaCog, FaSearch, FaBolt, FaClock, FaKeyboard, FaTimes, FaRocket, FaBox, FaStore, FaIdCard, FaChevronDown, FaHistory
+} from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import { signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
@@ -40,29 +44,16 @@ const RetailerDashboardInner = () => {
   const [filterDates, setFilterDates] = useState({ start: null, end: null });
   const [distributorTab, setDistributorTab] = useState('search');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    try {
-      const saved = localStorage.getItem('sp_sidebar_open');
-      return saved === null ? true : saved === '1';
-    } catch {
-      return true;
-    }
-  });
-  const closeTimerRef = React.useRef(null);
-  useEffect(() => {
-    try {
-      localStorage.setItem('sp_sidebar_open', sidebarOpen ? '1' : '0');
-    } catch {}
-  }, [sidebarOpen]);
-
-  const openSidebar = () => {
-    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
-    setSidebarOpen(true);
-  };
-  const scheduleCloseSidebar = () => {
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = setTimeout(() => setSidebarOpen(false), 220); // small grace period
-  };
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedResultIndex, setSelectedResultIndex] = useState(-1);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [profileCompletion, setProfileCompletion] = useState(100);
+  const [recentSearches, setRecentSearches] = useState([]);
   useEffect(() => {
     const onEsc = (e) => {
       if (e.key === 'Escape') setShowMobileSidebar(false);
@@ -94,11 +85,30 @@ const RetailerDashboardInner = () => {
           const userRef = doc(db, "businesses", user.uid);
           const docSnap = await getDoc(userRef);
           if (docSnap.exists()) {
+            const data = docSnap.data();
             setUserData({
-              ...docSnap.data(),
+              ...data,
               userId: user.uid,
-              flypId: docSnap.data().flypId || user.uid
+              flypId: data.flypId || user.uid
             });
+            
+            // Calculate profile completion
+            const requiredFields = [
+              data.ownerName,
+              data.email,
+              data.phone,
+              data.businessName,
+              data.address,
+              data.city,
+              data.state,
+              data.pincode,
+              data.gstNumber,
+              data.flypId,
+              data.logoUrl,
+            ];
+            const completed = requiredFields.filter(f => f && (typeof f === 'string' ? f.trim() !== "" : true)).length;
+            const completionPercentage = Math.round((completed / requiredFields.length) * 100);
+            setProfileCompletion(completionPercentage);
           }
         } else {
           console.warn("User not authenticated yet.");
@@ -109,6 +119,207 @@ const RetailerDashboardInner = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // Update time every minute
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Global search keyboard shortcut (Cmd/Ctrl + K)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+      if (e.key === 'Escape' && showSearch) {
+        setShowSearch(false);
+        setSearchQuery("");
+        setSearchResults([]);
+        setSelectedResultIndex(-1);
+      }
+      if (showSearch && searchResults.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedResultIndex(prev => prev < searchResults.length - 1 ? prev + 1 : prev);
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedResultIndex(prev => prev > 0 ? prev - 1 : -1);
+        }
+        if (e.key === 'Enter' && selectedResultIndex >= 0) {
+          e.preventDefault();
+          const selected = searchResults[selectedResultIndex];
+          if (selected?.action) {
+            selected.action();
+            setShowSearch(false);
+            setSearchQuery("");
+            setSearchResults([]);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showSearch, searchResults, selectedResultIndex]);
+
+  // Load recent searches from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('flypRecentSearchesRetailer');
+    if (saved) {
+      try {
+        setRecentSearches(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to load recent searches:', e);
+      }
+    }
+  }, []);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('.user-menu-container')) {
+        setShowUserMenu(false);
+      }
+      if (!e.target.closest('.quick-actions-container')) {
+        setShowQuickActions(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // Search functionality
+  useEffect(() => {
+    if (!showSearch || !searchQuery.trim()) {
+      setSearchResults([]);
+      setSelectedResultIndex(-1);
+      return;
+    }
+
+    const performSearch = async () => {
+      const query = searchQuery.toLowerCase().trim();
+      const results = [];
+
+      // Navigation/search targets
+      const navigationItems = [
+        { 
+          type: 'nav', 
+          label: 'Home Dashboard', 
+          icon: FaHome, 
+          keywords: ['home', 'dashboard', 'main'],
+          action: () => setActiveTab('home')
+        },
+        { 
+          type: 'nav', 
+          label: 'Billing', 
+          icon: FaFileInvoice, 
+          keywords: ['billing', 'invoice', 'bill', 'pos'],
+          action: () => setActiveTab('billing')
+        },
+        { 
+          type: 'nav', 
+          label: 'Inventory', 
+          icon: FaBoxes, 
+          keywords: ['inventory', 'products', 'stock', 'items'],
+          action: () => setActiveTab('inventory')
+        },
+        { 
+          type: 'nav', 
+          label: 'Order History', 
+          icon: FaFileInvoice, 
+          keywords: ['order', 'orders', 'history', 'past'],
+          action: () => setActiveTab('orderHistory')
+        },
+        { 
+          type: 'nav', 
+          label: 'Analytics', 
+          icon: FaChartLine, 
+          keywords: ['analytics', 'stats', 'reports', 'insights'],
+          action: () => setActiveTab('analytics')
+        },
+        { 
+          type: 'nav', 
+          label: 'Distributors', 
+          icon: FaBuilding, 
+          keywords: ['distributor', 'distributors', 'supplier', 'suppliers'],
+          action: () => setActiveTab('distributors')
+        },
+        { 
+          type: 'nav', 
+          label: 'Customers', 
+          icon: FaUsers, 
+          keywords: ['customer', 'customers', 'clients'],
+          action: () => setActiveTab('customers')
+        },
+        { 
+          type: 'nav', 
+          label: 'AI Forecast', 
+          icon: FaBrain, 
+          keywords: ['ai', 'forecast', 'prediction', 'ai forecast'],
+          action: () => setActiveTab('aiForecast')
+        },
+        { 
+          type: 'nav', 
+          label: 'Profile Settings', 
+          icon: FaUser, 
+          keywords: ['profile', 'settings', 'preferences', 'account'],
+          action: () => setActiveTab('profile')
+        },
+      ];
+
+      // Check navigation matches
+      navigationItems.forEach(item => {
+        if (item.keywords.some(kw => query.includes(kw))) {
+          results.push({
+            ...item,
+            matchScore: item.keywords.findIndex(kw => query.includes(kw)) + 1,
+          });
+        }
+      });
+
+      // Search products if user has access
+      if (auth.currentUser && (query.length >= 2)) {
+        try {
+          const productsRef = collection(db, "businesses", auth.currentUser.uid, "products");
+          const productsSnap = await getDocs(productsRef);
+          const products = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          
+          products.forEach(product => {
+            const name = (product.productName || product.name || '').toLowerCase();
+            const sku = (product.sku || '').toLowerCase();
+            const brand = (product.brand || '').toLowerCase();
+            
+            if (name.includes(query) || sku.includes(query) || brand.includes(query)) {
+              results.push({
+                type: 'product',
+                label: product.productName || product.name || 'Unnamed Product',
+                subtitle: `SKU: ${product.sku || 'N/A'} | Stock: ${product.quantity || 0}`,
+                icon: FaBoxes,
+                action: () => {
+                  setActiveTab('inventory');
+                },
+                matchScore: 10,
+              });
+            }
+          });
+        } catch (error) {
+          console.error('Error searching products:', error);
+        }
+      }
+
+      // Sort by relevance
+      results.sort((a, b) => (a.matchScore || 0) - (b.matchScore || 0));
+      setSearchResults(results.slice(0, 8)); // Limit to 8 results
+      setSelectedResultIndex(-1);
+    };
+
+    const debounceTimer = setTimeout(performSearch, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery, showSearch, auth.currentUser, db]);
 
   const handleSignOut = () => {
     signOut(auth)
@@ -124,6 +335,7 @@ const RetailerDashboardInner = () => {
     { id: 'home', label: t('retailer.home'), icon: <FaHome /> },
     { id: 'billing', label: t('retailer.billing'), icon: <FaFileInvoice /> },
     { id: 'inventory', label: t('retailer.inventory'), icon: <FaBoxes /> },
+    { id: 'aiForecast', label: 'AI Forecast', icon: <FaBrain />, badge: 'NEW' },
     { id: 'analytics', label: t('retailer.analytics'), icon: <FaChartLine /> },
     { id: 'distributors', label: t('retailer.distributors'), icon: <FaBuilding /> },
     { id: 'orderHistory', label: t('retailer.orderHistory'), icon: <FaFileInvoice /> },
@@ -140,12 +352,80 @@ const RetailerDashboardInner = () => {
   };
 
   return (
-    <div className={`flex min-h-[100dvh] w-full relative overflow-x-hidden overflow-y-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] text-white ${!sidebarOpen && mode !== "pos" ? "md:[&>*:last-child]:max-w-[1400px] md:[&>*:last-child]:mx-auto" : ""}`}>
-      {/* Aurora backdrop */}
-      <div className="pointer-events-none absolute inset-0 opacity-40">
-        <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
-        <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
-      </div>
+    <>
+      <style>{`
+        /* FLYP Menu Animation - Flight-inspired wing opening */
+        .hamburger-line {
+          transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+          transform-origin: center;
+        }
+
+        .hamburger-open .hamburger-line:nth-child(1) {
+          transform: translateY(8px) rotate(45deg);
+        }
+
+        .hamburger-open .hamburger-line:nth-child(2) {
+          opacity: 0;
+          transform: scaleX(0);
+        }
+
+        .hamburger-open .hamburger-line:nth-child(3) {
+          transform: translateY(-8px) rotate(-45deg);
+        }
+
+        /* Glow effect on sidebar */
+        .flyp-sidebar-glow {
+          box-shadow: 
+            -10px 0 40px rgba(16, 185, 129, 0.15),
+            -20px 0 60px rgba(6, 182, 212, 0.1),
+            inset 1px 0 0 rgba(16, 185, 129, 0.1);
+        }
+
+        /* Magnetic pull effect */
+        .flyp-menu-trigger {
+          position: relative;
+          transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .flyp-menu-trigger:hover {
+          transform: scale(1.1);
+        }
+
+        .flyp-menu-trigger::before {
+          content: '';
+          position: absolute;
+          inset: -8px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(16, 185, 129, 0.2) 0%, transparent 70%);
+          opacity: 0;
+          transition: opacity 0.3s;
+        }
+
+        .flyp-menu-trigger:hover::before {
+          opacity: 1;
+        }
+
+        /* Custom scrollbar for sidebar */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+      `}</style>
+      <div className="flex min-h-[100dvh] h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] text-white font-sans transition-all duration-300 ease-in-out">
+        {/* Aurora backdrop */}
+        <div className="pointer-events-none absolute inset-0 opacity-40">
+          <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
+          <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
+        </div>
 
       {showMobileSidebar && (
         <AnimatePresence>
@@ -183,7 +463,12 @@ const RetailerDashboardInner = () => {
                   }`}
                 >
                   {item.icon}
-                  {item.label}
+                  <span className="flex-1">{item.label}</span>
+                  {item.badge && (
+                    <span className="px-2 py-0.5 text-xs font-bold bg-emerald-500 text-white rounded-full">
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               ))}
             </motion.div>
@@ -194,76 +479,146 @@ const RetailerDashboardInner = () => {
       {/* Sidebar – overlay, no layout shift */}
       {mode !== "pos" && (
         <>
-          {/* Animated overlay for sidebar */}
+          {/* Animated overlay for sidebar with FLYP gradient */}
           <AnimatePresence>
             {sidebarOpen && (
               <motion.div
-                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
+                className="fixed inset-0 bg-gradient-to-r from-black/70 via-black/60 to-transparent backdrop-blur-sm z-40"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
                 style={{ willChange: "opacity" }}
-              />
+                onClick={() => setSidebarOpen(false)}
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 via-transparent to-transparent" />
+              </motion.div>
             )}
           </AnimatePresence>
           <AnimatePresence>
             {sidebarOpen && (
           <motion.aside
-            onMouseEnter={() => { if (!sidebarOpen) return; setSidebarOpen(true); }}
-            onMouseLeave={scheduleCloseSidebar}
-            className="hidden md:block group fixed left-0 top-0 bottom-0 z-50 w-64 will-change-transform
-                        bg-white/10 backdrop-blur-2xl border-r border-white/10
-                        shadow-[0_8px_40px_rgba(0,0,0,0.45)]
-                        transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] duration-700
-                        transform translate-z-0"
-            initial={{ x: -48, opacity: 0, filter: "blur(5px)" }}
-            animate={{ x: 0, opacity: 1, filter: "blur(0px)" }}
-            exit={{ x: -64, opacity: 0, filter: "blur(6px)" }}
-            transition={{
-              type: "spring",
-              stiffness: 140,
-              damping: 26,
-              mass: 0.9
+            initial="closed"
+            animate="open"
+            exit="closed"
+            variants={{
+              open: {
+                x: 0,
+                opacity: 1,
+                transition: {
+                  type: "spring",
+                  stiffness: 300,
+                  damping: 30,
+                  mass: 0.8,
+                  staggerChildren: 0.05,
+                  delayChildren: 0.1,
+                },
+              },
+              closed: {
+                x: "-100%",
+                opacity: 0,
+                transition: {
+                  type: "spring",
+                  stiffness: 400,
+                  damping: 40,
+                },
+              },
             }}
-            style={{ willChange: "transform, opacity" }}
+            className="hidden md:block group fixed left-0 top-0 bottom-0 z-50 w-64 bg-gradient-to-br from-slate-900/98 via-slate-800/95 to-slate-900/98 backdrop-blur-2xl border-r border-emerald-500/20 flyp-sidebar-glow"
+            style={{ 
+              willChange: "transform, opacity",
+              transformStyle: "preserve-3d"
+            }}
+            onClick={(e) => e.stopPropagation()}
           >
-                <div className="p-3 flex flex-col h-full">
-                  <div className="text-xl font-bold text-emerald-200 mb-4 pl-1">FLYP</div>
-                  <nav className="flex-1 flex flex-col gap-2 overflow-y-auto pr-1">
-                    {sidebarItems.map((item) => (
-                      <button
+                <motion.div 
+                  className="p-4 border-b border-emerald-500/20 relative overflow-hidden"
+                  variants={{
+                    open: { opacity: 1, y: 0 },
+                    closed: { opacity: 0, y: -20 },
+                  }}
+                  transition={{ delay: 0.1 }}
+                >
+                  <div className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-emerald-400 to-cyan-300 mb-4 pl-1 relative z-10">
+                    FLYP
+                  </div>
+                  <motion.div
+                    className="absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-emerald-400 via-cyan-400 to-transparent"
+                    initial={{ width: 0 }}
+                    animate={{ width: "100%" }}
+                    transition={{ delay: 0.3, duration: 0.5, ease: "easeOut" }}
+                  />
+                </motion.div>
+                  <nav className="flex-1 flex flex-col gap-2 overflow-y-auto p-3 custom-scrollbar">
+                    {sidebarItems.map((item, index) => (
+                      <motion.button
                         key={item.id}
-                        onClick={() => setActiveTab(item.id)}
-                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] duration-700 ${
+                        variants={{
+                          open: {
+                            x: 0,
+                            opacity: 1,
+                            transition: {
+                              type: "spring",
+                              stiffness: 500,
+                              damping: 25,
+                              delay: index * 0.05,
+                            },
+                          },
+                          closed: {
+                            x: -50,
+                            opacity: 0,
+                            transition: {
+                              duration: 0.2,
+                            },
+                          },
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveTab(item.id);
+                          setSidebarOpen(false);
+                        }}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all duration-300 hover:scale-[1.02] hover:translate-x-1 hover:bg-gradient-to-r hover:from-emerald-500/10 hover:to-cyan-500/10 relative group cursor-pointer ${
                           activeTab === item.id
-                            ? 'bg-emerald-400/20 text-emerald-200 border border-emerald-300/30'
-                            : 'hover:bg-white/10 text-white'
+                            ? 'bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 text-emerald-300 shadow-lg shadow-emerald-500/20 border border-emerald-300/30'
+                            : 'hover:bg-white/10 text-white hover:text-emerald-300'
                         }`}
-                        style={{ willChange: "transform, opacity" }}
                       >
-                        <span className="text-xl shrink-0">{item.icon}</span>
-                        <span className="truncate">{item.label}</span>
-                      </button>
+                        <motion.span 
+                          className="text-xl shrink-0"
+                          whileHover={{ scale: 1.2, rotate: 5 }}
+                          transition={{ type: "spring", stiffness: 400 }}
+                        >
+                          {item.icon}
+                        </motion.span>
+                        <span className="truncate relative z-10 flex-1">{item.label}</span>
+                        {item.badge && (
+                          <span className="px-2 py-0.5 text-xs font-bold bg-emerald-500 text-white rounded-full">
+                            {item.badge}
+                          </span>
+                        )}
+                        {activeTab === item.id && (
+                          <motion.div
+                            layoutId="activeIndicator"
+                            className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-cyan-400 rounded-r-full"
+                            initial={false}
+                            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                          />
+                        )}
+                      </motion.button>
                     ))}
                   </nav>
-                  <div className="mt-auto text-xs text-white/50 pl-1 pb-3">v1</div>
-                </div>
+                  <motion.div 
+                    className="p-3 border-t border-emerald-500/20"
+                    variants={{
+                      open: { opacity: 1, y: 0 },
+                      closed: { opacity: 0, y: 20 },
+                    }}
+                    transition={{ delay: 0.2 }}
+                  >
+                    <div className="text-xs text-white/50 pl-1 pb-3">v1</div>
+                  </motion.div>
               </motion.aside>
-            )}
-            {!sidebarOpen && (
-              <motion.button
-                onClick={openSidebar}
-                className="hidden md:flex fixed left-0 top-1/3 -translate-x-0 w-[36px] h-[120px] rounded-r-xl bg-white/10 border border-white/10 backdrop-blur-xl items-center justify-center shadow-[0_4px_20px_rgba(0,0,0,0.35)] z-50"
-                title="Open menu"
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -8 }}
-                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                style={{ willChange: "transform, opacity" }}
-              >
-                <span className="text-white/85 rotate-90 tracking-widest text-xs">FLYP</span>
-              </motion.button>
             )}
           </AnimatePresence>
         </>
@@ -277,146 +632,490 @@ const RetailerDashboardInner = () => {
           initial="initial"
           animate="enter"
           exit="exit"
-          className={`flex-1 flex flex-col ml-0 relative z-10 transition-all duration-300`}
+          className="flex-1 overflow-y-auto transition-all duration-300 ease-in-out flex flex-col relative z-10"
         >
           {mode === "pos" ? (
             <POSView onLogout={handleSignOut} />
           ) : (
             <>
-              {/* Redesigned Hero Bar */}
-              <div className="sticky top-0 z-30 w-full">
-                <div
-                  className="relative flex items-center justify-between px-2 md:px-6 py-2 md:py-3 pt-[max(env(safe-area-inset-top),0.5rem)]
-                  bg-gradient-to-r from-emerald-500/10 via-cyan-500/5 to-transparent
-                  backdrop-blur-2xl border-b border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.25)]
-                  "
-                  style={{ minHeight: 'calc(64px + env(safe-area-inset-top))' }}
-                >
-                  {/* Glow animation behind FLYP */}
-                  <motion.div
-                    className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 pointer-events-none"
-                    aria-hidden="true"
-                    initial={{ opacity: 0.6, scale: 0.88 }}
-                    animate={{ opacity: [0.7, 1, 0.7], scale: [0.88, 1.08, 0.88] }}
-                    transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-                    style={{
-                      width: 56,
-                      height: 44,
-                      filter: "blur(16px)",
-                      background: "linear-gradient(90deg,#34d399 0%,#22d3ee 60%,#a7f3d0 100%)",
-                      borderRadius: "1.5rem",
-                      zIndex: 0,
-                      willChange: "opacity, transform"
-                    }}
-                  />
-                  {/* Left: Brand capsule */}
-                  <div className="flex items-center min-w-[90px] relative z-10">
-                    <button
-                      className="md:hidden text-xl sm:text-2xl text-gray-300 p-2 sm:p-1 rounded-lg hover:bg-white/10 active:bg-white/15 transition min-h-[44px] min-w-[44px] touch-target flex items-center justify-center"
-                      onClick={() => setShowMobileSidebar(true)}
-                      aria-label="Open menu"
+              {/* Premium Redesigned Header - Sticky, Full Width */}
+              <header className="sticky top-0 z-10 w-full bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 text-white shadow-2xl pt-[env(safe-area-inset-top)]">
+                {/* Row 1: Main Navigation - Full Width Container */}
+                <div className="w-full px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 border-b border-white/5">
+                  {/* Left: Logo & Menu - Fixed Width Container */}
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    {/* FLYP Menu Button with Text - Professional Design */}
+                    <motion.button
+                      onClick={() => {
+                        if (window.innerWidth < 768) {
+                          setShowMobileSidebar(true);
+                        } else {
+                          setSidebarOpen(!sidebarOpen);
+                        }
+                      }}
+                      className="flyp-menu-trigger flex items-center gap-2 px-3 py-2 hover:bg-white/10 rounded-xl transition-all relative group"
+                      aria-label="Toggle sidebar"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                     >
-                      ☰
-                    </button>
-                    <div className="ml-2 flex items-center">
-                      <span
-                        className="relative text-xl md:text-2xl font-extrabold bg-clip-text text-transparent
-                        bg-gradient-to-r from-emerald-400 via-cyan-300 to-emerald-200 drop-shadow animate-pulse"
-                        style={{ letterSpacing: '0.03em', willChange: "opacity, transform" }}
-                      >
-                        FLYP
-                      </span>
+                      {/* FLYP Text - Shows when sidebar is closed */}
+                      <AnimatePresence mode="wait">
+                        {!sidebarOpen && (
+                          <motion.span
+                            key="flyp-text"
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -10 }}
+                            transition={{ duration: 0.2 }}
+                            className="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-emerald-300 to-cyan-400 tracking-wide"
+                          >
+                            FLYP
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                      
+                      {/* Hamburger Icon - Clean 3-line Design */}
+                      <div className="relative w-5 h-5 flex flex-col justify-center gap-1">
+                        <motion.span
+                          className="hamburger-line w-5 h-0.5 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full"
+                          animate={{ rotate: sidebarOpen ? 45 : 0, y: sidebarOpen ? 6 : 0 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                        />
+                        <motion.span
+                          className="hamburger-line w-5 h-0.5 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full"
+                          animate={{ opacity: sidebarOpen ? 0 : 1, scaleX: sidebarOpen ? 0 : 1 }}
+                          transition={{ duration: 0.2 }}
+                        />
+                        <motion.span
+                          className="hamburger-line w-5 h-0.5 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full"
+                          animate={{ rotate: sidebarOpen ? -45 : 0, y: sidebarOpen ? -6 : 0 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                        />
+                      </div>
+                    </motion.button>
+
+                    {/* Dashboard Title - Clean Typography */}
+                    <div className="hidden sm:block">
+                      <h1 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-cyan-300 to-blue-300">
+                        Retailer Dashboard
+                      </h1>
                     </div>
                   </div>
-                  {/* Center: Animated active tab label with bounce */}
-                  <div className="flex-1 flex justify-center items-center min-w-0 relative z-10">
-                    <AnimatePresence mode="wait">
+
+                  {/* Center: Global Search - Responsive Design */}
+                  <div className="hidden lg:flex items-center flex-1 max-w-lg mx-4">
+                    <motion.button
+                      onClick={() => setShowSearch(true)}
+                      className="w-full flex items-center gap-3 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-left"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <FaSearch className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      <span className="text-sm text-gray-400 flex-1">Search anything...</span>
+                      <kbd className="hidden xl:flex items-center gap-1 px-2 py-0.5 bg-slate-700/50 border border-white/10 rounded text-[10px] text-gray-400">
+                        <FaKeyboard className="w-3 h-3" />
+                        <span>⌘K</span>
+                      </kbd>
+                    </motion.button>
+                  </div>
+
+                  {/* Right: Actions - Premium Icons */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Quick Actions */}
+                    <motion.button
+                      onClick={() => setShowQuickActions(!showQuickActions)}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="hidden md:flex items-center justify-center p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all relative quick-actions-container"
+                    >
+                      <FaBolt className="w-4 h-4 text-yellow-400" />
+                    </motion.button>
+
+                    {/* Search Button (Mobile) */}
+                    <motion.button
+                      onClick={() => setShowSearch(true)}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      className="lg:hidden p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                    >
+                      <FaSearch className="w-4 h-4 text-gray-300" />
+                    </motion.button>
+
+                    {/* Notifications */}
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      className="relative p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                    >
+                      <FaBell className="w-4 h-4 text-gray-300" />
                       <motion.div
-                        key={activeTab}
-                        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                        className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-900"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ repeat: Infinity, duration: 2 }}
+                      />
+                    </motion.button>
+
+                    {/* User Profile Menu - Premium Design */}
+                    <div className="relative user-menu-container">
+                      <motion.button
+                        onClick={() => setShowUserMenu(!showUserMenu)}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="flex items-center gap-2 px-2.5 py-2 bg-gradient-to-r from-emerald-500/20 via-emerald-400/20 to-cyan-500/20 border border-emerald-500/30 rounded-xl hover:border-emerald-500/50 transition-all backdrop-blur-sm"
+                      >
+                        <div className="relative">
+                          {userData?.logoUrl ? (
+                            <img
+                              src={userData.logoUrl}
+                              alt={userData.businessName || "Business"}
+                              className="w-9 h-9 rounded-full object-cover ring-2 ring-emerald-500/50"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center ring-2 ring-emerald-500/50">
+                              <FaUser className="w-4 h-4 text-white" />
+                  </div>
+                          )}
+                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>
+                        </div>
+                        <div className="hidden md:block text-left min-w-0">
+                          <div className="text-xs font-semibold text-white truncate max-w-[120px]">
+                            {userData?.businessName || userData?.ownerName || "Business"}
+                          </div>
+                          <div className="text-[10px] text-gray-400 truncate max-w-[120px]">
+                            {auth.currentUser?.email?.split('@')[0] || "User"}
+                          </div>
+                        </div>
+                        <FaChevronDown className={`w-3 h-3 text-gray-400 hidden md:block transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+                      </motion.button>
+
+                      <AnimatePresence>
+                        {showUserMenu && (
+                      <motion.div
+                            initial={{ opacity: 0, y: -10, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -10, scale: 0.98 }}
-                        transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
-                        className="px-3 py-1 rounded-full bg-white/5 border border-white/10 shadow
-                          text-base md:text-lg font-semibold tracking-tight text-white/90
-                          backdrop-blur"
-                        style={{ minWidth: 180, textAlign: 'center', willChange: "transform, opacity" }}
+                            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                            className="absolute right-0 top-full mt-2 w-64 bg-slate-800/95 backdrop-blur-xl border border-emerald-500/20 rounded-xl shadow-2xl overflow-hidden z-50"
+                          >
+                            <div className="p-3 border-b border-emerald-500/10">
+                              <div className="flex items-center gap-3">
+                                <div className="relative">
+                                  {userData?.logoUrl ? (
+                                    <img
+                                      src={userData.logoUrl}
+                                      alt={userData.businessName || "Business"}
+                                      className="w-12 h-12 rounded-full object-cover ring-2 ring-emerald-500/50"
+                                    />
+                                  ) : (
+                                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center ring-2 ring-emerald-500/50">
+                                      <FaUser className="w-6 h-6 text-white" />
+                                    </div>
+                                  )}
+                                  <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-800"></div>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-semibold text-white truncate">
+                                    {userData?.businessName || userData?.ownerName || "Business"}
+                                  </div>
+                                  <div className="text-xs text-gray-400 truncate">
+                                    {auth.currentUser?.email || "No email"}
+                                  </div>
+                                  {userData?.flypId && (
+                                    <div className="text-[10px] text-emerald-400 font-mono mt-1">
+                                      {userData.flypId}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="p-2">
+                              {[
+                                { icon: FaUser, label: "Profile Settings", action: () => { setActiveTab('profile'); setShowUserMenu(false); } },
+                                { icon: FaCog, label: "Preferences", action: () => { setActiveTab('profile'); setShowUserMenu(false); } },
+                                { icon: FaChartLine, label: "View Analytics", action: () => { setActiveTab('analytics'); setShowUserMenu(false); } },
+                                { icon: FaSignOutAlt, label: "Sign Out", action: handleSignOut, danger: true },
+                              ].map((item, idx) => (
+                                <motion.button
+                                  key={idx}
+                                  onClick={item.action}
+                                  whileHover={{ x: 4 }}
+                                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-emerald-500/10 transition-colors text-left ${item.danger ? 'text-red-400 hover:text-red-300' : ''}`}
+                                >
+                                  <item.icon className={`w-4 h-4 ${item.danger ? 'text-red-400' : 'text-emerald-400'}`} />
+                                  <span className={`text-sm ${item.danger ? 'text-red-400' : 'text-white'}`}>{item.label}</span>
+                    </motion.button>
+                              ))}
+                  </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 2: Premium Info Bar - Full Width */}
+                <div className="w-full px-4 sm:px-6 py-2 flex items-center justify-between gap-3 text-xs bg-gradient-to-r from-emerald-900/5 via-transparent to-cyan-900/5">
+                  {/* Left: Business Info - Premium Badges */}
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    {userData?.flypId && (
+                        <motion.div
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-emerald-500/15 to-emerald-400/10 border border-emerald-500/30 rounded-lg shadow-[0_2px_4px_rgba(16,185,129,0.1)]"
+                      >
+                        <FaIdCard className="w-3 h-3 text-emerald-300" />
+                        <span className="text-emerald-200 font-mono text-[10px] font-semibold">{userData.flypId}</span>
+                        </motion.div>
+                    )}
+                    {userData?.businessMode === "Online" && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-green-500/15 to-emerald-500/10 border border-green-500/30 rounded-lg"
                       >
                         <motion.div
-                          animate={{ y: [0, -2, 0] }}
-                          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                          style={{ willChange: "transform" }}
-                        >
-                          {activeTab === 'home' && "Home Dashboard"}
-                          {activeTab === 'billing' && "Billing Dashboard"}
-                          {activeTab === 'analytics' && "Analytics Dashboard"}
-                          {activeTab === 'inventory' && "Inventory Dashboard"}
-                          {activeTab === 'orderHistory' && "Order History"}
-                          {activeTab === 'distributors' && "Distributor Connection"}
-                          {activeTab === 'customers' && "Customer Analysis"}
-                          {activeTab === 'employees' && "Manage Employee"}
-                          {activeTab === 'profile' && "Profile Settings"}
-                          {![
-                            'home','billing','analytics','inventory','orderHistory','distributors','customers','employees','profile'
-                          ].includes(activeTab) && "Dashboard"}
-                        </motion.div>
+                          className="w-2 h-2 bg-green-400 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ repeat: Infinity, duration: 2 }}
+                        />
+                        <span className="text-green-300 text-[10px] font-medium">Online</span>
                       </motion.div>
-                    </AnimatePresence>
+                    )}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800/50 border border-slate-700/50 rounded-lg backdrop-blur-sm">
+                      <FaClock className="w-3 h-3 text-emerald-400/70" />
+                      <span className="text-emerald-200/80 text-[10px] font-mono font-medium">
+                        {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                   </div>
-                  {/* Right: Business info and avatar */}
-                  <div className="flex items-center gap-3 md:gap-4 min-w-0 relative z-10">
-                    <div className="text-right mr-2 hidden sm:flex flex-col items-end max-w-[200px] md:max-w-[260px] lg:max-w-[320px]">
-                      <p className="font-medium text-white truncate md:whitespace-normal md:break-words text-sm md:text-base leading-tight">
-                        {userData?.businessName || 'Business Name'}
-                      </p>
-                      <p className="text-xs text-white/70 truncate md:whitespace-normal md:break-words leading-tight">
-                        {userData?.ownerName || 'Owner'} | ID: {userData?.flypId || userData?.userId || 'UserID'}
-                      </p>
+                    {userData && profileCompletion < 100 && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        onClick={() => setActiveTab('profile')}
+                        className="flex items-center gap-2 px-2.5 py-1 bg-gradient-to-r from-yellow-500/20 via-orange-500/15 to-yellow-500/20 border border-yellow-500/30 rounded-lg cursor-pointer hover:border-yellow-500/50 transition-all shadow-[0_2px_4px_rgba(234,179,8,0.1)]"
+                      >
+                        <FaChartLine className="w-3 h-3 text-yellow-400" />
+                        <span className="text-yellow-300 font-semibold text-[10px]">{profileCompletion}%</span>
+                        <div className="w-14 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${profileCompletion}%` }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                            className="h-full bg-gradient-to-r from-yellow-400 via-orange-400 to-yellow-400 rounded-full"
+                          />
                     </div>
-                    <div className="w-9 h-9 md:w-10 md:h-10 rounded-full overflow-hidden ring-1 ring-white/20 bg-white/10 backdrop-blur flex items-center justify-center">
-                      {userData?.logoUrl ? (
-                        <img src={userData.logoUrl} alt="Logo" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full bg-white/10" />
+                      </motion.div>
                       )}
                     </div>
-                    <button
-                      onClick={handleSignOut}
-                      className="text-rose-300 hover:text-rose-200 active:text-rose-100 text-xl ml-1 p-2 -mr-2 min-h-[44px] min-w-[44px] touch-target flex items-center justify-center"
-                      title="Sign Out"
+
+                  {/* Right: Quick Stats - Premium Design */}
+                  {userData && (
+                    <div className="hidden md:flex items-center gap-2">
+                      <motion.div
+                        initial={{ opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-emerald-500/15 to-cyan-500/10 border border-emerald-500/30 rounded-lg shadow-[0_2px_4px_rgba(16,185,129,0.1)]"
+                      >
+                        <FaStore className="w-3.5 h-3.5 text-emerald-300" />
+                        <span className="text-emerald-200 text-[10px] font-semibold">Retailer</span>
+                      </motion.div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick Actions Dropdown */}
+                <AnimatePresence>
+                  {showQuickActions && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                      className="absolute right-0 top-full mt-2 w-64 bg-slate-800/95 backdrop-blur-xl border border-emerald-500/20 rounded-xl shadow-2xl overflow-hidden z-50"
                     >
-                      <FaSignOutAlt />
+                      <div className="p-2">
+                        <div className="px-3 py-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider">Quick Actions</div>
+                        {[
+                          { icon: FaFileInvoice, label: "New Billing", action: () => { setActiveTab('billing'); setShowQuickActions(false); } },
+                          { icon: FaChartLine, label: "View Analytics", action: () => { setActiveTab('analytics'); setShowQuickActions(false); } },
+                          { icon: FaBoxes, label: "Manage Inventory", action: () => { setActiveTab('inventory'); setShowQuickActions(false); } },
+                        ].map((item, idx) => (
+                          <motion.button
+                            key={idx}
+                            onClick={item.action}
+                            whileHover={{ x: 4 }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-emerald-500/10 transition-colors text-left"
+                          >
+                            <item.icon className="w-4 h-4 text-emerald-400" />
+                            <span className="text-sm text-white">{item.label}</span>
+                          </motion.button>
+                        ))}
+                      </div>
+                      </motion.div>
+                  )}
+                    </AnimatePresence>
+              </header>
+
+              {/* Global Search Modal */}
+              <AnimatePresence>
+                {showSearch && (
+                  <>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+                      onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }}
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: -20 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                      className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-2xl bg-slate-800/95 backdrop-blur-xl border border-emerald-500/20 rounded-2xl shadow-2xl z-50 overflow-hidden"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="p-4 border-b border-emerald-500/20">
+                        <div className="flex items-center gap-3">
+                          <FaSearch className="w-5 h-5 text-emerald-400" />
+                          <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search navigation, products..."
+                            className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none text-lg"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && selectedResultIndex >= 0 && searchResults[selectedResultIndex]) {
+                                const selected = searchResults[selectedResultIndex];
+                                if (selected?.action) {
+                                  selected.action();
+                                  setShowSearch(false);
+                                  setSearchQuery("");
+                                  setSearchResults([]);
+                                }
+                              }
+                            }}
+                          />
+                    <button
+                            onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }}
+                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                    >
+                            <FaTimes className="w-4 h-4 text-gray-400" />
                     </button>
                   </div>
-                  {/* Moving gradient bar below header */}
-                  <div className="absolute left-0 right-0 bottom-0 h-[2px] bg-gradient-to-r from-emerald-400 via-cyan-300 to-emerald-200 animate-[gradient-move_6s_linear_infinite] bg-[length:200%_200%] pointer-events-none" style={{ willChange: "background-position" }} />
               </div>
-              {/* Subtle glowing divider */}
-              <div className="w-full h-[2.5px] bg-gradient-to-r from-emerald-400/40 via-cyan-300/25 to-transparent blur-[1.2px] shadow-[0_2px_12px_0_rgba(0,255,200,0.08)]" />
-              {/* Custom keyframes for moving gradient */}
-              <style>
-                {`
-                @keyframes gradient-move {
-                  0% { background-position: 0% 50%; }
-                  100% { background-position: 100% 50%; }
-                }
-                `}
-              </style>
-              <style>{`
-                @media (prefers-reduced-motion: reduce) {
-                  .animate-pulse { animation: none !important; }
-                  .animate-[gradient-move_6s_linear_infinite] { animation: none !important; }
-                }
-              `}</style>
+
+                      {/* Search Results */}
+                      <div className="max-h-96 overflow-y-auto">
+                        {searchQuery.trim() ? (
+                          searchResults.length > 0 ? (
+                            <div className="p-2">
+                              {searchResults.map((result, idx) => {
+                                const Icon = result.icon || FaSearch;
+                                return (
+                                  <motion.button
+                                    key={idx}
+                                    onClick={() => {
+                                      if (result.action) {
+                                        result.action();
+                                        const newRecent = [result.label, ...recentSearches.filter(s => s !== result.label)].slice(0, 5);
+                                        setRecentSearches(newRecent);
+                                        localStorage.setItem('flypRecentSearchesRetailer', JSON.stringify(newRecent));
+                                        setShowSearch(false);
+                                        setSearchQuery("");
+                                        setSearchResults([]);
+                                      }
+                                    }}
+                                    onMouseEnter={() => setSelectedResultIndex(idx)}
+                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left ${
+                                      selectedResultIndex === idx 
+                                        ? 'bg-emerald-500/20 border border-emerald-500/30' 
+                                        : 'hover:bg-emerald-500/10'
+                                    }`}
+                                    whileHover={{ x: 4 }}
+                                  >
+                                    <Icon className={`w-5 h-5 ${result.type === 'product' ? 'text-emerald-400' : 'text-emerald-400'}`} />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm font-semibold text-white truncate">{result.label}</div>
+                                      {result.subtitle && (
+                                        <div className="text-xs text-gray-400 truncate mt-0.5">{result.subtitle}</div>
+                      )}
+                    </div>
+                                    {selectedResultIndex === idx && (
+                                      <kbd className="text-xs text-gray-400 bg-slate-700/50 px-2 py-1 rounded">Enter</kbd>
+                                    )}
+                                  </motion.button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center">
+                              <FaSearch className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                              <p className="text-gray-400">No results found</p>
+                              <p className="text-xs text-gray-500 mt-2">Try searching for "inventory", "billing", "analytics", etc.</p>
+                            </div>
+                          )
+                        ) : (
+                          <div className="p-4">
+                            {recentSearches.length > 0 && (
+                              <div className="mb-4">
+                                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2">Recent Searches</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {recentSearches.map((search, idx) => (
+                    <button
+                                      key={idx}
+                                      onClick={() => setSearchQuery(search)}
+                                      className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg text-sm text-emerald-300 transition-colors"
+                                    >
+                                      <FaHistory className="w-3 h-3 inline mr-1.5" />
+                                      {search}
+                    </button>
+                                  ))}
+                  </div>
+              </div>
+                            )}
+                            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2">Quick Navigation</div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {[
+                                { icon: FaHome, label: "Home", action: () => { setActiveTab('home'); setShowSearch(false); } },
+                                { icon: FaFileInvoice, label: "Billing", action: () => { setActiveTab('billing'); setShowSearch(false); } },
+                                { icon: FaBoxes, label: "Inventory", action: () => { setActiveTab('inventory'); setShowSearch(false); } },
+                                { icon: FaChartLine, label: "Analytics", action: () => { setActiveTab('analytics'); setShowSearch(false); } },
+                              ].map((item, idx) => (
+                                <motion.button
+                                  key={idx}
+                                  onClick={item.action}
+                                  whileHover={{ scale: 1.02 }}
+                                  className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg text-left"
+                                >
+                                  <item.icon className="w-4 h-4 text-emerald-400" />
+                                  <span className="text-sm text-white">{item.label}</span>
+                                </motion.button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
             </div>
 
-              {/* Tab Content */}
+                      {/* Footer */}
+                      <div className="p-3 border-t border-emerald-500/20 bg-slate-900/50 flex items-center justify-between text-xs text-gray-400">
+                        <div className="flex items-center gap-4">
+                          <span><kbd className="px-1.5 py-0.5 bg-slate-700/50 border border-white/10 rounded">↑↓</kbd> Navigate</span>
+                          <span><kbd className="px-1.5 py-0.5 bg-slate-700/50 border border-white/10 rounded">Enter</kbd> Select</span>
+                          <span><kbd className="px-1.5 py-0.5 bg-slate-700/50 border border-white/10 rounded">Esc</kbd> Close</span>
+                        </div>
+                        <div><kbd className="px-1.5 py-0.5 bg-slate-700/50 border border-white/10 rounded">⌘K</kbd> to open</div>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+
+              {/* Tab Content - Full Width Container */}
               <motion.div
                 key={activeTab}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, ease: [0.16,1,0.3,1] }}
-                className="flex-1 px-2 sm:px-4 md:px-6 py-3 sm:py-4 md:py-6 overflow-y-auto text-white"
+                className="flex-1 w-full px-4 sm:px-6 py-4 sm:py-6 text-white"
                 style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}
               >
                 {activeTab === 'home' && (
@@ -553,6 +1252,8 @@ const RetailerDashboardInner = () => {
 
                 {activeTab === 'analytics' && <BusinessAnalytics />}
 
+                {activeTab === 'aiForecast' && <RetailerAIForecast />}
+
                 {activeTab === 'distributors' && (
                   <div>
                     <div className="flex flex-wrap gap-2 sm:gap-4 mb-3 sm:mb-4">
@@ -600,6 +1301,7 @@ const RetailerDashboardInner = () => {
         </motion.div>
       </AnimatePresence>
     </div>
+    </>
   );
 };
 

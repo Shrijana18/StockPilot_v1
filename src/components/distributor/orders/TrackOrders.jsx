@@ -14,6 +14,7 @@ import { splitFromMrp } from '../../../utils/pricing';
 import { getDistributorEmployeeSession } from '../../../utils/distributorEmployeeSession';
 import { empAuth } from '../../../firebase/firebaseConfig';
 import { FiCreditCard, FiSmartphone, FiDollarSign, FiLayers, FiX, FiCheck, FiClock } from 'react-icons/fi';
+import { notifyOrderStatusChange } from '../../../hooks/useWhatsAppNotifications';
 
 // ---- Compatibility shim for orderPolicy exports (handles older names) ----
 const normalizePaymentMode =
@@ -894,6 +895,14 @@ const TrackOrders = () => {
     await updateDoc(distributorOrderRef, updatePayload);
     if (hasRetailer && retailerOrderRef) {
       await updateDoc(retailerOrderRef, updatePayload);
+    }
+
+    // ---------- Send WhatsApp Notification ----------
+    try {
+      await notifyOrderStatusChange(distributorId, orderData, 'DELIVERED');
+    } catch (whatsappError) {
+      console.warn('WhatsApp notification failed (non-blocking):', whatsappError);
+      // Don't block the delivery flow if WhatsApp fails
     }
 
     // ---------- Auto-create Distributor Invoice ----------

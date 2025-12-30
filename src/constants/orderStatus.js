@@ -9,13 +9,16 @@
 export const ORDER_STATUSES = Object.freeze({
   REQUESTED: 'REQUESTED',   // Retailer placed request (pre-tax estimate)
   QUOTED: 'QUOTED',         // Distributor issued Proforma (taxes/charges applied)
+  ON_HOLD: 'ON_HOLD',       // Order on hold (waiting for stock/approval)
   ACCEPTED: 'ACCEPTED',     // Retailer accepted Proforma (values locked)
   MODIFIED: 'MODIFIED',     // Distributor modified the order before fulfillment
   REJECTED: 'REJECTED',     // Proforma rejected (terminal for the request)
   DIRECT: 'DIRECT',         // Defaults applied (proforma skipped)
-  PACKED: 'PACKED',
-  SHIPPED: 'SHIPPED',
-  DELIVERED: 'DELIVERED',
+  ASSIGNED: 'ASSIGNED',     // Order assigned by Product Owner to Distributor
+  PACKED: 'PACKED',         // Order packed and ready
+  SHIPPED: 'SHIPPED',       // Order shipped
+  OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY', // Order out for delivery
+  DELIVERED: 'DELIVERED',   // Order delivered
   INVOICED: 'INVOICED',
 });
 
@@ -80,6 +83,10 @@ export function normalizeStatusCode(doc = {}) {
     case 'QUOTED':
     case 'PROFORMA_SENT':
       return ORDER_STATUSES.QUOTED;
+    case 'ON_HOLD':
+    case 'ON HOLD':
+    case 'HOLD':
+      return ORDER_STATUSES.ON_HOLD;
     case 'ACCEPTED':
       return ORDER_STATUSES.ACCEPTED;
     case 'MODIFIED':
@@ -93,10 +100,15 @@ export function normalizeStatusCode(doc = {}) {
       return ORDER_STATUSES.PACKED; // unify older "Pending" with PACKED step
     case 'SHIPPED':
       return ORDER_STATUSES.SHIPPED;
+    case 'OUT_FOR_DELIVERY':
+    case 'OUT FOR DELIVERY':
+      return ORDER_STATUSES.OUT_FOR_DELIVERY;
     case 'DELIVERED':
       return ORDER_STATUSES.DELIVERED;
     case 'INVOICED':
       return ORDER_STATUSES.INVOICED;
+    case 'ASSIGNED':
+      return ORDER_STATUSES.ASSIGNED;
     case 'PLACED':
     case 'REQUESTED':
       return ORDER_STATUSES.REQUESTED;
@@ -126,12 +138,15 @@ export function isTerminalStatus(doc = {}) {
  * We keep PACKED as the step name in code; older UI that says "Pending" maps to PACKED.
  */
 export const ORDER_TRANSITIONS = Object.freeze({
-  [ORDER_STATUSES.REQUESTED]: [ORDER_STATUSES.QUOTED, ORDER_STATUSES.REJECTED, ORDER_STATUSES.DIRECT],
-  [ORDER_STATUSES.QUOTED]: [ORDER_STATUSES.ACCEPTED, ORDER_STATUSES.REJECTED],
+  [ORDER_STATUSES.REQUESTED]: [ORDER_STATUSES.QUOTED, ORDER_STATUSES.ON_HOLD, ORDER_STATUSES.REJECTED, ORDER_STATUSES.DIRECT],
+  [ORDER_STATUSES.QUOTED]: [ORDER_STATUSES.ACCEPTED, ORDER_STATUSES.ON_HOLD, ORDER_STATUSES.REJECTED],
+  [ORDER_STATUSES.ON_HOLD]: [ORDER_STATUSES.ACCEPTED, ORDER_STATUSES.REJECTED, ORDER_STATUSES.REQUESTED],
   [ORDER_STATUSES.ACCEPTED]: [ORDER_STATUSES.MODIFIED, ORDER_STATUSES.PACKED],
   [ORDER_STATUSES.MODIFIED]: [ORDER_STATUSES.PACKED],
+  [ORDER_STATUSES.ASSIGNED]: [ORDER_STATUSES.PACKED, ORDER_STATUSES.SHIPPED], // Product Owner can update
   [ORDER_STATUSES.PACKED]: [ORDER_STATUSES.SHIPPED],
-  [ORDER_STATUSES.SHIPPED]: [ORDER_STATUSES.DELIVERED],
+  [ORDER_STATUSES.SHIPPED]: [ORDER_STATUSES.OUT_FOR_DELIVERY, ORDER_STATUSES.DELIVERED],
+  [ORDER_STATUSES.OUT_FOR_DELIVERY]: [ORDER_STATUSES.DELIVERED],
   [ORDER_STATUSES.DELIVERED]: [ORDER_STATUSES.INVOICED],
   [ORDER_STATUSES.REJECTED]: [],
   [ORDER_STATUSES.DIRECT]: [ORDER_STATUSES.PACKED],

@@ -141,36 +141,94 @@ export default function AddRetailerModal({
       toast?.({ type: "error", message: msg });
       return;
     }
+    
+    // Check for duplicates
+    try {
+      const normalizedPhone = normalizePhoneIN(form.phone);
+      const normalizedEmail = form.email.trim().toLowerCase() || null;
+      
+      const retailersRef = collection(db, "businesses", distributorId, "connectedRetailers");
+      const retailersSnap = await getDocs(retailersRef);
+      
+      const duplicate = retailersSnap.docs.find(doc => {
+        const data = doc.data();
+        const existingPhone = data.retailerPhone || data.phone;
+        const existingEmail = (data.retailerEmail || data.email || "").toLowerCase();
+        
+        return (normalizedPhone && existingPhone && existingPhone === normalizedPhone) ||
+               (normalizedEmail && existingEmail && existingEmail === normalizedEmail);
+      });
+      
+      if (duplicate) {
+        const msg = "A retailer with this email or phone number already exists.";
+        setError(msg);
+        toast?.({ type: "error", message: msg });
+        return;
+      }
+    } catch (checkErr) {
+      console.error("Error checking duplicates:", checkErr);
+      // Continue with creation if duplicate check fails
+    }
+    
     setLoading(true);
     try {
       // Minimal local record in connectedRetailers; can invite later from panel
       // Save all retailer info including city, state, and address for order display
       const connRef = doc(collection(db, "businesses", distributorId, "connectedRetailers"));
+      
+      // Build payload, filtering out undefined values
+      const docId = connRef.id;
       const payload = {
+        retailerId: docId, // Store the document ID as retailerId for consistency
         retailerName: form.businessName.trim(),
-        retailerEmail: form.email.trim() || null,
-        retailerPhone: normalizePhoneIN(form.phone),
-        retailerAddress: form.address.trim() || null, // Save address for order display
-        retailerCity: form.city.trim() || null, // Save city for order display
-        retailerState: form.state.trim() || null, // Save state for order display
         status: "provisioned-local",
         source: "provisioned-local",
-        addedBy: createdBy?.type && createdBy?.id ? {
-          type: createdBy.type,
-          id: createdBy.id,
-          name: createdBy.name || null,
-          flypEmployeeId: createdBy.flypEmployeeId || null,
-        } : { type: 'distributor', id: distributorId },
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+      
+      // Only add fields that have values (not undefined, not empty string)
+      if (form.email.trim()) {
+        payload.retailerEmail = form.email.trim();
+      }
+      if (form.phone.trim()) {
+        const normalizedPhone = normalizePhoneIN(form.phone);
+        if (normalizedPhone) {
+          payload.retailerPhone = normalizedPhone;
+        }
+      }
+      if (form.address.trim()) {
+        payload.retailerAddress = form.address.trim();
+      }
+      if (form.city.trim()) {
+        payload.retailerCity = form.city.trim();
+      }
+      if (form.state.trim()) {
+        payload.retailerState = form.state.trim();
+      }
+      if (form.gst.trim()) {
+        payload.gst = form.gst.trim().toUpperCase();
+      }
+      
+      // Add createdBy info
+      if (createdBy?.type && createdBy?.id) {
+        payload.addedBy = {
+          type: createdBy.type,
+          id: createdBy.id,
+        };
+        if (createdBy.name) payload.addedBy.name = createdBy.name;
+        if (createdBy.flypEmployeeId) payload.addedBy.flypEmployeeId = createdBy.flypEmployeeId;
+      } else {
+        payload.addedBy = { type: 'distributor', id: distributorId };
+      }
+      
       await setDoc(connRef, payload, { merge: true });
-      onCreated?.({ retailerId: connRef.id, payload });
-      toast?.({ type: "success", message: "Retailer created locally. Invite can be sent from panel." });
+      onCreated?.({ retailerId: docId, payload });
+      toast?.({ type: "success", message: "Retailer created successfully!" });
       onClose?.();
     } catch (e) {
-      console.error(e);
-      const msg = "Failed to create retailer.";
+      console.error("Error creating retailer:", e);
+      const msg = e.message || "Failed to create retailer. Please check your permissions.";
       setError(msg);
       toast?.({ type: "error", message: msg });
     } finally {
@@ -230,49 +288,113 @@ export default function AddRetailerModal({
         return;
       }
 
+      // Check for duplicates BEFORE creating
+      const normalizedPhone = normalizePhoneIN(form.phone);
+      const normalizedEmail = form.email.trim().toLowerCase() || null;
+      
+      const retailersRef = collection(db, "businesses", distributorId, "connectedRetailers");
+      const retailersSnap = await getDocs(retailersRef);
+      
+      const duplicate = retailersSnap.docs.find(doc => {
+        const data = doc.data();
+        const existingPhone = data.retailerPhone || data.phone;
+        const existingEmail = (data.retailerEmail || data.email || "").toLowerCase();
+        
+        return (normalizedPhone && existingPhone && existingPhone === normalizedPhone) ||
+               (normalizedEmail && existingEmail && existingEmail === normalizedEmail);
+      });
+      
+      if (duplicate) {
+        throw new Error("A retailer with this email or phone number already exists.");
+      }
+
       // Fallback: Local Firestore write (no token)
       // NOTE: This is a temporary client‑side path; once your CF is ready,
       //       it should be replaced by the callable to generate a secure invite.
       const provisionalId = cryptoRandomId();
       const provisionalRef = doc(collection(db, "provisionalRetailers"), provisionalId);
+      
+      // Build payload, filtering out undefined values
       const payload = {
         createdBy: distributorId,
         businessName: form.businessName.trim(),
-        ownerName: form.ownerName.trim(),
-        retailerEmail: form.email.trim() || null,
-        retailerPhone: normalizePhoneIN(form.phone),
-        gst: form.gst.trim() || null,
-        address: form.address.trim() || null,
-        city: form.city.trim() || null,
-        state: form.state.trim() || null,
         status: "provisional",
         connectedDistributorId: distributorId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+      
+      // Only add fields that have values
+      if (form.ownerName.trim()) {
+        payload.ownerName = form.ownerName.trim();
+      }
+      if (form.email.trim()) {
+        payload.retailerEmail = form.email.trim();
+      }
+      if (normalizedPhone) {
+        payload.retailerPhone = normalizedPhone;
+      }
+      if (form.gst.trim()) {
+        payload.gst = form.gst.trim().toUpperCase();
+      }
+      if (form.address.trim()) {
+        payload.address = form.address.trim();
+      }
+      if (form.city.trim()) {
+        payload.city = form.city.trim();
+      }
+      if (form.state.trim()) {
+        payload.state = form.state.trim();
+      }
+      
       await setDoc(provisionalRef, payload, { merge: true });
+      
       // Also create a connectedRetailers entry (provisioned)
       // Save all retailer info including city, state, and address for order display
       const connRef = doc(collection(db, "businesses", distributorId, "connectedRetailers"));
-      await setDoc(connRef, {
+      
+      // Build payload, filtering out undefined values
+      const docId = connRef.id;
+      const connPayload = {
+        retailerId: docId, // Store document ID as retailerId
         provisionalId,
-        retailerEmail: payload.retailerEmail,
-        retailerPhone: payload.retailerPhone,
         retailerName: payload.businessName,
-        retailerAddress: payload.address, // Save address for order display
-        retailerCity: payload.city, // Save city for order display
-        retailerState: payload.state, // Save state for order display
         status: "provisioned",
         source: "provisioned",
-        addedBy: createdBy?.type && createdBy?.id ? {
-          type: createdBy.type,
-          id: createdBy.id,
-          name: createdBy.name || null,
-          flypEmployeeId: createdBy.flypEmployeeId || null,
-        } : { type: 'distributor', id: distributorId },
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
+      
+      // Only add fields that have values
+      if (payload.retailerEmail) {
+        connPayload.retailerEmail = payload.retailerEmail;
+      }
+      if (payload.retailerPhone) {
+        connPayload.retailerPhone = payload.retailerPhone;
+      }
+      if (payload.address) {
+        connPayload.retailerAddress = payload.address;
+      }
+      if (payload.city) {
+        connPayload.retailerCity = payload.city;
+      }
+      if (payload.state) {
+        connPayload.retailerState = payload.state;
+      }
+      
+      // Add createdBy info
+      if (createdBy?.type && createdBy?.id) {
+        connPayload.addedBy = {
+          type: createdBy.type,
+          id: createdBy.id,
+        };
+        if (createdBy.name) connPayload.addedBy.name = createdBy.name;
+        if (createdBy.flypEmployeeId) connPayload.addedBy.flypEmployeeId = createdBy.flypEmployeeId;
+      } else {
+        connPayload.addedBy = { type: 'distributor', id: distributorId };
+      }
+      
+      await setDoc(connRef, connPayload);
       const inviteUrl = `${window.location.origin}/claim?pid=${provisionalId}`; // temporary (no token)
       const info = { provisionalId, inviteUrl, payload };
       setInviteInfo(info);
@@ -288,6 +410,177 @@ export default function AddRetailerModal({
     }
   };
 
+  // Embedded variant: render inline without modal overlay
+  if (uiVariant === "embedded") {
+    if (!open) return null;
+    return (
+      <div className="w-full">
+        <style>{`
+          .no-scrollbar::-webkit-scrollbar { display: none; }
+          .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+          .input { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); }
+          .input:focus { outline: none; box-shadow: 0 0 0 2px rgba(16,185,129,0.35); }
+          .chip { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); }
+        `}</style>
+        <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-md">
+          <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-white/60">Provisioned Retailer</div>
+              <h3 id="add-retailer-title" className="text-lg md:text-xl font-semibold">Add Retailer for Management</h3>
+              <div className="text-[11px] text-white/50 mt-0.5">Create a managed retailer entry now and share an invite to claim later.</div>
+            </div>
+          </div>
+
+          <div className="px-5 py-4 space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {error && (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 text-red-200 text-sm px-3 py-2">
+                  {error}
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="Business Name *">
+                  <input
+                    className="w-full rounded-lg input px-3 py-2 text-white placeholder:text-white/40"
+                    value={form.businessName}
+                    onChange={setVal("businessName")}
+                    placeholder="e.g., Shree Ganesh Traders"
+                    required
+                    autoFocus={autofocus}
+                  />
+                </Field>
+                <Field label="Owner Name">
+                  <input
+                    className="w-full rounded-lg input px-3 py-2 text-white placeholder:text-white/40"
+                    value={form.ownerName}
+                    onChange={setVal("ownerName")}
+                    placeholder="e.g., Ramesh Patil"
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    type="email"
+                    className="w-full rounded-lg input px-3 py-2 text-white placeholder:text-white/40"
+                    value={form.email}
+                    onChange={setVal("email")}
+                    placeholder="owner@retailer.com"
+                  />
+                  <div className="mt-1 text-[11px] text-white/50">We'll send an invite here if provided.</div>
+                </Field>
+                <Field label="Phone (+91)">
+                  <div className="flex">
+                    <span className="inline-flex items-center px-3 rounded-l-lg input border-r-0 text-white/70 select-none">+91</span>
+                    <input
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="w-full rounded-r-lg input px-3 py-2 text-white placeholder:text-white/40"
+                      value={displayPhone(form.phone)}
+                      onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+                      placeholder="10‑digit number"
+                    />
+                  </div>
+                  <div className="mt-1 text-[11px] text-white/50">Enter 10 digits; we'll format as +91 automatically.</div>
+                </Field>
+                <Field label="GSTIN (optional)">
+                  <input
+                    className="w-full rounded-lg input px-3 py-2 uppercase text-white placeholder:text-white/40"
+                    value={form.gst}
+                    onChange={(e) => setForm((p) => ({ ...p, gst: e.target.value.toUpperCase() }))}
+                    placeholder="15‑character GSTIN"
+                  />
+                  <div className="mt-1 text-[11px] text-white/50">Optional. 15 characters alphanumeric.</div>
+                </Field>
+                <Field label="Address (optional)">
+                  <input
+                    className="w-full rounded-lg input px-3 py-2 text-white placeholder:text-white/40"
+                    value={form.address}
+                    onChange={setVal("address")}
+                    placeholder="Street address"
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="City (optional)">
+                    <input
+                      className="w-full rounded-lg input px-3 py-2 text-white placeholder:text-white/40"
+                      value={form.city}
+                      onChange={setVal("city")}
+                      placeholder="City"
+                    />
+                  </Field>
+                  <Field label="State (optional)">
+                    <input
+                      className="w-full rounded-lg input px-3 py-2 text-white placeholder:text-white/40"
+                      value={form.state}
+                      onChange={setVal("state")}
+                      placeholder="State"
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              <div className="h-px bg-white/10 my-2" />
+
+              <div className="pt-2 flex items-center justify-between flex-wrap gap-3">
+                <div className="text-[11px] text-white/55">
+                  * Email or Phone required only for "Create & Generate Invite". You can invite later from the panel.
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={!canCreateLocal}
+                    onClick={handleCreateLocal}
+                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-900 font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {loading ? "Creating…" : "Create"}
+                  </button>
+                  <button
+                    id="add-retailer-submit"
+                    type="submit"
+                    disabled={!canSubmit}
+                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {loading ? "Creating…" : "Create & Generate Invite"}
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {/* Invite info (after create) */}
+            {inviteInfo && (
+              <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-4">
+                <div className="text-sm text-white/90 font-medium mb-2">Invite Link</div>
+                {inviteInfo?.provisionalId && (
+                  <div className="mb-2">
+                    <span className="chip rounded-md px-2 py-1 text-[10px] uppercase tracking-wide text-white/70">ID: {inviteInfo.provisionalId}</span>
+                  </div>
+                )}
+                <div className="text-xs text-white/80 break-all mb-3">{inviteInfo.inviteUrl}</div>
+                <div className="flex gap-2">
+                  <button
+                    className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-white text-sm transition-all"
+                    onClick={() => copy(inviteInfo.inviteUrl)}
+                  >
+                    Copy Link
+                  </button>
+                  <button
+                    className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-white text-sm transition-all"
+                    onClick={() => {
+                      setInviteInfo(null);
+                      onClose?.();
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Default modal variant: render as fixed overlay modal
   return (
     <AnimatePresence>
       {open && (

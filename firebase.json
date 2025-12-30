@@ -31,6 +31,10 @@
         "function": "generateHSNAndGST"
       },
       {
+        "source": "/whatsapp/connect/callback",
+        "function": "whatsappConnectCallback"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

@@ -85,8 +85,36 @@ service cloud.firestore {
 
       // READ own doc
       allow read: if isAuthed() && isSelf(userId);
+      
+      // READ: Allow product owners to read distributor businesses for connection purposes
+      // This allows product owners to search and verify distributors by FLYP ID, view connected distributors, or view distributors with pending orders
+      allow read: if isAuthed() 
+        && isEmailVerified()
+        && exists(/databases/$(database)/documents/businesses/$(request.auth.uid))
+        && get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"]
+        && exists(/databases/$(database)/documents/businesses/$(userId))
+        && get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["distributor", "Distributor"];
+      
+      // READ: Allow distributors to read product owner businesses if they have a connection
+      // This allows distributors to fetch product owner details for their connections
+      allow read: if isAuthed() 
+        && isEmailVerified()
+        && exists(/databases/$(database)/documents/businesses/$(request.auth.uid))
+        && get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["distributor", "Distributor"]
+        && exists(/databases/$(database)/documents/businesses/$(userId))
+        && get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["productowner", "ProductOwner"]
+        && exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedProductOwners/$(userId));
 
       // UPDATE
+      // Allows updating all profile fields including:
+      // - Basic info: ownerName, businessName, address, city, state, pincode
+      // - Tax: gstNumber, panNumber
+      // - Banking: bankName, bankBranch, bankAccountNumber, bankIfsc, bankAccountName, upiId
+      // - Preferences: invoicePreference, businessMode, whatsappAlerts, emailNotifications, smsNotifications
+      // - Credit: defaultCreditDays, paymentTerms, autoSendInvoice
+      // - Business: businessHours, logoUrl
+      // - Security: twoFactorEnabled, sessionTimeout
+      // - Profile metadata: profileVersion, lastUpdated
       allow update: if isAuthed()
         && isSelf(userId)
         && isEmailVerified()
@@ -196,28 +224,113 @@ service cloud.firestore {
         allow update: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || (
             request.auth.uid == employeeId &&
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['online', 'lastSeen'])
+            // Allow employees to update presence fields AND session fields
+            (
+              request.resource.data.diff(resource.data).changedKeys().hasOnly(['online', 'lastSeen']) ||
+              request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                'currentSessionId', 'currentSessionStartedAt', 'lastSessionStartedAt', 'sessionActive'
+              ]) ||
+              // Allow updating both presence and session fields together
+              request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                'online', 'lastSeen', 'currentSessionId', 'currentSessionStartedAt', 
+                'lastSessionStartedAt', 'sessionActive'
+              ])
+            )
           )
         );
 
         allow create, delete: if isAuthed() && isSelf(userId) && isEmailVerified();
       }
 
+      // --- Employee Sessions (direct subcollection under businesses) ---
+      match /employeeSessions/{sessionId} {
+        // Employees can create their own sessions
+        // The custom token UID = employee document ID, so auth.uid == employeeId
+        allow create: if isAuthed() && 
+          request.resource.data.employeeId == request.auth.uid &&
+          request.resource.data.distributorId == userId &&
+          exists(/databases/$(database)/documents/businesses/$(userId)/distributorEmployees/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/businesses/$(userId)/distributorEmployees/$(request.auth.uid)).data.status == "active";
+        
+        // Employees can read their own sessions, distributor owner can read all
+        allow read: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) ||
+          (resource.data.employeeId == request.auth.uid &&
+           exists(/databases/$(database)/documents/businesses/$(userId)/distributorEmployees/$(request.auth.uid))) ||
+          (request.auth.token.isDistributorEmployee == true &&
+           request.auth.token.distributorId == userId &&
+           request.auth.token.employeeId is string &&
+           resource.data.employeeId == request.auth.token.employeeId)
+        );
+        
+        // Employees can update their own sessions, distributor owner can update any
+        allow update: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) ||
+          (resource.data.employeeId == request.auth.uid &&
+           exists(/databases/$(database)/documents/businesses/$(userId)/distributorEmployees/$(request.auth.uid))) ||
+          (request.auth.token.isDistributorEmployee == true &&
+           request.auth.token.distributorId == userId &&
+           request.auth.token.employeeId is string &&
+           resource.data.employeeId == request.auth.token.employeeId)
+        );
+        
+        // Only distributor owner can delete sessions
+        allow delete: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
       // --- INVENTORY PRODUCTS ---
+      // Supports both Product Owners and Distributors managing their inventory
+      // Path: businesses/{userId}/products/{productId}
       match /products/{productId} {
+        // READ: Product owner can read their products, connected retailers can read distributor products,
+        // distributor employees can read distributor products,
+        // and connected distributors can read product owner products
         allow read: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
           isConnectedRetailer(userId) ||
+          isDistributorEmployee(userId) ||
+          // Allow distributors connected to product owner to read product owner's products
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["distributor", "Distributor"] &&
+           exists(/databases/$(database)/documents/businesses/$(userId)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["productowner", "ProductOwner"] &&
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedProductOwners/$(userId)))
+        );
+
+        // CREATE: Product owner can create products in their inventory,
+        // Distributor can create products in their inventory,
+        // Distributor employees can create products
+        allow create: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
         );
 
-        allow write: if isAuthed() && (
+        // UPDATE: Product owner can update their products,
+        // Distributor can update their products,
+        // Distributor employees can update products
+        allow update: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+
+        // DELETE: Product owner can delete their products,
+        // Distributor can delete their products,
+        // Distributor employees can delete products
+        allow delete: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
         );
       }
 
       match /inventoryLogs/{logId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- Restock Orders (Smart Order Creator) ---
+      match /restockOrders/{orderId} {
         allow read, write: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
@@ -359,10 +472,33 @@ service cloud.firestore {
         );
       }
 
+      // --- Connected Distributors (for Product Owners) ---
       match /connectedDistributors/{docId} {
-        allow read, write: if isAuthed() && (
+        // READ: Product owner can read their connected distributors, distributor can read their own connection
+        allow read: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
-          request.auth.uid == docId
+          (request.auth.uid == docId && 
+           exists(/databases/$(database)/documents/businesses/$(docId)) &&
+           get(/databases/$(database)/documents/businesses/$(docId)).data.role in ["distributor", "Distributor"])
+        );
+        
+        // CREATE/UPDATE: Product owner can create/update connections with attachments, policy acceptance, notes
+        // Distributor can update their own connection (e.g., policy acceptance, status)
+        // Supports new fields: attachments, policiesAccepted, policyVersion, policyAcceptedAt, policyAcceptedBy, connectionNotes, status
+        allow create, update: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId)) || 
+          (request.auth.uid == docId && 
+           exists(/databases/$(database)/documents/businesses/$(docId)) &&
+           get(/databases/$(database)/documents/businesses/$(docId)).data.role in ["distributor", "Distributor"])
+        );
+        
+        // DELETE: Product owner can delete their connections, distributor can delete their own connection record
+        // Supports disconnectReason field for audit trail
+        allow delete: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId)) || 
+          (request.auth.uid == docId && 
+           exists(/databases/$(database)/documents/businesses/$(docId)) &&
+           get(/databases/$(database)/documents/businesses/$(docId)).data.role in ["distributor", "Distributor"])
         );
 
         match /assistantChats/{messageId} {
@@ -371,6 +507,319 @@ service cloud.firestore {
             request.auth.uid == docId
           );
         }
+      }
+
+      // --- Territories (for Product Owners) ---
+      match /territories/{territoryId} {
+        // READ: Product owner can read their territories
+        allow read: if isAuthed() && isSelf(userId) && isEmailVerified();
+        
+        // CREATE: Product owner can create territories
+        allow create: if isAuthed() && isEmailVerified() && isSelf(userId);
+        
+        // UPDATE: Product owner can update their territories
+        allow update: if isAuthed() && isEmailVerified() && isSelf(userId);
+        
+        // DELETE: Product owner can delete their territories
+        allow delete: if isAuthed() && isEmailVerified() && isSelf(userId);
+      }
+
+      // --- Connected Product Owners (for Distributors) ---
+      match /connectedProductOwners/{docId} {
+        // READ: Distributor can always read their connected product owners
+        allow read: if isAuthed() && isSelf(userId) && isEmailVerified();
+        
+        // CREATE/UPDATE: 
+        // 1. Distributor can create/update their own connections (e.g., accept policy, update status)
+        // 2. Product owner can create/update connections in distributor's collection (when connecting)
+        //    Path: businesses/{distributorId}/connectedProductOwners/{productOwnerId}
+        //    - userId = distributorId
+        //    - docId = productOwnerId
+        //    - request.auth.uid = productOwnerId (when product owner is connecting)
+        // Supports new fields: attachments, policiesAccepted, policyVersion, policyAcceptedAt, policyAcceptedBy, connectionNotes, status
+        allow create, update: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId)) ||
+          // Allow product owner to write to distributor's connectedProductOwners collection
+          (request.auth.uid == docId && 
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           exists(/databases/$(database)/documents/businesses/$(userId)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["distributor", "Distributor"])
+        );
+        
+        // DELETE: 
+        // 1. Distributor can delete their own connections
+        // 2. Product owner can delete their connection from distributor's collection (when disconnecting)
+        // Path: businesses/{distributorId}/connectedProductOwners/{productOwnerId}
+        // - userId = distributorId
+        // - docId = productOwnerId  
+        // - request.auth.uid = productOwnerId (when product owner is deleting)
+        // Supports disconnectReason field for audit trail
+        allow delete: if isAuthed() && isEmailVerified() && (
+          // Distributor deleting their own connection
+          (isSelf(userId)) ||
+          // Product owner deleting from distributor's collection
+          (request.auth.uid == docId && 
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           exists(/databases/$(database)/documents/businesses/$(userId)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["distributor", "Distributor"])
+        );
+      }
+
+      // --- Assigned Orders (from Product Owners to Distributors) ---
+      match /assignedOrders/{orderId} {
+        // READ: Distributor and employees can read assigned orders
+        allow read: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) ||
+          isDistributorEmployee(userId)
+        );
+        
+        // CREATE: Product owners can assign orders to distributors
+        // Also allows distributors to create orders (for order requests from distributor to product owner)
+        allow create: if isAuthed() && isEmailVerified() && (
+          // Distributor creating order (for requests to product owner)
+          (isSelf(userId)) ||
+          isDistributorEmployee(userId) ||
+          // Product owner assigning order to distributor
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           exists(/databases/$(database)/documents/businesses/$(userId)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["distributor", "Distributor"] &&
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedDistributors/$(userId)))
+        );
+        
+        // UPDATE: Distributor and employees can update order status, product owner can update their assigned orders
+        allow update: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId)) ||
+          isDistributorEmployee(userId) ||
+          // Product owner updating their assigned order
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           resource.data.productOwnerId == request.auth.uid)
+        );
+        
+        // DELETE: Only distributor can delete (product owner can cancel via status update)
+        allow delete: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId)) ||
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- Product Owner Orders (new flow: Product Owner -> Distributor) ---
+      // Path: businesses/{distributorId}/productOwnerOrders/{orderId}
+      match /productOwnerOrders/{orderId} {
+        // READ: Distributor and employees can read orders assigned to them, Product Owner can read orders they assigned
+        allow read: if isAuthed() && (
+          // Distributor reading their own orders
+          (isSelf(userId) && isEmailVerified()) ||
+          isDistributorEmployee(userId) ||
+          // Product owner reading orders they assigned
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           resource.data.productOwnerId == request.auth.uid) ||
+          // Retailer reading their own orders from product owner
+          (request.auth.uid == userId && isEmailVerified() &&
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role != "distributor")
+        );
+        
+        // CREATE: Product owner can assign orders to distributor or retailer
+        allow create: if isAuthed() && isEmailVerified() && (
+          exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+          (
+            // Assigning to distributor (must be connected)
+            (exists(/databases/$(database)/documents/businesses/$(userId)) &&
+             get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["distributor", "Distributor"] &&
+             exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedDistributors/$(userId)) &&
+             request.resource.data.distributorId == userId) ||
+            // Assigning to retailer (must be in connectedRetailers)
+            (exists(/databases/$(database)/documents/businesses/$(userId)) &&
+             exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedRetailers/$(userId)) &&
+             request.resource.data.retailerId == userId)
+          ) &&
+          request.resource.data.productOwnerId == request.auth.uid
+        );
+        
+        // UPDATE: Distributor, retailer, and employees can update order status, Product Owner can update their assigned orders
+        allow update: if isAuthed() && isEmailVerified() && (
+          // Distributor/Retailer updating order status
+          (isSelf(userId)) ||
+          isDistributorEmployee(userId) ||
+          // Product owner updating their assigned order
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           resource.data.productOwnerId == request.auth.uid)
+        );
+        
+        // DELETE: Only distributor/retailer can delete (product owner can cancel via status update)
+        allow delete: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId)) ||
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- Assigned Orders To Distributors (Product Owner's mirror view) ---
+      // Path: businesses/{productOwnerId}/assignedOrdersToDistributors/{orderId}
+      match /assignedOrdersToDistributors/{orderId} {
+        // READ: Product owner can read their assigned orders
+        allow read: if isAuthed() && isSelf(userId) && isEmailVerified();
+        
+        // CREATE: Product owner can create mirror record when assigning order
+        allow create: if isAuthed() && isEmailVerified() && (
+          isSelf(userId) &&
+          request.resource.data.productOwnerId == request.auth.uid
+        );
+        
+        // UPDATE: Product owner can update their assigned orders
+        allow update: if isAuthed() && isEmailVerified() && (
+          isSelf(userId) &&
+          resource.data.productOwnerId == request.auth.uid
+        );
+        
+        // DELETE: Product owner can delete their assigned orders
+        allow delete: if isAuthed() && isEmailVerified() && (
+          isSelf(userId) &&
+          resource.data.productOwnerId == request.auth.uid
+        );
+      }
+
+      // --- Assigned Orders To Retailers (Product Owner's direct retailer orders) ---
+      // Path: businesses/{productOwnerId}/assignedOrdersToRetailers/{orderId}
+      match /assignedOrdersToRetailers/{orderId} {
+        // READ: Product owner can read their assigned orders to retailers
+        allow read: if isAuthed() && isSelf(userId) && isEmailVerified();
+        
+        // CREATE: Product owner can create order when assigning to retailer
+        allow create: if isAuthed() && isEmailVerified() && (
+          isSelf(userId) &&
+          request.resource.data.productOwnerId == request.auth.uid
+        );
+        
+        // UPDATE: Product owner can update their assigned orders
+        allow update: if isAuthed() && isEmailVerified() && (
+          isSelf(userId) &&
+          resource.data.productOwnerId == request.auth.uid
+        );
+        
+        // DELETE: Product owner can delete their assigned orders
+        allow delete: if isAuthed() && isEmailVerified() && (
+          isSelf(userId) &&
+          resource.data.productOwnerId == request.auth.uid
+        );
+      }
+
+      // --- Distributor Orders To Product Owner (reverse flow) ---
+      // Path: businesses/{productOwnerId}/distributorOrderRequests/{orderId}
+      match /distributorOrderRequests/{orderId} {
+        // READ: Product owner can read orders from distributors, Distributor can read orders they sent
+        allow read: if isAuthed() && (
+          // Product owner reading their orders
+          (isSelf(userId) && isEmailVerified()) ||
+          // Distributor reading orders they sent
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["distributor", "Distributor"] &&
+           resource.data.distributorId == request.auth.uid)
+        );
+        
+        // CREATE: Distributor can create order requests to product owner
+        allow create: if isAuthed() && isEmailVerified() && (
+          exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["distributor", "Distributor"] &&
+          exists(/databases/$(database)/documents/businesses/$(userId)) &&
+          get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["productowner", "ProductOwner"] &&
+          exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedProductOwners/$(userId)) &&
+          request.resource.data.distributorId == request.auth.uid &&
+          request.resource.data.productOwnerId == userId
+        );
+        
+        // UPDATE: Both product owner and distributor can update order status
+        allow update: if isAuthed() && isEmailVerified() && (
+          // Product owner updating order status
+          (isSelf(userId)) ||
+          // Distributor updating order they sent
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["distributor", "Distributor"] &&
+           resource.data.distributorId == request.auth.uid)
+        );
+        
+        // DELETE: Only product owner can delete
+        allow delete: if isAuthed() && isEmailVerified() && isSelf(userId);
+      }
+
+      // --- Sent Orders To Product Owner (Distributor's mirror view) ---
+      // Path: businesses/{distributorId}/sentOrdersToProductOwners/{orderId}
+      match /sentOrdersToProductOwners/{orderId} {
+        // READ: Distributor can read orders they sent to product owners, Product Owner can read orders they're quoting
+        allow read: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) ||
+          isDistributorEmployee(userId) ||
+          // Product Owner can read orders they need to quote
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/distributorOrderRequests/$(orderId)))
+        );
+        
+        // CREATE: Distributor can create mirror record when sending order, Product Owner can create when submitting quote
+        allow create: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId) && request.resource.data.distributorId == request.auth.uid) ||
+          (isDistributorEmployee(userId) && request.resource.data.distributorId == userId) ||
+          // Product Owner can create when submitting a quote (document might not exist if distributor's mirror creation failed)
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           request.resource.data.productOwnerId == request.auth.uid &&
+           request.resource.data.distributorId == userId &&
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/distributorOrderRequests/$(orderId)))
+        );
+        
+        // UPDATE: Distributor can update orders they sent, Product Owner can update when sending quote
+        allow update: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId) && resource.data.distributorId == request.auth.uid) ||
+          (isDistributorEmployee(userId) && resource.data.distributorId == userId) ||
+          // Product Owner can update when they send a quote
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["productowner", "ProductOwner"] &&
+           resource.data.productOwnerId == request.auth.uid)
+        );
+        
+        // DELETE: Distributor can delete orders they sent
+        allow delete: if isAuthed() && isEmailVerified() && (
+          (isSelf(userId) && resource.data.distributorId == request.auth.uid) ||
+          (isDistributorEmployee(userId) && resource.data.distributorId == userId)
+        );
+      }
+      
+      // --- Orders (Product Owner's view of orders) ---
+      match /orders/{orderId} {
+        // READ: Product owner can read their orders
+        allow read: if isAuthed() && isSelf(userId) && isEmailVerified();
+        
+        // CREATE: Product owner can create orders (assigned to distributors)
+        // Also allows distributors to create orders in product owner's collection (for order requests)
+        allow create: if isAuthed() && isEmailVerified() && (
+          // Product owner creating order
+          (isSelf(userId)) ||
+          // Distributor creating order request in product owner's collection
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["distributor", "Distributor"] &&
+           exists(/databases/$(database)/documents/businesses/$(userId)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)).data.role in ["productowner", "ProductOwner"] &&
+           exists(/databases/$(database)/documents/businesses/$(request.auth.uid)/connectedProductOwners/$(userId)))
+        );
+        
+        // UPDATE: Both product owner and distributor can update order status
+        allow update: if isAuthed() && isEmailVerified() && (
+          // Product owner updating their order
+          (isSelf(userId)) ||
+          // Distributor updating order status (e.g., accepting, shipping, completing)
+          (exists(/databases/$(database)/documents/businesses/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.role in ["distributor", "Distributor"] &&
+           resource.data.distributorId == request.auth.uid)
+        );
+        
+        // DELETE: Only product owner can delete
+        allow delete: if isAuthed() && isEmailVerified() && isSelf(userId);
       }
 
       match /connectedRetailers/{retailerUid} {
@@ -391,6 +840,37 @@ service cloud.firestore {
             'retailerId','retailerName','retailerEmail','retailerPhone',
             'city','businessName','gstNumber','logoUrl','updatedAt'
           ]);
+
+        // UPDATE: Allow distributor/employees to update PROVISIONAL retailer information
+        // This allows editing businessName, email, phone, city, state, address, gst for provisional retailers
+        allow update: if isAuthed()
+          && (
+            (isSelf(userId) && isEmailVerified()) ||
+            isDistributorEmployee(userId)
+          )
+          // Only allow for provisional retailers (check status or source field)
+          && (
+            // If status exists and is a string, check if it starts with "provisioned"
+            (resource.data.status is string && resource.data.status.matches('(?i)^provisioned.*')) ||
+            // If source exists and is a string, check if it starts with "provisioned"
+            (resource.data.source is string && resource.data.source.matches('(?i)^provisioned.*')) ||
+            // If status doesn't exist or is null, allow update (likely provisional)
+            (resource.data.status == null)
+          )
+          // Allow updating retailer information fields (check if only these fields changed)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'businessName', 'retailerName',
+            'email', 'retailerEmail',
+            'phone', 'retailerPhone',
+            'city', 'retailerCity',
+            'state', 'retailerState',
+            'address', 'retailerAddress',
+            'gst', 'gstNumber',
+            'updatedAt'
+          ])
+          // Ensure status and source don't change (keep as provisional)
+          && (!('status' in request.resource.data) || request.resource.data.status == resource.data.status)
+          && (!('source' in request.resource.data) || request.resource.data.source == resource.data.source);
 
         // UPDATE: Allow distributor/employees to update location fields (lat, lng, formattedAddress)
         // Rule allows updating ONLY location-related fields for distributors and their employees
@@ -415,6 +895,7 @@ service cloud.firestore {
               'city','businessName','gstNumber','logoUrl','updatedAt'
             ])
           ) ||
+          // Allow business owner (distributor or product owner) to create retailers
           (request.auth.uid == userId && isEmailVerified()) ||
           isDistributorEmployee(userId)
         );
@@ -525,6 +1006,43 @@ service cloud.firestore {
 
       // --- Employee Activity Tracking ---
       match /employeeActivity/{activityId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- WhatsApp Inbox (Incoming Messages) ---
+      match /whatsappInbox/{messageId} {
+        allow read: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+        // Write is handled by Cloud Functions (webhook)
+        allow write: if false;
+      }
+
+      // --- WhatsApp Messages (Outgoing Messages) ---
+      match /whatsappMessages/{messageId} {
+        allow read: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+        // Write is handled by Cloud Functions and whatsappService
+        allow create: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+        // Update is handled by Cloud Functions (status updates)
+        allow update: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+        allow delete: if false;
+      }
+
+      // --- WhatsApp Conversations (Conversation metadata) ---
+      match /whatsappConversations/{conversationId} {
         allow read, write: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, minimum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0B0F14" />
+    <title>FLYP - Simplify Your Business</title>
+    <meta name="google-signin-client_id" content="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com" />
+    <meta name="google-signin-hosted_domain" content="flypnow.com" />
+    <link rel="canonical" href="https://flypnow.com/" />
+    <meta http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self' data: blob: capacitor: https:;
+        script-src  'self' 'unsafe-inline' 'unsafe-eval'
+                    https://www.gstatic.com
+                    https://www.google.com
+                    https://apis.google.com
+                    https://maps.googleapis.com
+                    https://www.googletagmanager.com
+                    https://www.gstatic.cn;
+        worker-src  'self' blob:;
+        style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src    'self' https://fonts.gstatic.com;
+        img-src     'self' data: blob: https:;
+        frame-src   'self'
+                    https://accounts.google.com
+                    https://www.google.com
+                    https://apis.google.com
+                    https://recaptcha.google.com
+                    https://*.firebaseapp.com;
+        connect-src 'self' data: blob: ws: wss:
+                    https://asia-south1-stockpilotv1.cloudfunctions.net
+                    https://us-central1-stockpilotv1.cloudfunctions.net
+                    https://identitytoolkit.googleapis.com
+                    https://securetoken.googleapis.com
+                    https://content-firebaseappcheck.googleapis.com
+                    https://firebaseinstallations.googleapis.com
+                    https://firestore.googleapis.com
+                    https://firebasestorage.googleapis.com
+                    https://www.googleapis.com
+                    https://maps.googleapis.com
+                    https://www.google.com
+                    https://www.gstatic.com
+                    https://graph.facebook.com
+                    https://www.facebook.com
+                    https://flyp-voice-streamer-30934537475.asia-south1.run.app
+                    https://cloud-fn-parse-rq2uh6cnqq-el.a.run.app
+                    https://india-location-hub.in
+                    wss://flyp-voice-streamer-30934537475.asia-south1.run.app
+                    ws://localhost:* wss://localhost:*;
+      ">
+    <!--
+      NOTE:
+      Do NOT include any manual reCAPTCHA script here.
+      Firebase Auth injects the correct reCAPTCHA (v2 Invisible) script when using RecaptchaVerifier.
+      Manual inclusion (v3 or enterprise) can cause auth/invalid-app-credential or "already been rendered" errors.
+    -->
+    <script type="module" crossorigin src="/assets/index-CRiLjs5T.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-Ckhrjn13.js">
+    <link rel="modulepreload" crossorigin href="/assets/router-Bg2-hh1n.js">
+    <link rel="modulepreload" crossorigin href="/assets/firebase-4Z3_LJ5b.js">
+    <link rel="modulepreload" crossorigin href="/assets/index.esm-AQ9HAnn4.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-BMJVko8S.css">
+  </head>
+  <body class="bg-white text-gray-900">
+    <div id="root"></div>
+    <!-- For local development, enable App Check debug token in main.jsx:
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    -->
+    <!-- Google Analytics 4 - Will be initialized by analytics.js if VITE_GA4_MEASUREMENT_ID is set -->
+  </body>
+</html>

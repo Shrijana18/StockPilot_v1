@@ -17,6 +17,8 @@ import { getEmployeeSession, isEmployeePath } from './utils/employeeSession.js';
 import DistributorEmployeeLogin from './pages/DistributorEmployeeLogin.jsx';
 import DistributorEmployeeDashboard from './components/distributor/employees/DistributorEmployeeDashboard.jsx';
 import { getDistributorEmployeeSession, isDistributorEmployeePath } from './utils/distributorEmployeeSession.js';
+import WhatsAppConnectSuccess from './pages/WhatsAppConnectSuccess.jsx';
+import WhatsAppConnectError from './pages/WhatsAppConnectError.jsx';
 
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute.jsx';
@@ -80,6 +82,8 @@ const App = () => {
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
+            <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
+            <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
             <Route element={<EmployeeRoute kind="retailer" />}>
               <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
@@ -132,6 +136,8 @@ const App = () => {
             <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
             <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
             <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
+            <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
+            <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
             <Route element={<EmployeeRoute kind="retailer" />}>
               <Route path="/employee-dashboard" element={<EmployeeDashboard />} />

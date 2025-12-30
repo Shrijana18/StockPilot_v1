@@ -171,135 +171,147 @@ const AuthPage = () => {
     <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center safe-top safe-bottom">
       <>
         {type === "register" && !selectedRole && (
-          <div className="relative w-full min-h-screen text-white">
-            {/* Page background (single source of truth) */}
+          <div className="relative w-full min-h-screen text-white overflow-hidden">
+            {/* Enhanced Page background */}
             <div className="absolute inset-0 -z-10">
-              {/* base color */}
-              <div className="absolute inset-0 bg-[#0b1220]" />
-              {/* radial washes */}
-              <div className="absolute inset-0 [background:radial-gradient(60%_50%_at_15%_10%,rgba(56,189,248,0.12),transparent_60%)]" />
-              <div className="absolute inset-0 [background:radial-gradient(60%_50%_at_85%_90%,rgba(217,70,239,0.10),transparent_60%)]" />
-              {/* vignette */}
-              <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_100%)] bg-black/30 pointer-events-none" />
-              {/* subtle noise (percent-encoded to avoid JSX issues) */}
-              <div className="absolute inset-0 opacity-[0.05] bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22160%22%20height=%22160%22%20viewBox=%220%200%20160%20160%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%222%22/%3E%3C/filter%3E%3Crect%20width=%22160%22%20height=%22160%22%20filter=%22url(%23n)%22%20opacity=%220.6%22/%3E%3C/svg%3E')]" />
+              <div className="absolute inset-0 bg-gradient-to-br from-[#0a0e1a] via-[#0f1419] to-[#0a0e1a]" />
+              <div className="absolute inset-0 [background:radial-gradient(ellipse_80%_50%_at_20%_20%,rgba(56,189,248,0.15),transparent_70%)]" />
+              <div className="absolute inset-0 [background:radial-gradient(ellipse_80%_50%_at_80%_80%,rgba(217,70,239,0.12),transparent_70%)]" />
+              <div className="absolute inset-0 [background:radial-gradient(ellipse_60%_40%_at_50%_50%,rgba(16,185,129,0.08),transparent_80%)]" />
+              <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_35%,transparent_100%)] bg-black/20 pointer-events-none" />
+              <div className="absolute inset-0 opacity-[0.03] bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22160%22%20height=%22160%22%20viewBox=%220%200%20160%20160%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%222%22/%3E%3C/filter%3E%3Crect%20width=%22160%22%20height=%22160%22%20filter=%22url(%23n)%22%20opacity=%220.6%22/%3E%3C/svg%3E')]" />
             </div>
 
-            <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-10 px-4 sm:px-6 py-10 sm:py-16 lg:py-20 relative">
-              {/* LEFT: Informational intro (non-card) */}
-              <div className="hidden lg:block">
-                <div className="max-w-xl pr-4">
-                  <div className="inline-flex items-center gap-2 px-2 py-0.5 rounded-md bg-white/5 text-[11px] tracking-widest uppercase text-cyan-200/90">
-                    FLYP • Choose your role
+            <div className="mx-auto max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 px-4 sm:px-6 py-12 sm:py-16 lg:py-24 relative">
+              {/* LEFT: Enhanced Informational Panel */}
+              <div className="hidden lg:flex flex-col justify-center">
+                <div className="max-w-xl space-y-6 animate-fadeIn">
+                  <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-gradient-to-r from-cyan-500/20 to-fuchsia-500/20 border border-cyan-500/30 text-[11px] tracking-widest uppercase text-cyan-300 font-medium backdrop-blur-sm">
+                    <img 
+                      src="/assets/flyp_logo.png" 
+                      alt="FLYP" 
+                      className="h-12 w-12 sm:h-14 sm:w-14 object-contain"
+                      onError={(e) => e.target.style.display = 'none'}
+                    />
+                    <span>Choose Your Role</span>
                   </div>
-                  <h2 className="mt-3 text-4xl font-extrabold tracking-tight text-white leading-tight">
-                    Built for Retailers, Distributors, and Product Owners.
-                  </h2>
-                  <p className="mt-2 text-slate-300/95 text-sm leading-relaxed">
-                    Pick the role that best describes your business. You’ll get tailored dashboards, permissions, and workflows — no extra clutter.
+                  
+                  <h1 className="text-5xl font-extrabold tracking-tight text-white leading-[1.1]">
+                    Built for <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-fuchsia-400 bg-clip-text text-transparent">Retailers</span>, <span className="bg-gradient-to-r from-orange-400 via-amber-400 to-yellow-400 bg-clip-text text-transparent">Distributors</span>, and <span className="bg-gradient-to-r from-red-400 via-pink-400 to-rose-400 bg-clip-text text-transparent">Product Owners</span>.
+                  </h1>
+                  
+                  <p className="text-lg text-slate-300/90 leading-relaxed">
+                    Pick the role that best describes your business. You'll get tailored dashboards, permissions, and workflows — no extra clutter.
                   </p>
 
-                  <div className="mt-6 space-y-4">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" />
-                      <div>
-                        <div className="text-sm font-semibold text-white">Role‑based views</div>
-                        <div className="text-xs text-slate-300">We only show what matters to your job to keep things fast.</div>
+                  <div className="mt-8 space-y-5">
+                    {[
+                      { title: "Role‑based views", desc: "We only show what matters to your job to keep things fast.", icon: "👁️" },
+                      { title: "Instant onboarding", desc: "AI/OCR tooling to bring your catalog and billing live in minutes.", icon: "⚡" },
+                      { title: "Connected workflows", desc: "Retailer ↔ Distributor ordering, dispatch, and credit cycles.", icon: "🔗" }
+                    ].map((item, idx) => (
+                      <div key={idx} className="flex items-start gap-4 group/item">
+                        <div className="mt-1 flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 to-fuchsia-500/20 border border-cyan-500/30 flex items-center justify-center text-lg backdrop-blur-sm group-hover/item:scale-110 transition-transform duration-300">
+                          {item.icon}
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-base font-bold text-white mb-1">{item.title}</div>
+                          <div className="text-sm text-slate-300/80 leading-relaxed">{item.desc}</div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" />
-                      <div>
-                        <div className="text-sm font-semibold text-white">Instant onboarding</div>
-                        <div className="text-xs text-slate-300">AI/OCR tooling to bring your catalog and billing live in minutes.</div>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" />
-                      <div>
-                        <div className="text-sm font-semibold text-white">Connected workflows</div>
-                        <div className="text-xs text-slate-300">Retailer ↔ Distributor ordering, dispatch, and credit cycles.</div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
 
-                  <div className="mt-8 h-px w-full bg-white/10" />
-                  <div className="mt-4 grid grid-cols-3 gap-4 text-xs text-slate-300">
-                    <div>
-                      <div className="font-semibold text-white">Billing</div>
-                      <div>UPI/Cash/Card, credit cycles.</div>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-white">Inventory</div>
-                      <div>OCR & AI onboarding.</div>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-white">Dispatch</div>
-                      <div>Track requests to delivery.</div>
+                  <div className="mt-10 pt-8 border-t border-white/10">
+                    <div className="grid grid-cols-3 gap-6">
+                      {[
+                        { label: "Billing", desc: "UPI/Cash/Card, credit cycles" },
+                        { label: "Inventory", desc: "OCR & AI onboarding" },
+                        { label: "Dispatch", desc: "Track requests to delivery" }
+                      ].map((item, idx) => (
+                        <div key={idx} className="text-center">
+                          <div className="text-sm font-bold text-white mb-1.5">{item.label}</div>
+                          <div className="text-xs text-slate-400 leading-relaxed">{item.desc}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* RIGHT: Glassmorphic role picker */}
-              <div className="flex items-center justify-center">
-                <div className="w-full max-w-md relative">
-                  {/* Glow behind card */}
-                  <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-cyan-500/30 via-blue-500/30 to-fuchsia-500/30 blur-2xl" />
-                  <div className="relative rounded-2xl border border-white/10 bg-white/10 backdrop-blur-xl p-8 shadow-2xl">
-                    <h2 className="text-2xl font-bold mb-2 text-center">Select your role</h2>
-                    <p className="text-sm text-slate-300 text-center mb-6">We’ll customize FLYP for your workflow.</p>
-
-                    <div className="space-y-4">
-                      <button
-                        type="button"
-                        onClick={() => handleRoleSelect("Retailer")}
-                        aria-label="Select Retailer"
-                        className="group w-full text-left rounded-xl border border-white/10 bg-white/5 p-5 transition-all hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="text-xl" aria-hidden>🛍️</span>
-                          <div>
-                            <div className="text-white font-semibold text-lg">Retailer</div>
-                            <div className="text-sm text-slate-300">Sell to end customers with fast billing & inventory.</div>
-                          </div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRoleSelect("Distributor")}
-                        aria-label="Select Distributor"
-                        className="group w-full text-left rounded-xl border border-white/10 bg-white/5 p-5 transition-all hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="text-xl" aria-hidden>🚚</span>
-                          <div>
-                            <div className="text-white font-semibold text-lg">Distributor</div>
-                            <div className="text-sm text-slate-300">Supply retailers, manage orders, dispatch & credit.</div>
-                          </div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRoleSelect("ProductOwner")}
-                        aria-label="Select Product Owner"
-                        className="group w-full text-left rounded-xl border border-white/10 bg-white/5 p-5 transition-all hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="text-xl" aria-hidden>🏭</span>
-                          <div>
-                            <div className="text-white font-semibold text-lg">Product Owner</div>
-                            <div className="text-sm text-slate-300">Own the brand, track distributors & performance.</div>
-                          </div>
-                        </div>
-                      </button>
+              {/* RIGHT: Enhanced Role Selection Card */}
+              <div className="flex items-center justify-center lg:justify-end">
+                <div className="w-full max-w-lg relative">
+                  {/* Animated glow effect */}
+                  <div className="absolute -inset-2 rounded-3xl bg-gradient-to-r from-cyan-500/40 via-blue-500/40 to-fuchsia-500/40 blur-3xl opacity-60 animate-pulse" />
+                  <div className="absolute -inset-1 rounded-3xl bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 blur-2xl" />
+                  
+                  <div className="relative rounded-3xl border border-white/20 bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-2xl p-8 sm:p-10 shadow-2xl">
+                    {/* Header */}
+                    <div className="text-center mb-8">
+                      <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-white to-slate-200 bg-clip-text text-transparent">
+                        Select your role
+                      </h2>
+                      <p className="text-slate-300/80 text-sm">We'll customize FLYP for your workflow</p>
                     </div>
 
-                    <div className="flex justify-center mt-6">
+                    {/* Role Cards */}
+                    <div className="space-y-4">
+                      {[
+                        { 
+                          role: "Retailer", 
+                          icon: "🛍️", 
+                          desc: "Sell to end customers with fast billing & inventory",
+                          gradient: "from-pink-500/20 to-rose-500/20",
+                          borderGradient: "from-pink-400/50 to-rose-400/50",
+                          hoverGlow: "group-hover:shadow-pink-500/20"
+                        },
+                        { 
+                          role: "Distributor", 
+                          icon: "🚚", 
+                          desc: "Supply retailers, manage orders, dispatch & credit",
+                          gradient: "from-orange-500/20 to-amber-500/20",
+                          borderGradient: "from-orange-400/50 to-amber-400/50",
+                          hoverGlow: "group-hover:shadow-orange-500/20"
+                        },
+                        { 
+                          role: "ProductOwner", 
+                          icon: "🏭", 
+                          desc: "Own the brand, track distributors & performance",
+                          gradient: "from-red-500/20 to-pink-500/20",
+                          borderGradient: "from-red-400/50 to-pink-400/50",
+                          hoverGlow: "group-hover:shadow-red-500/20"
+                        }
+                      ].map((item, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleRoleSelect(item.role)}
+                          aria-label={`Select ${item.role}`}
+                          className={`group w-full text-left rounded-2xl border-2 border-white/10 bg-gradient-to-br ${item.gradient} p-6 transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02] hover:border-white/30 hover:shadow-2xl ${item.hoverGlow} focus:outline-none focus:ring-2 focus:ring-cyan-400/60 focus:ring-offset-2 focus:ring-offset-transparent backdrop-blur-sm`}
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className={`text-3xl transform group-hover:scale-110 transition-transform duration-300`}>
+                              {item.icon}
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-xl font-bold text-white mb-1.5">{item.role === "ProductOwner" ? "Product Owner" : item.role}</div>
+                              <div className="text-sm text-slate-300/90 leading-relaxed">{item.desc}</div>
+                            </div>
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                              <svg className="w-6 h-6 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Cancel Button */}
+                    <div className="flex justify-center mt-8 pt-6 border-t border-white/10">
                       <button
-                        className="text-sm text-slate-300 hover:text-white hover:bg-white/10 px-4 py-2 rounded transition-all"
+                        className="text-sm text-slate-400 hover:text-white hover:bg-white/10 px-5 py-2.5 rounded-xl transition-all duration-200 font-medium"
                         onClick={() => navigate("/")}
                       >
                         Cancel
@@ -313,7 +325,7 @@ const AuthPage = () => {
         )}
 
         {type === "register" && selectedRole && (
-          <div className="animate-fadeInUp transition-all duration-500">
+          <div className="animate-slideInFromRight">
             <Register role={selectedRole} />
           </div>
         )}

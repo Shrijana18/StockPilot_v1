@@ -14,6 +14,8 @@ import LocationPicker from "./LocationPicker";
 import SmartShelfView from "./SmartShelfView";
 import SmartStoreDesigner from "./SmartStoreDesigner";
 import ViewStore from "./ViewStore";
+import SmartOrderCreator from "./SmartOrderCreator";
+import RestockOrderHistory from "./RestockOrderHistory";
 
 // === Column Preferences: defaults + storage keys ===
 const COLUMN_DEFAULTS = [
@@ -122,15 +124,7 @@ const ViewInventory = ({ userId }) => {
   const [imageUploadLoading, setImageUploadLoading] = useState(false);
   const [imageUploadError, setImageUploadError] = useState("");
   const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
-  // Unsplash AI image search states
-  const [unsplashQuery, setUnsplashQuery] = useState('');
-  const [unsplashImages, setUnsplashImages] = useState([]);
 
-  // Google AI Image Search Modal states
-  const [showImageModalAI, setShowImageModalAI] = useState(false);
-  const [aiSearchQuery, setAiSearchQuery] = useState("");
-  const [aiSearchResults, setAiSearchResults] = useState([]);
-  const [isAiLoading, setIsAiLoading] = useState(false);
 
   // Recently Modified tab state
   const [inventoryLogs, setInventoryLogs] = useState([]);
@@ -146,6 +140,11 @@ const ViewInventory = ({ userId }) => {
   const [showSmartStoreDesigner, setShowSmartStoreDesigner] = useState(false);
   const [showViewStore, setShowViewStore] = useState(false);
   const [storeDesignerMode, setStoreDesignerMode] = useState('designer'); // 'designer' or 'viewer'
+  // Smart Order Creator state
+  const [showSmartOrderCreator, setShowSmartOrderCreator] = useState(false);
+  const [showRestockOrderHistory, setShowRestockOrderHistory] = useState(false);
+  // Tools dropdown state
+  const [showToolsDropdown, setShowToolsDropdown] = useState(false);
   // Column preferences state
   const [columns, setColumns] = useState(COLUMN_DEFAULTS);
   const [hiddenCols, setHiddenCols] = useState(new Set());
@@ -174,13 +173,6 @@ const ViewInventory = ({ userId }) => {
     setImagePreviewUrl(url); // preview the selected Unsplash image
   };
 
-  const handleAISearch = async () => {
-    if (!aiSearchQuery) return;
-    setIsAiLoading(true);
-    const results = await fetchGoogleImages(aiSearchQuery);
-    setAiSearchResults(results || []);
-    setIsAiLoading(false);
-  };
   const [viewMode, setViewMode] = useState("list");
   const db = getFirestore();
 
@@ -572,159 +564,307 @@ const ViewInventory = ({ userId }) => {
 
 return (
     <div className="text-white px-0 md:px-0 py-4 md:py-6">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-3 mb-4">
-        <div className="flex items-center w-full md:w-1/3">
+      {/* Enhanced Search and Filter Bar */}
+      <div className="mb-6 space-y-4">
+        {/* Main Search Bar */}
+        <div className="relative">
           <input
             type="text"
-            placeholder="Search by name, brand, SKU..."
+            placeholder="🔍 Search products by name, brand, SKU, or category..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+            className="w-full px-4 py-3 pl-12 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all shadow-lg"
           />
-          <button
-            onClick={() => setShowImageModalAI(true)}
-            className="ml-2 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:brightness-110 text-white font-semibold py-2 px-4 rounded-lg shadow"
-          >
-            Search with AI
-          </button>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 text-lg">🔍</span>
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white transition-colors"
+              title="Clear search"
+            >
+              ✕
+            </button>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <select
-            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-            onChange={(e) => setSortKey(e.target.value)}
-            value={sortKey}
-          >
-            <option value="">Sort by</option>
-            <option value="quantity">Quantity</option>
-            <option value="costPrice">Cost Price</option>
-            <option value="sellingPrice">Selling Price</option>
-            <option value="mrp">MRP</option>
-          </select>
-          <select
-            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-            onChange={(e) => setSortOrder(e.target.value)}
-            value={sortOrder}
-          >
-            <option value="asc">Asc</option>
-            <option value="desc">Desc</option>
-          </select>
-          <select
-            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-            onChange={(e) => setStatusFilter(e.target.value)}
-            value={statusFilter}
-          >
-            <option value="">All Status</option>
-            <option value="In Stock">In Stock</option>
-            <option value="Low">Low</option>
-          </select>
-          <input
-            type="text"
-            placeholder="Filter by location..."
-            value={locationFilter}
-            onChange={(e) => setLocationFilter(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-          />
+
+        {/* Filter Row - Compact and Organized */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Status Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-white/70 whitespace-nowrap">Status:</span>
+            <select
+              className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+              onChange={(e) => setStatusFilter(e.target.value)}
+              value={statusFilter}
+            >
+              <option value="">All</option>
+              <option value="In Stock">✅ In Stock</option>
+              <option value="Low">⚠️ Low Stock</option>
+            </select>
+          </div>
+
+          {/* Sort Controls */}
+          {sortKey && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-white/70 whitespace-nowrap">Sort:</span>
+              <select
+                className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+                onChange={(e) => setSortKey(e.target.value)}
+                value={sortKey}
+              >
+                <option value="">None</option>
+                <option value="quantity">📊 Quantity</option>
+                <option value="costPrice">💰 Cost Price</option>
+                <option value="sellingPrice">💵 Selling Price</option>
+                <option value="mrp">🏷️ MRP</option>
+              </select>
+              {sortKey && (
+                <button
+                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                  className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/15 transition-all text-sm"
+                  title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+                >
+                  {sortOrder === 'asc' ? '↑' : '↓'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Location Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-white/70 whitespace-nowrap">📍 Location:</span>
+            <input
+              type="text"
+              placeholder="Search location..."
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+            />
+          </div>
+
+          {/* Brand Filter */}
           <div className="relative">
             <button
-              className="px-3 py-2 rounded-lg min-w-[140px] text-left bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+              className="px-3 py-2 rounded-lg min-w-[140px] text-left bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all hover:bg-white/15"
               type="button"
               onClick={() => setShowBrandDropdown((prev) => !prev)}
             >
+              <span className="text-white/70">🏷️ </span>
               {brandFilter.length === 0
                 ? "All Brands"
                 : brandFilter.length === 1
                 ? brandFilter[0]
-                : brandFilter.join(", ")}
-              <span className="ml-1">&#9660;</span>
+                : `${brandFilter.length} selected`}
+              <span className="ml-1 text-white/50">▼</span>
             </button>
             {showBrandDropdown && (
-              <div className="absolute left-0 mt-1 bg-[#0b0f14] border border-white/10 rounded-xl shadow-lg z-20 p-2 min-w-[180px] max-h-56 overflow-y-auto text-white">
-                {availableBrands.length === 0 && (
-                  <div className="text-xs text-gray-500 px-2 py-1">No brands</div>
-                )}
-                {availableBrands.map((brand, idx) => (
-                  <label key={idx} className="block px-2 py-1 cursor-pointer hover:bg-white/10 rounded">
-                    <input
-                      type="checkbox"
-                      checked={brandFilter.includes(brand)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setBrandFilter([...brandFilter, brand]);
-                        } else {
-                          setBrandFilter(brandFilter.filter((b) => b !== brand));
-                        }
-                      }}
-                      className="mr-2"
-                    />
-                    {brand}
-                  </label>
-                ))}
-                <div className="flex justify-between mt-2">
-                  <button
-                    className="text-xs text-emerald-300 hover:text-emerald-200 underline"
-                    type="button"
-                    onClick={() => setBrandFilter([])}
-                  >
-                    Clear All
-                  </button>
-                  <button
-                    className="text-xs text-white/70 hover:text-white underline"
-                    type="button"
-                    onClick={() => setShowBrandDropdown(false)}
-                  >
-                    Close
-                  </button>
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setShowBrandDropdown(false)}
+                />
+                <div className="absolute left-0 mt-2 bg-[#0b0f14] border border-white/20 rounded-xl shadow-2xl z-20 p-3 min-w-[220px] max-h-64 overflow-y-auto backdrop-blur-xl">
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/10">
+                    <span className="text-sm font-semibold text-white">Select Brands</span>
+                    <button
+                      className="text-xs text-emerald-300 hover:text-emerald-200 font-medium"
+                      type="button"
+                      onClick={() => setBrandFilter([])}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  {availableBrands.length === 0 ? (
+                    <div className="text-xs text-white/50 px-2 py-4 text-center">No brands available</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {availableBrands.map((brand, idx) => (
+                        <label key={idx} className="flex items-center px-3 py-2 cursor-pointer hover:bg-white/10 rounded-lg transition-colors group">
+                          <input
+                            type="checkbox"
+                            checked={brandFilter.includes(brand)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setBrandFilter([...brandFilter, brand]);
+                              } else {
+                                setBrandFilter(brandFilter.filter((b) => b !== brand));
+                              }
+                            }}
+                            className="mr-3 w-4 h-4 rounded border-white/30 text-emerald-500 focus:ring-emerald-400"
+                          />
+                          <span className="text-sm text-white group-hover:text-emerald-300 transition-colors">{brand}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
+              </>
             )}
           </div>
+
+          {/* Active Filters Display */}
+          {(statusFilter || sortKey || locationFilter || brandFilter.length > 0) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-white/70">Active filters:</span>
+              {statusFilter && (
+                <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs border border-emerald-400/30">
+                  {statusFilter}
+                  <button onClick={() => setStatusFilter("")} className="ml-1 hover:text-white">×</button>
+                </span>
+              )}
+              {sortKey && (
+                <span className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-300 text-xs border border-blue-400/30">
+                  Sort: {sortKey} {sortOrder === 'asc' ? '↑' : '↓'}
+                  <button onClick={() => setSortKey("")} className="ml-1 hover:text-white">×</button>
+                </span>
+              )}
+              {locationFilter && (
+                <span className="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 text-xs border border-purple-400/30">
+                  📍 {locationFilter}
+                  <button onClick={() => setLocationFilter("")} className="ml-1 hover:text-white">×</button>
+                </span>
+              )}
+              {brandFilter.length > 0 && (
+                <span className="px-2 py-1 rounded-lg bg-orange-500/20 text-orange-300 text-xs border border-orange-400/30">
+                  🏷️ {brandFilter.length} brand{brandFilter.length > 1 ? 's' : ''}
+                  <button onClick={() => setBrandFilter([])} className="ml-1 hover:text-white">×</button>
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  setStatusFilter("");
+                  setSortKey("");
+                  setLocationFilter("");
+                  setBrandFilter([]);
+                  setSearch("");
+                }}
+                className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white text-xs border border-white/20 transition-all"
+              >
+                Clear All
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex mb-2 gap-2 flex-wrap">
-        <button
-          onClick={() => setSelectedTab("view")}
-          className={`px-4 py-2 rounded-lg border ${
-            selectedTab === "view" ? "bg-white/15 border-white/20 text-white" : "bg-white/5 border-white/10 text-white/70 hover:text-white"
-          }`}
-        >
-          Inventory
-        </button>
-        <button
-          onClick={() => setSelectedTab("shelf")}
-          className={`px-4 py-2 rounded-lg border ${
-            selectedTab === "shelf" ? "bg-white/15 border-white/20 text-white" : "bg-white/5 border-white/10 text-white/70 hover:text-white"
-          }`}
-        >
-          Smart Shelf View
-        </button>
-        <button
-          onClick={() => setSelectedTab("recent")}
-          className={`px-4 py-2 rounded-lg border ${
-            selectedTab === "recent" ? "bg-white/15 border-white/20 text-white" : "bg-white/5 border-white/10 text-white/70 hover:text-white"
-          }`}
-        >
-          Recently Modified
-        </button>
-        <div className="ml-auto flex gap-2">
+      <div className="flex mb-2 gap-2 flex-wrap items-center">
+        <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => {
-              setStoreDesignerMode('designer');
-              setShowSmartStoreDesigner(true);
-            }}
-            className="px-4 py-2 rounded-lg border bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-purple-400/30 text-white hover:from-purple-500/30 hover:to-pink-500/30 font-semibold"
-            title="🧠 Smart Store Designer - Unified intelligent store design system"
+            onClick={() => setSelectedTab("view")}
+            className={`px-4 py-2 rounded-lg border transition-all ${
+              selectedTab === "view" 
+                ? "bg-emerald-500 text-slate-900 border-emerald-400 font-semibold shadow-lg" 
+                : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
+            }`}
           >
-            🧠 Smart Designer
+            📦 Inventory
           </button>
           <button
-            onClick={() => setShowViewStore(true)}
-            className="px-4 py-2 rounded-lg border bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-blue-400/30 text-white hover:from-blue-500/30 hover:to-purple-500/30"
-            title="View your store layout and find product locations"
+            onClick={() => setSelectedTab("shelf")}
+            className={`px-4 py-2 rounded-lg border transition-all ${
+              selectedTab === "shelf" 
+                ? "bg-emerald-500 text-slate-900 border-emerald-400 font-semibold shadow-lg" 
+                : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
+            }`}
           >
-            👁️ View Store
+            🗂️ Smart Shelf View
           </button>
+          <button
+            onClick={() => setSelectedTab("recent")}
+            className={`px-4 py-2 rounded-lg border transition-all ${
+              selectedTab === "recent" 
+                ? "bg-emerald-500 text-slate-900 border-emerald-400 font-semibold shadow-lg" 
+                : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
+            }`}
+          >
+            🕐 Recently Modified
+          </button>
+          <button
+            onClick={() => setSelectedTab("restock")}
+            className={`px-4 py-2 rounded-lg border transition-all ${
+              selectedTab === "restock" 
+                ? "bg-emerald-500 text-slate-900 border-emerald-400 font-semibold shadow-lg" 
+                : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
+            }`}
+          >
+            📋 Restock Orders
+          </button>
+        </div>
+        
+        {/* Quick Actions - Only show when viewing inventory */}
+        {selectedTab === "view" && (
+          <div className="ml-auto flex gap-2">
+            {/* Quick Order Creator - Prominent for low stock */}
+            {products.filter(p => {
+              const qty = parseInt(p.quantity) || 0;
+              return qty <= 5;
+            }).length > 0 && (
+              <button
+                onClick={() => {
+                  setShowSmartOrderCreator(true);
+                }}
+                className="px-4 py-2 rounded-lg border bg-gradient-to-r from-orange-500 to-amber-500 hover:brightness-110 text-white font-semibold shadow-lg animate-pulse"
+                title="Quick order for low stock items"
+              >
+                ⚡ Quick Order ({products.filter(p => {
+                  const qty = parseInt(p.quantity) || 0;
+                  return qty <= 5;
+                }).length} low stock)
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Tools Dropdown - Less frequently used features */}
+        <div className="ml-auto relative">
+          <button
+            onClick={() => setShowToolsDropdown(!showToolsDropdown)}
+            className="px-4 py-2 rounded-lg border bg-white/5 border-white/10 text-white hover:bg-white/10 transition-all flex items-center gap-2"
+            title="Additional tools"
+          >
+            🛠️ Tools
+            <span className="text-xs">▼</span>
+          </button>
+          {showToolsDropdown && (
+            <>
+              <div 
+                className="fixed inset-0 z-10" 
+                onClick={() => setShowToolsDropdown(false)}
+              />
+              <div className="absolute right-0 mt-2 w-56 rounded-lg border border-white/10 bg-[#0B0F14] shadow-2xl z-20 overflow-hidden">
+                <button
+                  onClick={() => {
+                    setStoreDesignerMode('designer');
+                    setShowSmartStoreDesigner(true);
+                    setShowToolsDropdown(false);
+                  }}
+                  className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+                >
+                  🧠 Smart Store Designer
+                </button>
+                <button
+                  onClick={() => {
+                    setShowViewStore(true);
+                    setShowToolsDropdown(false);
+                  }}
+                  className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+                >
+                  👁️ View Store Layout
+                </button>
+                <div className="border-t border-white/10" />
+                <button
+                  onClick={() => {
+                    setShowRestockOrderHistory(true);
+                    setShowToolsDropdown(false);
+                  }}
+                  className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+                >
+                  📋 Order History
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -748,17 +888,43 @@ return (
 
           {viewMode === "list" ? (
             <>
-          <div className="flex items-center gap-2 mb-4 flex-wrap">
-            <button
-              className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/15 transition-all duration-200 text-sm font-medium"
-              onClick={() => setShowCustomColumnsModal(true)}
-              type="button"
-              title="Manage columns"
-            >
-              ⚙️ Manage Columns
-            </button>
-            <div className="ml-auto text-xs sm:text-sm text-white/60">
-              Showing {filtered.length} of {products.length} products
+          {/* Table Header with Stats */}
+          <div className="flex items-center justify-between mb-4 p-4 rounded-xl bg-gradient-to-r from-white/5 to-white/3 border border-white/10 backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <button
+                className="px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/15 transition-all duration-200 text-sm font-medium flex items-center gap-2"
+                onClick={() => setShowCustomColumnsModal(true)}
+                type="button"
+                title="Manage columns"
+              >
+                <span>⚙️</span>
+                <span>Manage Columns</span>
+              </button>
+              <div className="h-6 w-px bg-white/20" />
+              <div className="text-sm text-white/80">
+                <span className="font-semibold text-emerald-400">{filtered.length}</span>
+                <span className="text-white/60"> of </span>
+                <span className="font-semibold">{products.length}</span>
+                <span className="text-white/60"> products</span>
+                {filtered.length !== products.length && (
+                  <span className="ml-2 text-xs text-white/50">
+                    ({products.length - filtered.length} hidden by filters)
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {products.filter(p => {
+                const qty = parseInt(p.quantity) || 0;
+                return qty <= 5;
+              }).length > 0 && (
+                <div className="px-3 py-1.5 rounded-lg bg-rose-500/20 border border-rose-400/30 text-rose-300 text-xs font-medium">
+                  ⚠️ {products.filter(p => {
+                    const qty = parseInt(p.quantity) || 0;
+                    return qty <= 5;
+                  }).length} low stock items
+                </div>
+              )}
             </div>
           </div>
               {/* Responsive Table Container */}
@@ -933,18 +1099,35 @@ return (
                               const st = getStatus(p.quantity);
                               const badgeText = st === "In Stock" ? "In\u00A0Stock" : st; // keep on one line
                               const isLow = st === "Low";
+                              const isOut = st === "Unknown" || (parseInt(p.quantity) || 0) === 0;
                               return (
                                 <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center whitespace-nowrap">
-                    <span
-                                    title={st}
-                                    className={
-                                      "inline-flex items-center justify-center min-w-[80px] sm:min-w-[90px] h-7 sm:h-8 px-3 sm:px-4 rounded-full text-xs sm:text-sm font-bold shadow-md " +
-                                      (isLow ? "bg-gradient-to-r from-rose-500 to-rose-600 text-white border border-rose-400/50" : "bg-gradient-to-r from-emerald-400 to-emerald-500 text-slate-900 border border-emerald-300/50")
-                                    }
-                    >
-                                    {badgeText}
-                    </span>
-                  </td>
+                                  <div className="flex items-center justify-center gap-2">
+                                    <span
+                                      title={st}
+                                      className={
+                                        "inline-flex items-center justify-center min-w-[80px] sm:min-w-[90px] h-7 sm:h-8 px-3 sm:px-4 rounded-full text-xs sm:text-sm font-bold shadow-md " +
+                                        (isLow ? "bg-gradient-to-r from-rose-500 to-rose-600 text-white border border-rose-400/50" : 
+                                         isOut ? "bg-gradient-to-r from-gray-500 to-gray-600 text-white border border-gray-400/50" :
+                                         "bg-gradient-to-r from-emerald-400 to-emerald-500 text-slate-900 border border-emerald-300/50")
+                                      }
+                                    >
+                                      {badgeText}
+                                    </span>
+                                    {(isLow || isOut) && (
+                                      <button
+                                        onClick={() => {
+                                          setShowSmartOrderCreator(true);
+                                          // The SmartOrderCreator will handle pre-filtering
+                                        }}
+                                        className="px-2 py-1 rounded text-xs font-medium bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-400/30 transition-all"
+                                        title="Quick add to restock order"
+                                      >
+                                        ⚡
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
                               );
                             }
                             case "location":
@@ -1201,6 +1384,22 @@ return (
           )}
         </div>
       )}
+
+      {/* Restock Orders Tab Content */}
+      {selectedTab === "restock" && (
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">Restock Order Management</h2>
+            <button
+              onClick={() => setShowSmartOrderCreator(true)}
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 hover:brightness-110 text-white font-semibold shadow-lg"
+            >
+              ➕ Create New Order
+            </button>
+          </div>
+          <RestockOrderHistory userId={userId} onClose={() => {}} embedded={true} />
+        </div>
+      )}
       {/* Delete Modal */}
       {showDeleteModal && (
         <DeleteConfirmationModal
@@ -1243,49 +1442,6 @@ return (
         />
       )}
 
-      {/* AI Image Search Modal */}
-      {showImageModalAI && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded shadow-lg w-11/12 max-w-2xl relative">
-            <button
-              onClick={() => setShowImageModalAI(false)}
-              className="absolute top-2 right-2 text-gray-500 hover:text-red-600"
-            >
-              ✕
-            </button>
-            <h2 className="text-lg font-semibold mb-2">Search Product Images</h2>
-            <div className="flex gap-2 mb-4">
-              <input
-                type="text"
-                placeholder="Enter product description..."
-                className="flex-grow border border-gray-300 px-4 py-2 rounded"
-                value={aiSearchQuery}
-                onChange={(e) => setAiSearchQuery(e.target.value)}
-              />
-              <button
-                onClick={handleAISearch}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
-                {isAiLoading ? "Searching..." : "Search"}
-              </button>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-80 overflow-y-auto">
-              {aiSearchResults.map((url, index) => (
-                <img
-                  key={index}
-                  src={url}
-                  alt="AI result"
-                  className="w-full h-28 object-cover rounded cursor-pointer border hover:border-blue-500"
-                  onClick={() => {
-                    navigator.clipboard.writeText(url);
-                    alert("Image URL copied to clipboard!");
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Location Picker Modal */}
       {showLocationPicker && locationTargetProduct && (
@@ -1315,6 +1471,20 @@ return (
           userId={userId}
           products={products}
           onClose={() => setShowViewStore(false)}
+        />
+      )}
+      {showSmartOrderCreator && (
+        <SmartOrderCreator
+          userId={userId}
+          products={products}
+          onClose={() => setShowSmartOrderCreator(false)}
+          preSelectLowStock={selectedTab === "view"}
+        />
+      )}
+      {showRestockOrderHistory && selectedTab !== "restock" && (
+        <RestockOrderHistory
+          userId={userId}
+          onClose={() => setShowRestockOrderHistory(false)}
         />
       )}
     </div>

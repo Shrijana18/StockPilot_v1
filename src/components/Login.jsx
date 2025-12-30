@@ -232,8 +232,13 @@ const Login = () => {
             </div>
           )}
           <div className="px-4 sm:px-7 md:px-8 pt-6 sm:pt-8 pb-4 sm:pb-6 text-center">
-            <div className="mx-auto mb-3 sm:mb-4 inline-flex items-center gap-2">
-              <span className="text-lg sm:text-xl font-semibold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</span>
+            <div className="mx-auto mb-3 sm:mb-4 inline-flex items-center gap-3">
+              <img 
+                src="/assets/flyp_logo.png" 
+                alt="FLYP" 
+                className="h-16 w-16 sm:h-20 sm:w-20 object-contain"
+                onError={(e) => e.target.style.display = 'none'}
+              />
               <span className="text-xs px-2 py-0.5 rounded-full border border-white/20 text-white/80">Sign In</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-white">Welcome back</h2>

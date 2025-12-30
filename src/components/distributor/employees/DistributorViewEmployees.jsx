@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { collection, deleteDoc, doc, onSnapshot, query, updateDoc, setDoc, serverTimestamp, getDoc, where, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { db, auth } from "../../../firebase/firebaseConfig";
-import { FiTrash2, FiPlus, FiEdit, FiDatabase, FiActivity, FiChevronDown, FiChevronUp, FiSearch, FiFilter, FiDownload, FiEye, FiCalendar, FiX, FiArrowDown, FiArrowUp } from 'react-icons/fi';
+import { FiTrash2, FiPlus, FiEdit, FiDatabase, FiActivity, FiChevronDown, FiChevronUp, FiSearch, FiFilter, FiDownload, FiEye, FiCalendar, FiX, FiArrowDown, FiArrowUp, FiMail, FiPhone, FiUser, FiShield, FiCopy, FiExternalLink, FiMoreVertical, FiCheckCircle, FiClock, FiMapPin, FiUsers, FiSettings } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from "../../../firebase/firebaseConfig";
 import AddDistributorEmployeeModal from './AddDistributorEmployeeModal';
+import EmployeeZoneRetailerModal from './EmployeeZoneRetailerModal';
+import EditEmployeeModal from './EditEmployeeModal';
+import PermissionSelectorModal from './PermissionSelectorModal';
 
 const ConfirmResetModal = ({ open, name, onConfirm, onCancel }) => {
   if (!open) return null;
@@ -20,6 +23,118 @@ const ConfirmResetModal = ({ open, name, onConfirm, onCancel }) => {
           <button type="button" onClick={onConfirm} className="px-3 py-2 rounded-lg border border-red-400/30 bg-red-500/20 hover:bg-red-500/30 text-red-200">Reset PIN</button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// Role Selector Component with Custom Role Support
+const RoleSelector = ({ employee, currentUser, customRoles, onRoleChange }) => {
+  const standardRoles = ['Manager', 'Sales Executive', 'Order Manager', 'Dispatch Manager', 'Admin'];
+  const allRoles = [...standardRoles, ...customRoles];
+  const isCurrentlyCustom = employee.role && !allRoles.includes(employee.role);
+  
+  const [selectedRole, setSelectedRole] = useState(employee.role || '');
+  const [isCustom, setIsCustom] = useState(isCurrentlyCustom);
+  const [customRoleName, setCustomRoleName] = useState(isCurrentlyCustom ? employee.role : '');
+
+  useEffect(() => {
+    setSelectedRole(employee.role || '');
+    const allRolesList = ['Manager', 'Sales Executive', 'Order Manager', 'Dispatch Manager', 'Admin', ...customRoles];
+    const isCustomRole = employee.role && !allRolesList.includes(employee.role);
+    setIsCustom(isCustomRole);
+    if (isCustomRole) {
+      setCustomRoleName(employee.role);
+    }
+  }, [employee.role, customRoles]);
+
+  const handleRoleChange = (value) => {
+    if (value === 'custom') {
+      setIsCustom(true);
+      setCustomRoleName('');
+    } else {
+      setIsCustom(false);
+      setSelectedRole(value);
+      if (value) {
+        onRoleChange(value);
+      }
+    }
+  };
+
+  const handleCustomRoleSubmit = () => {
+    if (customRoleName.trim()) {
+      setSelectedRole(customRoleName.trim());
+      onRoleChange(customRoleName.trim());
+      setIsCustom(false);
+    }
+  };
+
+  if (isCustom) {
+    return (
+      <div className="mb-4">
+        <label className="block text-xs text-gray-400 mb-1.5">Role</label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={customRoleName}
+            onChange={(e) => setCustomRoleName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCustomRoleSubmit();
+              } else if (e.key === 'Escape') {
+                setIsCustom(false);
+                setCustomRoleName('');
+                setSelectedRole(employee.role || '');
+              }
+            }}
+            placeholder="Enter custom role name"
+            className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            autoFocus
+          />
+          <button
+            onClick={handleCustomRoleSubmit}
+            className="px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 text-emerald-300 text-sm transition-all"
+          >
+            Save
+          </button>
+          <button
+            onClick={() => {
+              setIsCustom(false);
+              setCustomRoleName('');
+              setSelectedRole(employee.role || '');
+            }}
+            className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-sm transition-all"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4">
+      <label className="block text-xs text-gray-400 mb-1.5">Role</label>
+      <select
+        value={selectedRole}
+        onChange={(e) => handleRoleChange(e.target.value)}
+        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+      >
+        <option value="" className="bg-gray-900">Select Role</option>
+        {standardRoles.map(role => (
+          <option key={role} value={role} className="bg-gray-900">{role}</option>
+        ))}
+        {customRoles.length > 0 && (
+          <>
+            <optgroup label="Custom Roles" className="bg-gray-900">
+              {customRoles.map(role => (
+                <option key={role} value={role} className="bg-gray-900">{role}</option>
+              ))}
+            </optgroup>
+          </>
+        )}
+        <option value="custom" className="bg-gray-900 text-emerald-400">+ Create Custom Role</option>
+      </select>
     </div>
   );
 };
@@ -480,6 +595,29 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
     toast.success('Activity data exported successfully');
   };
 
+  // Calculate overall stats - MUST be before any early returns (Rules of Hooks)
+  const overallStats = useMemo(() => {
+    const totals = Object.values(activitiesByEmployee || {}).reduce((acc, emp) => {
+      acc.totalOrders += emp.stats?.totalOrders || 0;
+      acc.totalRevenue += emp.stats?.totalRevenue || 0;
+      acc.totalCreated += emp.stats?.created || 0;
+      acc.totalDelivered += emp.stats?.delivered || 0;
+      return acc;
+    }, { totalOrders: 0, totalRevenue: 0, totalCreated: 0, totalDelivered: 0 });
+    return totals;
+  }, [activitiesByEmployee]);
+
+  // Get filtered employee list - MUST be before early returns
+  const filteredEmployees = useMemo(() => {
+    if (selectedEmployeeFilter === 'all') {
+      return Object.values(filteredAndSortedActivities);
+    }
+    return Object.values(filteredAndSortedActivities).filter(emp => {
+      const empKey = emp.flypEmployeeId || emp.employeeId || '';
+      return empKey === selectedEmployeeFilter;
+    });
+  }, [filteredAndSortedActivities, selectedEmployeeFilter]);
+
   if (loadingActivity) {
     return (
       <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-6 text-sm text-gray-200 flex items-center justify-center min-h-[400px]">
@@ -491,7 +629,7 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
     );
   }
 
-  if (Object.keys(activitiesByEmployee).length === 0) {
+  if (Object.keys(activitiesByEmployee || {}).length === 0) {
     return (
       <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-6 text-sm text-gray-300 text-center min-h-[400px] flex items-center justify-center">
         <div>
@@ -502,58 +640,103 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
     );
   }
 
-  // Get filtered employee list
-  const filteredEmployees = selectedEmployeeFilter === 'all' 
-    ? Object.values(filteredAndSortedActivities)
-    : Object.values(filteredAndSortedActivities).filter(emp => {
-        const empKey = emp.flypEmployeeId || emp.employeeId || '';
-        return empKey === selectedEmployeeFilter;
-      });
-
   return (
     <div className="space-y-6">
-      {/* Header with Title and Summary Stats */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      {/* Custom Scrollbar Styles */}
+      <style>{`
+        .activity-scrollbar::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        .activity-scrollbar::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 4px;
+        }
+        .activity-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(148, 163, 184, 0.4);
+          border-radius: 4px;
+        }
+        .activity-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(148, 163, 184, 0.6);
+        }
+      `}</style>
+      
+      {/* Header Section */}
+      <div className="space-y-4">
         <div>
-          <h2 className="text-3xl font-bold text-white mb-2">Employee Activity Analytics</h2>
+          <h2 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent mb-2">
+            Employee Activity Analytics
+          </h2>
           <p className="text-sm text-gray-400">Comprehensive tracking and insights for employee performance</p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right">
-            <div className="text-2xl font-bold text-emerald-400">
-              {Object.values(activitiesByEmployee).reduce((sum, emp) => sum + emp.stats.totalOrders, 0)}
+
+        {/* Summary Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="backdrop-blur-md bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30 rounded-xl p-4 hover:border-emerald-400/50 transition-all">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-emerald-300 uppercase tracking-wider">Total Orders</div>
+              <FiDatabase className="w-5 h-5 text-emerald-400" />
             </div>
-            <div className="text-xs text-gray-400">Total Orders</div>
+            <div className="text-3xl font-bold text-emerald-400 mb-1">{overallStats.totalOrders}</div>
+            <div className="text-xs text-gray-400">Across all employees</div>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-emerald-400">
-              ₹{Object.values(activitiesByEmployee).reduce((sum, emp) => sum + emp.stats.totalRevenue, 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+
+          <div className="backdrop-blur-md bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-xl p-4 hover:border-blue-400/50 transition-all">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-blue-300 uppercase tracking-wider">Created</div>
+              <FiActivity className="w-5 h-5 text-blue-400" />
             </div>
-            <div className="text-xs text-gray-400">Total Revenue</div>
+            <div className="text-3xl font-bold text-blue-400 mb-1">{overallStats.totalCreated}</div>
+            <div className="text-xs text-gray-400">Orders created</div>
+          </div>
+
+          <div className="backdrop-blur-md bg-gradient-to-br from-cyan-500/20 to-cyan-600/10 border border-cyan-500/30 rounded-xl p-4 hover:border-cyan-400/50 transition-all">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-cyan-300 uppercase tracking-wider">Delivered</div>
+              <FiCheckCircle className="w-5 h-5 text-cyan-400" />
+            </div>
+            <div className="text-3xl font-bold text-cyan-400 mb-1">{overallStats.totalDelivered}</div>
+            <div className="text-xs text-gray-400">Orders delivered</div>
+          </div>
+
+          <div className="backdrop-blur-md bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-xl p-4 hover:border-purple-400/50 transition-all">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-purple-300 uppercase tracking-wider">Total Revenue</div>
+              <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="text-2xl font-bold text-purple-400 mb-1">
+              ₹{overallStats.totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs text-gray-400">Total revenue generated</div>
           </div>
         </div>
       </div>
 
       {/* Advanced Filters and Controls */}
-      <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-4 space-y-4">
+      <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-5 space-y-5">
+        {/* First Row - Main Filters */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
           <div className="relative">
-            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
               placeholder="Search orders, retailers..."
               value={activitySearchTerm}
               onChange={(e) => setActivitySearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
             />
           </div>
 
           {/* Employee Filter */}
+          <div className="relative">
+            <FiUser className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
           <select
             value={selectedEmployeeFilter}
             onChange={(e) => setSelectedEmployeeFilter(e.target.value)}
-            className="px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all appearance-none cursor-pointer"
           >
             <option value="all" className="bg-gray-900">All Employees</option>
             {Object.values(activitiesByEmployee).map((emp) => {
@@ -564,12 +747,15 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
               );
             })}
           </select>
+          </div>
 
           {/* Activity Type Filter */}
+          <div className="relative">
+            <FiFilter className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
           <select
             value={activityFilter}
             onChange={(e) => setActivityFilter(e.target.value)}
-            className="px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all appearance-none cursor-pointer"
           >
             <option value="all" className="bg-gray-900">All Actions</option>
             <option value="created" className="bg-gray-900">Created Orders</option>
@@ -580,53 +766,66 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
             <option value="rejected" className="bg-gray-900">Rejected Orders</option>
             <option value="added_retailer" className="bg-gray-900">Retailers Added</option>
           </select>
+          </div>
 
           {/* Sort By */}
+          <div className="relative">
+            <FiArrowDown className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
           <select
             value={activitySortBy}
             onChange={(e) => setActivitySortBy(e.target.value)}
-            className="px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all appearance-none cursor-pointer"
           >
             <option value="date-desc" className="bg-gray-900">Date: Newest First</option>
             <option value="date-asc" className="bg-gray-900">Date: Oldest First</option>
             <option value="revenue-desc" className="bg-gray-900">Revenue: High to Low</option>
             <option value="revenue-asc" className="bg-gray-900">Revenue: Low to High</option>
           </select>
+          </div>
         </div>
 
-        {/* Date Range Picker */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        {/* Second Row - Date Range and Page Size */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Start Date</label>
+            <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center gap-1">
+              <FiCalendar className="w-3.5 h-3.5" />
+              Start Date
+            </label>
             <input
               type="date"
-              value={dateRange.start || ''}
+              value={dateRange.start ? (dateRange.start instanceof Date ? dateRange.start.toISOString().split('T')[0] : new Date(dateRange.start).toISOString().split('T')[0]) : ''}
               onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value ? new Date(e.target.value) : null }))}
-              className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">End Date</label>
+            <label className="block text-xs font-medium text-gray-300 mb-1.5 flex items-center gap-1">
+              <FiCalendar className="w-3.5 h-3.5" />
+              End Date
+            </label>
             <input
               type="date"
-              value={dateRange.end || ''}
+              value={dateRange.end ? (dateRange.end instanceof Date ? dateRange.end.toISOString().split('T')[0] : new Date(dateRange.end).toISOString().split('T')[0]) : ''}
               onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value ? new Date(e.target.value) : null }))}
-              className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
             />
           </div>
           <div className="flex gap-2">
             {(dateRange.start || dateRange.end) && (
               <button
                 onClick={() => setDateRange({ start: null, end: null })}
-                className="px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-300 text-sm"
+                className="flex-1 px-4 py-2.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-300 text-sm font-medium transition-all hover:border-red-400/50"
               >
-                Clear Dates
+                Clear
               </button>
             )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300 mb-1.5">Items per page</label>
             <select
               value={activityPageSize}
               onChange={(e) => setActivityPageSize(Number(e.target.value))}
-              className="px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-4 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all appearance-none cursor-pointer"
             >
               <option value={20} className="bg-gray-900">20 per page</option>
               <option value={50} className="bg-gray-900">50 per page</option>
@@ -635,10 +834,20 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
             </select>
           </div>
         </div>
+
+        {/* Results Count */}
+        {filteredEmployees.length > 0 && (
+          <div className="pt-2 border-t border-white/10">
+            <p className="text-sm text-gray-400">
+              Showing <span className="font-semibold text-white">{filteredEmployees.length}</span> employee{filteredEmployees.length !== 1 ? 's' : ''}
+              {activitySearchTerm && ` • "${activitySearchTerm}"`}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Employee Activity Cards */}
-      <div className="space-y-4">
+      <div className="space-y-5">
         {filteredEmployees.map((empData) => {
           const empKey = empData.flypEmployeeId || empData.employeeId || 'unknown';
           const isExpanded = expandedEmployees[empKey];
@@ -656,93 +865,127 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
           return (
             <div
               key={empKey}
-              className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl overflow-hidden transition-all"
+              className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl overflow-hidden transition-all hover:border-white/20 hover:shadow-lg hover:shadow-emerald-500/10"
             >
               {/* Employee Header - Always Visible */}
               <div 
-                className="p-6 cursor-pointer hover:bg-white/5 transition-colors"
+                className="p-6 cursor-pointer hover:bg-white/5 transition-all"
                 onClick={() => toggleEmployeeExpansion(empKey)}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div className={`transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                <div className="flex items-start justify-between gap-6">
+                  {/* Left: Employee Info */}
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    <div className={`flex-shrink-0 transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
                       {isExpanded ? <FiChevronUp className="w-5 h-5 text-gray-400" /> : <FiChevronDown className="w-5 h-5 text-gray-400" />}
                     </div>
-                    <div className="flex-1">
-                      <h3 className="text-xl font-bold text-white mb-1">{displayName}</h3>
-                      <p className="text-sm text-gray-400">{displayRole} • {displayFlypId}</p>
+                    {/* Profile Picture */}
+                    <div className="flex-shrink-0">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center">
+                        {matchingEmployee?.profilePictureUrl ? (
+                          <img
+                            src={matchingEmployee.profilePictureUrl}
+                            alt={displayName}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // Fallback to initial if image fails to load
+                              e.target.style.display = 'none';
+                              const parent = e.target.parentElement;
+                              if (parent && !parent.querySelector('span')) {
+                                const initial = document.createElement('span');
+                                initial.className = 'text-xl font-bold text-white';
+                                initial.textContent = displayName.charAt(0).toUpperCase();
+                                parent.appendChild(initial);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span className="text-xl font-bold text-white">{displayName.charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-1">
+                        <h3 className="text-xl font-bold text-white truncate">{displayName}</h3>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-gray-400">
+                        <span className="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 font-medium text-xs">
+                          {displayRole}
+                        </span>
+                        <span className="text-gray-500">•</span>
+                        <span className="font-mono text-xs">{displayFlypId}</span>
+                      </div>
                     </div>
                   </div>
                   
-                  {/* Quick Stats */}
-                  <div className="grid grid-cols-4 gap-4 text-center">
-                    <div>
-                      <div className="text-lg font-bold text-blue-400">{empData.stats.created}</div>
-                      <div className="text-xs text-gray-400">Created</div>
+                  {/* Center: Key Metrics */}
+                  <div className="hidden lg:grid grid-cols-4 gap-4 text-center flex-shrink-0">
+                    <div className="px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                      <div className="text-xl font-bold text-blue-400">{empData.stats.created}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">Created</div>
                     </div>
-                    <div>
-                      <div className="text-lg font-bold text-emerald-400">{empData.stats.delivered}</div>
-                      <div className="text-xs text-gray-400">Delivered</div>
+                    <div className="px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <div className="text-xl font-bold text-emerald-400">{empData.stats.delivered}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">Delivered</div>
                     </div>
-                    <div>
-                      <div className="text-lg font-bold text-cyan-400">{empData.stats.added_retailer}</div>
-                      <div className="text-xs text-gray-400">Retailers</div>
+                    <div className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                      <div className="text-xl font-bold text-cyan-400">{empData.stats.added_retailer}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">Retailers</div>
                     </div>
-                    <div>
-                      <div className="text-lg font-bold text-emerald-400">₹{empData.stats.totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                      <div className="text-xs text-gray-400">Revenue</div>
+                    <div className="px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                      <div className="text-lg font-bold text-purple-400 truncate">₹{empData.stats.totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">Revenue</div>
                     </div>
                   </div>
 
-                  {/* Export Button */}
+                  {/* Right: Export Button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       exportActivitiesCSV(empKey);
                     }}
-                    className="ml-4 px-4 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 text-sm flex items-center gap-2"
+                    className="flex-shrink-0 px-4 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 text-sm font-medium flex items-center gap-2 transition-all hover:border-blue-400/50"
                   >
                     <FiDownload className="w-4 h-4" />
-                    Export
+                    <span className="hidden sm:inline">Export</span>
                   </button>
                 </div>
 
                 {/* Activity Summary Bar */}
-                <div className="grid grid-cols-7 gap-2 mt-4">
-                  <div className="bg-blue-500/20 rounded-lg p-2 text-center">
-                    <div className="text-sm font-semibold text-blue-300">{empData.stats.created}</div>
-                    <div className="text-xs text-gray-400">Created</div>
+                <div className="grid grid-cols-3 sm:grid-cols-7 gap-2 mt-5">
+                  <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-lg p-3 text-center hover:border-blue-400/50 transition-all">
+                    <div className="text-lg font-bold text-blue-300">{empData.stats.created}</div>
+                    <div className="text-xs text-gray-400 mt-1">Created</div>
                   </div>
-                  <div className="bg-emerald-500/20 rounded-lg p-2 text-center">
-                    <div className="text-sm font-semibold text-emerald-300">{empData.stats.accepted}</div>
-                    <div className="text-xs text-gray-400">Accepted</div>
+                  <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30 rounded-lg p-3 text-center hover:border-emerald-400/50 transition-all">
+                    <div className="text-lg font-bold text-emerald-300">{empData.stats.accepted}</div>
+                    <div className="text-xs text-gray-400 mt-1">Accepted</div>
                   </div>
-                  <div className="bg-yellow-500/20 rounded-lg p-2 text-center">
-                    <div className="text-sm font-semibold text-yellow-300">{empData.stats.shipped}</div>
-                    <div className="text-xs text-gray-400">Shipped</div>
+                  <div className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/10 border border-yellow-500/30 rounded-lg p-3 text-center hover:border-yellow-400/50 transition-all">
+                    <div className="text-lg font-bold text-yellow-300">{empData.stats.shipped}</div>
+                    <div className="text-xs text-gray-400 mt-1">Shipped</div>
                   </div>
-                  <div className="bg-green-500/20 rounded-lg p-2 text-center">
-                    <div className="text-sm font-semibold text-green-300">{empData.stats.delivered}</div>
-                    <div className="text-xs text-gray-400">Delivered</div>
+                  <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 border border-green-500/30 rounded-lg p-3 text-center hover:border-green-400/50 transition-all">
+                    <div className="text-lg font-bold text-green-300">{empData.stats.delivered}</div>
+                    <div className="text-xs text-gray-400 mt-1">Delivered</div>
                   </div>
-                  <div className="bg-purple-500/20 rounded-lg p-2 text-center">
-                    <div className="text-sm font-semibold text-purple-300">{empData.stats.modified}</div>
-                    <div className="text-xs text-gray-400">Modified</div>
+                  <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-lg p-3 text-center hover:border-purple-400/50 transition-all">
+                    <div className="text-lg font-bold text-purple-300">{empData.stats.modified}</div>
+                    <div className="text-xs text-gray-400 mt-1">Modified</div>
                   </div>
-                  <div className="bg-cyan-500/20 rounded-lg p-2 text-center">
-                    <div className="text-sm font-semibold text-cyan-300">{empData.stats.added_retailer}</div>
-                    <div className="text-xs text-gray-400">Retailers</div>
+                  <div className="bg-gradient-to-br from-cyan-500/20 to-cyan-600/10 border border-cyan-500/30 rounded-lg p-3 text-center hover:border-cyan-400/50 transition-all">
+                    <div className="text-lg font-bold text-cyan-300">{empData.stats.added_retailer}</div>
+                    <div className="text-xs text-gray-400 mt-1">Retailers</div>
                   </div>
-                  <div className="bg-emerald-500/20 rounded-lg p-2 text-center">
-                    <div className="text-sm font-semibold text-emerald-300">{empData.stats.totalOrders}</div>
-                    <div className="text-xs text-gray-400">Total</div>
+                  <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30 rounded-lg p-3 text-center hover:border-emerald-400/50 transition-all col-span-3 sm:col-span-1">
+                    <div className="text-lg font-bold text-emerald-300">{empData.stats.totalOrders}</div>
+                    <div className="text-xs text-gray-400 mt-1">Total Orders</div>
                   </div>
                 </div>
               </div>
 
               {/* Expanded Content - Detailed Activity Sections */}
               {isExpanded && (
-                <div className="border-t border-white/10 p-6 space-y-4 max-h-[800px] overflow-y-auto">
+                <div className="border-t border-white/10 bg-white/2.5 p-6 space-y-4 max-h-[800px] overflow-y-auto activity-scrollbar">
                   {/* Activity Type Sections */}
                   {Object.entries(groupedActivities).map(([actionType, activities]) => {
                     if (activities.length === 0) return null;
@@ -759,15 +1002,16 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
                       added_retailer: 'Retailers Added'
                     };
                     const actionColors = {
-                      created: 'blue',
-                      accepted: 'emerald',
-                      shipped: 'yellow',
-                      delivered: 'green',
-                      modified: 'purple',
-                      rejected: 'red',
-                      added_retailer: 'cyan'
+                      created: { bg: 'from-blue-500/20 to-blue-600/10', border: 'border-blue-500/30', text: 'text-blue-300', badge: 'bg-blue-500/20 text-blue-300' },
+                      accepted: { bg: 'from-emerald-500/20 to-emerald-600/10', border: 'border-emerald-500/30', text: 'text-emerald-300', badge: 'bg-emerald-500/20 text-emerald-300' },
+                      shipped: { bg: 'from-yellow-500/20 to-yellow-600/10', border: 'border-yellow-500/30', text: 'text-yellow-300', badge: 'bg-yellow-500/20 text-yellow-300' },
+                      delivered: { bg: 'from-green-500/20 to-green-600/10', border: 'border-green-500/30', text: 'text-green-300', badge: 'bg-green-500/20 text-green-300' },
+                      modified: { bg: 'from-purple-500/20 to-purple-600/10', border: 'border-purple-500/30', text: 'text-purple-300', badge: 'bg-purple-500/20 text-purple-300' },
+                      rejected: { bg: 'from-red-500/20 to-red-600/10', border: 'border-red-500/30', text: 'text-red-300', badge: 'bg-red-500/20 text-red-300' },
+                      added_retailer: { bg: 'from-cyan-500/20 to-cyan-600/10', border: 'border-cyan-500/30', text: 'text-cyan-300', badge: 'bg-cyan-500/20 text-cyan-300' }
                     };
-                    const color = actionColors[actionType] || 'gray';
+                    const color = actionColors[actionType] || actionColors.created;
+                    const sectionRevenue = activities.reduce((sum, a) => sum + (a.grandTotal || 0), 0);
                     
                     // Pagination for this section
                     const pageKey = `${empKey}-${actionType}`;
@@ -778,24 +1022,26 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
                     const totalPages = Math.ceil(activities.length / activityPageSize);
 
                     return (
-                      <div key={actionType} className="backdrop-blur-sm bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                      <div key={actionType} className="backdrop-blur-sm bg-gradient-to-br from-white/5 to-white/2.5 rounded-xl border border-white/10 overflow-hidden hover:border-white/20 transition-all">
                         {/* Section Header */}
                         <div
-                          className="p-4 cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-between"
+                          className="p-4 cursor-pointer hover:bg-white/5 transition-all flex items-center justify-between"
                           onClick={() => toggleSectionExpansion(empKey, actionType)}
                         >
-                          <div className="flex items-center gap-3">
-                            <div className={`transform transition-transform ${isSectionExpanded ? 'rotate-180' : ''}`}>
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className={`flex-shrink-0 transform transition-transform duration-200 ${isSectionExpanded ? 'rotate-180' : ''}`}>
                               {isSectionExpanded ? <FiChevronUp className="w-4 h-4 text-gray-400" /> : <FiChevronDown className="w-4 h-4 text-gray-400" />}
                             </div>
-                            <span className={`px-3 py-1 rounded-lg text-sm font-semibold bg-${color}-500/20 text-${color}-300`}>
+                            <span className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${color.badge} border ${color.border}`}>
                               {actionLabels[actionType] || actionType.toUpperCase()}
                             </span>
-                            <span className="text-sm text-gray-400">({activities.length} items)</span>
+                            <span className="text-sm text-gray-400 font-medium">
+                              {activities.length} {activities.length === 1 ? 'item' : 'items'}
+                            </span>
                           </div>
-                          {actionType === 'created' && activities.length > 0 && (
-                            <div className="text-sm text-emerald-300 font-medium">
-                              Total: ₹{activities.reduce((sum, a) => sum + (a.grandTotal || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {actionType === 'created' && sectionRevenue > 0 && (
+                            <div className={`text-sm ${color.text} font-semibold ml-4 flex-shrink-0`}>
+                              Total: ₹{sectionRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           )}
                         </div>
@@ -804,63 +1050,78 @@ const EnhancedEmployeeActivityAnalytics = ({ activitiesByEmployee, employees, lo
                         {isSectionExpanded && (
                           <div className="border-t border-white/10 p-4 space-y-3">
                             {paginatedActivities.length === 0 ? (
-                              <p className="text-sm text-gray-400 text-center py-4">No activities in this section</p>
+                              <p className="text-sm text-gray-400 text-center py-8">No activities in this section</p>
                             ) : (
                               <>
+                                <div className="space-y-2">
                                 {paginatedActivities.map((activity, idx) => (
                                   <div
                                     key={`${activity.orderId || activity.retailerId || idx}-${activity.action}`}
-                                    className="bg-white/5 rounded-lg p-4 hover:bg-white/10 transition-colors"
+                                      className="bg-white/5 rounded-lg p-4 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all group"
                                   >
                                     <div className="flex items-start justify-between gap-4">
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-3 flex-wrap mb-2">
-                                          <span className={`px-2 py-1 rounded text-xs font-medium bg-${color}-500/20 text-${color}-300`}>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2.5 flex-wrap mb-2.5">
+                                            <span className={`px-2.5 py-1 rounded-md text-xs font-semibold ${color.badge} border ${color.border}`}>
                                             {activity.action === 'added_retailer' ? 'ADDED RETAILER' : activity.action.toUpperCase()}
                                           </span>
                                           {activity.orderId && (
                                             <button
-                                              onClick={() => fetchOrderDetail(activity.orderId)}
-                                              className="text-blue-300 hover:text-blue-200 text-sm font-mono flex items-center gap-1"
-                                            >
-                                              <FiEye className="w-3 h-3" />
-                                              Order: {activity.orderId.substring(0, 12)}...
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  fetchOrderDetail(activity.orderId);
+                                                }}
+                                                className="text-blue-300 hover:text-blue-200 text-sm font-mono flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-blue-500/20 transition-all"
+                                              >
+                                                <FiEye className="w-3.5 h-3.5" />
+                                                <span className="hidden sm:inline">Order:</span>
+                                                <span className="font-medium">{activity.orderId.substring(0, 12)}...</span>
                                             </button>
                                           )}
-                                          <span className="text-gray-300 font-medium">{activity.retailerName || 'N/A'}</span>
+                                            <span className="text-gray-200 font-medium truncate">{activity.retailerName || 'N/A'}</span>
                                           {activity.grandTotal > 0 && (
-                                            <span className="text-emerald-300 font-semibold">₹{activity.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                              <span className={`text-sm font-bold ${color.text} ml-auto flex-shrink-0`}>
+                                                ₹{activity.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                              </span>
                                           )}
                                         </div>
-                                        <div className="text-xs text-gray-400">
-                                          {formatDate(activity.orderDate)}
+                                          <div className="flex items-center gap-2 text-xs text-gray-400">
+                                            <FiClock className="w-3.5 h-3.5" />
+                                            <span>{formatDate(activity.orderDate)}</span>
                                         </div>
                                       </div>
                                     </div>
                                   </div>
                                 ))}
+                                </div>
                                 
                                 {/* Pagination Controls */}
                                 {totalPages > 1 && (
-                                  <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                                  <div className="flex items-center justify-between pt-4 mt-4 border-t border-white/10">
                                     <div className="text-sm text-gray-400">
-                                      Showing {startIndex + 1}-{Math.min(endIndex, activities.length)} of {activities.length}
+                                      Showing <span className="font-semibold text-white">{startIndex + 1}</span> to <span className="font-semibold text-white">{Math.min(endIndex, activities.length)}</span> of <span className="font-semibold text-white">{activities.length}</span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <button
-                                        onClick={() => setCurrentActivityPage(prev => ({ ...prev, [pageKey]: Math.max(1, currentPage - 1) }))}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setCurrentActivityPage(prev => ({ ...prev, [pageKey]: Math.max(1, currentPage - 1) }));
+                                        }}
                                         disabled={currentPage === 1}
-                                        className="px-3 py-1 rounded-lg bg-white/10 border border-white/20 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/20"
+                                        className="px-4 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/20 hover:border-white/30 transition-all font-medium"
                                       >
                                         Previous
                                       </button>
-                                      <span className="text-sm text-gray-400">
+                                      <span className="text-sm text-gray-400 px-3">
                                         Page {currentPage} of {totalPages}
                                       </span>
                                       <button
-                                        onClick={() => setCurrentActivityPage(prev => ({ ...prev, [pageKey]: Math.min(totalPages, currentPage + 1) }))}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setCurrentActivityPage(prev => ({ ...prev, [pageKey]: Math.min(totalPages, currentPage + 1) }));
+                                        }}
                                         disabled={currentPage === totalPages}
-                                        className="px-3 py-1 rounded-lg bg-white/10 border border-white/20 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/20"
+                                        className="px-4 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/20 hover:border-white/30 transition-all font-medium"
                                       >
                                         Next
                                       </button>
@@ -906,8 +1167,17 @@ const DistributorViewEmployees = () => {
   const [tick, setTick] = useState(0);
   const [confirmReset, setConfirmReset] = useState({ open: false, id: null, name: "" });
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showZoneRetailerModal, setShowZoneRetailerModal] = useState(false);
+  const [selectedEmployeeForZones, setSelectedEmployeeForZones] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedEmployeeForEdit, setSelectedEmployeeForEdit] = useState(null);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [selectedEmployeeForPermissions, setSelectedEmployeeForPermissions] = useState(null);
+  const [customRoles, setCustomRoles] = useState([]);
   const [migrating, setMigrating] = useState(false);
   const [activeTab, setActiveTab] = useState('manage'); // 'manage' or 'activity'
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [employeeActivity, setEmployeeActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
   
@@ -934,6 +1204,12 @@ const DistributorViewEmployees = () => {
       setEmployees(data);
       setFilteredEmployees(data);
       setLoading(false);
+      
+      // Extract unique custom roles from employees
+      const roles = new Set(data.map(emp => emp.role).filter(Boolean));
+      const standardRoles = ['Manager', 'Sales Executive', 'Order Manager', 'Dispatch Manager', 'Admin'];
+      const customRolesList = Array.from(roles).filter(role => !standardRoles.includes(role));
+      setCustomRoles(customRolesList);
     });
     return () => unsubscribe();
   }, [currentUser]);
@@ -952,18 +1228,30 @@ const DistributorViewEmployees = () => {
 
   useEffect(() => {
     const term = searchTerm.toLowerCase();
-    const filtered = employees.filter(emp => {
+    let filtered = employees.filter(emp => {
+      // Apply search filter
+      if (term) {
       const idVal = (emp.flypEmployeeId || emp.id || '').toString().toLowerCase();
-      return (
+        const matchesSearch = (
         emp.name?.toLowerCase().includes(term) ||
         emp.email?.toLowerCase().includes(term) ||
         emp.role?.toLowerCase().includes(term) ||
         emp.phone?.toLowerCase?.().includes(term) ||
         idVal.includes(term)
       );
+        if (!matchesSearch) return false;
+      }
+      
+      // Apply status filter
+      if (statusFilter !== 'all' && emp.status !== statusFilter) return false;
+      
+      // Apply role filter
+      if (roleFilter !== 'all' && emp.role !== roleFilter) return false;
+      
+      return true;
     });
     setFilteredEmployees(filtered);
-  }, [searchTerm, employees]);
+  }, [searchTerm, employees, statusFilter, roleFilter]);
 
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this employee?')) {
@@ -1430,255 +1718,464 @@ const DistributorViewEmployees = () => {
         </div>
       </div>
 
-      <div className="mb-4">
+      {/* Enhanced Filters and Search */}
+      <div className="mb-6 space-y-4">
+        <div className="flex flex-col md:flex-row gap-4">
+          {/* Search Bar */}
+          <div className="flex-1 relative">
+            <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
         <input
           type="text"
-          placeholder="Search by name, email or role..."
+              placeholder="Search employees by name, email, role, or ID..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full px-4 py-2 rounded-lg backdrop-blur-md bg-white/10 border border-white/20 placeholder-gray-400 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-3 rounded-xl backdrop-blur-md bg-white/10 border border-white/20 placeholder-gray-500 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
         />
       </div>
 
-      {loading ? (
-        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-6 text-sm text-gray-200">
-          Loading...
+          {/* Status Filter */}
+          <div className="relative">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full md:w-48 px-4 py-3 rounded-xl backdrop-blur-md bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent appearance-none cursor-pointer"
+            >
+              <option value="all" className="bg-gray-900">All Statuses</option>
+              <option value="active" className="bg-gray-900">Active</option>
+              <option value="inactive" className="bg-gray-900">Inactive</option>
+            </select>
+            <FiChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
         </div>
-      ) : filteredEmployees.length === 0 ? (
-        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-6 text-sm text-gray-300">
-          No employees found.
-        </div>
-      ) : (
-        <div className="overflow-x-auto backdrop-blur-md bg-white/5 border border-white/10 rounded-2xl shadow-xl">
-          <table className="min-w-full">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wider bg-white/10">
-                <th className="py-3 px-4 border-b border-white/10">FLYP Employee ID</th>
-                <th className="py-3 px-4 border-b border-white/10">Name</th>
-                <th className="py-3 px-4 border-b border-white/10">Email</th>
-                <th className="py-3 px-4 border-b border-white/10">Phone</th>
-                <th className="py-3 px-4 border-b border-white/10">Role</th>
-                <th className="py-3 px-4 border-b border-white/10">Access</th>
-                <th className="py-3 px-4 border-b border-white/10">Status</th>
-                <th className="py-3 px-4 border-b border-white/10">Presence</th>
-                <th className="py-3 px-4 border-b border-white/10">Created At</th>
-                <th className="py-3 px-4 border-b border-white/10">Login Link</th>
-                <th className="py-3 px-4 border-b border-white/10">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEmployees.map((emp) => (
-                <tr key={emp.id} className="text-sm hover:bg-white/5 transition-colors">
-                  <td className="py-3 px-4 border-b border-white/10 text-gray-200">{emp.flypEmployeeId || emp.id || '-'}</td>
-                  <td className="py-3 px-4 border-b border-white/10">{emp.name || '-'}</td>
-                  <td className="py-3 px-4 border-b border-white/10 text-gray-200">{emp.email || '-'}</td>
-                  <td className="py-3 px-4 border-b border-white/10 text-gray-200">{emp.phone || '-'}</td>
-                  <td className="py-3 px-4 border-b border-white/10">
+          
+          {/* Role Filter */}
+          <div className="relative">
                     <select
-                      value={emp.role || ''}
-                      onChange={async (e) => {
-                        const newRole = e.target.value;
-                        await updateDoc(doc(db, 'businesses', currentUser.uid, 'distributorEmployees', emp.id), {
-                          role: newRole
-                        });
-                        toast.success(`Role updated to ${newRole}`);
-                      }}
-                      className="text-sm px-2 py-1 rounded bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="" className="bg-gray-900">Select</option>
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="w-full md:w-48 px-4 py-3 rounded-xl backdrop-blur-md bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent appearance-none cursor-pointer"
+            >
+              <option value="all" className="bg-gray-900">All Roles</option>
                       <option value="Manager" className="bg-gray-900">Manager</option>
                       <option value="Sales Executive" className="bg-gray-900">Sales Executive</option>
                       <option value="Order Manager" className="bg-gray-900">Order Manager</option>
                       <option value="Dispatch Manager" className="bg-gray-900">Dispatch Manager</option>
                       <option value="Admin" className="bg-gray-900">Admin</option>
                     </select>
-                  </td>
-                  <td className="py-3 px-4 border-b border-white/10">
-                    <div className="flex flex-col gap-1 text-xs sm:text-sm">
-                      {[
-                        { key: 'addRetailers', label: 'Add Retailers' },
-                        { key: 'createOrders', label: 'Create Orders' },
-                        { key: 'manageOrders', label: 'Manage Orders' },
-                        { key: 'trackOrders', label: 'Track Orders' },
-                        { key: 'analytics', label: 'Analytics' }
-                      ].map((section) => (
-                        <label key={section.key} className="inline-flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={!!emp.accessSections?.[section.key]}
-                            onChange={async (e) => {
-                              const updated = { ...(emp.accessSections || {}), [section.key]: e.target.checked };
-                              try {
-                                await updateDoc(doc(db, 'businesses', currentUser.uid, 'distributorEmployees', emp.id), { accessSections: updated });
-                                toast.success(`${section.label} ${e.target.checked ? 'granted' : 'revoked'} for ${emp.name || (emp.flypEmployeeId || emp.id)}`);
-                              } catch (err) {
-                                console.error('Access update error:', err);
-                                toast.error('Failed to update access. Please try again.');
-                              }
-                            }}
-                            className="accent-emerald-500 h-3.5 w-3.5"
-                          />
-                          <span className="text-gray-200">{section.label}</span>
-                        </label>
-                      ))}
+            <FiChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
                     </div>
-                  </td>
-                  <td className="py-3 px-4 border-b border-white/10">
+          
+          {/* Result Count */}
+          <div className="flex items-center justify-end px-4 py-3 rounded-xl bg-white/5 border border-white/10">
+            <span className="text-sm font-medium text-gray-300">
+              <span className="text-white font-bold">{filteredEmployees.length}</span>
+              <span className="text-gray-500 mx-1">of</span>
+              <span className="text-white font-bold">{employees.length}</span>
+              <span className="text-gray-500 ml-1">employees</span>
+            </span>
+          </div>
+        </div>
+        
+        {/* Enhanced Quick Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="relative overflow-hidden bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-xl p-5 border border-white/10 backdrop-blur-sm hover:border-white/20 transition-all group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 group-hover:bg-white/10 transition-colors"></div>
+            <div className="relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Total</div>
+                <FiUser className="w-4 h-4 text-gray-500" />
+              </div>
+              <div className="text-3xl font-bold text-white mb-1">{employees.length}</div>
+              <div className="text-xs text-gray-500">Employees</div>
+            </div>
+          </div>
+          
+          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 rounded-xl p-5 border border-emerald-500/30 backdrop-blur-sm hover:border-emerald-500/50 transition-all group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full -mr-12 -mt-12 group-hover:bg-emerald-500/20 transition-colors"></div>
+            <div className="relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-medium text-emerald-300 uppercase tracking-wider">Active</div>
+                <FiCheckCircle className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="text-3xl font-bold text-emerald-400 mb-1">
+                {employees.filter(e => e.status === 'active').length}
+              </div>
+              <div className="text-xs text-emerald-400/70">Currently active</div>
+            </div>
+          </div>
+          
+          <div className="relative overflow-hidden bg-gradient-to-br from-blue-500/10 to-blue-600/5 rounded-xl p-5 border border-blue-500/30 backdrop-blur-sm hover:border-blue-500/50 transition-all group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full -mr-12 -mt-12 group-hover:bg-blue-500/20 transition-colors"></div>
+            <div className="relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-medium text-blue-300 uppercase tracking-wider">Online</div>
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+              </div>
+              <div className="text-3xl font-bold text-blue-400 mb-1">
+                {employees.filter(e => e.online).length}
+              </div>
+              <div className="text-xs text-blue-400/70">Currently online</div>
+            </div>
+          </div>
+          
+          <div className="relative overflow-hidden bg-gradient-to-br from-purple-500/10 to-purple-600/5 rounded-xl p-5 border border-purple-500/30 backdrop-blur-sm hover:border-purple-500/50 transition-all group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/10 rounded-full -mr-12 -mt-12 group-hover:bg-purple-500/20 transition-colors"></div>
+            <div className="relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-medium text-purple-300 uppercase tracking-wider">Assigned</div>
+                <FiMapPin className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="text-3xl font-bold text-purple-400 mb-1">
+                {employees.filter(e => e.zones?.length > 0 || e.assignedRetailers?.length > 0).length}
+              </div>
+              <div className="text-xs text-purple-400/70">With zones/retailers</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-12 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-400 mx-auto mb-4"></div>
+          <p className="text-gray-300">Loading employees...</p>
+        </div>
+      ) : filteredEmployees.length === 0 ? (
+        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-12 text-center">
+          <FiUser className="w-16 h-16 mx-auto mb-4 text-gray-500" />
+          <p className="text-gray-300 text-lg mb-2">No employees found</p>
+          <p className="text-gray-500 text-sm">Try adjusting your search or filters</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {filteredEmployees.map((emp) => (
+            <div
+              key={emp.id}
+              className="group relative overflow-hidden bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all hover:shadow-2xl hover:shadow-emerald-500/10"
+            >
+              {/* Status Indicator */}
+              <div className={`absolute top-0 right-0 w-1 h-full ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-gray-500'}`}></div>
+              
+              {/* Header Section */}
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center">
+                      {emp.profilePictureUrl ? (
+                        <img
+                          src={emp.profilePictureUrl}
+                          alt={emp.name || 'Employee'}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            // Fallback to initial if image fails to load
+                            e.target.style.display = 'none';
+                            e.target.parentElement.innerHTML = `<span class="text-xl font-bold text-white">${(emp.name || 'E').charAt(0).toUpperCase()}</span>`;
+                          }}
+                        />
+                      ) : (
+                        <span className="text-xl font-bold text-white">{(emp.name || 'E').charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-white mb-0.5">{emp.name || 'Unnamed Employee'}</h3>
+                      <p className="text-xs text-gray-400 font-mono">{emp.flypEmployeeId || emp.id || 'No ID'}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2">
+                  {/* Edit Button */}
+                  <button
+                    onClick={() => {
+                      setSelectedEmployeeForEdit(emp);
+                      setShowEditModal(true);
+                    }}
+                    className="w-8 h-8 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 flex items-center justify-center transition-all"
+                    title="Edit employee information"
+                  >
+                    <FiSettings className="w-4 h-4" />
+                  </button>
+                  
+                  {/* Status Badge */}
                     <button
                       onClick={() => handleToggleStatus(emp)}
-                      className={`px-2 py-1 rounded text-xs transition-colors border ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
                         emp.status === 'active'
-                          ? 'bg-green-500/15 text-green-300 border-green-400/20'
-                          : 'bg-white/10 text-gray-300 border-white/20'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30 hover:bg-emerald-500/30'
+                        : 'bg-gray-500/20 text-gray-400 border-gray-500/30 hover:bg-gray-500/30'
                       }`}
                     >
                       {emp.status === 'active' ? 'Active' : 'Inactive'}
                     </button>
-                  </td>
-                  <td className="py-3 px-4 border-b border-white/10">
-                    {emp.online ? (
-                      <span className="text-green-300 font-medium">Online</span>
-                    ) : (
-                      <span className="text-gray-400 text-xs italic">Last seen: {formatLastSeen(emp.lastSeen)}</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 border-b border-white/10 text-gray-300">
-                    {emp.createdAt?.toDate?.().toLocaleDateString() || '-'}
-                  </td>
-                  <td className="py-3 px-4 border-b border-white/10">
-                    {(emp.flypEmployeeId || emp.id) ? (
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <a
-                          href={`${(typeof window !== 'undefined' && window.location ? window.location.origin : 'https://flypnow.com')}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 hover:text-blue-200 text-sm transition-all min-h-[36px] touch-target active:scale-[0.98]"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                          </svg>
-                          Open Link
-                        </a>
-                        <button
-                          onClick={async () => {
-                            try {
-                              const base = (typeof window !== 'undefined' && window.location) ? window.location.origin : 'https://flypnow.com';
-                              const loginLink = `${base}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`;
-                              
-                              // Try Web Share API first (works on mobile)
-                              if (navigator.share) {
-                                try {
-                                  await navigator.share({
-                                    title: 'Employee Login Link',
-                                    text: `Login link for ${emp.name || 'Employee'}`,
-                                    url: loginLink
-                                  });
-                                  toast.success('Link shared!');
-                                  return;
-                                } catch (err) {
-                                  // User cancelled or share failed, fall back to clipboard
-                                  if (err.name !== 'AbortError') {
-                                    console.log('Share failed, using clipboard:', err);
-                                  }
-                                }
-                              }
-                              
-                              // Fallback to clipboard
-                              await navigator.clipboard.writeText(loginLink);
-                              toast.success('Login link copied to clipboard!');
-                            } catch (err) {
-                              console.error('Failed to copy link:', err);
-                              toast.error('Failed to copy link. Please try again.');
-                            }
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 text-emerald-300 hover:text-emerald-200 text-sm transition-all min-h-[36px] touch-target active:scale-[0.98]"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                          Copy/Share Link
+                </div>
+              </div>
+
+              {/* Contact Information */}
+              <div className="space-y-2 mb-4">
+                {emp.email && (
+                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                    <FiMail className="w-4 h-4 text-gray-500" />
+                    <span className="truncate">{emp.email}</span>
+                  </div>
+                )}
+                {emp.phone && (
+                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                    <FiPhone className="w-4 h-4 text-gray-500" />
+                    <span>{emp.phone}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Role Selector with Custom Role Support */}
+              <RoleSelector
+                employee={emp}
+                currentUser={currentUser}
+                customRoles={customRoles}
+                onRoleChange={async (newRole) => {
+                  if (newRole && !['Manager', 'Sales Executive', 'Order Manager', 'Dispatch Manager', 'Admin', ...customRoles].includes(newRole)) {
+                    // Add new custom role to list
+                    setCustomRoles(prev => [...prev, newRole]);
+                  }
+                  await updateDoc(doc(db, 'businesses', currentUser.uid, 'distributorEmployees', emp.id), {
+                    role: newRole
+                  });
+                  toast.success(`Role updated to ${newRole}`);
+                }}
+              />
+
+              {/* Zones/Retailers Section */}
+              <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-gray-400">Zones & Retailers</label>
+                  <button
+                    onClick={() => {
+                      setSelectedEmployeeForZones(emp);
+                      setShowZoneRetailerModal(true);
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-300 text-xs transition-all"
+                  >
+                    <FiMapPin className="w-3.5 h-3.5" />
+                    Assign
                         </button>
+                </div>
+                {(emp.zones?.length > 0 || emp.territories?.length > 0 || emp.assignedRetailers?.length > 0) ? (
+                  <div className="flex flex-wrap gap-2">
+                    {emp.zones?.length > 0 && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-500/10 border border-purple-400/20 text-purple-300 text-xs">
+                        <FiMapPin className="w-3 h-3" />
+                        {emp.zones.length} zone{emp.zones.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {emp.territories?.length > 0 && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10 border border-blue-400/20 text-blue-300 text-xs">
+                        <FiMapPin className="w-3 h-3" />
+                        {emp.territories.length} territor{emp.territories.length > 1 ? 'ies' : 'y'}
+                      </span>
+                    )}
+                    {emp.assignedRetailers?.length > 0 && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-400/20 text-emerald-300 text-xs">
+                        <FiUsers className="w-3 h-3" />
+                        {emp.assignedRetailers.length} retailer{emp.assignedRetailers.length > 1 ? 's' : ''}
+                      </span>
+                    )}
                       </div>
                     ) : (
-                      <span className="text-gray-500 text-xs italic">No FLYP ID</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 border-b border-white/10">
+                  <p className="text-xs text-gray-500 italic">No assignments yet</p>
+                )}
+              </div>
+
+              {/* Access Permissions */}
+              <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs text-gray-400">Access Permissions</label>
+                  <button
+                    onClick={() => {
+                      setSelectedEmployeeForPermissions(emp);
+                      setShowPermissionModal(true);
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-300 text-xs transition-all"
+                  >
+                    <FiShield className="w-3.5 h-3.5" />
+                    Manage
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {emp.accessSections ? (() => {
+                    const permissionLabels = {
+                      addRetailers: 'Add Retailers',
+                      createOrders: 'Create Orders',
+                      manageOrders: 'Manage Orders',
+                      trackOrders: 'Track Orders',
+                      analytics: 'Analytics',
+                      inventory: 'Inventory',
+                      dispatch: 'Dispatch',
+                      aiForecast: 'AI Forecast',
+                      manualBilling: 'Billing',
+                      invoices: 'Invoices',
+                      productOwners: 'Products',
+                      retailerRequests: 'Retailer Requests'
+                    };
+                    
+                    // Define consistent order for permissions
+                    const permissionOrder = [
+                      'addRetailers',
+                      'retailerRequests',
+                      'createOrders',
+                      'manageOrders',
+                      'trackOrders',
+                      'inventory',
+                      'dispatch',
+                      'analytics',
+                      'aiForecast',
+                      'manualBilling',
+                      'invoices',
+                      'productOwners'
+                    ];
+                    
+                    // Get enabled permissions and sort by defined order
+                    const enabledPermissions = Object.entries(emp.accessSections)
+                      .filter(([_, enabled]) => enabled)
+                      .map(([key]) => key)
+                      .sort((a, b) => {
+                        const indexA = permissionOrder.indexOf(a);
+                        const indexB = permissionOrder.indexOf(b);
+                        // If not found in order, put at end
+                        if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                        if (indexA === -1) return 1;
+                        if (indexB === -1) return -1;
+                        return indexA - indexB;
+                      });
+                    
+                    if (enabledPermissions.length === 0) {
+                      return <p className="text-xs text-gray-500 italic">No permissions assigned</p>;
+                    }
+                    
+                    return enabledPermissions.map((key) => {
+                      const label = permissionLabels[key] || key;
+                      return (
+                        <span
+                          key={key}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-400/20 text-emerald-300 text-xs"
+                        >
+                          <FiCheckCircle className="w-3 h-3" />
+                          {label}
+                        </span>
+                      );
+                    });
+                  })() : (
+                    <p className="text-xs text-gray-500 italic">No permissions assigned</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Presence & Metadata */}
+              <div className="flex items-center justify-between mb-4 text-xs">
                     <div className="flex items-center gap-2">
-                      {/* Show temporary PIN if recently reset */}
+                    {emp.online ? (
+                    <>
+                      <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                      <span className="text-emerald-300 font-medium">Online</span>
+                    </>
+                  ) : (
+                    <>
+                      <FiClock className="w-3.5 h-3.5 text-gray-500" />
+                      <span className="text-gray-400">Last seen: {formatLastSeen(emp.lastSeen)}</span>
+                    </>
+                  )}
+                </div>
+                <span className="text-gray-500">{emp.createdAt?.toDate?.().toLocaleDateString() || '-'}</span>
+              </div>
+
+              {/* PIN Management */}
+              <div className="mb-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-amber-300 font-medium">PIN Management</label>
+                  <button
+                    onClick={() => confirmAndReset(emp.flypEmployeeId || emp.id, emp.name)}
+                    className="text-xs text-amber-300 hover:text-amber-200 underline"
+                  >
+                    Reset
+                        </button>
+                      </div>
                       {(() => {
                         const key = emp.flypEmployeeId || emp.id;
                         const temp = tempPins[key];
                         if (temp && temp.expiresAt > Date.now()) {
                           const remaining = temp.expiresAt - Date.now();
                           return (
-                            <span className="inline-flex items-center px-2 py-1 rounded border border-yellow-400/30 bg-yellow-500/10 text-yellow-200 text-xs">
-                              PIN: <span className="font-mono ml-1">{temp.pin}</span>
-                              <span className="ml-2 opacity-80">({formatCountdown(remaining)})</span>
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-
-                      {/* Show current PIN with hide/show functionality */}
-                      {(() => {
-                        const key = emp.flypEmployeeId || emp.id;
-                        const temp = tempPins[key];
-                        if (!temp || temp.expiresAt <= Date.now()) {
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-amber-200">New PIN:</span>
+                        <span className="font-mono text-sm font-bold text-amber-300">{temp.pin}</span>
+                        <span className="text-xs text-amber-400">({formatCountdown(remaining)})</span>
+                      </div>
+                    );
+                  }
                           const pinStatus = getPinStatus(emp);
                           const isVisible = visiblePins[key];
-                          const pinColor = pinStatus === 'expired' ? 'red' : pinStatus === 'expiring' ? 'yellow' : 'green';
-                          
                           return (
-                            <div className="flex items-center gap-2">
                               <button
                                 onClick={() => togglePinVisibility(key)}
-                                className={`px-2 py-1 rounded text-xs border ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-md border text-xs font-mono transition-all ${
                                   pinStatus === 'expired' 
                                     ? 'border-red-400/30 bg-red-500/10 text-red-200'
                                     : pinStatus === 'expiring'
                                     ? 'border-yellow-400/30 bg-yellow-500/10 text-yellow-200'
-                                    : 'border-green-400/30 bg-green-500/10 text-green-200'
-                                }`}
-                              >
-                                {isVisible ? (
-                                  <span className="font-mono">{emp.pin || 'No PIN'}</span>
-                                ) : (
-                                  <span>••••••</span>
-                                )}
+                          : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                      }`}
+                    >
+                      <span>{isVisible ? (emp.pin || 'No PIN') : '••••••'}</span>
+                      {pinStatus === 'expired' && <span className="text-red-300">Expired</span>}
+                      {pinStatus === 'expiring' && <span className="text-yellow-300">Expires Soon</span>}
                               </button>
-                              {pinStatus === 'expired' && (
-                                <span className="text-xs text-red-300">Expired</span>
-                              )}
-                              {pinStatus === 'expiring' && (
-                                <span className="text-xs text-yellow-300">Expires Soon</span>
-                              )}
-                            </div>
-                          );
-                        }
-                        return null;
+                  );
                       })()}
+              </div>
 
+              {/* Actions Footer */}
+              <div className="flex items-center gap-2 pt-4 border-t border-white/10">
+                <a
+                  href={`${(typeof window !== 'undefined' && window.location ? window.location.origin : 'https://flypnow.com')}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 text-sm transition-all"
+                >
+                  <FiExternalLink className="w-4 h-4" />
+                  Open Link
+                </a>
                       <button
-                        onClick={() => handleDelete(emp.id)}
-                        className="text-red-300 hover:text-red-200"
-                      >
-                        <FiTrash2 />
+                  onClick={async () => {
+                    try {
+                      const base = (typeof window !== 'undefined' && window.location) ? window.location.origin : 'https://flypnow.com';
+                      const loginLink = `${base}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`;
+                      if (navigator.share) {
+                        try {
+                          await navigator.share({ title: 'Employee Login Link', text: `Login link for ${emp.name}`, url: loginLink });
+                          toast.success('Link shared!');
+                          return;
+                        } catch (err) {
+                          if (err.name !== 'AbortError') console.log('Share failed:', err);
+                        }
+                      }
+                      await navigator.clipboard.writeText(loginLink);
+                      toast.success('Link copied!');
+                    } catch (err) {
+                      toast.error('Failed to copy link');
+                    }
+                  }}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 text-emerald-300 text-sm transition-all"
+                >
+                  <FiCopy className="w-4 h-4" />
+                  Copy Link
                       </button>
                       <button
-                        onClick={() => confirmAndReset(emp.flypEmployeeId || emp.id, emp.name)}
-                        className="text-blue-300 hover:text-blue-200 underline-offset-2 hover:underline text-sm"
-                        type="button"
-                      >
-                        Reset PIN
+                  onClick={() => handleDelete(emp.id)}
+                  className="px-3 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-300 transition-all"
+                  title="Delete employee"
+                >
+                  <FiTrash2 className="w-4 h-4" />
                       </button>
                     </div>
-                  </td>
-                </tr>
+            </div>
               ))}
-            </tbody>
-          </table>
         </div>
       )}
 
@@ -1701,6 +2198,37 @@ const DistributorViewEmployees = () => {
           setShowAddModal(false);
           toast.success('Employee created successfully!');
         }}
+      />
+
+      <EmployeeZoneRetailerModal
+        key={selectedEmployeeForZones?.id || 'modal'} // Force remount when employee changes
+        open={showZoneRetailerModal}
+        onClose={() => {
+          setShowZoneRetailerModal(false);
+          setSelectedEmployeeForZones(null);
+        }}
+        employee={selectedEmployeeForZones}
+        distributorId={currentUser?.uid}
+      />
+
+      <EditEmployeeModal
+        open={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setSelectedEmployeeForEdit(null);
+        }}
+        employee={selectedEmployeeForEdit}
+        currentUser={currentUser}
+      />
+
+      <PermissionSelectorModal
+        open={showPermissionModal}
+        onClose={() => {
+          setShowPermissionModal(false);
+          setSelectedEmployeeForPermissions(null);
+        }}
+        employee={selectedEmployeeForPermissions}
+        currentUser={currentUser}
       />
         </>
       ) : (

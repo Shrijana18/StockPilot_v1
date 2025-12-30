@@ -48,6 +48,18 @@ function StatusBadge({ status }) {
 const norm = (s = "") => s.toString().toLowerCase().trim();
 // Removed duplicate declaration of toTitleCase
 
+// Phone number normalization for Indian numbers (matches AddRetailerModal)
+const normalizePhoneIN = (input) => {
+  const digits = (input || "").replace(/[^\d]/g, "");
+  if (!digits) return null;
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+  if (digits.length === 13 && digits.startsWith("91")) return `+${digits}`;
+  if (digits.length === 12 && digits.startsWith("91") === false) return `+91${digits.slice(-10)}`;
+  // Fallback: last 10 digits with +91
+  return `+91${digits.slice(-10)}`;
+};
+
 /**
  * ManageRetailers component
  * Props:
@@ -76,15 +88,148 @@ const ManageRetailers = ({ distributorId }) => {
   // Right-side drawer for per-retailer management (clean UI; no inline expansions)
   const [activeRetailer, setActiveRetailer] = useState(null); // object from list
   const [drawerTab, setDrawerTab] = useState("overview"); // 'overview' | 'defaults' | 'orders' | 'assistant'
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
 
   const openDrawerFor = (r) => {
     setActiveRetailer(r);
     setDrawerTab("overview");
+    setIsEditing(false);
+    setEditForm({});
     document.body.style.overflow = "hidden";
   };
   const closeDrawer = () => {
     setActiveRetailer(null);
+    setIsEditing(false);
+    setEditForm({});
     document.body.style.overflow = "";
+  };
+
+  // Initialize edit form when entering edit mode
+  const startEdit = () => {
+    if (!activeRetailer) return;
+    setEditForm({
+      businessName: activeRetailer.businessName || activeRetailer.retailerName || '',
+      retailerName: activeRetailer.retailerName || activeRetailer.businessName || '',
+      email: activeRetailer.email || activeRetailer.retailerEmail || '',
+      retailerEmail: activeRetailer.retailerEmail || activeRetailer.email || '',
+      phone: activeRetailer.phone || activeRetailer.retailerPhone || '',
+      retailerPhone: activeRetailer.retailerPhone || activeRetailer.phone || '',
+      city: activeRetailer.city || activeRetailer.retailerCity || '',
+      retailerCity: activeRetailer.retailerCity || activeRetailer.city || '',
+      state: activeRetailer.state || activeRetailer.retailerState || '',
+      retailerState: activeRetailer.retailerState || activeRetailer.state || '',
+      address: activeRetailer.address || activeRetailer.retailerAddress || '',
+      retailerAddress: activeRetailer.retailerAddress || activeRetailer.address || '',
+      gst: activeRetailer.gst || activeRetailer.gstNumber || '',
+      gstNumber: activeRetailer.gstNumber || activeRetailer.gst || '',
+    });
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setIsEditing(false);
+    setEditForm({});
+  };
+
+  const handleEditChange = (field, value) => {
+    setEditForm(prev => ({
+      ...prev,
+      [field]: value,
+      // Also update the alternative field name for compatibility
+      ...(field === 'businessName' ? { retailerName: value } : {}),
+      ...(field === 'retailerName' ? { businessName: value } : {}),
+      ...(field === 'email' ? { retailerEmail: value } : {}),
+      ...(field === 'retailerEmail' ? { email: value } : {}),
+      ...(field === 'phone' ? { retailerPhone: value } : {}),
+      ...(field === 'retailerPhone' ? { phone: value } : {}),
+      ...(field === 'city' ? { retailerCity: value } : {}),
+      ...(field === 'retailerCity' ? { city: value } : {}),
+      ...(field === 'state' ? { retailerState: value } : {}),
+      ...(field === 'retailerState' ? { state: value } : {}),
+      ...(field === 'address' ? { retailerAddress: value } : {}),
+      ...(field === 'retailerAddress' ? { address: value } : {}),
+      ...(field === 'gst' ? { gstNumber: value } : {}),
+      ...(field === 'gstNumber' ? { gst: value } : {}),
+    }));
+  };
+
+  const saveEdit = async () => {
+    if (!activeRetailer || !distributorId) return;
+    
+    setSaving(true);
+    try {
+      const retailerRef = doc(db, 'businesses', distributorId, 'connectedRetailers', activeRetailer.id);
+      
+      // Prepare update payload - only include fields that have values
+      const updateData = {
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Add all fields from edit form
+      if (editForm.businessName?.trim()) {
+        updateData.businessName = editForm.businessName.trim();
+        updateData.retailerName = editForm.businessName.trim();
+      }
+      if (editForm.email?.trim()) {
+        updateData.email = editForm.email.trim();
+        updateData.retailerEmail = editForm.email.trim();
+      }
+      if (editForm.phone?.trim()) {
+        const normalizedPhone = normalizePhoneIN(editForm.phone.trim());
+        if (normalizedPhone) {
+          updateData.phone = normalizedPhone;
+          updateData.retailerPhone = normalizedPhone;
+        } else {
+          // If normalization fails, still save the raw value
+          updateData.phone = editForm.phone.trim();
+          updateData.retailerPhone = editForm.phone.trim();
+        }
+      }
+      if (editForm.city?.trim()) {
+        updateData.city = editForm.city.trim();
+        updateData.retailerCity = editForm.city.trim();
+      }
+      if (editForm.state?.trim()) {
+        updateData.state = editForm.state.trim();
+        updateData.retailerState = editForm.state.trim();
+      }
+      if (editForm.address?.trim()) {
+        updateData.address = editForm.address.trim();
+        updateData.retailerAddress = editForm.address.trim();
+      }
+      if (editForm.gst?.trim()) {
+        updateData.gst = editForm.gst.trim().toUpperCase();
+        updateData.gstNumber = editForm.gst.trim().toUpperCase();
+      }
+
+      await updateDoc(retailerRef, updateData);
+
+      // Update local state
+      setActiveRetailer(prev => ({
+        ...prev,
+        ...updateData,
+      }));
+
+      // Refresh retailers list
+      const retailersRef = collection(db, 'businesses', distributorId, 'connectedRetailers');
+      const snapshot = await getDocs(retailersRef);
+      const updatedRetailers = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setRetailers(updatedRetailers);
+
+      setIsEditing(false);
+      setEditForm({});
+      alert('Retailer information updated successfully!');
+    } catch (error) {
+      console.error('Error updating retailer:', error);
+      alert('Failed to update retailer information: ' + (error.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Lock body scroll when any modal/drawer is open
@@ -560,24 +705,134 @@ const ManageRetailers = ({ distributorId }) => {
               {drawerTab === "overview" && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <div className="text-sm text-white/60 mb-1">Contact</div>
-                    <div className="text-white">{activeRetailer.businessName}</div>
-                    <div className="text-white/80 text-sm">{activeRetailer.email || "—"}</div>
-                    <div className="text-white/80 text-sm">{activeRetailer.phone || "—"}</div>
-                    <div className="text-white/60 text-xs mt-2">City: {activeRetailer.city || "—"}</div>
-                    {activeRetailer.state && (
-                      <div className="text-white/60 text-xs">State: {activeRetailer.state}</div>
-                    )}
-                    {activeRetailer.address && (
-                      <div className="text-white/60 text-xs">Address: {activeRetailer.address}</div>
-                    )}
-                    <div className="text-white/60 text-xs">Status: <span className="uppercase">{activeRetailer.status || "provisioned"}</span></div>
-                    <div className="text-white/60 text-xs mt-1">Added: {activeRetailer.createdAt?.toDate?.().toLocaleString?.() || "—"}</div>
-                    <div className="text-white/60 text-xs">
-                      Added by: {activeRetailer.addedBy?.type || '—'}
-                      {activeRetailer.addedBy?.name ? ` ${activeRetailer.addedBy.name}` : ''}
-                      {activeRetailer.addedBy?.flypEmployeeId ? ` (${activeRetailer.addedBy.flypEmployeeId})` : (activeRetailer.addedBy?.id ? ` (${activeRetailer.addedBy.id})` : '')}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-sm text-white/60">Contact</div>
+                      {(/^provisioned/.test(activeRetailer.status || '')) && !isEditing && (
+                        <button
+                          onClick={startEdit}
+                          className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors"
+                        >
+                          ✏️ Edit
+                        </button>
+                      )}
                     </div>
+                    
+                    {!isEditing ? (
+                      <>
+                        <div className="text-white font-semibold">{activeRetailer.businessName || activeRetailer.retailerName || "—"}</div>
+                        <div className="text-white/80 text-sm mt-1">{activeRetailer.email || activeRetailer.retailerEmail || "—"}</div>
+                        <div className="text-white/80 text-sm">{activeRetailer.phone || activeRetailer.retailerPhone || "—"}</div>
+                        <div className="text-white/60 text-xs mt-2">City: {activeRetailer.city || activeRetailer.retailerCity || "—"}</div>
+                        {activeRetailer.state && (
+                          <div className="text-white/60 text-xs">State: {activeRetailer.state || activeRetailer.retailerState}</div>
+                        )}
+                        {activeRetailer.address && (
+                          <div className="text-white/60 text-xs">Address: {activeRetailer.address || activeRetailer.retailerAddress}</div>
+                        )}
+                        {activeRetailer.gst && (
+                          <div className="text-white/60 text-xs">GST: {activeRetailer.gst || activeRetailer.gstNumber}</div>
+                        )}
+                        <div className="text-white/60 text-xs mt-2">Status: <span className="uppercase">{activeRetailer.status || "provisioned"}</span></div>
+                        <div className="text-white/60 text-xs mt-1">Added: {activeRetailer.createdAt?.toDate?.().toLocaleString?.() || "—"}</div>
+                        <div className="text-white/60 text-xs">
+                          Added by: {activeRetailer.addedBy?.type || '—'}
+                          {activeRetailer.addedBy?.name ? ` ${activeRetailer.addedBy.name}` : ''}
+                          {activeRetailer.addedBy?.flypEmployeeId ? ` (${activeRetailer.addedBy.flypEmployeeId})` : (activeRetailer.addedBy?.id ? ` (${activeRetailer.addedBy.id})` : '')}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs text-white/60 mb-1">Business Name *</label>
+                          <input
+                            type="text"
+                            value={editForm.businessName || ''}
+                            onChange={(e) => handleEditChange('businessName', e.target.value)}
+                            className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            placeholder="Enter business name"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-white/60 mb-1">Email</label>
+                          <input
+                            type="email"
+                            value={editForm.email || ''}
+                            onChange={(e) => handleEditChange('email', e.target.value)}
+                            className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            placeholder="Enter email"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-white/60 mb-1">Phone</label>
+                          <input
+                            type="tel"
+                            value={editForm.phone || ''}
+                            onChange={(e) => handleEditChange('phone', e.target.value)}
+                            className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            placeholder="Enter phone number"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-xs text-white/60 mb-1">City</label>
+                            <input
+                              type="text"
+                              value={editForm.city || ''}
+                              onChange={(e) => handleEditChange('city', e.target.value)}
+                              className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              placeholder="City"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-white/60 mb-1">State</label>
+                            <input
+                              type="text"
+                              value={editForm.state || ''}
+                              onChange={(e) => handleEditChange('state', e.target.value)}
+                              className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              placeholder="State"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-white/60 mb-1">Address</label>
+                          <textarea
+                            value={editForm.address || ''}
+                            onChange={(e) => handleEditChange('address', e.target.value)}
+                            rows={2}
+                            className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            placeholder="Enter address"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-white/60 mb-1">GST Number</label>
+                          <input
+                            type="text"
+                            value={editForm.gst || ''}
+                            onChange={(e) => handleEditChange('gst', e.target.value.toUpperCase())}
+                            className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            placeholder="GST Number"
+                            maxLength={15}
+                          />
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <button
+                            onClick={saveEdit}
+                            disabled={saving || !editForm.businessName?.trim()}
+                            className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {saving ? 'Saving...' : '💾 Save Changes'}
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            disabled={saving}
+                            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md text-sm transition-colors disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                     <div className="text-sm text-white/60 mb-2">Quick Actions</div>

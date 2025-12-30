@@ -8,6 +8,7 @@ import EstimateNotice from "../../components/common/EstimateNotice";
 import { calculateEstimate } from "../../lib/calcEstimate";
 import { ORDER_STATUSES } from "../../constants/orderStatus";
 import { normalizePaymentMode } from "../../lib/orders/orderPolicy";
+import { reserveStockForOrder } from "../../services/stockManagement";
 
 const RetailerOrderRequestForm = ({ distributorId }) => {
   const [items, setItems] = useState([]);
@@ -255,15 +256,68 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           retailerPhone: currentUser.phoneNumber || '',
         };
 
+        // CRITICAL: Reserve stock when order is created to prevent overselling
+        const orderItems = items.map(it => ({
+          sku: it.sku,
+          SKU: it.sku,
+          qty: Number(it.quantity || 0),
+          quantity: Number(it.quantity || 0),
+          name: it.productName,
+          productName: it.productName
+        }));
+        const hasValidSKUs = orderItems.some(item => item.sku);
+        
+        if (hasValidSKUs && orderItems.length > 0) {
+          try {
+            await reserveStockForOrder(distributorId, orderId, orderItems);
+            requestPayload.stockReservedAt = serverTimestamp();
+            requestPayload.stockReserved = true;
+            console.log('[RetailerOrderRequestForm] ✅ Stock reserved for order:', orderId);
+          } catch (stockError) {
+            console.error('[RetailerOrderRequestForm] ❌ Stock reservation failed:', stockError);
+            setSubmitting(false);
+            return toast.error(`Cannot create order: ${stockError.message || 'Insufficient stock available'}`);
+          }
+        }
+
         // Write to distributor + mirror to retailer with SAME id
         await setDoc(doc(db, `businesses/${distributorId}/orderRequests/${orderId}`), requestPayload);
         await setDoc(doc(db, `businesses/${retailerUid}/sentOrders/${orderId}`), requestPayload);
 
-        toast.success('Order sent (Direct defaults applied). Awaiting distributor action.');
+        toast.success('Order sent (Direct defaults applied). Stock reserved. Awaiting distributor action.');
       } else {
         // PROFORMA flow
         const distributorRef = collection(db, `businesses/${distributorId}/orderRequests`);
-        const docRef = await addDoc(distributorRef, {
+        
+        // CRITICAL: Reserve stock when order is created (PROFORMA flow)
+        const orderItems = items.map(it => ({
+          sku: it.sku,
+          SKU: it.sku,
+          qty: Number(it.quantity || 0),
+          quantity: Number(it.quantity || 0),
+          name: it.productName,
+          productName: it.productName
+        }));
+        const hasValidSKUs = orderItems.some(item => item.sku);
+        let orderId = null;
+        
+        if (hasValidSKUs && orderItems.length > 0) {
+          try {
+            // Generate order ID before creating document
+            const orderDocRef = doc(distributorRef);
+            orderId = orderDocRef.id;
+            
+            // Reserve stock BEFORE creating order (prevents race conditions)
+            await reserveStockForOrder(distributorId, orderId, orderItems);
+            console.log('[RetailerOrderRequestForm] ✅ Stock reserved for PROFORMA order:', orderId);
+          } catch (stockError) {
+            console.error('[RetailerOrderRequestForm] ❌ Stock reservation failed:', stockError);
+            setSubmitting(false);
+            return toast.error(`Cannot create order: ${stockError.message || 'Insufficient stock available'}`);
+          }
+        }
+        
+        const orderData = {
           retailerId: currentUser.uid,
           distributorId: distributorId,
           createdBy: 'retailer',
@@ -292,6 +346,10 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           status: 'Requested',
           timestamp: serverTimestamp(),
           createdAt: serverTimestamp(), // NEW: canonical createdAt for queries
+          ...(hasValidSKUs && orderId ? {
+            stockReservedAt: serverTimestamp(),
+            stockReserved: true,
+          } : {}),
           distributorName: distributorData.businessName || distributorData.ownerName || '',
           distributorCity: distributorData.city || '',
           distributorState: distributorData.state || '',
@@ -310,9 +368,19 @@ const RetailerOrderRequestForm = ({ distributorId }) => {
           retailerName: currentUser.displayName || 'Retailer',
           retailerEmail: currentUser.email || '',
           retailerPhone: currentUser.phoneNumber || '',
-        });
+        };
 
-        const retailerRef = doc(db, `businesses/${currentUser.uid}/sentOrders/${docRef.id}`);
+        // Use setDoc if we have orderId (from stock reservation), otherwise use addDoc
+        let docRef;
+        if (orderId) {
+          docRef = doc(distributorRef, orderId);
+          await setDoc(docRef, orderData);
+        } else {
+          docRef = await addDoc(distributorRef, orderData);
+          orderId = docRef.id;
+        }
+
+        const retailerRef = doc(db, `businesses/${currentUser.uid}/sentOrders/${orderId}`);
         await setDoc(retailerRef, {
           retailerId: currentUser.uid,
           distributorId: distributorId,

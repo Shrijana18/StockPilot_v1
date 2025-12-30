@@ -108,6 +108,7 @@ if (existingEmpApp) {
 
 export const empDB = initializeFirestore(empApp, { experimentalForceLongPolling: true });
 export const empAuth = getAuth(empApp);
+export const empFunctions = getFunctions(empApp, "us-central1");
 if (IS_NATIVE) {
   try { empAuth._popupRedirectResolver = null; } catch (_) {}
 }

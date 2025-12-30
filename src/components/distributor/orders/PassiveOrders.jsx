@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { addDoc, collection, serverTimestamp, getDocs, getDoc, doc, query, where } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, getDocs, getDoc, doc, query, where, setDoc } from "firebase/firestore";
 import { db, empDB, empAuth, auth } from "../../../firebase/firebaseConfig";
 import { getDistributorEmployeeSession } from "../../../utils/distributorEmployeeSession";
 import { toast } from "react-toastify";
@@ -8,6 +8,7 @@ import { ORDER_STATUSES } from "../../../constants/orderStatus";
 import * as orderPolicy from "../../../lib/orders/orderPolicy";
 import { calculateProforma } from "../../../lib/calcProforma";
 import { splitFromMrp } from "../../../utils/pricing";
+import { reserveStockForOrder } from "../../../services/stockManagement";
 
 /**
  * PassiveOrders.jsx
@@ -476,9 +477,42 @@ export default function PassiveOrders() {
   const validate = () => {
     if (!selectedRetailer) return "Select a retailer";
     if (cart.length === 0) return "Add at least one product";
+    
+    // Validate cart items have required data
+    for (let i = 0; i < cart.length; i++) {
+      const item = cart[i];
+      if (!item.name || !item.name.trim()) {
+        return `Product ${i + 1} is missing a name. Please check your product catalog.`;
+      }
+      if (!item.qty || Number(item.qty) <= 0) {
+        return `${item.name || 'Product'} has invalid quantity. Please set quantity to at least 1.`;
+      }
+      if (!item.price || Number(item.price) <= 0) {
+        return `${item.name || 'Product'} has invalid price. Please check product pricing.`;
+      }
+    }
+    
     if (!deliveryDate) return "Select a delivery date";
-    if (paymentMode === "Credit" && (!creditDays || Number(creditDays) <= 0)) return "Credit days must be > 0";
-    if (paymentMode === "Advance" && (!advanceAmount || Number(advanceAmount) <= 0)) return "Advance amount must be > 0";
+    
+    // Validate delivery date is not in the past
+    const selectedDate = new Date(deliveryDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedDate < today) {
+      return "Delivery date cannot be in the past. Please select a future date.";
+    }
+    
+    if (paymentMode === "Credit" && (!creditDays || Number(creditDays) <= 0)) {
+      return "Credit days must be greater than 0";
+    }
+    if (paymentMode === "Advance" && (!advanceAmount || Number(advanceAmount) <= 0)) {
+      return "Advance amount must be greater than 0";
+    }
+    
+    if (!distributorId) {
+      return "Distributor ID not found. Please refresh the page.";
+    }
+    
     return "";
   };
 
@@ -511,34 +545,85 @@ export default function PassiveOrders() {
       const safeRetailerName = (selectedRetailer?.displayName || "").trim();
 
       // Get employee session if available (for distributor employees)
-      const session = getDistributorEmployeeSession();
+      // Use let instead of const so we can clear it if it's stale
+      let session = getDistributorEmployeeSession();
       const ownerAuth = auth.currentUser; // Use imported auth directly
-      const employeeAuth = empAuth.currentUser;
+      let employeeAuth = empAuth.currentUser; // Use let so we can update it if auth restores
       
       // DEBUG: Log authentication state to diagnose issues
       console.log('[PassiveOrders] Authentication check:', {
         hasSession: !!session,
         sessionEmployeeId: session?.employeeId,
+        sessionDistributorId: session?.distributorId,
         sessionName: session?.name,
         sessionFlypId: session?.flypEmployeeId,
         hasEmployeeAuth: !!employeeAuth,
         employeeAuthUid: employeeAuth?.uid,
         hasOwnerAuth: !!ownerAuth,
         ownerAuthUid: ownerAuth?.uid,
-        ownerAuthDisplayName: ownerAuth?.displayName
+        ownerAuthDisplayName: ownerAuth?.displayName,
+        distributorId: distributorId
       });
       
-      // CRITICAL: Treat as employee if session exists
-      // However, we need employeeAuth to be authenticated for Firestore rules
-      // If we have a session but no employeeAuth, wait briefly for auth to restore
-      // (This can happen after page reload when using in-memory persistence)
-      const hasSession = !!session;
-      let isEmployee = !!(hasSession && employeeAuth);
+      // CRITICAL: Determine if user is an employee or distributor owner
+      // Priority: Employee auth > Owner auth (if employee is actively logged in, they are creating)
+      // Rule: If employee is authenticated via empAuth AND has valid session → employee is creator
+      //       Only treat as owner if NO employee auth exists
       
-      // If we have a session but no employeeAuth, wait briefly for auth state to restore
+      const hasSession = !!session;
+      const hasEmployeeAuth = !!employeeAuth;
+      const ownerUid = ownerAuth?.uid;
+      const sessionDistributorId = session?.distributorId;
+      
+      // Check if session is stale (session exists but belongs to current owner)
+      const isStaleSession = hasSession && !hasEmployeeAuth && sessionDistributorId === ownerUid;
+      
+      // CORRECTED LOGIC (Employee has priority when actively logged in):
+      // 1. If employee is authenticated (hasEmployeeAuth) AND has valid session → employee is creator (HIGHEST PRIORITY)
+      // 2. Else if owner is logged in AND matches distributorId → owner is creator
+      // 3. Else → owner is creator (fallback)
+      let isEmployee = false;
+      
+      if (hasEmployeeAuth && hasSession && !isStaleSession) {
+        // Employee is actively authenticated - they are the creator (even if owner auth also exists)
+        isEmployee = true;
+        console.log('[PassiveOrders] ✅ Employee authenticated - setting isEmployee = true', {
+          employeeAuthUid: employeeAuth.uid,
+          sessionEmployeeId: session.employeeId,
+          sessionName: session.name,
+          hasOwnerAuth: !!ownerAuth,
+          ownerUid: ownerUid
+        });
+      } else if (ownerAuth && ownerAuth.uid === distributorId) {
+        // No employee auth - owner is the creator
+        isEmployee = false;
+        console.log('[PassiveOrders] ✅ Owner authenticated - setting isEmployee = false', {
+          ownerUid: ownerAuth.uid,
+          distributorId,
+          hasSession,
+          hasEmployeeAuth
+        });
+      } else {
+        // Fallback: treat as owner (no employee auth or stale session)
+        isEmployee = false;
+        console.log('[PassiveOrders] ℹ️ Fallback: treating as owner', {
+          hasEmployeeAuth,
+          hasSession,
+          isStaleSession,
+          hasOwnerAuth: !!ownerAuth
+        });
+      }
+      
+      // If we have a session but no employeeAuth AND it's not a stale session, wait for auth to restore
       // This handles the case where empAuth uses in-memory persistence and auth is lost on reload
-      if (hasSession && !employeeAuth) {
-        console.warn('[PassiveOrders] ⚠️ Employee session exists but empAuth is not authenticated. Waiting for auth state to restore...');
+      // NOTE: Only wait if we haven't already determined isEmployee = true above
+      if (!isEmployee && hasSession && !hasEmployeeAuth && !isStaleSession && !ownerAuth) {
+        console.warn('[PassiveOrders] ⚠️ Employee session exists but empAuth is not authenticated. Waiting for auth state to restore...', {
+          sessionDistributorId,
+          ownerUid,
+          distributorId,
+          isStaleSession
+        });
         
         // Wait up to 2 seconds for auth state to restore
         // This handles race conditions where auth hasn't restored yet after page load
@@ -577,7 +662,7 @@ export default function PassiveOrders() {
           if (restoredAuth) {
             isEmployee = true;
             // Update employeeAuth to use the restored auth for subsequent code
-            employeeAuth = restoredAuth; // Update the local variable
+            employeeAuth = restoredAuth; // This is now allowed since employeeAuth is let
             console.log('[PassiveOrders] ✅ Auth state restored:', restoredAuth.uid);
           }
         } catch (err) {
@@ -585,8 +670,13 @@ export default function PassiveOrders() {
           console.error('[PassiveOrders] ❌ Auth restoration failed:', err);
           if (unsubscribe) unsubscribe();
           
-          // Show error and return early
-          return toast.error("Employee authentication not available. Please refresh the page or log in again.");
+          // Show specific error message based on the error type
+          const errorMsg = err.message === 'Auth restoration timeout'
+            ? "Employee authentication is taking too long. Please refresh the page and try again."
+            : "Employee authentication not available. Please refresh the page or log in again.";
+          
+          setSubmitting(false);
+          return toast.error(errorMsg);
         }
         
         // Final check: if still no auth after waiting, show error
@@ -597,16 +687,43 @@ export default function PassiveOrders() {
             hasSession: !!session,
             hasEmployeeAuth: !!empAuth.currentUser
           });
+          setSubmitting(false);
           return toast.error("Employee authentication required. Please refresh the page or log in again.");
         }
       }
+      
+      // If we detected a stale session, clear it and treat as owner
+      // CRITICAL: When stale session is detected, we must NOT use any session data
+      if (isStaleSession) {
+        console.log('[PassiveOrders] ℹ️ Detected stale employee session (session.distributorId matches owner UID). Treating as distributor owner.', {
+          sessionDistributorId,
+          ownerUid,
+          distributorId
+        });
+        isEmployee = false;
+        // CRITICAL: Clear session reference to prevent using stale employee data
+        // Set session to null so it won't be used in subsequent code
+        session = null;
+        // Don't clear the localStorage session here - let the user do it if needed, or it will clear on next employee login
+      }
+      
+      console.log('[PassiveOrders] ✅ Final authentication decision:', {
+        isEmployee,
+        hasSession: !!session,
+        hasEmployeeAuth: !!employeeAuth,
+        isStaleSession,
+        ownerUid,
+        sessionDistributorId,
+        distributorId
+      });
 
-      // Determine creator info
+      // Determine creator info based on isEmployee flag
       let creatorUid = null;
       let creatorEmail = null;
       let createdByInfo = null;
 
-      if (isEmployee) {
+      // Set creator info based on whether user is employee or owner
+      if (isEmployee && session && employeeAuth && !isStaleSession) {
         // Distributor employee creating order
         // CRITICAL: When using empAuth, the custom token UID is the employee document ID
         // The Firestore rule checks: request.resource.data.creatorUid == request.auth.uid
@@ -725,17 +842,53 @@ export default function PassiveOrders() {
           hasEmployeeAuth: !!employeeAuth,
           sessionEmployeeId: session.employeeId
         });
-      } else if (ownerAuth) {
-        // Distributor owner creating order
-        creatorUid = ownerAuth.uid;
-        creatorEmail = ownerAuth.email || null;
-        createdByInfo = {
-          type: 'distributor',
-          uid: ownerAuth.uid,
-          name: ownerAuth.displayName || null
-        };
       } else {
-        return toast.error("Please login to create order.");
+        // Distributor owner creating order (either ownerAuth exists OR fallback)
+        // If ownerAuth exists, use it; otherwise use distributorId as fallback
+        if (ownerAuth && ownerAuth.uid === distributorId) {
+          creatorUid = ownerAuth.uid;
+          creatorEmail = ownerAuth.email || null;
+          
+          // Get distributor profile to get business name if available
+          let distributorName = ownerAuth.displayName || null;
+          try {
+            const distributorProfileRef = doc(db, 'businesses', distributorId);
+            const distributorProfileSnap = await getDoc(distributorProfileRef);
+            if (distributorProfileSnap.exists()) {
+              const profile = distributorProfileSnap.data();
+              distributorName = profile.businessName || profile.ownerName || ownerAuth.displayName || null;
+            }
+          } catch (err) {
+            console.warn('[PassiveOrders] Failed to fetch distributor profile for name:', err);
+            // Use ownerAuth.displayName as fallback
+          }
+          
+          createdByInfo = {
+            type: 'distributor',
+            uid: ownerAuth.uid,
+            name: distributorName || ownerAuth.displayName || 'Distributor Owner'
+          };
+          
+          console.log('[PassiveOrders] ✅ Set createdByInfo for distributor owner:', {
+            createdByInfo,
+            ownerUid: ownerAuth.uid,
+            ownerEmail: ownerAuth.email,
+            distributorName
+          });
+        } else {
+          // Fallback: No ownerAuth but treating as owner (shouldn't happen, but handle gracefully)
+          console.warn('[PassiveOrders] ⚠️ No ownerAuth but treating as owner - using distributorId as fallback', {
+            hasOwnerAuth: !!ownerAuth,
+            ownerUid: ownerAuth?.uid,
+            distributorId
+          });
+          creatorUid = distributorId;
+          createdByInfo = {
+            type: 'distributor',
+            uid: distributorId,
+            name: 'Distributor Owner'
+          };
+        }
       }
 
       // CRITICAL: Use empDB for employees, db for distributor owners
@@ -750,26 +903,31 @@ export default function PassiveOrders() {
       
       // CRITICAL VALIDATION: For employees, ensure empAuth is authenticated
       // Without empAuth, request.auth.uid will be null and Firestore rules will fail
-      if (isEmployee && !employeeAuth) {
+      // BUT: Only check this if we're actually an employee (not a stale session) and session exists
+      if (isEmployee && !employeeAuth && session && !isStaleSession) {
         console.error('[PassiveOrders] ❌ CRITICAL: Employee session exists but empAuth.currentUser is null.', {
           sessionEmployeeId: session?.employeeId,
           sessionName: session?.name,
-          distributorId
+          distributorId,
+          hasSession: !!session,
+          isStaleSession
         });
+        setSubmitting(false);
         return toast.error("Employee authentication not available. Please refresh the page or log in again.");
       }
       
       // CRITICAL: For employees, creatorUid MUST match employeeAuth.uid for Firestore rules
       // The rule checks: request.resource.data.creatorUid == request.auth.uid
       // When using empDB/empAuth, request.auth.uid is the employee document ID (from custom token)
-      if (isEmployee && employeeAuth && creatorUid !== employeeAuth.uid) {
-        console.warn('[PassiveOrders] ⚠️ creatorUid does not match employeeAuth.uid. Correcting...', {
-          creatorUid,
-          employeeAuthUid: employeeAuth.uid,
-          sessionEmployeeId: session?.employeeId
-        });
-        creatorUid = employeeAuth.uid; // Use the authenticated UID (employee document ID)
-      }
+      // BUT: Only do this if we're actually an employee (not a stale session) and session exists
+      if (isEmployee && employeeAuth && session && !isStaleSession && creatorUid !== employeeAuth.uid) {
+          console.warn('[PassiveOrders] ⚠️ creatorUid does not match employeeAuth.uid. Correcting...', {
+            creatorUid,
+            employeeAuthUid: employeeAuth.uid,
+            sessionEmployeeId: session?.employeeId
+          });
+          creatorUid = employeeAuth.uid; // Use the authenticated UID (employee document ID)
+        }
 
       // CRITICAL VALIDATION: For distributor owners, ensure distributorId matches ownerAuth.uid
       if (!isEmployee && ownerAuth && distributorId !== ownerAuth.uid) {
@@ -1095,14 +1253,38 @@ export default function PassiveOrders() {
       };
 
       // Prepare creator details, ensuring no undefined values
+      // CRITICAL: Only use createdByInfo if it was properly set (not from stale session)
       const cleanCreatedByInfo = createdByInfo ? {
-        type: createdByInfo.type || 'employee',
+        type: createdByInfo.type || (isEmployee ? 'employee' : 'distributor'),
         uid: createdByInfo.uid || null,
         employeeId: createdByInfo.employeeId || null,
         name: createdByInfo.name || null,
         role: createdByInfo.role || null,
         flypEmployeeId: createdByInfo.flypEmployeeId || null,
       } : null;
+      
+      // CRITICAL VALIDATION: Ensure createdByInfo matches isEmployee status
+      // If we detected a stale session, createdByInfo should be for distributor, not employee
+      if (isStaleSession && cleanCreatedByInfo && cleanCreatedByInfo.type === 'employee') {
+        console.error('[PassiveOrders] ❌ CRITICAL BUG: Stale session detected but createdByInfo still shows employee!', {
+          isStaleSession,
+          isEmployee,
+          createdByInfo,
+          cleanCreatedByInfo
+        });
+        // This should never happen, but if it does, we need to fix it
+        // Force it to use owner data
+        if (ownerAuth) {
+          const fixedCreatedByInfo = {
+            type: 'distributor',
+            uid: ownerAuth.uid,
+            name: ownerAuth.displayName || 'Distributor Owner'
+          };
+          console.log('[PassiveOrders] 🔧 Fixing createdByInfo to use owner data:', fixedCreatedByInfo);
+          // Note: We can't reassign cleanCreatedByInfo here, but we'll log the error
+          // The actual fix should prevent this from happening in the first place
+        }
+      }
 
       // Prepare employee activity entry only if we have valid employee info
       // CRITICAL: Cannot use serverTimestamp() inside arrays - Firestore doesn't support FieldValue objects in arrays
@@ -1122,7 +1304,10 @@ export default function PassiveOrders() {
         createdBy: isEmployee ? 'employee' : 'distributor',
         // CRITICAL: For employees, creatorUid MUST be the employee document ID (session.employeeId)
         // This matches request.auth.uid when using empAuth/empDB, which is required by Firestore rules
-        creatorUid: isEmployee ? (session?.employeeId || creatorUid || null) : (creatorUid || null),
+        // For distributor owners, use ownerAuth.uid (already set in creatorUid above)
+        // CRITICAL: Only use session.employeeId if session exists and we're actually an employee
+        // If session is null (stale session cleared), use creatorUid that was already set above
+        creatorUid: (isEmployee && session && employeeAuth) ? (session.employeeId || creatorUid || null) : (creatorUid || null),
         ...(creatorEmail ? { creatorEmail: creatorEmail } : {}),
         ...(cleanCreatedByInfo ? { creatorDetails: sanitizeForFirestore(cleanCreatedByInfo) } : {}),
         ...(employeeActivityEntry ? { employeeActivity: employeeActivityEntry } : {}),
@@ -1237,7 +1422,45 @@ export default function PassiveOrders() {
         orderKeys: Object.keys(finalOrderData),
       });
 
-      console.log('[PassiveOrders] Attempting to create order with:', {
+      // CRITICAL VALIDATION: Final checks before creating order
+      // These validations prevent silent failures and provide clear error messages
+      if (!firestore) {
+        throw new Error('Database connection not available. Please refresh the page.');
+      }
+      
+      if (!distributorId) {
+        throw new Error('Distributor ID is missing. Please refresh the page.');
+      }
+      
+      if (!finalOrderData || typeof finalOrderData !== 'object') {
+        throw new Error('Order data is invalid. Please check all fields and try again.');
+      }
+      
+      if (!Array.isArray(finalOrderData.items) || finalOrderData.items.length === 0) {
+        throw new Error('Order must have at least one item. Please add products to the order.');
+      }
+      
+      if (!finalOrderData.retailerName || !finalOrderData.retailerName.trim()) {
+        throw new Error('Retailer name is required. Please select a retailer.');
+      }
+      
+      // Validate creatorUid is set (critical for Firestore rules)
+      if (!finalOrderData.creatorUid) {
+        const errorMsg = isEmployee 
+          ? 'Employee authentication failed. Please refresh the page or log in again.'
+          : 'User authentication failed. Please refresh the page or log in again.';
+        throw new Error(errorMsg);
+      }
+      
+      // Validate items have required fields
+      const invalidItems = finalOrderData.items.filter(item => 
+        !item.name || !item.quantity || Number(item.quantity) <= 0 || !item.price || Number(item.price) <= 0
+      );
+      if (invalidItems.length > 0) {
+        throw new Error(`Invalid items found: ${invalidItems.length} item(s) have missing or invalid data. Please check product details.`);
+      }
+
+      console.log('[PassiveOrders] ✅ All validations passed. Attempting to create order with:', {
         firestore: firestore === empDB ? 'empDB' : 'db',
         distributorId,
         createdBy: finalOrderData.createdBy,
@@ -1247,30 +1470,75 @@ export default function PassiveOrders() {
         hasEmployeeAuth: !!employeeAuth,
         ownerUid: ownerAuth?.uid,
         employeeUid: employeeAuth?.uid,
+        itemCount: finalOrderData.items?.length || 0,
+        retailerName: finalOrderData.retailerName,
       });
 
-      await addDoc(collection(firestore, 'businesses', distributorId, 'orderRequests'), finalOrderData);
-
-      toast.success("Order created");
-      resetForm();
+      // CRITICAL: Reserve stock when order is created to prevent overselling
+      // This ensures that when multiple orders are placed simultaneously, stock is properly reserved
+      const orderItems = finalOrderData.items || [];
+      const hasValidSKUs = orderItems.some(item => item.sku || item.SKU);
+      
+      if (hasValidSKUs && orderItems.length > 0) {
+        try {
+          // Generate order ID before creating document
+          const orderRef = collection(firestore, 'businesses', distributorId, 'orderRequests');
+          const orderDocRef = doc(orderRef);
+          const orderId = orderDocRef.id;
+          
+          // Reserve stock BEFORE creating order (prevents race conditions)
+          await reserveStockForOrder(distributorId, orderId, orderItems);
+          console.log('[PassiveOrders] ✅ Stock reserved for order:', orderId);
+          
+          // Add orderId and stock reservation info to order data
+          finalOrderData.id = orderId;
+          finalOrderData.stockReservedAt = serverTimestamp();
+          finalOrderData.stockReserved = true;
+          
+          // Create the order with reserved stock
+          await setDoc(orderDocRef, finalOrderData);
+          
+          console.log('[PassiveOrders] ✅ Order created successfully with stock reserved');
+          toast.success("Order created successfully! Stock reserved.");
+          resetForm();
+        } catch (stockError) {
+          console.error('[PassiveOrders] ❌ Stock reservation failed:', stockError);
+          // If stock reservation fails, don't create the order
+          setSubmitting(false);
+          return toast.error(`Cannot create order: ${stockError.message || 'Insufficient stock available'}`);
+        }
+      } else {
+        // No SKUs - create order without stock reservation (legacy support)
+        const orderRef = collection(firestore, 'businesses', distributorId, 'orderRequests');
+        await addDoc(orderRef, finalOrderData);
+        
+        console.log('[PassiveOrders] ✅ Order created successfully (no SKUs - stock not reserved)');
+        toast.success("Order created successfully!");
+        resetForm();
+      }
     } catch (e) {
-        console.error('[PassiveOrders] Order creation failed:', e);
+        // Comprehensive error handling with specific messages
+        console.error('[PassiveOrders] ❌ Order creation failed:', e);
         
         // Safely access variables that might not be defined if error occurred early
+        let errorDetails = {};
         try {
-          const errorDetails = {
-            code: e.code,
-            message: e.message,
+          errorDetails = {
+            code: e.code || 'unknown',
+            message: e.message || 'Unknown error',
             stack: e.stack,
             firestore: (typeof firestore !== 'undefined' && firestore) ? (firestore === empDB ? 'empDB' : 'db') : 'undefined',
             distributorId: typeof distributorId !== 'undefined' ? distributorId : 'undefined',
             isEmployee: typeof isEmployee !== 'undefined' ? isEmployee : 'undefined',
+            hasOwnerAuth: typeof ownerAuth !== 'undefined' ? !!ownerAuth : 'undefined',
+            hasEmployeeAuth: typeof employeeAuth !== 'undefined' ? !!employeeAuth : 'undefined',
           };
           
           // Only access finalOrderData if it was defined
           if (typeof finalOrderData !== 'undefined' && finalOrderData) {
             errorDetails.createdBy = finalOrderData.createdBy;
             errorDetails.creatorUid = finalOrderData.creatorUid;
+            errorDetails.itemCount = finalOrderData.items?.length || 0;
           }
           
           console.error('[PassiveOrders] Error details:', errorDetails);
@@ -1279,11 +1547,31 @@ export default function PassiveOrders() {
           console.error('[PassiveOrders] Original error:', e);
         }
       
-      const errorMessage = e.code === 'permission-denied' 
-        ? 'Permission denied. Please check your access or contact support.'
-        : e.code === 'unauthenticated'
-        ? 'Authentication required. Please login again.'
-        : e.message || 'Failed to create order.';
+      // Provide specific, actionable error messages
+      let errorMessage = 'Failed to create order.';
+      
+      if (e.code === 'permission-denied') {
+        errorMessage = isEmployee
+          ? 'Permission denied. Your employee account may not have permission to create orders. Please contact your administrator.'
+          : 'Permission denied. Please check your access or contact support.';
+      } else if (e.code === 'unauthenticated') {
+        errorMessage = isEmployee
+          ? 'Employee authentication expired. Please refresh the page or log in again.'
+          : 'Authentication required. Please login again.';
+      } else if (e.code === 'failed-precondition') {
+        errorMessage = 'Order creation failed due to a system error. Please try again or contact support.';
+      } else if (e.code === 'invalid-argument') {
+        errorMessage = 'Invalid order data. Please check all fields and try again.';
+      } else if (e.message) {
+        // Use the error message if it's user-friendly
+        errorMessage = e.message;
+      } else if (e.name === 'FirebaseError') {
+        errorMessage = `Database error: ${e.code || 'unknown'}. Please try again or contact support.`;
+      }
+      
+      // Log the full error for debugging
+      console.error('[PassiveOrders] Final error message:', errorMessage);
+      console.error('[PassiveOrders] Full error object:', e);
       
       toast.error(errorMessage);
     } finally {

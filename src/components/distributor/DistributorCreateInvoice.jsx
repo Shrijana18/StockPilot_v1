@@ -5,6 +5,7 @@ import BillingCart from "../billing/BillingCart";
 import InvoiceSettings from "../billing/InvoiceSettings";
 import ProductSearch from "../billing/ProductSearch";
 import InvoicePreview from "../billing/InvoicePreview";
+import PaymentLinkSender from "../payment/PaymentLinkSender";
 import { normalizeUnit } from "../billing/pricingUtils";
 import { auth, db } from "../../firebase/firebaseConfig";
 import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -97,6 +98,7 @@ const DistributorCreateInvoice = () => {
   const [invoiceData, setInvoiceData] = useState(null);
   const [splitPayment, setSplitPayment] = useState({ cash: 0, upi: 0, card: 0 });
   const [isCreating, setIsCreating] = useState(false);
+  const [showPaymentLinkSender, setShowPaymentLinkSender] = useState(false);
   const [billingSettings, setBillingSettings] = useState({
     branding: { logoUrl: "", signatureUrl: "", stampUrl: "" },
     bank: { bankName: "", branch: "", accountNumber: "", ifsc: "", accountName: "" },
@@ -530,12 +532,22 @@ const DistributorCreateInvoice = () => {
             await setDoc(invoiceRef, toWrite);
             console.log("Distributor invoice saved to Firestore:", invoiceId);
             await updateInventoryStock(userInfo.uid, cartItems);
-            alert("Invoice created successfully!");
-            // Reset form
-            setCustomer({ name: "", phone: "", email: "", address: "", city: "", state: "" });
-            setCartItems([]);
-            setSelectedProducts([]);
-            setShowPreview({ visible: false, issuedAt: null });
+            
+            // Check if we should show payment link sender
+            const paymentMode = (settings.paymentMode || "").toLowerCase();
+            const shouldShowPaymentLink = (paymentMode === "upi" || paymentMode === "card" || (paymentMode === "credit" && !invoiceData.isPaid));
+            
+            if (shouldShowPaymentLink && customer?.phone) {
+              // Show payment link sender after successful save
+              setShowPaymentLinkSender(true);
+            } else {
+              alert("Invoice created successfully!");
+              // Reset form
+              setCustomer({ name: "", phone: "", email: "", address: "", city: "", state: "" });
+              setCartItems([]);
+              setSelectedProducts([]);
+              setShowPreview({ visible: false, issuedAt: null });
+            }
           } catch (error) {
             console.error("Error saving invoice:", error.message);
             alert("Failed to save invoice. Please try again.");
@@ -564,6 +576,28 @@ const DistributorCreateInvoice = () => {
         payment={billingSettings.payment}
         terms={billingSettings.terms}
       />
+    );
+  }
+
+  // Payment Link Sender Modal (shown after invoice creation)
+  if (showPaymentLinkSender && invoiceData) {
+    return (
+      <>
+        <PaymentLinkSender
+          isOpen={showPaymentLinkSender}
+          onClose={() => {
+            setShowPaymentLinkSender(false);
+            // Reset form after closing payment link sender
+            setCustomer({ name: "", phone: "", email: "", address: "", city: "", state: "" });
+            setCartItems([]);
+            setSelectedProducts([]);
+            setShowPreview({ visible: false, issuedAt: null });
+            alert("Invoice created successfully!");
+          }}
+          invoice={invoiceData}
+          customer={customer}
+        />
+      </>
     );
   }
 

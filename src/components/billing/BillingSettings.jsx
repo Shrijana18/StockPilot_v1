@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { toast } from "react-toastify";
+import MerchantOnboarding from "../payment/MerchantOnboarding";
 import {
   getStorage,
   ref as storageRef,
@@ -34,6 +35,19 @@ const DEFAULTS = {
   payment: {
     upiId: "",
     upiQrUrl: "",
+    multipleUpiIds: [],
+    card: {
+      enabled: false,
+      gateway: "",
+      merchantId: "",
+      apiKey: "",
+      paymentLinkEnabled: false,
+    },
+    notifications: {
+      sendOnInvoice: false,
+      sendOnCredit: true,
+      autoSendPaymentLink: false,
+    },
   },
   terms: "",
 };
@@ -42,7 +56,7 @@ const DEFAULTS = {
 const asStr = (v) => (v == null ? "" : String(v));
 
 // Strict allowlist + JSON round-trip to strip any non-serializable values
-const sanitizeSettings = (raw) => {
+  const sanitizeSettings = (raw) => {
   const brandingIn = raw?.branding || {};
   const bankIn = raw?.bank || {};
   const paymentIn = raw?.payment || {};
@@ -63,6 +77,21 @@ const sanitizeSettings = (raw) => {
     payment: {
       upiId: asStr(paymentIn.upiId),
       upiQrUrl: asStr(paymentIn.upiQrUrl),
+      multipleUpiIds: Array.isArray(paymentIn.multipleUpiIds) 
+        ? paymentIn.multipleUpiIds.map(asStr).filter(Boolean)
+        : [],
+      card: {
+        enabled: Boolean(paymentIn.card?.enabled),
+        gateway: asStr(paymentIn.card?.gateway || ""),
+        merchantId: asStr(paymentIn.card?.merchantId || ""),
+        apiKey: asStr(paymentIn.card?.apiKey || ""),
+        paymentLinkEnabled: Boolean(paymentIn.card?.paymentLinkEnabled),
+      },
+      notifications: {
+        sendOnInvoice: Boolean(paymentIn.notifications?.sendOnInvoice),
+        sendOnCredit: Boolean(paymentIn.notifications?.sendOnCredit !== false), // default true
+        autoSendPaymentLink: Boolean(paymentIn.notifications?.autoSendPaymentLink),
+      },
     },
     terms: asStr(raw?.terms),
     updatedAt: Date.now(),
@@ -77,6 +106,7 @@ export default function BillingSettings({ isOpen, onClose, onSaved }) {
   const [settings, setSettings] = useState(DEFAULTS);
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [uploadingKey, setUploadingKey] = useState(""); // "branding.logoUrl" etc
+  const [showMerchantOnboarding, setShowMerchantOnboarding] = useState(false);
   const canvasRef = useRef(null);
   const storage = getStorage();
 
@@ -123,6 +153,19 @@ export default function BillingSettings({ isOpen, onClose, onSaved }) {
             payment: {
               upiId: data.payment?.upiId || "",
               upiQrUrl: data.payment?.upiQrUrl || "",
+              multipleUpiIds: data.payment?.multipleUpiIds || [],
+              card: {
+                enabled: data.payment?.card?.enabled || false,
+                gateway: data.payment?.card?.gateway || "",
+                merchantId: data.payment?.card?.merchantId || "",
+                apiKey: data.payment?.card?.apiKey || "",
+                paymentLinkEnabled: data.payment?.card?.paymentLinkEnabled || false,
+              },
+              notifications: {
+                sendOnInvoice: data.payment?.notifications?.sendOnInvoice || false,
+                sendOnCredit: data.payment?.notifications?.sendOnCredit !== false,
+                autoSendPaymentLink: data.payment?.notifications?.autoSendPaymentLink || false,
+              },
             },
             terms: data.terms || "",
           });
@@ -404,17 +447,17 @@ export default function BillingSettings({ isOpen, onClose, onSaved }) {
 
               {/* UPI */}
               <section>
-                <h3 className="font-semibold mb-2">UPI</h3>
+                <h3 className="font-semibold mb-2">UPI Payment Gateway</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm opacity-80 mb-1">UPI ID</label>
+                    <label className="block text-sm opacity-80 mb-1">Primary UPI ID</label>
                     <input
                       className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20"
                       placeholder="username@bank"
                       value={settings.payment?.upiId ?? ""}
                       onChange={(e) => setField("payment.upiId", e.target.value)}
                     />
-                    <p className="text-xs opacity-70 mt-1">Shown on invoice and for QR generation.</p>
+                    <p className="text-xs opacity-70 mt-1">Used for payment links and QR generation.</p>
                   </div>
                   <div>
                     <label className="block text-sm opacity-80 mb-1">UPI QR Code</label>
@@ -438,6 +481,138 @@ export default function BillingSettings({ isOpen, onClose, onSaved }) {
                       <p className="text-xs opacity-70 mt-1">Uploading…</p>
                     )}
                   </div>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm opacity-80 mb-2">Additional UPI IDs (Optional)</label>
+                  <p className="text-xs opacity-70 mb-2">Add multiple UPI IDs if you have different accounts for different purposes.</p>
+                  {(settings.payment?.multipleUpiIds || []).map((upiId, idx) => (
+                    <div key={idx} className="flex gap-2 mb-2">
+                      <input
+                        className="flex-1 px-3 py-2 rounded-lg bg-white/10 border border-white/20"
+                        placeholder="username@bank"
+                        value={upiId}
+                        onChange={(e) => {
+                          const updated = [...(settings.payment?.multipleUpiIds || [])];
+                          updated[idx] = e.target.value;
+                          setField("payment.multipleUpiIds", updated);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = [...(settings.payment?.multipleUpiIds || [])];
+                          updated.splice(idx, 1);
+                          setField("payment.multipleUpiIds", updated);
+                        }}
+                        className="px-3 py-2 rounded-lg border border-white/20 hover:bg-white/10"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = settings.payment?.multipleUpiIds || [];
+                      setField("payment.multipleUpiIds", [...current, ""]);
+                    }}
+                    className="px-3 py-2 rounded-lg border border-white/20 hover:bg-white/10 text-sm"
+                  >
+                    + Add UPI ID
+                  </button>
+                </div>
+              </section>
+
+              {/* Card Payment Gateway */}
+              <section>
+                <h3 className="font-semibold mb-2">Card Payment Gateway</h3>
+                <div className="space-y-4">
+                  {settings.payment?.card?.merchantAccountId ? (
+                    // Merchant account already exists - show status
+                    <div className="p-4 rounded-lg bg-emerald-500/20 border border-emerald-500/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <p className="font-semibold text-emerald-300">✓ Payment Gateway Active</p>
+                          <p className="text-sm text-white/70 mt-1">
+                            Gateway: {settings.payment.card.gateway || "razorpay"} | 
+                            Status: {settings.payment.card.merchantStatus || "active"}
+                          </p>
+                          {settings.payment.card.merchantAccountId && (
+                            <p className="text-xs text-white/60 mt-1">
+                              Merchant ID: {settings.payment.card.merchantAccountId}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-sm text-white/80">
+                        Your card payment gateway is set up and ready to accept payments. 
+                        Customers can pay via card using payment links.
+                      </p>
+                    </div>
+                  ) : (
+                    // No merchant account - show onboarding button
+                    <div className="p-4 rounded-lg bg-blue-500/20 border border-blue-500/30">
+                      <p className="text-sm text-blue-200 mb-3">
+                        <strong>Easy Setup:</strong> We'll create a payment gateway account for you automatically. 
+                        No need to sign up with Razorpay or Stripe separately!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowMerchantOnboarding(true)}
+                        className="px-4 py-2 rounded-lg font-medium text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]"
+                      >
+                        Setup Payment Gateway
+                      </button>
+                      <p className="text-xs text-white/60 mt-2">
+                        You'll need: Business details (GSTIN, PAN), Contact info, and Bank account details
+                      </p>
+                    </div>
+                  )}
+                  
+                  {settings.payment?.card?.enabled && !settings.payment?.card?.merchantAccountId && (
+                    <div className="pl-7 space-y-4 border-l-2 border-white/10">
+                      <p className="text-sm text-white/70">
+                        Click "Setup Payment Gateway" above to get started. 
+                        The setup process takes just a few minutes.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Payment Notifications */}
+              <section>
+                <h3 className="font-semibold mb-2">Payment Notifications</h3>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={settings.payment?.notifications?.sendOnInvoice || false}
+                      onChange={(e) => setField("payment.notifications.sendOnInvoice", e.target.checked)}
+                      className="w-5 h-5 accent-emerald-400"
+                    />
+                    <span className="text-sm opacity-80">Automatically send payment link when invoice is created</span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={settings.payment?.notifications?.sendOnCredit !== false}
+                      onChange={(e) => setField("payment.notifications.sendOnCredit", e.target.checked)}
+                      className="w-5 h-5 accent-emerald-400"
+                    />
+                    <span className="text-sm opacity-80">Send payment reminders for credit invoices</span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={settings.payment?.notifications?.autoSendPaymentLink || false}
+                      onChange={(e) => setField("payment.notifications.autoSendPaymentLink", e.target.checked)}
+                      className="w-5 h-5 accent-emerald-400"
+                    />
+                    <span className="text-sm opacity-80">Auto-send payment link via WhatsApp (requires customer phone)</span>
+                  </label>
                 </div>
               </section>
 
@@ -520,6 +695,69 @@ export default function BillingSettings({ isOpen, onClose, onSaved }) {
               </button>
             </div>
           </div>
+
+          {showMerchantOnboarding && (
+            <MerchantOnboarding
+              isOpen={showMerchantOnboarding}
+              onClose={() => {
+                setShowMerchantOnboarding(false);
+                // Reload settings after onboarding
+                const load = async () => {
+                  const uid = auth.currentUser?.uid;
+                  if (!uid) return;
+                  try {
+                    const ref = doc(db, "businesses", uid, "preferences", "billing");
+                    const snap = await getDoc(ref);
+                    if (snap.exists()) {
+                      const d = snap.data();
+                      const bankIn = d.bank || {};
+                      const bank = {
+                        bankName: bankIn.bankName || bankIn.name || "",
+                        branch: bankIn.branch || "",
+                        accountNumber: bankIn.accountNumber || bankIn.account || "",
+                        ifsc: bankIn.ifsc || "",
+                        accountName: bankIn.accountName || "",
+                      };
+                      setSettings({
+                        branding: {
+                          logoUrl: d.branding?.logoUrl || "",
+                          signatureUrl: d.branding?.signatureUrl || "",
+                          stampUrl: d.branding?.stampUrl || "",
+                        },
+                        bank,
+                        payment: {
+                          upiId: d.payment?.upiId || "",
+                          upiQrUrl: d.payment?.upiQrUrl || "",
+                          multipleUpiIds: d.payment?.multipleUpiIds || [],
+                          card: {
+                            enabled: d.payment?.card?.enabled || false,
+                            gateway: d.payment?.card?.gateway || "",
+                            merchantId: d.payment?.card?.merchantId || "",
+                            merchantAccountId: d.payment?.card?.merchantAccountId || "",
+                            merchantStatus: d.payment?.card?.merchantStatus || "",
+                            apiKey: d.payment?.card?.apiKey || "",
+                            paymentLinkEnabled: d.payment?.card?.paymentLinkEnabled || false,
+                          },
+                          notifications: {
+                            sendOnInvoice: d.payment?.notifications?.sendOnInvoice || false,
+                            sendOnCredit: d.payment?.notifications?.sendOnCredit !== false,
+                            autoSendPaymentLink: d.payment?.notifications?.autoSendPaymentLink || false,
+                          },
+                        },
+                        terms: d.terms || "",
+                      });
+                    }
+                  } catch (e) {
+                    console.error("Failed to reload billing settings", e);
+                  }
+                };
+                load();
+              }}
+              onComplete={() => {
+                toast.success("Payment gateway setup completed!");
+              }}
+            />
+          )}
 
           {showSignaturePad &&
             createPortal(
