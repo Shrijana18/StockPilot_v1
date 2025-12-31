@@ -40,13 +40,19 @@ We've redesigned the WhatsApp setup flow to use **Meta's official Embedded Signu
 
 ### Embedded Signup URL:
 ```
-https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=777298265371694&extras=%7B%22featureType%22%3A%22whatsapp_business_app_onboarding%22%2C%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D
+https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=777298265371694&extras=%7B%22featureType%22%3A%22whatsapp_business_app_onboarding%22%2C%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%2C%22features%22%3A[%7B%22name%22%3A%22marketing_messages_lite%22%7D%2C%7B%22name%22%3A%22app_only_install%22%7D]%7D
 ```
 
 **Parameters:**
 - `app_id`: `1902565950686087` (FLYP Tech Provider App)
 - `config_id`: `777298265371694` (Your Embedded Signup configuration)
-- `extras`: JSON with feature type and version info
+- `extras`: JSON with feature type, version info, and features:
+  - `featureType`: `whatsapp_business_app_onboarding`
+  - `sessionInfoVersion`: `3`
+  - `version`: `v3`
+  - `features`: 
+    - `marketing_messages_lite`
+    - `app_only_install`
 
 ## 📨 PostMessage Handling
 
@@ -160,7 +166,8 @@ Open browser console and look for:
 
 ## 🔗 Resources
 
-- **Embedded Signup URL:** https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=777298265371694
+- **Embedded Signup URL:** https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=777298265371694&extras=%7B%22featureType%22%3A%22whatsapp_business_app_onboarding%22%2C%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%2C%22features%22%3A[%7B%22name%22%3A%22marketing_messages_lite%22%7D%2C%7B%22name%22%3A%22app_only_install%22%7D]%7D
 - **Meta Docs:** https://developers.facebook.com/docs/whatsapp/embedded-signup
 - **App Dashboard:** https://developers.facebook.com/apps/1902565950686087
+- **System User (FLYP Shri - Admin):** ID `61585528485890` (Recommended for use)
 

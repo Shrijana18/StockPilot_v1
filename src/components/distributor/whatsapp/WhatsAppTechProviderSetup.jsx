@@ -97,70 +97,8 @@ const WhatsAppTechProviderSetup = ({ onSetupComplete }) => {
 
   // Removed handleSyncConfig and handleFindWABAWithPhone - functions don't exist
   // Use getWhatsAppSetupStatus instead which provides all needed info
-
-  const handleCreateWABA = async () => {
-    if (!distributorId) {
-      toast.error('Please log in to continue');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const createWABA = httpsCallable(functions, 'createClientWABA');
-      const result = await createWABA();
-
-      if (result.data?.success) {
-        toast.success('✅ WhatsApp Business Account created successfully!');
-        await checkAllStatus();
-      } else {
-        throw new Error(result.data?.message || 'Failed to create WABA');
-      }
-    } catch (error) {
-      console.error('Error creating WABA:', error);
-      toast.error(error?.message || 'Failed to create WhatsApp Business Account');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddPhoneNumber = async () => {
-    if (!distributorId) {
-      toast.error('Please log in to continue');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const businessDoc = await getDoc(doc(db, 'businesses', distributorId));
-      const businessData = businessDoc.exists() ? businessDoc.data() : {};
-      const phoneNumber = businessData.phone;
-
-      if (!phoneNumber) {
-        toast.error('Please add a phone number to your profile first');
-        setLoading(false);
-        return;
-      }
-
-      const requestPhone = httpsCallable(functions, 'requestPhoneNumber');
-      const result = await requestPhone({
-        phoneNumber,
-        displayName: businessData.businessName || businessData.ownerName || 'My Business',
-      });
-
-      if (result.data?.success) {
-        toast.success('✅ Phone number verification requested!');
-        toast.info('📱 Please complete OTP verification in Meta Business Suite');
-        await checkAllStatus();
-      } else {
-        throw new Error(result.data?.message || 'Failed to request phone number');
-      }
-    } catch (error) {
-      console.error('Error requesting phone number:', error);
-      toast.error(error?.message || 'Failed to request phone number');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Removed handleCreateWABA and handleAddPhoneNumber - OLD flow functions deleted
+  // Embedded Signup handles WABA creation and phone number setup via Meta's popup
 
   // Removed handleRegisterPhoneNumber - use IndividualWABASetup component instead
   // Phone registration is handled via createIndividualWABA and verifyPhoneOTP
@@ -409,14 +347,12 @@ const WhatsAppTechProviderSetup = ({ onSetupComplete }) => {
           }}
         >
           {!setupStatus.status?.phoneNumber?.id && setupStatus.status?.waba?.id && (
-            <button
-              onClick={handleAddPhoneNumber}
-              disabled={loading}
-              className="mt-4 w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loading ? <FaSpinner className="animate-spin" /> : <FaPhone />}
-              Add Phone Number
-            </button>
+            <div className="mt-4 p-3 bg-blue-900/30 rounded-lg border border-blue-500/30">
+              <p className="text-blue-200 text-sm">
+                ℹ️ Phone number is added automatically during Embedded Signup flow. 
+                If you need to add a phone number, please use the "Connect with Facebook" button above.
+              </p>
+            </div>
           )}
           {setupStatus.status?.phoneNumber?.id && !setupStatus.status?.phoneNumber?.registered && (
             <div className="mt-4 p-3 bg-yellow-900/30 rounded-lg">

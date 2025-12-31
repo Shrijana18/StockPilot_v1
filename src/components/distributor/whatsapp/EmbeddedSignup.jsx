@@ -31,7 +31,8 @@ const EmbeddedSignup = ({ onSetupComplete }) => {
   const popupRef = useRef(null);
 
   // Meta Embedded Signup Configuration
-  const EMBEDDED_SIGNUP_URL = 'https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=777298265371694&extras=%7B%22featureType%22%3A%22whatsapp_business_app_onboarding%22%2C%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D';
+  // Includes features: marketing_messages_lite and app_only_install
+  const EMBEDDED_SIGNUP_URL = 'https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=777298265371694&extras=%7B%22featureType%22%3A%22whatsapp_business_app_onboarding%22%2C%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%2C%22features%22%3A[%7B%22name%22%3A%22marketing_messages_lite%22%7D%2C%7B%22name%22%3A%22app_only_install%22%7D]%7D';
 
   // Listen for postMessage from Meta Embedded Signup
   useEffect(() => {

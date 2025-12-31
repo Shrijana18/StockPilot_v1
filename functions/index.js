@@ -87,22 +87,16 @@ const whatsappConnect = require("./whatsapp/connect");
 exports.whatsappConnectStart = whatsappConnect.whatsappConnectStart;
 exports.whatsappConnectCallback = whatsappConnect.whatsappConnectCallback;
 
-// WhatsApp Tech Provider (New Gateway)
+// WhatsApp Tech Provider (Embedded Signup Flow)
 const whatsappTechProvider = require("./whatsapp/techProvider");
-// Core WABA Management
-exports.createClientWABA = whatsappTechProvider.createClientWABA;
-exports.getClientWABA = whatsappTechProvider.getClientWABA;
-exports.createIndividualWABA = whatsappTechProvider.createIndividualWABA;
-// Phone Number Management
-exports.requestPhoneNumber = whatsappTechProvider.requestPhoneNumber;
-exports.verifyPhoneOTP = whatsappTechProvider.verifyPhoneOTP;
-exports.checkPhoneRegistrationStatus = whatsappTechProvider.checkPhoneRegistrationStatus;
 // Messaging
 exports.sendMessageViaTechProvider = whatsappTechProvider.sendMessageViaTechProvider;
-// Webhook & Status
+// Webhook & Status (Required for Embedded Signup)
 exports.setupWebhookForClient = whatsappTechProvider.setupWebhookForClient;
 exports.whatsappTechProviderWebhook = whatsappTechProvider.whatsappTechProviderWebhook;
 exports.getWhatsAppSetupStatus = whatsappTechProvider.getWhatsAppSetupStatus;
+// Note: Removed OLD flow functions (createClientWABA, createIndividualWABA, requestPhoneNumber, 
+// verifyPhoneOTP, checkPhoneRegistrationStatus, getClientWABA) - not needed for Embedded Signup
 
 // ============================
 // Utility Modules (Internal use)
