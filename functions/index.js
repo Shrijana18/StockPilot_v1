@@ -89,12 +89,20 @@ exports.whatsappConnectCallback = whatsappConnect.whatsappConnectCallback;
 
 // WhatsApp Tech Provider (New Gateway)
 const whatsappTechProvider = require("./whatsapp/techProvider");
+// Core WABA Management
 exports.createClientWABA = whatsappTechProvider.createClientWABA;
 exports.getClientWABA = whatsappTechProvider.getClientWABA;
+exports.createIndividualWABA = whatsappTechProvider.createIndividualWABA;
+// Phone Number Management
 exports.requestPhoneNumber = whatsappTechProvider.requestPhoneNumber;
+exports.verifyPhoneOTP = whatsappTechProvider.verifyPhoneOTP;
+exports.checkPhoneRegistrationStatus = whatsappTechProvider.checkPhoneRegistrationStatus;
+// Messaging
 exports.sendMessageViaTechProvider = whatsappTechProvider.sendMessageViaTechProvider;
+// Webhook & Status
 exports.setupWebhookForClient = whatsappTechProvider.setupWebhookForClient;
 exports.whatsappTechProviderWebhook = whatsappTechProvider.whatsappTechProviderWebhook;
+exports.getWhatsAppSetupStatus = whatsappTechProvider.getWhatsAppSetupStatus;
 
 // ============================
 // Utility Modules (Internal use)

@@ -15,6 +15,8 @@ import WhatsAppInbox from './WhatsAppInbox';
 import WhatsAppCampaigns from './WhatsAppCampaigns';
 import WhatsAppScheduler from './WhatsAppScheduler';
 import MetaAPIFeatures from './MetaAPIFeatures';
+import IndividualWABASetup from './IndividualWABASetup';
+import EmbeddedSignup from './EmbeddedSignup';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 
@@ -505,13 +507,10 @@ const WhatsAppHub = () => {
         </div>
       ) : (
                 <div className="mt-4">
-                  <button
-                    onClick={() => navigate('/distributor-dashboard?tab=profile&section=whatsapp')}
-                    className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl shadow-lg transform transition-all hover:scale-105"
-                  >
-                    🚀 Set Up WhatsApp Business API
-                  </button>
-        </div>
+                  <p className="text-sm text-gray-400 mb-4">
+                    Create your own WhatsApp Business Account to start messaging
+                  </p>
+                </div>
       )}
             </div>
 
@@ -568,20 +567,36 @@ const WhatsAppHub = () => {
           {activeTab === 'overview' && (
             <div className="space-y-6">
               {!isEnabled ? (
-                <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-8 text-center">
-                  <div className="text-5xl mb-4">📱</div>
-                  <h3 className="text-2xl font-bold text-white mb-2">Get Started with WhatsApp Business</h3>
-                  <p className="text-gray-300 mb-6 max-w-2xl mx-auto">
-                    Connect your WhatsApp Business account to start sending automated messages, track delivery status, 
-                    and manage two-way conversations with your retailers - all from one platform.
-                  </p>
-                        <button
-                    onClick={() => navigate('/distributor-dashboard?tab=profile&section=whatsapp')}
-                    className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl shadow-lg transform transition-all hover:scale-105"
-                  >
-                    🚀 Set Up WhatsApp Business API
-                        </button>
-                      </div>
+                <div>
+                  <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-6 mb-6 text-center">
+                    <div className="text-5xl mb-4">📱</div>
+                    <h3 className="text-2xl font-bold text-white mb-2">Create Your WhatsApp Business Account</h3>
+                    <p className="text-gray-300 mb-4 max-w-2xl mx-auto">
+                      Set up your own WhatsApp Business Account with your phone number to start sending messages, 
+                      managing conversations, and automating customer interactions.
+                    </p>
+                  </div>
+                  <EmbeddedSignup 
+                    onSetupComplete={async (result) => {
+                      if (result?.success) {
+                        // Refresh config
+                        const config = await getWhatsAppConfig(distributorId);
+                        setWhatsappConfig(config);
+                        toast.success('WhatsApp setup complete! You can now use all features.');
+                        // Refresh stats
+                        try {
+                          const messagesRef = collection(db, 'businesses', distributorId, 'whatsappMessages');
+                          const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(500));
+                          const snapshot = await getDocs(q);
+                          const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                          setMessageHistory(messages);
+                        } catch (err) {
+                          console.warn('Could not refresh message history:', err);
+                        }
+                      }
+                    }}
+                  />
+                </div>
               ) : (
                 <>
                   {/* Stats Grid */}
@@ -678,6 +693,16 @@ const WhatsAppHub = () => {
                 <p className="text-gray-400 mb-4">
                   Compose a message and send it to your connected retailers. You can include products, images, and promotional offers.
                 </p>
+                
+                {/* Individual WABA Notice */}
+                {isTechProvider && (
+                  <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-lg p-3 mb-4">
+                    <p className="text-sm text-emerald-200">
+                      <strong>✅ Your WhatsApp Business Account:</strong> Messages are sent from your own WhatsApp Business Account. 
+                      Check delivery status in the History tab.
+                    </p>
+                  </div>
+                )}
                 
                 <div className="space-y-4">
                   {/* Select Retailers */}
@@ -828,13 +853,34 @@ const WhatsAppHub = () => {
             </div>
           )}
 
-          {/* Other tabs */}
-          {activeTab === 'inbox' && <WhatsAppInbox />}
-          {activeTab === 'campaigns' && <WhatsAppCampaigns />}
-          {activeTab === 'schedule' && <WhatsAppScheduler />}
+          {/* Other tabs - Only show if WhatsApp is enabled */}
+          {activeTab === 'inbox' && isEnabled && <WhatsAppInbox />}
+          {activeTab === 'campaigns' && isEnabled && <WhatsAppCampaigns />}
+          {activeTab === 'schedule' && isEnabled && <WhatsAppScheduler />}
           {activeTab === 'history' && (
             <div className="space-y-4">
                 <h3 className="text-xl font-semibold">📜 Message History</h3>
+                
+                {/* Important Notice */}
+                {isTechProvider && (
+                  <div className="bg-blue-900/30 border border-blue-500/50 rounded-xl p-4 mb-4">
+                    <div className="flex items-start gap-3">
+                      <div className="text-2xl">ℹ️</div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-blue-300 mb-2">How Tech Provider Mode Works</p>
+                        <p className="text-sm text-blue-200/80 mb-2">
+                          Messages are sent from <strong>your WhatsApp Business Account</strong>, not your personal WhatsApp. 
+                          You won't see these messages in your personal WhatsApp app.
+                        </p>
+                        <p className="text-sm text-blue-200/80">
+                          <strong>To verify delivery:</strong> Check status below (sent → delivered → read) or ask the recipient. 
+                          They'll receive messages from your business phone number.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
               {messageHistory.length === 0 ? (
                 <div className="bg-slate-900/80 border border-white/10 rounded-xl p-8 text-center">
                   <div className="text-4xl mb-3">📭</div>
@@ -842,7 +888,22 @@ const WhatsAppHub = () => {
                 </div>
               ) : (
                 <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {messageHistory.slice(0, 20).map((msg) => (
+                  {messageHistory.slice(0, 20).map((msg) => {
+                    const statusColor = {
+                      'sent': 'text-yellow-400',
+                      'delivered': 'text-blue-400',
+                      'read': 'text-green-400',
+                      'failed': 'text-red-400',
+                    }[msg.status] || 'text-gray-400';
+                    
+                    const statusIcon = {
+                      'sent': '✓',
+                      'delivered': '✓✓',
+                      'read': '✓✓ (read)',
+                      'failed': '✗',
+                    }[msg.status] || '?';
+                    
+                    return (
                     <div key={msg.id} className="bg-slate-900/80 border border-white/10 rounded-lg p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -851,16 +912,34 @@ const WhatsAppHub = () => {
                             <span>To: {msg.to}</span>
                             <span>•</span>
                             <span>{msg.createdAt?.toDate?.()?.toLocaleString() || new Date(msg.createdAt || 0).toLocaleString()}</span>
+                            {msg.statusUpdatedAt && (
+                              <>
+                                <span>•</span>
+                                <span className="text-gray-500">Updated: {msg.statusUpdatedAt?.toDate?.()?.toLocaleString() || new Date(msg.statusUpdatedAt || 0).toLocaleString()}</span>
+                              </>
+                            )}
                           </div>
                         </div>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          msg.status === 'sent' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'
-                        }`}>
-                          {msg.status === 'sent' ? '✓ Sent' : '✗ Failed'}
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            msg.status === 'sent' ? 'bg-yellow-500/20 text-yellow-300' :
+                            msg.status === 'delivered' ? 'bg-blue-500/20 text-blue-300' :
+                            msg.status === 'read' ? 'bg-green-500/20 text-green-300' :
+                            msg.status === 'failed' ? 'bg-red-500/20 text-red-300' :
+                            'bg-gray-500/20 text-gray-300'
+                          }`}>
+                            {statusIcon} {msg.status?.toUpperCase() || 'UNKNOWN'}
+                          </span>
+                          {msg.statusDetails?.error && (
+                            <span className="text-xs text-red-400 max-w-xs text-right">
+                              {msg.statusDetails.error.message || 'Error'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                   </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

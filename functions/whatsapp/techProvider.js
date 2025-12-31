@@ -88,15 +88,11 @@ function getSystemUserToken() {
 
 /**
  * Get Tech Provider App ID
+ * Defaults to FLYP Tech Provider App ID: 1902565950686087
  */
 function getTechProviderAppId() {
-  const appId = getEnvVar("META_APP_ID");
-  if (!appId) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Meta App ID not configured. Please set META_APP_ID environment variable."
-    );
-  }
+  // FLYP Tech Provider App ID: 1902565950686087
+  const appId = getEnvVar("META_APP_ID", "1902565950686087");
   return appId;
 }
 
@@ -154,25 +150,75 @@ exports.createClientWABA = onCall(
       }
 
       // Get Business Manager ID (required for WABA creation)
-      // First, get the business manager associated with the System User
-      const businessManagerResponse = await fetch(
-        `${META_API_BASE}/me?access_token=${systemUserToken}&fields=business`
-      );
-
-      if (!businessManagerResponse.ok) {
-        const errorData = await businessManagerResponse.json();
-        throw new Error(errorData.error?.message || "Failed to get Business Manager");
+      // FLYP Tech Provider Business Manager ID: 1337356574811477
+      // Try multiple methods to find Business Manager
+      let businessManagerId = null;
+      const FLYP_BUSINESS_MANAGER_ID = "1337356574811477"; // FLYP Corporation Private Limited
+      
+      // Method 1: Try environment variable first
+      businessManagerId = getEnvVar("META_BUSINESS_MANAGER_ID");
+      if (businessManagerId) {
+        console.log(`✅ Found Business Manager from env var: ${businessManagerId}`);
+      }
+      
+      // Method 2: Try /me?fields=business (for System User)
+      if (!businessManagerId) {
+        try {
+          const meResponse = await fetch(
+            `${META_API_BASE}/me?access_token=${systemUserToken}&fields=business`
+          );
+          if (meResponse.ok) {
+            const meData = await meResponse.json();
+            businessManagerId = meData.business?.id;
+            if (businessManagerId) {
+              console.log(`✅ Found Business Manager via /me?fields=business: ${businessManagerId}`);
+            }
+          } else {
+            const errorData = await meResponse.json().catch(() => ({}));
+            console.warn(`Method 2 failed: ${meResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+        } catch (error) {
+          console.warn("Method 2 (me?fields=business) failed:", error.message);
+        }
       }
 
-      const businessManagerData = await businessManagerResponse.json();
-      const businessManagerId = businessManagerData.business?.id;
-
+      // Method 3: Try /me/businesses (list of businesses)
       if (!businessManagerId) {
+        try {
+          const businessesResponse = await fetch(
+            `${META_API_BASE}/me/businesses?access_token=${systemUserToken}`
+          );
+          if (businessesResponse.ok) {
+            const businessesData = await businessesResponse.json();
+            businessManagerId = businessesData.data?.[0]?.id;
+            if (businessManagerId) {
+              console.log(`✅ Found Business Manager via /me/businesses: ${businessManagerId}`);
+            }
+          } else {
+            const errorData = await businessesResponse.json().catch(() => ({}));
+            console.warn(`Method 3 failed: ${businessesResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+        } catch (error) {
+          console.warn("Method 3 (me/businesses) failed:", error.message);
+        }
+      }
+
+      // Method 4: Use hardcoded FLYP Business Manager ID as fallback
+      if (!businessManagerId) {
+        console.warn("⚠️ All API methods failed, using hardcoded FLYP Business Manager ID as fallback");
+        businessManagerId = FLYP_BUSINESS_MANAGER_ID;
+        console.log(`✅ Using hardcoded Business Manager ID: ${businessManagerId}`);
+      }
+
+      // Verify Business Manager ID is valid
+      if (!businessManagerId || !/^\d+$/.test(businessManagerId)) {
         throw new HttpsError(
           "failed-precondition",
-          "Business Manager not found. Please ensure System User has access to a Business Manager."
+          `Invalid Business Manager ID: ${businessManagerId}. Expected numeric ID.`
         );
       }
+
+      console.log(`✅ Final Business Manager ID: ${businessManagerId}`);
 
       // Create WABA for the client
       const createWABAResponse = await fetch(
@@ -251,11 +297,14 @@ exports.getClientWABA = onCall(
 
       const businessData = businessDoc.data();
       const wabaId = businessData.whatsappBusinessAccountId;
+      const createdVia = businessData.whatsappCreatedVia;
 
-      if (!wabaId) {
+      // Only return WABAs created via individual_setup (not old shared WABAs)
+      if (!wabaId || createdVia !== "individual_setup") {
         return {
           success: false,
-          message: "No WABA found. Please create one first.",
+          message: "No individual WABA found. Please create your own WABA first.",
+          needsIndividualSetup: true,
         };
       }
 
@@ -856,4 +905,721 @@ async function handleIncomingMessage(message, metadata, distributorId) {
     console.error("❌ Error handling incoming message:", error);
   }
 }
+
+/**
+ * Get WhatsApp Setup Status
+ * Returns complete setup status including WABA, phone number, and webhook
+ * Only shows individual WABAs (created via individual_setup)
+ */
+exports.getWhatsAppSetupStatus = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    try {
+      const uid = request.auth?.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "You must be signed in.");
+      }
+
+      const systemUserToken = getSystemUserToken();
+      const businessDocRef = db.collection("businesses").doc(uid);
+      const businessDoc = await businessDocRef.get();
+
+      if (!businessDoc || !businessDoc.exists) {
+        return {
+          status: {
+            overall: { complete: false, message: "Business profile not found" },
+            waba: { id: null, accessible: false },
+            phoneNumber: { id: null, registered: false },
+          },
+        };
+      }
+
+      const businessData = businessDoc.data();
+      const wabaId = businessData.whatsappBusinessAccountId;
+      const createdVia = businessData.whatsappCreatedVia;
+
+      // Only show individual WABAs (not old shared WABAs)
+      if (!wabaId || createdVia !== "individual_setup") {
+        return {
+          status: {
+            overall: { 
+              complete: false, 
+              message: "No individual WABA found. Please create your own WABA." 
+            },
+            waba: { 
+              id: null, 
+              name: null,
+              accessible: false,
+              needsIndividualSetup: true,
+            },
+            phoneNumber: { id: null, registered: false },
+          },
+        };
+      }
+
+      // Get WABA details
+      let wabaData = null;
+      let wabaAccessible = false;
+      try {
+        const wabaResponse = await fetch(
+          `${META_API_BASE}/${wabaId}?access_token=${systemUserToken}&fields=id,name,message_template_namespace,account_review_status,ownership_type,timezone_id`
+        );
+
+        if (wabaResponse.ok) {
+          wabaData = await wabaResponse.json();
+          wabaAccessible = true;
+        }
+      } catch (error) {
+        console.warn("Could not fetch WABA details:", error);
+      }
+
+      // Get phone numbers
+      const phoneNumberId = businessData.whatsappPhoneNumberId;
+      const phoneNumber = businessData.whatsappPhoneNumber;
+      const phoneRegistered = businessData.whatsappPhoneRegistered || false;
+      const phoneStatus = businessData.whatsappPhoneVerificationStatus || "unknown";
+
+      let phoneNumbers = [];
+      try {
+        const phoneNumbersResponse = await fetch(
+          `${META_API_BASE}/${wabaId}/phone_numbers?access_token=${systemUserToken}&fields=id,display_phone_number,verified_name,status,code_verification_status`
+        );
+        if (phoneNumbersResponse.ok) {
+          const phoneNumbersData = await phoneNumbersResponse.json();
+          phoneNumbers = phoneNumbersData.data || [];
+        }
+      } catch (error) {
+        console.warn("Could not fetch phone numbers:", error);
+      }
+
+      const overallComplete = wabaAccessible && phoneRegistered;
+
+      return {
+        status: {
+          overall: {
+            complete: overallComplete,
+            message: overallComplete 
+              ? "WhatsApp setup is complete" 
+              : "Setup in progress",
+          },
+          waba: {
+            id: wabaId,
+            name: wabaData?.name || null,
+            status: wabaData?.account_review_status || null,
+            accessible: wabaAccessible,
+            isIndividual: true,
+          },
+          phoneNumber: {
+            id: phoneNumberId || null,
+            number: phoneNumber || null,
+            status: phoneStatus,
+            registered: phoneRegistered,
+            phoneNumbers: phoneNumbers,
+          },
+        },
+      };
+    } catch (error) {
+      console.error("Error getting WhatsApp setup status:", error);
+      return {
+        status: {
+          overall: { complete: false, message: error.message || "Failed to get setup status" },
+          waba: { id: null, accessible: false },
+          phoneNumber: { id: null, registered: false },
+        },
+      };
+    }
+  }
+);
+
+/**
+ * Create Individual WABA for User with Phone Number
+ * Complete setup: WABA creation + Phone number registration + OTP verification
+ * All WABAs are created under FLYP Tech Provider App
+ */
+exports.createIndividualWABA = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+    memory: "512MiB",
+    timeoutSeconds: 120,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    try {
+      const uid = request.auth?.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "You must be signed in.");
+      }
+
+      const { phoneNumber, businessName } = request.data || {};
+      
+      if (!phoneNumber) {
+        throw new HttpsError("invalid-argument", "Phone number is required");
+      }
+      
+      if (!businessName) {
+        throw new HttpsError("invalid-argument", "Business name is required");
+      }
+
+      // Validate phone number format (should be new, not used with WhatsApp)
+      const formattedPhone = phoneNumber.replace(/[^0-9]/g, '');
+      if (formattedPhone.length < 10) {
+        throw new HttpsError("invalid-argument", "Invalid phone number format");
+      }
+
+      const systemUserToken = getSystemUserToken();
+      const businessDocRef = db.collection("businesses").doc(uid);
+      const businessDoc = await businessDocRef.get();
+
+      if (!businessDoc || !businessDoc.exists) {
+        throw new HttpsError("not-found", "Business profile not found");
+      }
+
+      const businessData = businessDoc.data();
+      
+      // Check if user already has an individual WABA
+      if (businessData.whatsappBusinessAccountId && businessData.whatsappCreatedVia === "individual_setup") {
+        throw new HttpsError(
+          "already-exists",
+          "You already have an individual WhatsApp Business Account. Please use the existing one."
+        );
+      }
+
+      // Step 1: Get Business Manager ID
+      // FLYP Tech Provider Business Manager ID: 1337356574811477
+      // Try multiple methods to find Business Manager
+      let businessManagerId = null;
+      const FLYP_BUSINESS_MANAGER_ID = "1337356574811477"; // FLYP Corporation Private Limited
+      
+      // Method 1: Try environment variable first (if Business Manager ID is configured)
+      businessManagerId = getEnvVar("META_BUSINESS_MANAGER_ID");
+      if (businessManagerId) {
+        console.log(`✅ Found Business Manager from env var: ${businessManagerId}`);
+      }
+      
+      // Method 2: Try /me?fields=business (for System User)
+      if (!businessManagerId) {
+        try {
+          const meResponse = await fetch(
+            `${META_API_BASE}/me?access_token=${systemUserToken}&fields=business`
+          );
+          if (meResponse.ok) {
+            const meData = await meResponse.json();
+            businessManagerId = meData.business?.id;
+            if (businessManagerId) {
+              console.log(`✅ Found Business Manager via /me?fields=business: ${businessManagerId}`);
+            }
+          } else {
+            const errorData = await meResponse.json().catch(() => ({}));
+            console.warn(`Method 2 failed: ${meResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+        } catch (error) {
+          console.warn("Method 2 (me?fields=business) failed:", error.message);
+        }
+      }
+
+      // Method 3: Try /me/businesses (list of businesses System User has access to)
+      if (!businessManagerId) {
+        try {
+          const businessesResponse = await fetch(
+            `${META_API_BASE}/me/businesses?access_token=${systemUserToken}`
+          );
+          if (businessesResponse.ok) {
+            const businessesData = await businessesResponse.json();
+            // Get the first Business Manager (FLYP Corporation Private Limited)
+            businessManagerId = businessesData.data?.[0]?.id;
+            if (businessManagerId) {
+              console.log(`✅ Found Business Manager via /me/businesses: ${businessManagerId}`);
+            } else {
+              console.warn("Method 3: /me/businesses returned no businesses");
+            }
+          } else {
+            const errorData = await businessesResponse.json().catch(() => ({}));
+            console.warn(`Method 3 failed: ${businessesResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+        } catch (error) {
+          console.warn("Method 3 (me/businesses) failed:", error.message);
+        }
+      }
+
+      // Method 4: Try to get from App (if app has associated Business Manager)
+      if (!businessManagerId) {
+        try {
+          const appId = getEnvVar("META_APP_ID", "1902565950686087");
+          const appResponse = await fetch(
+            `${META_API_BASE}/${appId}?access_token=${systemUserToken}&fields=business`
+          );
+          if (appResponse.ok) {
+            const appData = await appResponse.json();
+            businessManagerId = appData.business?.id;
+            if (businessManagerId) {
+              console.log(`✅ Found Business Manager via App: ${businessManagerId}`);
+            }
+          } else {
+            const errorData = await appResponse.json().catch(() => ({}));
+            console.warn(`Method 4 failed: ${appResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+        } catch (error) {
+          console.warn("Method 4 (app business) failed:", error.message);
+        }
+      }
+
+      // Method 5: Use hardcoded FLYP Business Manager ID as fallback
+      if (!businessManagerId) {
+        console.warn("⚠️ All API methods failed, using hardcoded FLYP Business Manager ID as fallback");
+        businessManagerId = FLYP_BUSINESS_MANAGER_ID;
+        console.log(`✅ Using hardcoded Business Manager ID: ${businessManagerId}`);
+      }
+
+      // Verify Business Manager ID is valid (should be numeric)
+      if (!businessManagerId || !/^\d+$/.test(businessManagerId)) {
+        throw new HttpsError(
+          "failed-precondition",
+          `Invalid Business Manager ID: ${businessManagerId}. Expected numeric ID.`
+        );
+      }
+
+      console.log(`✅ Final Business Manager ID: ${businessManagerId}`);
+
+      // Step 2: Create WABA for the user (under Tech Provider)
+      // First, verify Business Manager is accessible
+      console.log(`🔍 Verifying Business Manager ${businessManagerId} is accessible...`);
+      const verifyBMResponse = await fetch(
+        `${META_API_BASE}/${businessManagerId}?access_token=${systemUserToken}&fields=id,name`
+      );
+
+      if (!verifyBMResponse.ok) {
+        const errorData = await verifyBMResponse.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || "Unknown error";
+        console.error(`❌ Business Manager ${businessManagerId} not accessible:`, errorData);
+        
+        throw new HttpsError(
+          "failed-precondition",
+          `Business Manager ${businessManagerId} is not accessible.\n\n` +
+          `Error: ${errorMessage}\n\n` +
+          `Possible causes:\n` +
+          `1. Business Manager ID is incorrect\n` +
+          `2. System User doesn't have access to this Business Manager\n` +
+          `3. Data Access Renewal not completed (check: https://developers.facebook.com/apps/1902565950686087/data-access-renewal)\n` +
+          `4. App permissions need renewal\n\n` +
+          `Please verify:\n` +
+          `- Business Manager ID in Meta Business Suite: https://business.facebook.com/settings/business-info\n` +
+          `- System User access: https://business.facebook.com/settings/system-users\n` +
+          `- Data Access Renewal: https://developers.facebook.com/apps/1902565950686087/data-access-renewal`
+        );
+      }
+
+      const bmData = await verifyBMResponse.json();
+      console.log(`✅ Business Manager verified: ${bmData.name} (${bmData.id})`);
+
+      // Now create WABA
+      console.log(`📱 Creating WABA under Business Manager ${businessManagerId}...`);
+      const createWABAResponse = await fetch(
+        `${META_API_BASE}/${businessManagerId}/owned_whatsapp_business_accounts?access_token=${systemUserToken}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: businessName,
+            timezone_id: "Asia/Kolkata",
+          }),
+        }
+      );
+
+      if (!createWABAResponse.ok) {
+        const errorData = await createWABAResponse.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || "Failed to create WhatsApp Business Account";
+        const errorCode = errorData.error?.code;
+        const errorType = errorData.error?.type;
+        
+        console.error(`❌ Failed to create WABA:`, errorData);
+        
+        // Provide more helpful error messages
+        let userMessage = errorMessage;
+        if (errorCode === 100 || errorMessage.includes("does not exist")) {
+          userMessage = `Business Manager ${businessManagerId} not found or not accessible.\n\n` +
+            `Please verify:\n` +
+            `1. Business Manager ID is correct in Meta Business Suite\n` +
+            `2. System User has access to this Business Manager\n` +
+            `3. Complete Data Access Renewal: https://developers.facebook.com/apps/1902565950686087/data-access-renewal`;
+        } else if (errorMessage.includes("missing permissions")) {
+          userMessage = `System User lacks required permissions.\n\n` +
+            `Please grant permissions at: https://business.facebook.com/settings/system-users\n` +
+            `Required: Business Management, WhatsApp Business Management`;
+        } else if (errorMessage.includes("does not support this operation")) {
+          userMessage = `Operation not supported. This may require:\n` +
+            `1. Data Access Renewal completion\n` +
+            `2. App Review approval\n` +
+            `3. Business verification\n\n` +
+            `Check: https://developers.facebook.com/apps/1902565950686087/data-access-renewal`;
+        }
+        
+        throw new HttpsError(
+          "internal",
+          userMessage
+        );
+      }
+
+      const wabaData = await createWABAResponse.json();
+      const wabaId = wabaData.id;
+
+      // Step 3: Subscribe Tech Provider App to this WABA (REQUIRED for Tech Provider)
+      // FLYP Tech Provider App ID: 1902565950686087
+      const appId = getEnvVar("META_APP_ID", "1902565950686087");
+      
+      if (appId) {
+        try {
+          console.log(`📱 Subscribing FLYP Tech Provider App ${appId} to WABA ${wabaId}...`);
+          
+          // First, check if app is already subscribed
+          const checkSubscribedResponse = await fetch(
+            `${META_API_BASE}/${wabaId}/subscribed_apps?access_token=${systemUserToken}`
+          );
+
+          let appSubscribed = false;
+          if (checkSubscribedResponse.ok) {
+            const subscribedApps = await checkSubscribedResponse.json();
+            appSubscribed = subscribedApps.data?.some(app => 
+              app.id === appId || 
+              app.app_id === appId ||
+              String(app.id) === String(appId)
+            );
+            console.log(`App ${appId} already subscribed: ${appSubscribed}`);
+          }
+
+          // Subscribe app to WABA if not already subscribed
+          if (!appSubscribed) {
+            const subscribeResponse = await fetch(
+              `${META_API_BASE}/${wabaId}/subscribed_apps?access_token=${systemUserToken}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  app_id: appId,
+                  subscribed_fields: ["messages", "message_status", "message_template_status_update"],
+                }),
+              }
+            );
+
+            if (subscribeResponse.ok) {
+              const subscribeData = await subscribeResponse.json();
+              console.log(`✅ FLYP Tech Provider App ${appId} subscribed to WABA ${wabaId}`);
+              console.log(`Subscription data:`, subscribeData);
+            } else {
+              const errorData = await subscribeResponse.json();
+              const errorMsg = errorData.error?.message || 'Unknown error';
+              console.error(`❌ Failed to subscribe app to WABA: ${errorMsg}`, errorData);
+              // Don't fail the whole operation - subscription can be done manually if needed
+              // But log it clearly for debugging
+            }
+          } else {
+            console.log(`✅ App ${appId} is already subscribed to WABA ${wabaId}`);
+          }
+        } catch (subscribeError) {
+          console.error("❌ Error subscribing app to WABA:", subscribeError);
+          // Don't fail the whole operation if subscription fails
+          // But log it for debugging
+        }
+      } else {
+        console.warn("⚠️ META_APP_ID not configured, skipping app subscription");
+      }
+
+      // Step 4: Request phone number registration (this will send OTP)
+      const phoneRegistrationResponse = await fetch(
+        `${META_API_BASE}/${wabaId}/request_code?access_token=${systemUserToken}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code_method: "SMS", // or "VOICE"
+            language: "en",
+            phone_number: formattedPhone,
+          }),
+        }
+      );
+
+      if (!phoneRegistrationResponse.ok) {
+        const errorData = await phoneRegistrationResponse.json();
+        
+        // If phone number already exists or invalid, return error
+        if (errorData.error?.code === 100 || errorData.error?.code === 131047) {
+          throw new HttpsError(
+            "invalid-argument",
+            "This phone number is already registered with WhatsApp. Please use a new phone number."
+          );
+        }
+        
+        throw new HttpsError(
+          "internal",
+          errorData.error?.message || "Failed to request phone number registration"
+        );
+      }
+
+      const registrationData = await phoneRegistrationResponse.json();
+
+      // Store WABA ID and phone registration status
+      await businessDocRef.update({
+        whatsappBusinessAccountId: wabaId,
+        whatsappProvider: "meta_tech_provider",
+        whatsappEnabled: false, // Not enabled until phone is verified
+        whatsappCreatedVia: "individual_setup", // Mark as individual WABA
+        whatsappCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        whatsappPhoneNumber: formattedPhone,
+        whatsappPhoneRegistrationStatus: "pending_otp",
+        whatsappPhoneRegistrationData: registrationData,
+      });
+
+      return {
+        success: true,
+        wabaId,
+        wabaData,
+        phoneNumber: formattedPhone,
+        requiresOTP: true,
+        message: "WABA created successfully. OTP sent to phone number.",
+        registrationData,
+      };
+    } catch (error) {
+      console.error("Error creating individual WABA:", error);
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError("internal", error.message || "Failed to create WhatsApp Business Account");
+    }
+  }
+);
+
+/**
+ * Verify OTP and Complete Phone Number Registration
+ */
+exports.verifyPhoneOTP = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    try {
+      const uid = request.auth?.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "You must be signed in.");
+      }
+
+      const { otpCode } = request.data || {};
+      
+      if (!otpCode || otpCode.length !== 6) {
+        throw new HttpsError("invalid-argument", "Valid 6-digit OTP code is required");
+      }
+
+      const systemUserToken = getSystemUserToken();
+      const businessDocRef = db.collection("businesses").doc(uid);
+      const businessDoc = await businessDocRef.get();
+
+      if (!businessDoc || !businessDoc.exists) {
+        throw new HttpsError("not-found", "Business profile not found");
+      }
+
+      const businessData = businessDoc.data();
+      const wabaId = businessData.whatsappBusinessAccountId;
+      const phoneNumber = businessData.whatsappPhoneNumber;
+
+      if (!wabaId) {
+        throw new HttpsError(
+          "failed-precondition",
+          "No WABA found. Please create a WABA first."
+        );
+      }
+
+      if (!phoneNumber) {
+        throw new HttpsError(
+          "failed-precondition",
+          "No phone number found. Please register a phone number first."
+        );
+      }
+
+      // Step 1: Verify OTP code
+      const verifyOTPResponse = await fetch(
+        `${META_API_BASE}/${wabaId}/register_code?access_token=${systemUserToken}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: otpCode,
+            phone_number: phoneNumber,
+          }),
+        }
+      );
+
+      if (!verifyOTPResponse.ok) {
+        const errorData = await verifyOTPResponse.json();
+        
+        if (errorData.error?.code === 131026) {
+          throw new HttpsError(
+            "invalid-argument",
+            "Invalid OTP code. Please check and try again."
+          );
+        }
+        
+        throw new HttpsError(
+          "internal",
+          errorData.error?.message || "Failed to verify OTP"
+        );
+      }
+
+      const verifyData = await verifyOTPResponse.json();
+
+      // Step 2: Get phone number ID after verification
+      const phoneNumbersResponse = await fetch(
+        `${META_API_BASE}/${wabaId}/phone_numbers?access_token=${systemUserToken}&fields=id,display_phone_number,verified_name,status,code_verification_status`
+      );
+
+      let phoneNumberId = null;
+      let displayPhoneNumber = null;
+
+      if (phoneNumbersResponse.ok) {
+        const phoneNumbersData = await phoneNumbersResponse.json();
+        const phoneNumbers = phoneNumbersData.data || [];
+        
+        // Find the phone number that matches
+        const matchingPhone = phoneNumbers.find(p => 
+          p.display_phone_number?.replace(/[^0-9]/g, '') === phoneNumber
+        );
+        
+        if (matchingPhone) {
+          phoneNumberId = matchingPhone.id;
+          displayPhoneNumber = matchingPhone.display_phone_number;
+        }
+      }
+
+      // Step 3: Update business document
+      const updateData = {
+        whatsappPhoneRegistrationStatus: "verified",
+        whatsappPhoneRegistered: true,
+        whatsappPhoneRegisteredAt: admin.firestore.FieldValue.serverTimestamp(),
+        whatsappEnabled: true,
+        whatsappLastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (phoneNumberId) {
+        updateData.whatsappPhoneNumberId = phoneNumberId;
+        updateData.whatsappPhoneNumber = displayPhoneNumber || phoneNumber;
+        updateData.whatsappPhoneVerificationStatus = "verified";
+      }
+
+      await businessDocRef.update(updateData);
+
+      return {
+        success: true,
+        message: "Phone number verified successfully! WhatsApp is now ready to use.",
+        phoneNumberId,
+        phoneNumber: displayPhoneNumber || phoneNumber,
+        wabaId,
+        verified: true,
+      };
+    } catch (error) {
+      console.error("Error verifying OTP:", error);
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError("internal", error.message || "Failed to verify OTP");
+    }
+  }
+);
+
+/**
+ * Check Phone Number Registration Status
+ */
+exports.checkPhoneRegistrationStatus = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    try {
+      const uid = request.auth?.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "You must be signed in.");
+      }
+
+      const systemUserToken = getSystemUserToken();
+      const businessDocRef = db.collection("businesses").doc(uid);
+      const businessDoc = await businessDocRef.get();
+
+      if (!businessDoc || !businessDoc.exists) {
+        throw new HttpsError("not-found", "Business profile not found");
+      }
+
+      const businessData = businessDoc.data();
+      const wabaId = businessData.whatsappBusinessAccountId;
+      const createdVia = businessData.whatsappCreatedVia;
+
+      // Only check individual WABAs
+      if (!wabaId || createdVia !== "individual_setup") {
+        return {
+          success: false,
+          status: "no_waba",
+          message: "No individual WABA found. Please create one first.",
+          needsIndividualSetup: true,
+        };
+      }
+
+      // Get phone numbers for this WABA
+      const phoneNumbersResponse = await fetch(
+        `${META_API_BASE}/${wabaId}/phone_numbers?access_token=${systemUserToken}&fields=id,display_phone_number,verified_name,status,code_verification_status`
+      );
+
+      if (!phoneNumbersResponse.ok) {
+        const errorData = await phoneNumbersResponse.json();
+        throw new HttpsError("internal", errorData.error?.message || "Failed to get phone numbers");
+      }
+
+      const phoneNumbersData = await phoneNumbersResponse.json();
+      const phoneNumbers = phoneNumbersData.data || [];
+
+      const registrationStatus = businessData.whatsappPhoneRegistrationStatus || "unknown";
+      const phoneNumber = businessData.whatsappPhoneNumber;
+
+      // Check if phone is verified
+      const verifiedPhone = phoneNumbers.find(p => 
+        p.status === "CONNECTED" || 
+        p.code_verification_status === "VERIFIED"
+      );
+
+      return {
+        success: true,
+        status: verifiedPhone ? "verified" : registrationStatus,
+        phoneNumber,
+        phoneNumbers,
+        verifiedPhone: verifiedPhone ? {
+          id: verifiedPhone.id,
+          displayPhoneNumber: verifiedPhone.display_phone_number,
+          status: verifiedPhone.status,
+          verificationStatus: verifiedPhone.code_verification_status,
+        } : null,
+        requiresOTP: registrationStatus === "pending_otp",
+        message: verifiedPhone 
+          ? "Phone number is verified and ready to use"
+          : registrationStatus === "pending_otp"
+          ? "OTP verification pending"
+          : "Phone number status unknown",
+      };
+    } catch (error) {
+      console.error("Error checking phone registration status:", error);
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      throw new HttpsError("internal", error.message || "Failed to check phone registration status");
+    }
+  }
+);
 

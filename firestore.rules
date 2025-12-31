@@ -115,6 +115,9 @@ service cloud.firestore {
       // - Business: businessHours, logoUrl
       // - Security: twoFactorEnabled, sessionTimeout
       // - Profile metadata: profileVersion, lastUpdated
+      // - WhatsApp: whatsappBusinessAccountId, whatsappPhoneNumberId, whatsappPhoneNumber, whatsappPhoneRegistered,
+      //   whatsappPhoneVerificationStatus, whatsappProvider, whatsappEnabled, whatsappLastSyncedAt, whatsappConnectedAt,
+      //   whatsappWebhookUrl, whatsappWebhookConfigured, whatsappWebhookConfiguredAt
       allow update: if isAuthed()
         && isSelf(userId)
         && isEmailVerified()
