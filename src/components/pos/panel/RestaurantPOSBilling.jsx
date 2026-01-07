@@ -105,6 +105,7 @@ export default function RestaurantPOSBilling({
   const [saving, setSaving] = React.useState(false);
   const [tableData, setTableData] = React.useState(table || {});
   const [activeOrderId, setActiveOrderId] = React.useState(null); // Track current active order for consolidation
+  const [statusExpanded, setStatusExpanded] = React.useState(false); // Track status section expand/collapse
 
   // Load categories and items (from CreateMenu)
   React.useEffect(() => {
