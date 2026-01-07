@@ -1,16 +1,1092 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider, signOut } from "firebase/auth";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp } from "firebase/firestore";
-import { db, storage } from "../../firebase/firebaseConfig";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { db, storage, functions } from "../../firebase/firebaseConfig";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { toast } from "react-toastify";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import LanguageSwitcher from "../common/LanguageSwitcher";
 import { WHATSAPP_PROVIDERS } from "../../services/whatsappService";
 import WhatsAppAutoSetup from "./whatsapp/WhatsAppAutoSetup";
 import WhatsAppSimpleSetup from "./whatsapp/WhatsAppSimpleSetup";
 import WhatsAppTechProviderSetup from "./whatsapp/WhatsAppTechProviderSetup";
+import WABAAccountManager from "./whatsapp/WABAAccountManager";
+
+// Meta Embedded Signup URL - Tech Provider Configuration
+// App ID: 1902565950686087
+// Config ID: 844028501834041
+const EMBEDDED_SIGNUP_URL = 'https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=844028501834041&extras=%7B%22featureType%22%3A%22whatsapp_business_app_onboarding%22%2C%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D';
+
+// WhatsApp Onboarding Section - Built for first-time users
+const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [statusData, setStatusData] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const popupRef = useRef(null);
+
+  const isConnected = formData.whatsappEnabled && formData.whatsappBusinessAccountId;
+
+  // Fetch WABA status from Meta API
+  const fetchWABAStatus = async () => {
+    if (!user || !formData.whatsappBusinessAccountId) return;
+
+    setCheckingStatus(true);
+    try {
+      const functionsInstance = getFunctions(undefined, "us-central1");
+      const getWABAStatus = httpsCallable(functionsInstance, 'getWABAStatus');
+      const result = await getWABAStatus();
+      if (result.data?.success && result.data.status) {
+        const status = result.data.status;
+        setStatusData(status);
+        
+        // Update formData with latest status info
+        setFormData(prev => ({
+          ...prev,
+          whatsappPhoneNumber: status.phone?.phoneNumber || prev.whatsappPhoneNumber,
+          whatsappPhoneNumberId: status.phone?.phoneNumberId || prev.whatsappPhoneNumberId,
+          whatsappPhoneRegistered: status.phone?.registered || false,
+          whatsappPhoneVerificationStatus: status.phone?.verificationStatus || 'not_registered',
+          whatsappVerified: status.phone?.verified || false,
+          whatsappAccountReviewStatus: status.accountReview?.status || 'PENDING',
+        }));
+        
+        // Also update Firestore with latest status
+        try {
+          const userRef = doc(db, 'businesses', user.uid);
+          await updateDoc(userRef, {
+            whatsappPhoneNumber: status.phone?.phoneNumber || null,
+            whatsappPhoneNumberId: status.phone?.phoneNumberId || null,
+            whatsappPhoneRegistered: status.phone?.registered || false,
+            whatsappPhoneVerificationStatus: status.phone?.verificationStatus || 'not_registered',
+            whatsappVerified: status.phone?.verified || false,
+            whatsappAccountReviewStatus: status.accountReview?.status || 'PENDING',
+            whatsappStatusLastChecked: serverTimestamp(),
+          });
+        } catch (updateErr) {
+          console.warn('Failed to update Firestore with status:', updateErr);
+          // Non-critical, continue
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching WABA status:', err);
+      // Don't show error to user if it's just a transient issue
+      if (err.code !== 'unauthenticated') {
+        console.error('Status fetch error details:', err);
+      }
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  // Real-time Firestore listener - Gemini's suggestion
+  // This automatically updates UI when backend saves WABA data
+  useEffect(() => {
+    if (!user) return;
+
+    const userRef = doc(db, 'businesses', user.uid);
+    
+    // Listen for real-time updates to user's WhatsApp data
+    const unsubscribe = onSnapshot(userRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const userData = snapshot.data();
+        
+        // If WABA data exists and we don't have it in local state, update immediately
+        if (userData.whatsappBusinessAccountId && !formData.whatsappBusinessAccountId) {
+          console.log('🔄 Real-time update: WABA detected in Firestore');
+          setFormData(prev => ({
+            ...prev,
+            whatsappBusinessAccountId: userData.whatsappBusinessAccountId,
+            whatsappPhoneNumberId: userData.whatsappPhoneNumberId,
+            whatsappPhoneNumber: userData.whatsappPhoneNumber,
+            whatsappEnabled: userData.whatsappEnabled || false,
+            whatsappProvider: userData.whatsappProvider,
+            whatsappPhoneRegistered: userData.whatsappPhoneRegistered || false,
+            whatsappPhoneVerificationStatus: userData.whatsappPhoneVerificationStatus || 'not_registered',
+            whatsappVerified: userData.whatsappVerified || false,
+            whatsappAccountReviewStatus: userData.whatsappAccountReviewStatus || 'PENDING',
+          }));
+          
+          // Fetch detailed status immediately
+          setTimeout(() => fetchWABAStatus(), 1000);
+        }
+        
+        // Update status if account review status changed
+        if (userData.whatsappAccountReviewStatus && 
+            userData.whatsappAccountReviewStatus !== formData.whatsappAccountReviewStatus) {
+          console.log('🔄 Real-time update: Account review status changed');
+          setFormData(prev => ({
+            ...prev,
+            whatsappAccountReviewStatus: userData.whatsappAccountReviewStatus,
+            whatsappVerified: userData.whatsappVerified || false,
+          }));
+        }
+        
+        // Update phone verification status
+        if (userData.whatsappPhoneVerificationStatus && 
+            userData.whatsappPhoneVerificationStatus !== formData.whatsappPhoneVerificationStatus) {
+          console.log('🔄 Real-time update: Phone verification status changed');
+          setFormData(prev => ({
+            ...prev,
+            whatsappPhoneVerificationStatus: userData.whatsappPhoneVerificationStatus,
+            whatsappPhoneRegistered: userData.whatsappPhoneRegistered || false,
+          }));
+        }
+      }
+    }, (error) => {
+      console.error('Error in Firestore real-time listener:', error);
+    });
+
+    return () => unsubscribe();
+  }, [user, formData.whatsappBusinessAccountId, formData.whatsappAccountReviewStatus, formData.whatsappPhoneVerificationStatus]);
+
+  // Auto-fetch status when component loads if WABA exists but status is not loaded
+  useEffect(() => {
+    if (user && formData.whatsappBusinessAccountId) {
+      // Only fetch if we don't have status data yet and we're not already checking
+      const shouldFetch = !statusData && !checkingStatus;
+      if (shouldFetch) {
+        console.log('🔄 Auto-fetching WABA status on component load');
+        fetchWABAStatus();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, formData.whatsappBusinessAccountId]); // Only run when WABA ID changes or user changes
+
+  // Poll for status updates when connected
+  useEffect(() => {
+    if (isConnected && formData.whatsappBusinessAccountId) {
+      // Initial fetch
+      if (!statusData) {
+        fetchWABAStatus();
+      }
+      // Poll every 30 seconds for status updates
+      const interval = setInterval(() => {
+        fetchWABAStatus();
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [isConnected, formData.whatsappBusinessAccountId, user]);
+
+  // Save WABA data to Firestore
+  const saveWABAData = async (wabaId, phoneNumberId, phoneNumber, embeddedData) => {
+    if (!user) throw new Error('User not authenticated');
+
+    const userRef = doc(db, 'businesses', user.uid);
+    
+    // Save all data from embedded signup, including any access tokens or codes
+    const updateData = {
+      whatsappBusinessAccountId: wabaId,
+      whatsappPhoneNumberId: phoneNumberId || null,
+      whatsappPhoneNumber: phoneNumber || null,
+      whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+      whatsappEnabled: true,
+      whatsappCreatedVia: 'embedded_signup',
+      whatsappCreatedAt: new Date(),
+      whatsappPhoneRegistered: phoneNumber ? true : false,
+      whatsappPhoneVerificationStatus: phoneNumber ? 'pending' : 'not_registered', // Will be updated by webhook
+      whatsappVerified: false, // Will be updated when account is approved
+      whatsappAccountReviewStatus: 'PENDING', // Initial status, will be updated by webhook
+      embeddedSignupData: embeddedData || {},
+      // Save any additional fields from embedded signup
+      ...(embeddedData?.access_token && { whatsappAccessToken: embeddedData.access_token }),
+      ...(embeddedData?.code && { whatsappOAuthCode: embeddedData.code }),
+      ...(embeddedData?.business_id && { metaBusinessId: embeddedData.business_id }),
+    };
+
+    await updateDoc(userRef, updateData);
+
+    // Automatically setup webhook after account creation
+    try {
+      const functionsInstance = getFunctions(undefined, "us-central1");
+      const setupWebhook = httpsCallable(functionsInstance, 'setupWebhookForClient');
+      await setupWebhook();
+      console.log('✅ Webhook setup initiated');
+    } catch (webhookError) {
+      console.warn('⚠️ Could not setup webhook automatically:', webhookError);
+      // Non-critical, webhook can be set up later
+    }
+  };
+
+  // Check if WABA was created by querying Meta API (fallback method)
+  const checkForNewWABA = async () => {
+    if (!user) return null;
+
+    try {
+      const functionsInstance = getFunctions(undefined, "us-central1");
+      // Try to get WABAs associated with this user's Business Manager
+      // We'll check if there's a new WABA that wasn't in our database
+      const getClientWABA = httpsCallable(functionsInstance, 'getClientWABA');
+      
+      // First, check if user already has a WABA in Firestore
+      const userRef = doc(db, 'businesses', user.uid);
+      const userDoc = await getDoc(userRef);
+      const existingWABAId = userDoc.data()?.whatsappBusinessAccountId;
+
+      // If no WABA in Firestore, we need to find the newly created one
+      // Note: This is a fallback - ideally postMessage should work
+      // For now, we'll rely on the user to refresh or we'll detect it on next status check
+      
+      return null; // Return null for now - will be handled by status polling
+    } catch (err) {
+      console.error('Error checking for new WABA:', err);
+      return null;
+    }
+  };
+
+  // Listen for Meta postMessage responses
+  // Gemini's suggestion: Add security check and handle FINISH event
+  useEffect(() => {
+    const handleMessage = async (event) => {
+      // 1. Security check: only trust Meta (Gemini's suggestion)
+      if (!event.origin.endsWith('facebook.com') && !event.origin.endsWith('meta.com')) {
+        return;
+      }
+
+      // Log all messages from Meta domains for debugging
+      if (event.origin.includes('facebook.com') || event.origin.includes('meta.com')) {
+        console.log('📨 Message from Meta:', {
+          origin: event.origin,
+          data: event.data,
+          type: typeof event.data
+        });
+      }
+
+      const data = event.data;
+      let wabaId, phoneNumberId, phoneNumber;
+
+      // Handle different response formats - log everything for debugging
+      console.log('🔍 Processing Meta message:', data);
+
+      // Format 1: Standard Embedded Signup response (WHATSAPP_EMBEDDED_SIGNUP)
+      if (data?.type === 'WHATSAPP_EMBEDDED_SIGNUP' && data.status === 'SUCCESS') {
+        wabaId = data.waba_id;
+        phoneNumberId = data.phone_number_id;
+        phoneNumber = data.phone_number;
+        console.log('✅ Format 1 - Embedded Signup SUCCESS:', { wabaId, phoneNumberId, phoneNumber });
+      }
+      // Format 1b: WA_EMBEDDED_SIGNUP (alternative event type from Meta)
+      // CRITICAL: Wait for 'FINISH' event - this is when phoneNumberId is guaranteed to be available
+      else if (data?.type === 'WA_EMBEDDED_SIGNUP') {
+        // Prioritize FINISH event - this is when user completes OTP verification
+        if (data.event === 'FINISH' && data.data) {
+          wabaId = data.data.waba_id;
+          phoneNumberId = data.data.phone_number_id;
+          phoneNumber = data.data.phone_number;
+          console.log(`✅ Format 1b - WA_EMBEDDED_SIGNUP FINISH (OTP completed):`, { wabaId, phoneNumberId, phoneNumber });
+        }
+        // Fallback to 'success' event if FINISH didn't have phoneNumberId
+        else if (data.event === 'success' && data.data && !wabaId) {
+          wabaId = data.data.waba_id;
+          phoneNumberId = data.data.phone_number_id;
+          phoneNumber = data.data.phone_number;
+          console.log(`✅ Format 1b - WA_EMBEDDED_SIGNUP success (fallback):`, { wabaId, phoneNumberId, phoneNumber });
+        }
+      } 
+      // Format 2: Direct WABA ID in data
+      else if (data?.waba_id || data?.wabaId) {
+        wabaId = data.waba_id || data.wabaId;
+        phoneNumberId = data.phone_number_id || data.phoneNumberId;
+        phoneNumber = data.phone_number || data.phoneNumber;
+        console.log('✅ Format 2 - Direct WABA ID:', { wabaId, phoneNumberId, phoneNumber });
+      }
+      // Format 3: Check for nested data structures
+      else if (data?.data?.waba_id || data?.result?.waba_id) {
+        const nestedData = data.data || data.result;
+        wabaId = nestedData.waba_id;
+        phoneNumberId = nestedData.phone_number_id;
+        phoneNumber = nestedData.phone_number;
+        console.log('✅ Format 3 - Nested data:', { wabaId, phoneNumberId, phoneNumber });
+      }
+      // Format 4: String JSON (sometimes Meta sends stringified JSON)
+      else if (typeof data === 'string') {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.waba_id || parsed.wabaId) {
+            wabaId = parsed.waba_id || parsed.wabaId;
+            phoneNumberId = parsed.phone_number_id || parsed.phoneNumberId;
+            phoneNumber = parsed.phone_number || parsed.phoneNumber;
+            console.log('✅ Format 4 - Parsed JSON string:', { wabaId, phoneNumberId, phoneNumber });
+          }
+        } catch (e) {
+          console.log('⚠️ Could not parse as JSON:', e);
+        }
+      }
+
+      if (wabaId) {
+        // If phoneNumberId is missing, warn user but still save WABA
+        // The registration will happen when phoneNumberId becomes available
+        if (!phoneNumberId) {
+          console.warn('⚠️ WABA ID received but phoneNumberId is missing. User may need to complete OTP verification in Meta popup.');
+          toast.info('Account created! Please complete phone verification in the Meta popup if you haven\'t already.');
+        }
+        
+        setLoading(false);
+        try {
+          // Use direct save function (preferred method - Gemini's suggestion)
+          // This ensures System User has proper access, webhook is configured, and phone is registered
+          const functionsInstance = getFunctions(undefined, "us-central1");
+          const saveWABADirect = httpsCallable(functionsInstance, 'saveWABADirect');
+          const result = await saveWABADirect({
+            wabaId,
+            phoneNumberId: phoneNumberId || null, // Allow null - backend will fetch if missing
+            phoneNumber: phoneNumber || null,
+            embeddedData: {
+              ...data,
+              pin: data.pin || data.registration_pin, // Include PIN if provided
+            }
+          });
+
+          if (result.data?.success) {
+            // Update local state
+            setFormData(prev => ({
+              ...prev,
+              whatsappBusinessAccountId: result.data.wabaId,
+              whatsappPhoneNumberId: result.data.phoneNumberId,
+              whatsappPhoneNumber: result.data.phoneNumber,
+              whatsappEnabled: true,
+              whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+              whatsappCreatedVia: 'embedded_signup',
+              whatsappPhoneRegistered: result.data.phoneNumber ? true : false,
+              whatsappPhoneVerificationStatus: result.data.phoneNumber ? 'pending' : 'not_registered',
+              whatsappVerified: false, // Will be updated when account is approved
+              whatsappAccountReviewStatus: 'PENDING', // Initial status
+            }));
+            toast.success('WhatsApp Business Account connected successfully! Fetching status...');
+            
+            // Fetch status immediately after connection (with retries)
+            // Meta API sometimes needs a few seconds to process the new account
+            setTimeout(() => {
+              fetchWABAStatus();
+            }, 1000);
+            // Retry after 5 seconds
+            setTimeout(() => {
+              fetchWABAStatus();
+            }, 6000);
+            // Final retry after 15 seconds
+            setTimeout(() => {
+              fetchWABAStatus();
+            }, 16000);
+          } else {
+            throw new Error(result.data?.message || 'Failed to save WABA');
+          }
+        } catch (err) {
+          console.error('Error saving WABA:', err);
+          setError('Failed to save account. Please try again.');
+          toast.error('Failed to save WhatsApp account');
+        }
+      } else if (data?.status === 'ERROR' || data?.status === 'CANCELLED') {
+        setLoading(false);
+        setError(data.error_message || 'Signup was cancelled');
+        toast.error(data.error_message || 'WhatsApp signup cancelled');
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [setFormData, user]);
+
+  // Open Meta Embedded Signup
+  const handleConnect = () => {
+    if (!user) {
+      toast.error('Please log in to continue');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const width = 800;
+    const height = 700;
+    const left = (window.screen.width - width) / 2;
+    const top = (window.screen.height - height) / 2;
+
+    const popup = window.open(
+      EMBEDDED_SIGNUP_URL,
+      'WhatsAppSignup',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+
+    popupRef.current = popup;
+
+    if (!popup || popup.closed) {
+      setError('Popup blocked. Please allow popups for this site.');
+      setLoading(false);
+      toast.error('Please allow popups to connect WhatsApp');
+      return;
+    }
+
+    // Monitor popup closure and check for account creation
+    const checkInterval = setInterval(async () => {
+      if (popup.closed) {
+        clearInterval(checkInterval);
+        setLoading(false);
+        
+        // Wait a moment for Meta to process, then check if account was created
+              setTimeout(async () => {
+                console.log('🔍 Popup closed, checking if account was created...');
+                
+                // Check if WABA was created by querying user's business document
+                try {
+                  const userRef = doc(db, 'businesses', user.uid);
+                  const userDoc = await getDoc(userRef);
+                  const currentWABAId = userDoc.data()?.whatsappBusinessAccountId;
+                  
+                  if (currentWABAId) {
+                    // Account already saved, just refresh status
+                    console.log('✅ Found existing WABA in Firestore:', currentWABAId);
+                    await fetchWABAStatus();
+                    toast.success('Account found! Refreshing status...');
+                  } else {
+                    // No WABA in Firestore - try to detect newly created account
+                    toast.info('Checking for newly created account...');
+                    
+                    try {
+                      const functionsInstance = getFunctions(undefined, "us-central1");
+                      const detectNewWABA = httpsCallable(functionsInstance, 'detectNewWABA');
+                      const detectResult = await detectNewWABA();
+                      
+                      if (detectResult.data?.success && detectResult.data.found) {
+                        // Found a new WABA! Save it
+                        const wabaId = detectResult.data.wabaId;
+                        const wabaData = detectResult.data.wabaData;
+                        const primaryPhone = detectResult.data.primaryPhone;
+                        
+                        await updateDoc(doc(db, 'businesses', user.uid), {
+                          whatsappBusinessAccountId: wabaId,
+                          whatsappPhoneNumberId: primaryPhone?.id || null,
+                          whatsappPhoneNumber: primaryPhone?.number || null,
+                          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+                          whatsappEnabled: true,
+                          whatsappCreatedVia: 'embedded_signup',
+                          whatsappPhoneRegistered: primaryPhone ? true : false,
+                          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
+                          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
+                        });
+                        
+                        setFormData(prev => ({
+                          ...prev,
+                          whatsappBusinessAccountId: wabaId,
+                          whatsappPhoneNumberId: primaryPhone?.id || null,
+                          whatsappPhoneNumber: primaryPhone?.number || null,
+                          whatsappEnabled: true,
+                          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+                          whatsappCreatedVia: 'embedded_signup',
+                          whatsappPhoneRegistered: primaryPhone ? true : false,
+                          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
+                          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
+                        }));
+                        
+                        // Fetch full status
+                        setTimeout(() => fetchWABAStatus(), 1000);
+                        toast.success('WhatsApp Business Account detected and connected!');
+                      } else {
+                        // Try getWABAStatus as fallback
+                        setTimeout(async () => {
+                          try {
+                            const getWABAStatus = httpsCallable(functionsInstance, 'getWABAStatus');
+                            const result = await getWABAStatus();
+                            
+                            if (result.data?.success && result.data.hasWABA) {
+                              const wabaId = result.data.wabaId;
+                              const status = result.data.status;
+                              
+                              await updateDoc(doc(db, 'businesses', user.uid), {
+                                whatsappBusinessAccountId: wabaId,
+                                whatsappPhoneNumberId: status.phone?.phoneNumberId || null,
+                                whatsappPhoneNumber: status.phone?.phoneNumber || null,
+                                whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+                                whatsappEnabled: true,
+                                whatsappCreatedVia: 'embedded_signup',
+                                whatsappPhoneRegistered: status.phone?.registered || false,
+                                whatsappPhoneVerificationStatus: status.phone?.verificationStatus || 'not_registered',
+                                whatsappVerified: status.phone?.verified || false,
+                              });
+                              
+                              setFormData(prev => ({
+                                ...prev,
+                                whatsappBusinessAccountId: wabaId,
+                                whatsappPhoneNumberId: status.phone?.phoneNumberId || null,
+                                whatsappPhoneNumber: status.phone?.phoneNumber || null,
+                                whatsappEnabled: true,
+                                whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+                                whatsappCreatedVia: 'embedded_signup',
+                                whatsappPhoneRegistered: status.phone?.registered || false,
+                                whatsappPhoneVerificationStatus: status.phone?.verificationStatus || 'not_registered',
+                                whatsappVerified: status.phone?.verified || false,
+                              }));
+                              
+                              setStatusData(status);
+                              toast.success('WhatsApp Business Account detected and connected!');
+                            } else {
+                              toast.info('Account creation may still be processing. Click "Check for Account" button if you completed the setup.');
+                            }
+                          } catch (err) {
+                            console.error('Error checking for account:', err);
+                            toast.info('If you completed the setup, click "Check for Account" to detect your new account.');
+                          }
+                        }, 3000);
+                      }
+                    } catch (err) {
+                      console.error('Error detecting new WABA:', err);
+                      toast.info('If you completed the setup, click "Check for Account" to detect your new account.');
+                    }
+                  }
+                } catch (err) {
+                  console.error('Error checking account after popup close:', err);
+                  toast.info('Setup completed. Click "Check for Account" if you finished the setup.');
+                }
+              }, 2000);
+      }
+    }, 1000);
+  };
+
+  // If already connected, show status and WABAAccountManager
+  if (isConnected) {
+    return (
+      <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+            <div className="p-2 bg-green-500/20 rounded-lg">
+              <FaWhatsapp className="w-6 h-6 text-green-400" />
+            </div>
+            WhatsApp Business
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchWABAStatus}
+              disabled={checkingStatus}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              <FaSpinner className={checkingStatus ? 'animate-spin' : ''} />
+              Refresh Status
+            </button>
+            <button
+              onClick={() => {
+                window.location.href = '/distributor-dashboard#/distributor-dashboard?tab=whatsapp&review=true';
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <FaVideo className="text-xs" />
+              Meta App Review
+            </button>
+          </div>
+        </div>
+
+        {/* Real-Time Status Display */}
+        <div className="space-y-4">
+          {/* Loading State */}
+          {checkingStatus && !statusData && (
+            <div className="rounded-xl p-4 border-2 border-blue-500 bg-blue-900/20">
+              <div className="flex items-center gap-3">
+                <FaSpinner className="text-blue-400 animate-spin text-xl" />
+                <div>
+                  <h3 className="font-bold text-white">Checking Account Status...</h3>
+                  <p className="text-sm text-blue-300">Fetching latest information from Meta</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Account Info Card */}
+          {formData.whatsappBusinessAccountId && (
+            <div className="rounded-xl p-4 border-2 border-white/10 bg-slate-800/40">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-bold text-white flex items-center gap-2">
+                  <FaBuilding />
+                  Your WhatsApp Business Account
+                </h3>
+                <span className="px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded">Connected</span>
+              </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">WABA ID:</span>
+                  <span className="text-white font-mono">{formData.whatsappBusinessAccountId}</span>
+                </div>
+                {formData.whatsappPhoneNumber && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Phone Number:</span>
+                    <span className="text-white">{formData.whatsappPhoneNumber}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Account Review Status */}
+          {statusData ? (
+            <>
+              <div className={`rounded-xl p-4 border-2 ${
+                statusData.accountReview.isApproved 
+                  ? 'border-emerald-500 bg-emerald-900/20' 
+                  : statusData.accountReview.isPending
+                  ? 'border-yellow-500 bg-yellow-900/20'
+                  : 'border-red-500 bg-red-900/20'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold text-white flex items-center gap-2">
+                    <FaShieldVirus />
+                    Account Review Status
+                  </h3>
+                  {statusData.accountReview.isApproved ? (
+                    <FaCheckCircle className="text-emerald-400 text-xl" />
+                  ) : statusData.accountReview.isPending ? (
+                    <FaSpinner className="text-yellow-400 animate-spin text-xl" />
+                  ) : (
+                    <FaExclamationTriangle className="text-red-400 text-xl" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className={`text-sm font-medium ${
+                    statusData.accountReview.isApproved ? 'text-emerald-300' :
+                    statusData.accountReview.isPending ? 'text-yellow-300' :
+                    'text-red-300'
+                  }`}>
+                    {statusData.accountReview.status}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {statusData.accountReview.message}
+                  </p>
+                  {statusData.accountReview.isPending && (
+                    <p className="text-xs text-yellow-300 mt-2">
+                      ⏳ Meta is reviewing your account. This usually takes 24-48 hours. You'll be notified when the review is complete.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Phone Status */}
+              <div className={`rounded-xl p-4 border-2 ${
+                statusData.phone.verified 
+                  ? 'border-emerald-500 bg-emerald-900/20' 
+                  : statusData.phone.registered
+                  ? 'border-yellow-500 bg-yellow-900/20'
+                  : 'border-gray-500 bg-gray-900/20'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold text-white flex items-center gap-2">
+                    <FaPhone />
+                    Phone Number Status
+                  </h3>
+                  {statusData.phone.verified ? (
+                    <FaCheckCircle className="text-emerald-400 text-xl" />
+                  ) : statusData.phone.registered ? (
+                    <FaExclamationCircle className="text-yellow-400 text-xl" />
+                  ) : (
+                    <FaTimes className="text-gray-400 text-xl" />
+                  )}
+                </div>
+                <div className="space-y-2 text-sm">
+                  {statusData.phone.phoneNumber ? (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Phone Number:</span>
+                      <span className="text-white font-medium">{statusData.phone.phoneNumber}</span>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400">No phone number added yet</p>
+                  )}
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400">Status:</span>
+                    <span className={`font-medium ${
+                      statusData.phone.verified ? 'text-emerald-300' :
+                      statusData.phone.registered ? 'text-yellow-300' :
+                      'text-gray-400'
+                    }`}>
+                      {statusData.phone.verified 
+                        ? '✓ Verified and Connected' 
+                        : statusData.phone.registered
+                        ? `⚠ ${statusData.phone.verificationStatus} - Needs Verification`
+                        : '❌ Not Registered'}
+                    </span>
+                  </div>
+                  {statusData.phone.needsVerification && (
+                    <div className="mt-2 p-2 bg-yellow-900/30 rounded text-xs text-yellow-300">
+                      💡 Complete phone verification in Meta Business Suite to start sending messages
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* WABA Details */}
+              {statusData.waba && (
+                <div className="rounded-xl p-4 border-2 border-white/10 bg-slate-800/40">
+                  <h3 className="font-bold text-white mb-3 flex items-center gap-2">
+                    <FaInfoCircle />
+                    Account Details
+                  </h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Account Name:</span>
+                      <span className="text-white">{statusData.waba.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Status:</span>
+                      <span className={statusData.waba.isEnabled ? 'text-emerald-300' : 'text-red-300'}>
+                        {statusData.waba.isEnabled ? '✓ Enabled' : '❌ Disabled'}
+                      </span>
+                    </div>
+                    {statusData.waba.timezone && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Time Zone:</span>
+                        <span className="text-white">{statusData.waba.timezone}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Pending Actions */}
+              {statusData.overall.needsAction && statusData.overall.pendingActions.length > 0 && (
+                <div className="rounded-xl p-4 border-2 border-yellow-500 bg-yellow-900/20">
+                  <h3 className="font-bold text-white mb-3 flex items-center gap-2">
+                    <FaInfoCircle />
+                    Action Required
+                  </h3>
+                  <p className="text-sm text-yellow-300 mb-2">Complete these steps to fully activate your account:</p>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-yellow-200">
+                    {statusData.overall.pendingActions.map((action, idx) => (
+                      <li key={idx}>{action}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* All Ready Status */}
+              {statusData.overall.ready && (
+                <div className="rounded-xl p-4 border-2 border-emerald-500 bg-emerald-900/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <FaCheckCircle className="text-emerald-400 text-2xl" />
+                    <h3 className="font-bold text-white text-lg">All Set! Account is Ready</h3>
+                  </div>
+                  <p className="text-sm text-emerald-300">
+                    Your WhatsApp Business Account is fully configured and ready to use. You can now send messages, create campaigns, and use all WhatsApp Business features.
+                  </p>
+                </div>
+              )}
+            </>
+          ) : !checkingStatus && formData.whatsappBusinessAccountId && (
+            <div className="rounded-xl p-4 border-2 border-gray-500 bg-gray-900/20">
+              <div className="flex items-center gap-3">
+                <FaInfoCircle className="text-gray-400" />
+                <div>
+                  <h3 className="font-bold text-white">Status Information</h3>
+                  <p className="text-sm text-gray-400">Click "Refresh Status" to see your account review and phone verification status</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <WABAAccountManager 
+          onWABAChange={async (result) => {
+            if (!user) return;
+            const userRef = doc(db, "businesses", user.uid);
+            const snapshot = await getDoc(userRef);
+            if (snapshot.exists()) {
+              const data = snapshot.data();
+              setFormData(prev => ({
+                ...prev,
+                ...data,
+                whatsappEnabled: data.whatsappEnabled || false,
+                whatsappProvider: data.whatsappProvider || WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+                whatsappVerified: data.whatsappVerified || false,
+                whatsappBusinessAccountId: data.whatsappBusinessAccountId || '',
+                whatsappPhoneNumberId: data.whatsappPhoneNumberId || '',
+              }));
+              // Refresh status after WABA change
+              setTimeout(() => fetchWABAStatus(), 1000);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Check for newly created account (manual detection)
+  const handleCheckForAccount = async () => {
+    if (!user) {
+      toast.error('Please log in to continue');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    toast.info('Checking for your WhatsApp account...');
+
+    try {
+      const functionsInstance = getFunctions(undefined, "us-central1");
+      const detectNewWABA = httpsCallable(functionsInstance, 'detectNewWABA');
+      const result = await detectNewWABA();
+
+      if (result.data?.success && result.data.found) {
+        // Found a new WABA! Save it
+        const wabaId = result.data.wabaId;
+        const primaryPhone = result.data.primaryPhone;
+
+        await updateDoc(doc(db, 'businesses', user.uid), {
+          whatsappBusinessAccountId: wabaId,
+          whatsappPhoneNumberId: primaryPhone?.id || null,
+          whatsappPhoneNumber: primaryPhone?.number || null,
+          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+          whatsappEnabled: true,
+          whatsappCreatedVia: 'embedded_signup',
+          whatsappPhoneRegistered: primaryPhone ? true : false,
+          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
+          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
+        });
+
+        setFormData(prev => ({
+          ...prev,
+          whatsappBusinessAccountId: wabaId,
+          whatsappPhoneNumberId: primaryPhone?.id || null,
+          whatsappPhoneNumber: primaryPhone?.number || null,
+          whatsappEnabled: true,
+          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+          whatsappCreatedVia: 'embedded_signup',
+          whatsappPhoneRegistered: primaryPhone ? true : false,
+          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
+          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
+        }));
+
+        // Fetch full status
+        setTimeout(() => fetchWABAStatus(), 1000);
+        toast.success('WhatsApp Business Account found and connected!');
+        setLoading(false);
+      } else {
+        setLoading(false);
+        toast.info('No new account found. If you just completed setup, please wait a moment and try again.');
+      }
+    } catch (err) {
+      console.error('Error checking for account:', err);
+      setLoading(false);
+      setError('Failed to check for account. Please try again.');
+      toast.error('Failed to check for account');
+    }
+  };
+
+  // FIRST-TIME USER ONBOARDING DESIGN
+  return (
+    <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-8">
+      {/* Header */}
+      <div className="text-center mb-8">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5 }}
+          className="flex justify-center mb-6"
+        >
+          <div className="relative">
+            <div className="absolute inset-0 bg-green-500/20 rounded-full blur-xl"></div>
+            <div className="relative p-5 bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-full border-2 border-green-500/50">
+              <FaWhatsapp className="w-16 h-16 text-green-400" />
+            </div>
+          </div>
+        </motion.div>
+        <motion.h2
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="text-3xl font-bold text-white mb-2"
+        >
+          Connect WhatsApp Business
+        </motion.h2>
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="text-gray-400"
+        >
+          Unlock all WhatsApp Business Platform features with Meta Tech Provider integration
+        </motion.p>
+      </div>
+
+      {/* Tech Provider Badge */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 border border-emerald-500/30 rounded-xl p-5 mb-6 text-center"
+      >
+        <div className="flex items-center justify-center gap-2 mb-2">
+          <FaShieldVirus className="text-emerald-400" />
+          <span className="text-sm font-semibold text-emerald-400">Meta Tech Provider</span>
+        </div>
+        <p className="text-xs text-gray-400">
+          As an official Meta Tech Provider, FLYP unlocks all WhatsApp and Meta features to enable unstoppable opportunities
+        </p>
+      </motion.div>
+
+      {/* Main Action Button */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="mb-8"
+      >
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={handleConnect}
+          disabled={loading}
+          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-bold py-5 px-6 rounded-xl transition-all flex items-center justify-center gap-3 text-lg shadow-lg shadow-green-500/30"
+        >
+          {loading ? (
+            <>
+              <FaSpinner className="animate-spin text-xl" />
+              <span>Connecting...</span>
+            </>
+          ) : (
+            <>
+              <FaFacebook className="text-2xl" />
+              <span>Connect with Facebook</span>
+              <FaArrowRight />
+            </>
+          )}
+        </motion.button>
+      </motion.div>
+
+      {/* Error Display */}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-900/30 border border-red-500/50 rounded-lg p-4 mb-6"
+        >
+          <div className="flex items-center gap-3">
+            <FaExclamationTriangle className="text-red-400" />
+            <div className="flex-1">
+              <p className="text-red-300 text-sm">{error}</p>
+            </div>
+            <button
+              onClick={handleConnect}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Benefits Grid */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="space-y-4 mb-6"
+      >
+        <h3 className="text-sm font-semibold text-gray-400 text-center">What you'll unlock:</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-slate-800/40 rounded-lg p-4 text-center">
+            <FaBullhorn className="text-green-400 mx-auto mb-2 text-xl" />
+            <p className="text-xs text-gray-300 font-medium">Marketing Messages</p>
+            <p className="text-xs text-gray-500 mt-1">Send campaigns</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-lg p-4 text-center">
+            <FaUsers className="text-green-400 mx-auto mb-2 text-xl" />
+            <p className="text-xs text-gray-300 font-medium">Customer Engagement</p>
+            <p className="text-xs text-gray-500 mt-1">Automated messaging</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-lg p-4 text-center">
+            <FaChartBar className="text-green-400 mx-auto mb-2 text-xl" />
+            <p className="text-xs text-gray-300 font-medium">Analytics & Insights</p>
+            <p className="text-xs text-gray-500 mt-1">Track performance</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-lg p-4 text-center">
+            <FaRocket className="text-green-400 mx-auto mb-2 text-xl" />
+            <p className="text-xs text-gray-300 font-medium">Full API Access</p>
+            <p className="text-xs text-gray-500 mt-1">Complete integration</p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Business Portfolio Guidance */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.7 }}
+        className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-5 mb-6"
+      >
+        <div className="flex items-start gap-3">
+          <FaInfoCircle className="text-blue-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <h4 className="text-sm font-semibold text-blue-300 mb-2">Complete Your Business Portfolio</h4>
+            <p className="text-xs text-blue-200/80 mb-3">
+              To ensure your WhatsApp Business Account is approved quickly, complete your Business Portfolio in Meta Business Suite:
+            </p>
+            <ul className="text-xs text-blue-200/70 space-y-1.5 list-disc list-inside">
+              <li>Add a <strong>Website URL</strong> (helps Meta verify your business)</li>
+              <li>Link a <strong>Primary Facebook Page</strong> (required for faster approval)</li>
+              <li>Add a <strong>Business Phone Number</strong> (if not already added)</li>
+              <li>Complete your <strong>Business Information</strong> (address, category, etc.)</li>
+            </ul>
+            <p className="text-xs text-blue-200/60 mt-3 italic">
+              💡 Tip: Accounts with complete Business Portfolios are typically approved within 24-48 hours.
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Simple Instructions */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.7 }}
+        className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4"
+      >
+        <div className="flex items-start gap-3">
+          <FaInfoCircle className="text-blue-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-gray-400 space-y-1">
+            <p className="font-semibold text-white mb-1">How it works:</p>
+            <p>Click the button above → Log in with Facebook → Follow Meta's guided setup → Your WhatsApp Business Account connects automatically to FLYP</p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Check for Account Button - For users who completed setup but account wasn't detected */}
+      {!loading && !isConnected && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8 }}
+          className="mt-6"
+        >
+          <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <FaInfoCircle className="text-yellow-400 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-gray-300">
+                <p className="font-semibold text-white mb-1">Already completed the setup?</p>
+                <p>If you've already created your WhatsApp Business Account but don't see it here, click the button below to detect it.</p>
+              </div>
+            </div>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={handleCheckForAccount}
+            disabled={loading}
+            className="w-full bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-3"
+          >
+            {loading ? (
+              <>
+                <FaSpinner className="animate-spin" />
+                <span>Checking...</span>
+              </>
+            ) : (
+              <>
+                <FaCheckCircle />
+                <span>Check for My Account</span>
+              </>
+            )}
+          </motion.button>
+        </motion.div>
+      )}
+    </div>
+  );
+};
+
 import { 
   FaUser, FaBuilding, FaPalette, FaWhatsapp, FaCog, 
   FaCheckCircle, FaExclamationCircle, FaEnvelope, 
@@ -19,11 +1095,14 @@ import {
   FaAward, FaClock, FaEdit, FaCheck, FaTimes, FaUniversity,
   FaCreditCard, FaBell, FaLock, FaCalendarAlt, FaFileInvoiceDollar,
   FaPlug, FaChartBar, FaKey, FaFilePdf, FaCertificate, FaHistory,
-  FaDesktop, FaMobile, FaTrash, FaEye, FaEyeSlash
+  FaDesktop, FaMobile, FaTrash, FaEye, FaEyeSlash, FaVideo,
+  FaFacebook, FaArrowRight, FaSpinner, FaExclamationTriangle,
+  FaRocket, FaUsers, FaBullhorn, FaShieldVirus
 } from "react-icons/fa";
 
 const DistributorProfileSettings = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     ownerName: "",
     email: "",
@@ -1110,275 +2189,14 @@ const DistributorProfileSettings = () => {
                 </div>
               )}
 
-              {/* WhatsApp Section */}
+              {/* WhatsApp Section - First-Time User Onboarding */}
             {activeSection === "whatsapp" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
-                  <h2 className="text-2xl font-bold text-white flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-green-500/20 rounded-lg">
-                      <FaWhatsapp className="w-6 h-6 text-green-400" />
-                    </div>
-                    WhatsApp Business
-                  </h2>
-
-                {!formData.whatsappEnabled ? (
-                  <div className="space-y-6">
-                    {/* Tech Provider Setup (Primary - New) */}
-                    <div className="bg-gradient-to-br from-emerald-900/30 via-teal-900/20 to-cyan-900/30 rounded-xl p-6 border-2 border-emerald-500/30">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <h3 className="text-xl font-bold text-emerald-300 mb-2 flex items-center gap-2">
-                              <FaWhatsapp className="w-6 h-6" />
-                              WhatsApp Business API (Tech Provider)
-                            </h3>
-                          <p className="text-sm text-gray-300">One-click setup via Tech Provider - No Meta app needed! Unlock all features: automation, status tracking, rich media, templates, webhooks</p>
-                        </div>
-                        <div className="text-4xl">🚀</div>
-                      </div>
-                      <div className="bg-slate-900/60 rounded-lg p-4 mb-4">
-                        <p className="text-sm text-emerald-200 font-medium mb-2">✨ Tech Provider Benefits:</p>
-                        <ul className="text-xs text-gray-300 space-y-1">
-                          <li>✅ One-click setup (no Meta app creation needed)</li>
-                          <li>✅ Automated sending (no manual clicks)</li>
-                          <li>✅ Real-time status tracking (sent/delivered/read)</li>
-                          <li>✅ Rich media (images, documents, videos)</li>
-                          <li>✅ Message templates</li>
-                          <li>✅ Two-way communication</li>
-                          <li>✅ Webhook integration</li>
-                          <li>✅ Centralized management</li>
-                        </ul>
-                      </div>
-                      <WhatsAppTechProviderSetup 
-                        onSetupComplete={() => {
-                          const refreshData = async () => {
-                            if (!user) return;
-                            const userRef = doc(db, "businesses", user.uid);
-                            const snapshot = await getDoc(userRef);
-                            if (snapshot.exists()) {
-                              const data = snapshot.data();
-                              setFormData((prev) => ({
-                                ...prev,
-                                ...data,
-                                whatsappEnabled: data.whatsappEnabled || false,
-                                whatsappProvider: data.whatsappProvider || WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-                                whatsappVerified: data.whatsappVerified || false,
-                              }));
-                            }
-                          };
-                          refreshData();
-                        }}
-                      />
-                    </div>
-
-                    {/* Legacy OAuth Setup (Fallback) */}
-                    <div className="bg-gradient-to-br from-blue-900/30 via-indigo-900/20 to-purple-900/30 rounded-xl p-6 border-2 border-blue-500/30">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <h3 className="text-xl font-bold text-blue-300 mb-2 flex items-center gap-2">
-                              <FaWhatsapp className="w-6 h-6" />
-                              WhatsApp Business API (OAuth - Legacy)
-                            </h3>
-                          <p className="text-sm text-gray-300">Connect via OAuth with your own Meta app. Requires Meta app creation.</p>
-                        </div>
-                        <div className="text-4xl">⚡</div>
-                      </div>
-                      <div className="bg-slate-900/60 rounded-lg p-4 mb-4">
-                        <p className="text-sm text-blue-200 font-medium mb-2">Features:</p>
-                        <ul className="text-xs text-gray-300 space-y-1">
-                          <li>✅ Automated sending (no manual clicks)</li>
-                          <li>✅ Real-time status tracking (sent/delivered/read)</li>
-                          <li>✅ Rich media (images, documents, videos)</li>
-                          <li>✅ Message templates</li>
-                          <li>✅ Two-way communication</li>
-                          <li>✅ Webhook integration</li>
-                        </ul>
-                      </div>
-                      <WhatsAppAutoSetup 
-                        onSetupComplete={() => {
-                          const refreshData = async () => {
-                            if (!user) return;
-                            const userRef = doc(db, "businesses", user.uid);
-                            const snapshot = await getDoc(userRef);
-                            if (snapshot.exists()) {
-                              const data = snapshot.data();
-                              setFormData((prev) => ({
-                                ...prev,
-                                ...data,
-                                whatsappEnabled: data.whatsappEnabled || false,
-                                whatsappProvider: data.whatsappProvider || WHATSAPP_PROVIDERS.META,
-                                whatsappVerified: data.whatsappVerified || false,
-                              }));
-                            }
-                          };
-                          refreshData();
-                        }}
-                      />
-                    </div>
-
-                    <div className="bg-slate-800/60 rounded-xl p-6 border border-white/10">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-white mb-2">💬 Simple Mode (Free)</h3>
-                          <p className="text-sm text-gray-400">Basic WhatsApp Web links - works immediately, no setup needed</p>
-                        </div>
-                        <div className="text-4xl">📱</div>
-                      </div>
-                      <WhatsAppSimpleSetup 
-                        onSetupComplete={() => {
-                          const refreshData = async () => {
-                            if (!user) return;
-                            const userRef = doc(db, "businesses", user.uid);
-                            const snapshot = await getDoc(userRef);
-                            if (snapshot.exists()) {
-                              const data = snapshot.data();
-                              setFormData((prev) => ({
-                                ...prev,
-                                ...data,
-                                whatsappEnabled: data.whatsappEnabled || false,
-                                whatsappProvider: data.whatsappProvider || WHATSAPP_PROVIDERS.DIRECT,
-                                whatsappVerified: data.whatsappVerified || false,
-                              }));
-                            }
-                          };
-                          refreshData();
-                        }}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="bg-emerald-900/20 border-2 border-emerald-500/50 rounded-xl p-6">
-                      <div className="text-center">
-                        <div className="text-5xl mb-4">✅</div>
-                        <h3 className="text-xl font-bold text-emerald-400 mb-2">WhatsApp Enabled!</h3>
-                        <p className="text-gray-300 text-sm mb-4">
-                          Your WhatsApp Business number: <strong className="text-emerald-300">+91 {formData.phone?.replace(/^\+91/, '') || 'N/A'}</strong>
-                        </p>
-                        <p className="text-xs text-gray-400 mb-4">
-                          {formData.whatsappProvider === WHATSAPP_PROVIDERS.META_TECH_PROVIDER
-                            ? '🚀 Using WhatsApp Business API via Tech Provider - All features unlocked!'
-                            : formData.whatsappProvider === WHATSAPP_PROVIDERS.META
-                            ? '🚀 Using WhatsApp Business API - All features unlocked!'
-                            : 'Using Simple Mode - WhatsApp Web links. Upgrade to API for automation!'
-                          }
-                        </p>
-                        <button
-                          onClick={async () => {
-                            if (!user) return;
-                            const userRef = doc(db, "businesses", user.uid);
-                            await updateDoc(userRef, {
-                              whatsappEnabled: false,
-                              whatsappProvider: WHATSAPP_PROVIDERS.DIRECT,
-                            });
-                            const snapshot = await getDoc(userRef);
-                            if (snapshot.exists()) {
-                              const data = snapshot.data();
-                              setFormData((prev) => ({
-                                ...prev,
-                                ...data,
-                                whatsappEnabled: false,
-                              }));
-                            }
-                            toast.info('WhatsApp disabled. You can set it up again anytime.');
-                          }}
-                          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm transition-colors"
-                        >
-                          Disable WhatsApp
-                        </button>
-                      </div>
-                    </div>
-
-                    {formData.whatsappProvider !== WHATSAPP_PROVIDERS.META_TECH_PROVIDER && formData.whatsappProvider !== WHATSAPP_PROVIDERS.META && (
-                      <div className="space-y-4">
-                        {/* Tech Provider Upgrade (Recommended) */}
-                        <div className="bg-gradient-to-br from-emerald-900/30 via-teal-900/20 to-cyan-900/30 rounded-xl p-6 border-2 border-emerald-500/30">
-                          <div className="flex items-center justify-between mb-4">
-                            <div>
-                              <h3 className="text-xl font-bold text-emerald-300 mb-2">🚀 Upgrade to WhatsApp Business API (Tech Provider)</h3>
-                              <p className="text-sm text-gray-300">One-click setup - No Meta app needed! Unlock all features: automation, status tracking, rich media, templates, webhooks</p>
-                            </div>
-                            <div className="text-4xl">🚀</div>
-                          </div>
-                          <div className="bg-slate-900/60 rounded-lg p-4 mb-4">
-                            <p className="text-sm text-emerald-200 font-medium mb-2">✨ Tech Provider Benefits:</p>
-                            <ul className="text-xs text-gray-300 space-y-1">
-                              <li>✅ One-click setup (no Meta app creation needed)</li>
-                              <li>✅ Automated sending (no manual clicks)</li>
-                              <li>✅ Real-time status tracking (sent/delivered/read)</li>
-                              <li>✅ Rich media (images, documents, videos)</li>
-                              <li>✅ Message templates</li>
-                              <li>✅ Two-way communication</li>
-                              <li>✅ Webhook integration</li>
-                            </ul>
-                          </div>
-                          <WhatsAppTechProviderSetup 
-                            onSetupComplete={() => {
-                              const refreshData = async () => {
-                                if (!user) return;
-                                const userRef = doc(db, "businesses", user.uid);
-                                const snapshot = await getDoc(userRef);
-                                if (snapshot.exists()) {
-                                  const data = snapshot.data();
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    ...data,
-                                    whatsappEnabled: data.whatsappEnabled || false,
-                                    whatsappProvider: data.whatsappProvider || WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-                                    whatsappVerified: data.whatsappVerified || false,
-                                  }));
-                                }
-                              };
-                              refreshData();
-                            }}
-                          />
-                        </div>
-
-                        {/* Legacy OAuth Upgrade (Fallback) */}
-                        <div className="bg-gradient-to-br from-blue-900/30 via-indigo-900/20 to-purple-900/30 rounded-xl p-6 border-2 border-blue-500/30">
-                          <div className="flex items-center justify-between mb-4">
-                            <div>
-                              <h3 className="text-xl font-bold text-blue-300 mb-2">⚡ Upgrade to WhatsApp Business API (OAuth - Legacy)</h3>
-                              <p className="text-sm text-gray-300">Connect via OAuth with your own Meta app. Requires Meta app creation.</p>
-                            </div>
-                            <div className="text-4xl">⚡</div>
-                          </div>
-                          <div className="bg-slate-900/60 rounded-lg p-4 mb-4">
-                            <p className="text-sm text-blue-200 font-medium mb-2">Features you'll get:</p>
-                            <ul className="text-xs text-gray-300 space-y-1">
-                              <li>✅ Automated sending (no manual clicks)</li>
-                              <li>✅ Real-time status tracking (sent/delivered/read)</li>
-                              <li>✅ Rich media (images, documents, videos)</li>
-                              <li>✅ Message templates</li>
-                              <li>✅ Two-way communication</li>
-                              <li>✅ Webhook integration</li>
-                            </ul>
-                          </div>
-                          <WhatsAppAutoSetup 
-                            onSetupComplete={() => {
-                              const refreshData = async () => {
-                                if (!user) return;
-                                const userRef = doc(db, "businesses", user.uid);
-                                const snapshot = await getDoc(userRef);
-                                if (snapshot.exists()) {
-                                  const data = snapshot.data();
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    ...data,
-                                    whatsappEnabled: data.whatsappEnabled || false,
-                                    whatsappProvider: data.whatsappProvider || WHATSAPP_PROVIDERS.META,
-                                    whatsappVerified: data.whatsappVerified || false,
-                                  }));
-                                }
-                              };
-                              refreshData();
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                      </div>
-                    )}
-                  </div>
-                )}
+              <WhatsAppOnboardingSection 
+                formData={formData}
+                setFormData={setFormData}
+                user={user}
+              />
+            )}
 
               {/* Preferences Section */}
             {activeSection === "tax" && (

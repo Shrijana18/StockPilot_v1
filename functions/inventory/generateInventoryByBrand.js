@@ -1,36 +1,48 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const cors = require("cors");
 const axios = require("axios");
 
 const corsHandler = cors({ origin: true });
 
-module.exports = onRequest({ region: "us-central1", memory: "1GiB", timeoutSeconds: 120 }, (req, res) => {
-  corsHandler(req, res, async () => {
-    try {
-      const { prompt, brand, brandName, category, knownTypes, quantity, description } = req.body || {};
+// Define secrets for Firebase Functions v2
+const GEMINI_API_KEY_SECRET = defineSecret("GEMINI_API_KEY");
 
-      let requestedQty = Number(quantity) || 10;
-      if (requestedQty < 6) requestedQty = 6;
-      if (requestedQty > 50) requestedQty = 50;
+module.exports = onRequest(
+  {
+    region: "us-central1",
+    memory: "1GiB",
+    timeoutSeconds: 120,
+    secrets: [GEMINI_API_KEY_SECRET],
+  },
+  (req, res) => {
+    corsHandler(req, res, async () => {
+      try {
+        const { prompt, brand, brandName, category, knownTypes, quantity, description } = req.body || {};
 
-      let userPrompt = prompt;
-      if (!userPrompt) {
-        userPrompt = `
+        let requestedQty = Number(quantity) || 10;
+        if (requestedQty < 6) requestedQty = 6;
+        if (requestedQty > 50) requestedQty = 50;
+
+        let userPrompt = prompt;
+        if (!userPrompt) {
+          userPrompt = `
 Generate ${requestedQty} products for this brand.
 Brand: ${brand || brandName || ""}
 Category: ${category || ""}
 Known Types: ${knownTypes || "all"}
 Description: ${description || ""}
 `.trim();
-      }
+        }
 
-      // ---- OpenAI: extended table with HSN / GST / Pricing Mode / Base / MRP ----
-      const openaiApiKey = process.env.OPENAI_API_KEY;
-      const openaiModel = process.env.OPENAI_MODEL || "gpt-4o-mini";
-      if (!openaiApiKey) {
-        console.error("Missing OPENAI_API_KEY");
-        return res.status(500).json({ error: "OpenAI API key not configured" });
-      }
+        // ---- Gemini API: extended table with HSN / GST / Pricing Mode / Base / MRP ----
+        // Access secret via process.env (Firebase Functions v2 makes secrets available this way)
+        const geminiApiKey = process.env.GEMINI_API_KEY || GEMINI_API_KEY_SECRET.value();
+        const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
+        if (!geminiApiKey) {
+          console.error("Missing GEMINI_API_KEY");
+          return res.status(500).json({ error: "Gemini API key not configured. Please set GEMINI_API_KEY as a Firebase secret." });
+        }
 
       const systemPrompt = `You are an expert inventory assistant for Indian retail.
 Return ONLY a markdown table with the exact header:
@@ -49,14 +61,39 @@ Rules:
       const userMsg = `Make a product list for this prompt and output exactly the table described:
 ${userPrompt}`;
 
-      const endpoint = "https://api.openai.com/v1/chat/completions";
+      const baseUrl = "https://generativelanguage.googleapis.com/v1beta";
+      const endpoint = `${baseUrl}/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
+      
       const payload = {
-        model: openaiModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMsg }
-        ],
-        temperature: 0.3
+        contents: [{
+          parts: [
+            { text: `${systemPrompt}\n\n${userMsg}` }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 4096,
+        },
+        safetySettings: [
+          {
+            category: "HARM_CATEGORY_HARASSMENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_HATE_SPEECH",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          }
+        ]
       };
 
       let response;
@@ -65,21 +102,21 @@ ${userPrompt}`;
         try {
           response = await axios.post(endpoint, payload, {
             headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${openaiApiKey}`
+              "Content-Type": "application/json"
             },
-            timeout: 20000
+            timeout: 30000
           });
           break; // success
         } catch (apiError) {
           const status = apiError.response && apiError.response.status;
-          if ((status === 429 || status === 503) && retries > 1) {
-            console.warn(`${status} from OpenAI, retrying...`);
+          if ((status === 429 || status === 503 || status === 500) && retries > 1) {
+            console.warn(`${status} from Gemini, retrying...`);
             retries--;
             await new Promise(r => setTimeout(r, 1200));
           } else {
-            console.error("OpenAI API Request Failed:", apiError.message);
-            return res.status(500).json({ error: "OpenAI API Request Failed", details: apiError.message });
+            console.error("Gemini API Request Failed:", apiError.message);
+            const errorDetails = apiError.response?.data || apiError.message;
+            return res.status(500).json({ error: "Gemini API Request Failed", details: errorDetails });
           }
         }
       }
@@ -89,12 +126,19 @@ ${userPrompt}`;
         rawText =
           response &&
           response.data &&
-          response.data.choices &&
-          response.data.choices[0] &&
-          response.data.choices[0].message &&
-          response.data.choices[0].message.content
-            ? response.data.choices[0].message.content.trim()
+          response.data.candidates &&
+          response.data.candidates[0] &&
+          response.data.candidates[0].content &&
+          response.data.candidates[0].content.parts &&
+          response.data.candidates[0].content.parts[0] &&
+          response.data.candidates[0].content.parts[0].text
+            ? response.data.candidates[0].content.parts[0].text.trim()
             : "";
+
+        if (!rawText) {
+          console.error("Gemini returned empty response");
+          return res.status(500).json({ error: "Gemini API returned empty response" });
+        }
 
         // Strip code fences if any
         if (rawText.startsWith("```")) {
@@ -109,7 +153,7 @@ ${userPrompt}`;
           let jsonParsed = null;
           try { jsonParsed = JSON.parse(rawText); } catch {}
           if (!Array.isArray(jsonParsed)) {
-            const m = rawText.match(/$begin:math:display$\s*\{[\s\S]*?\}\s*$end:math:display$/);
+            const m = rawText.match(/\{[\s\S]*?\}/);
             if (m) { try { jsonParsed = JSON.parse(m[0]); } catch {} }
           }
           if (Array.isArray(jsonParsed)) {
@@ -136,12 +180,13 @@ ${userPrompt}`;
         }
 
         if (!headerRegex.test(rawText)) {
-          console.error("OpenAI response did not contain a valid extended table header");
-          return res.status(500).json({ error: "No valid inventory table found" });
+          console.error("Gemini response did not contain a valid extended table header");
+          console.error("Raw response:", rawText.substring(0, 500));
+          return res.status(500).json({ error: "No valid inventory table found in Gemini response" });
         }
       } catch (e) {
-        console.error("Error extracting OpenAI response text", e);
-        return res.status(500).json({ error: "Error extracting OpenAI response" });
+        console.error("Error extracting Gemini response text", e);
+        return res.status(500).json({ error: "Error extracting Gemini response" });
       }
 
       // ---- Helpers for normalization ----

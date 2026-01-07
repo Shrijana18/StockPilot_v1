@@ -227,7 +227,7 @@ const ManualEntryForm = () => {
       category: autofill.category || v.category,
       sku: autofill.sku || v.sku,
       unit: autofill.unit || v.unit,
-      description: autofill.description || v.description,
+      description: autofill.description || v.description || "",
     }));
     // HSN/GST
     if (autofill.hsn) {
@@ -279,7 +279,7 @@ const ManualEntryForm = () => {
       category: (autofill?.category ?? best.category ?? v.category),
       sku: (autofill?.sku || best.sku || v.sku),
       unit: (autofill?.unit || best.unit || best.size || v.unit),
-      description: (autofill?.description || best.description || v.description),
+      description: (autofill?.description || best.description || v.description || ""),
     }));
     // HSN/GST
     if (best.hsn) {
@@ -346,7 +346,7 @@ const ManualEntryForm = () => {
       if (autofill) applyAutofill(autofill);
       const best = result?.best || {};
       await applyMagicBest({ ...best, suggestions: result?.suggestions }, autofill);
-      toast.success("✨ Magic Scan completed! Fields auto-filled.");
+      toast.success("✨ FLYP Magic completed! Please review all fields carefully.");
       setMagicLiveOpen(false);
     } catch (err) {
       console.error("Magic Scan live error:", err);
@@ -383,7 +383,7 @@ const ManualEntryForm = () => {
       if (autofill) applyAutofill(autofill);
       const best = result?.best || {};
       await applyMagicBest({ ...best, suggestions: result?.suggestions }, autofill);
-      toast.success("✨ Magic Scan completed! Fields auto-filled.");
+      toast.success("✨ FLYP Magic completed! Please review all fields carefully.");
     } catch (err) {
       console.error("Magic Scan image identify error:", err);
       toast.warn("Could not identify the image. Please enter details manually.");
@@ -729,30 +729,22 @@ const ManualEntryForm = () => {
             <p className="mt-1 text-xs text-pink-200 animate-pulse">✨ Scanning magically…</p>
           )}
           {autoSource && !isBarcodeLoading && !isMagicScanLoading && (
-            <p className="mt-1 text-xs text-emerald-300/90">
-              Auto-filled from{" "}
-              <span className="font-semibold">
-                {(() => {
-                  // Normalize source labels
-                  const src = (autoSource || "").toLowerCase();
-                  if (src.includes("gemini")) return "Gemini AI";
-                  if (src.includes("gpt-4o")) return "ChatGPT";
-                  if (src.includes("hybrid-ai")) return "Hybrid AI";
-                  if (src.includes("vision+kg+search")) return "vision + KG + web";
-                  if (src.includes("vision+kg")) return "vision + KG";
-                  if (src.includes("vision+search")) return "vision + web";
-                  if (src.includes("kg+search")) return "KG + web";
-                  if (src === "vision") return "vision";
-                  if (src === "kg") return "KG";
-                  if (src === "search" || src === "web") return "web";
-                  if (src === "your-inventory") return "your inventory";
-                  if (src === "openfoodfacts") return "OpenFoodFacts";
-                  if (src === "digit-eyes") return "Digit-Eyes";
-                  if (src === "vision-batch") return "vision (batch)";
-                  return autoSource;
-                })()}
-              </span>
-            </p>
+            <div className="mt-2 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-orange-400">
+                  ✨ FLYP Magic
+                </span>
+                <span className="text-xs text-emerald-300/90">
+                  Product details detected
+                </span>
+              </div>
+              <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <span className="text-xs text-amber-300">⚠️</span>
+                <p className="text-xs text-amber-200/90 leading-relaxed">
+                  FLYP Magic can make mistakes. Please review all fields carefully and verify accuracy before adding to inventory.
+                </p>
+              </div>
+            </div>
           )}
           {!!imageSuggestions.length && (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -938,6 +930,7 @@ const ManualEntryForm = () => {
                   brand: row.brand,
                   category: row.category,
                   unit: row.unit,
+                  description: row.description || "",
                   mrp: row.mrp,
                   sellingPrice: row.sellingPrice,
                   priceMRP: row.mrp,

@@ -4,6 +4,7 @@ import { useMode } from "../mode/ModeProvider";
 import { useNavigate } from "react-router-dom";
 import POSBilling from "./panel/POSBilling";
 import KitchenDisplay from "./panel/KitchenDisplay";
+import RestaurantPOS from "./panel/RestaurantPOS";
 import { collection, query, where, getDocs, orderBy, limit, startAfter } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 
@@ -27,6 +28,10 @@ export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables
   const openKDS = () => {
     if (onOpenKDS) return onOpenKDS();
     setView("kds");
+  };
+
+  const openRestaurant = () => {
+    setView("restaurant");
   };
 
   const inventory = {
@@ -121,6 +126,14 @@ export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables
     );
   }
 
+  if (view === "restaurant") {
+    return (
+      <RestaurantPOS
+        onBack={() => setView("landing")}
+      />
+    );
+  }
+
   // Variants
   const heroTextVariants = {
     animate: {
@@ -193,6 +206,7 @@ export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables
         {/* Primary Actions */}
         <motion.div variants={staggerItem} className="mt-5 flex flex-wrap gap-3">
           <motion.button whileTap={{ scale: 0.98 }} whileHover={{ y: -2 }} onClick={openBilling} className="rounded-xl px-4 py-2 font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)]">Start Billing</motion.button>
+          <motion.button whileTap={{ scale: 0.98 }} whileHover={{ y: -2 }} onClick={openRestaurant} className="rounded-xl px-4 py-2 font-semibold text-white bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 hover:shadow-[0_10px_30px_rgba(249,115,22,0.35)]">Restaurant POS</motion.button>
         </motion.div>
       </motion.section>
 
@@ -207,19 +221,19 @@ export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables
             <div className="mt-3 text-sm text-emerald-300 group-hover:translate-x-0.5 transition">Open →</div>
           </motion.button>
 
+          {/* Restaurant POS */}
+          <motion.button custom={1} variants={featureVariants} whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }} onClick={openRestaurant} className="group rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-5 text-left transition">
+            <div className="text-2xl">🍽️</div>
+            <div className="mt-2 text-lg font-semibold">Restaurant POS</div>
+            <div className="text-sm text-slate-600 dark:text-slate-300">Table/customer selection, menu ordering, send to kitchen.</div>
+            <div className="mt-3 text-sm text-orange-300 group-hover:translate-x-0.5 transition">Open →</div>
+          </motion.button>
+
           {/* KDS */}
-          <motion.button custom={1} variants={featureVariants} whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }} onClick={openKDS} className="group rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-5 text-left transition">
+          <motion.button custom={2} variants={featureVariants} whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }} onClick={openKDS} className="group rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-5 text-left transition">
             <div className="text-2xl">👨‍🍳</div>
             <div className="mt-2 text-lg font-semibold">Kitchen Display (KDS)</div>
             <div className="text-sm text-slate-600 dark:text-slate-300">Live queue by course & station, bump tickets, prep timers.</div>
-            <div className="mt-3 text-sm text-emerald-300 group-hover:translate-x-0.5 transition">Open →</div>
-          </motion.button>
-
-          {/* Tables */}
-          <motion.button custom={2} variants={featureVariants} whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }} onClick={() => onOpenTables && onOpenTables()} className="group rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-5 text-left transition">
-            <div className="text-2xl">🪑</div>
-            <div className="mt-2 text-lg font-semibold">Table Manager</div>
-            <div className="text-sm text-slate-600 dark:text-slate-300">Zones, merges, transfers, covers – optimized for restaurants.</div>
             <div className="mt-3 text-sm text-emerald-300 group-hover:translate-x-0.5 transition">Open →</div>
           </motion.button>
 
@@ -268,17 +282,17 @@ export default function POSView({ onBack, onOpenBilling, onOpenKDS, onOpenTables
               onClick={e => {
                 e.stopPropagation();
                 if (i === 0) openBilling();
-                else if (i === 1) openKDS();
-                else if (i === 2) onOpenTables && onOpenTables();
+                else if (i === 1) openRestaurant();
+                else if (i === 2) openKDS();
                 else if (i === 3) onOpenQR && onOpenQR();
               }}
               className="absolute w-10 h-10 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl flex items-center justify-center text-sm"
-              title={ i === 0 ? "Start Billing" : i === 1 ? "Kitchen Display System" : i === 2 ? "Table Manager" : "QR Orders" }
+              title={ i === 0 ? "Start Billing" : i === 1 ? "Restaurant POS" : i === 2 ? "Kitchen Display System" : "QR Orders" }
               style={{ top: "50%", left: "50%", transformOrigin: "center" }}
             >
               {i === 0 && "🧾"}
-              {i === 1 && "👨‍🍳"}
-              {i === 2 && "🪑"}
+              {i === 1 && "🍽️"}
+              {i === 2 && "👨‍🍳"}
               {i === 3 && "📱"}
             </motion.button>
           ))}

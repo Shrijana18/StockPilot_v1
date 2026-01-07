@@ -1,9 +1,13 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const cors = require("cors")({ origin: true });
 const adminAuth = require("../shared/auth");
 const axios = require("axios");
 const admin = require("firebase-admin");
 const HybridAI = require("../shared/hybridAI");
+
+// Define secrets for Firebase Functions v2
+const GEMINI_API_KEY_SECRET = defineSecret("GEMINI_API_KEY");
 
 // Safe firebase-admin initialization
 if (!admin.apps || admin.apps.length === 0) {
@@ -91,40 +95,246 @@ async function fetchCSE(query, num = 2) {
 }
 
 /**
+ * Enhanced Gemini API call with comprehensive product information extraction
+ * Uses Firebase secrets for API key access
+ */
+async function callGeminiDirect(imageBase64, textContext) {
+  const geminiApiKey = process.env.GEMINI_API_KEY || GEMINI_API_KEY_SECRET.value();
+  const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
+  
+  if (!geminiApiKey) {
+    throw new Error("GEMINI_API_KEY not configured");
+  }
+
+  const baseUrl = "https://generativelanguage.googleapis.com/v1beta";
+  const url = `${baseUrl}/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
+  
+  const systemPrompt = `You are FLYP Magic - an expert AI product identifier for Indian retail. Analyze ANY image (product, object, or item) and extract accurate information.
+
+Return ONLY a strict JSON object with this exact schema:
+{
+  "name": "Product Name Only (short, clean name without description, e.g., 'Sensodyne Toothpaste' not 'Sensodyne Daily Sensitivity Protection...')",
+  "brand": "Brand Name", 
+  "unit": "Quantity Number + Unit Type (e.g., '1 Tube', '250ml Bottle', '500g Pack', '10 Tablets', '1 Piece')",
+  "category": "Product Category (e.g., Medicine, Food & Beverages, Personal Care, Home Care, Electronics, Stationery, Clothing)",
+  "description": "Detailed product description including key features, ingredients, usage instructions if visible",
+  "sku": "Barcode/SKU if visible",
+  "mrp": "Maximum Retail Price (numeric value only, e.g., '120' for 'MRP ₹120.00')",
+  "sellingPrice": "Selling Price if different from MRP (numeric value only)",
+  "hsn": "HSN Code if visible (4-8 digits)",
+  "gst": "GST Rate if visible (numeric value: 0, 5, 12, 18, or 28)",
+  "variant": "Product Variant/Size/Flavor (e.g., '500mg', 'Mint flavor', 'Family pack')",
+  "confidence": 0.95
+}
+
+CRITICAL RULES:
+- 'name' MUST be SHORT and CLEAN - just the product name (e.g., "Sensodyne Toothpaste", "Paracetamol Tablets", "Coca Cola"). NO long descriptions, NO marketing text, NO features in the name field.
+- 'unit' MUST start with a NUMBER followed by unit type (e.g., "1 Tube", "250ml Bottle", "500g Pack", "10 Tablets", "1 Piece", "2 Pieces"). Always include quantity number.
+- Identify ANY object shown - even if it's not a retail product, try to identify what it is (e.g., "Pen", "Notebook", "Water Bottle", "Mobile Phone")
+- Use visual analysis: colors, shapes, packaging design, logos, text labels, product appearance
+- Recognize Indian brands: Dabur, Himalaya, Patanjali, Hindustan Unilever, P&G, ITC, Nestle, Sensodyne, Colgate, etc.
+- Extract ALL visible text from packaging including ingredients, usage instructions, warnings
+- 'category' should be specific (e.g., "Medicine", "Food & Beverages", "Personal Care", "Home Care", "Electronics", "Stationery")
+- 'description' should include key features, ingredients list if visible, usage instructions, any special properties
+- 'mrp' extract ONLY the numeric value from MRP labels (remove currency symbols, commas)
+- 'hsn' and 'gst' only if clearly visible on packaging
+- 'variant' should capture size, flavor, type, or any distinguishing feature
+- 'confidence' should be 0.8-1.0 based on clarity and completeness of information extracted
+- Be smart: Even if product name is not clearly visible, use visual cues, brand logos, packaging design to identify
+- Focus on Indian retail products and packaging standards
+- Extract maximum information - be thorough and accurate
+- NO commentary, explanations, or markdown formatting - ONLY the JSON object`;
+
+  const userPrompt = textContext 
+    ? `Identify the product or object in this image using the context: ${textContext}\n\nExtract ALL available information. Product name should be SHORT and CLEAN (no descriptions). Unit must include quantity number + type (e.g., "1 Tube", "250ml Bottle").`
+    : "Identify the product or object in this image. Extract ALL available information. Product name should be SHORT and CLEAN (no descriptions). Unit must include quantity number + type (e.g., '1 Tube', '250ml Bottle'). Even if product name is not clearly visible, use visual cues, logos, and packaging to identify.";
+
+  const payload = {
+    contents: [{
+      parts: [
+        { text: `${systemPrompt}\n\n${userPrompt}` },
+        {
+          inline_data: {
+            mime_type: "image/jpeg",
+            data: imageBase64
+          }
+        }
+      ]
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 2048,
+      responseMimeType: "application/json"
+    },
+    safetySettings: [
+      {
+        category: "HARM_CATEGORY_HARASSMENT",
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      },
+      {
+        category: "HARM_CATEGORY_HATE_SPEECH",
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      },
+      {
+        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      },
+      {
+        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      }
+    ]
+  };
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: {
+        "Content-Type": "application/json"
+      },
+      timeout: 30000
+    });
+
+    const content = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) {
+      throw new Error("No content returned from Gemini");
+    }
+
+    console.log("🔍 Raw Gemini response:", content.substring(0, 500));
+
+    // Clean JSON
+    let cleanedContent = content.trim();
+    if (cleanedContent.startsWith('```json')) {
+      cleanedContent = cleanedContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    }
+    if (cleanedContent.startsWith('```')) {
+      cleanedContent = cleanedContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanedContent);
+    } catch (parseError) {
+      console.error("❌ JSON parse failed:", parseError.message);
+      // Try to extract fields with regex as fallback
+      const nameMatch = cleanedContent.match(/"name"\s*:\s*"([^"]+)"/);
+      const brandMatch = cleanedContent.match(/"brand"\s*:\s*"([^"]+)"/);
+      const categoryMatch = cleanedContent.match(/"category"\s*:\s*"([^"]+)"/);
+      const descMatch = cleanedContent.match(/"description"\s*:\s*"([^"]+)"/);
+      const unitMatch = cleanedContent.match(/"unit"\s*:\s*"([^"]+)"/);
+      
+      parsed = {
+        name: nameMatch ? nameMatch[1] : "",
+        brand: brandMatch ? brandMatch[1] : "",
+        category: categoryMatch ? categoryMatch[1] : "",
+        description: descMatch ? descMatch[1] : "",
+        unit: unitMatch ? unitMatch[1] : "",
+        sku: "",
+        mrp: "",
+        hsn: "",
+        gst: null
+      };
+    }
+    
+    // Clean product name - remove long descriptions, keep it short
+    let cleanName = parsed.name || "";
+    // Remove common description patterns
+    cleanName = cleanName
+      .replace(/\s*-\s*(Daily|Protection|Strong|Healthy|Fresh|Mint|Flavor|Flavour).*$/i, "")
+      .replace(/\s*\(.*?\)/g, "") // Remove parentheses content
+      .replace(/\s+/g, " ")
+      .trim();
+    
+    // Ensure unit has quantity number
+    let cleanUnit = parsed.unit || "";
+    if (cleanUnit && !/^\d+/.test(cleanUnit.trim())) {
+      // If unit doesn't start with number, try to extract or add "1"
+      const unitMatch = cleanUnit.match(/(tube|bottle|pack|tablet|piece|packet|sachet|box|tin|can|pouch|carton|bag|strip|jar|kg|g|ml|l|gm)/i);
+      if (unitMatch) {
+        cleanUnit = `1 ${unitMatch[0]}`;
+      } else {
+        cleanUnit = `1 ${cleanUnit}`;
+      }
+    }
+    
+    return {
+      name: cleanName,
+      brand: parsed.brand || "",
+      unit: cleanUnit,
+      category: parsed.category || "",
+      description: parsed.description || "",
+      sku: parsed.sku || "",
+      mrp: typeof parsed.mrp === "number" ? String(parsed.mrp) : (parsed.mrp || ""),
+      sellingPrice: typeof parsed.sellingPrice === "number" ? String(parsed.sellingPrice) : (parsed.sellingPrice || ""),
+      hsn: parsed.hsn || "",
+      gst: parsed.gst || null,
+      variant: parsed.variant || "",
+      source: "flyp-magic",
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.95
+    };
+  } catch (error) {
+    console.error("Gemini API Error:", error.message);
+    if (error.response) {
+      console.error("Gemini Response:", error.response.data);
+    }
+    throw error;
+  }
+}
+
+/**
  * Hybrid AI call with Gemini primary and ChatGPT fallback
  * Uses the new HybridAI system for better accuracy and reliability
  */
 async function callHybridAI(imageBase64, textContext) {
-  const hybridAI = new HybridAI();
-  
+  // Try Gemini first (direct call with Firebase secrets)
   try {
-    console.log("🚀 Starting hybrid AI product identification...");
-    const result = await hybridAI.identifyProduct(imageBase64, textContext);
-    
-    console.log(`✅ AI Success using ${result.used}:`, {
-      name: result.primary?.name || result.fallback?.name,
-      brand: result.primary?.brand || result.fallback?.brand,
-      source: result.primary?.source || result.fallback?.source
+    console.log("🚀 Starting Gemini direct product identification...");
+    const result = await callGeminiDirect(imageBase64, textContext);
+    console.log(`✅ Gemini Success:`, {
+      name: result.name,
+      brand: result.brand,
+      category: result.category,
+      description: result.description ? result.description.substring(0, 50) + "..." : ""
     });
+    return result;
+  } catch (geminiError) {
+    console.warn("⚠️ Gemini direct failed, trying HybridAI fallback:", geminiError.message);
     
-    // Return the primary result or fallback if primary failed
-    return result.primary || result.fallback;
-  } catch (error) {
-    console.error("❌ Hybrid AI failed:", error.message);
-    return null;
+    // Fallback to HybridAI
+    const hybridAI = new HybridAI();
+    try {
+      const result = await hybridAI.identifyProduct(imageBase64, textContext);
+      const product = result.primary || result.fallback;
+      if (product) {
+        console.log(`✅ HybridAI Success using ${result.used}`);
+        return product;
+      }
+    } catch (hybridError) {
+      console.error("❌ HybridAI fallback also failed:", hybridError.message);
+    }
+    
+    throw geminiError;
   }
 }
 
-module.exports = onRequest(async (req, res) => {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", "*");
-    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
+module.exports = onRequest(
+  {
+    region: "us-central1",
+    memory: "1GiB",
+    timeoutSeconds: 120,
+    secrets: [GEMINI_API_KEY_SECRET],
+  },
+  (req, res) => {
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      res.set("Access-Control-Allow-Origin", "*");
+      res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      return res.status(204).send("");
+    }
 
-  cors(req, res, async () => {
+    cors(req, res, async () => {
     try {
       res.set("Access-Control-Allow-Origin", "*");
 
@@ -269,11 +479,12 @@ module.exports = onRequest(async (req, res) => {
         variant: aiResult.variant || "",
         category: aiResult.category || "",
         unit: aiResult.unit || "",
+        description: aiResult.description || "",
         code: aiResult.sku || scannedCode || "",
         mrp: aiResult.mrp || "",
         hsn: aiResult.hsn || "",
         gst: aiResult.gst !== undefined ? aiResult.gst : null,
-        source: aiResult.source || "hybrid-ai",
+        source: aiResult.source || "gemini-ai",
         confidence: aiResult.confidence || 0.9,
       };
 
@@ -306,6 +517,7 @@ module.exports = onRequest(async (req, res) => {
         category: best.category,
         sku: best.code,
         unit: best.unit,
+        description: best.description,
         hsn: best.hsn,
         gst: best.gst,
         mrp: best.mrp,
@@ -328,5 +540,6 @@ module.exports = onRequest(async (req, res) => {
         message: error.message || "Failed to identify product from image",
       });
     }
-  });
-});
+    });
+  }
+);

@@ -7,7 +7,7 @@ import React from "react";
  */
 export default function WebShell({ children, className = "", headerContent = null }) {
   return (
-    <div className={`min-h-[100dvh] w-full text-white bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] overflow-x-hidden ${className}`}>
+    <div className={`min-h-[100dvh] w-full text-white bg-gradient-to-b from-[#020617] via-[#050a18] to-[#020617] overflow-x-hidden ${className}`}>
       {children}
     </div>
   );

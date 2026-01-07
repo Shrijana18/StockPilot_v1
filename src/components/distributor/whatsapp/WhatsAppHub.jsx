@@ -15,25 +15,36 @@ import WhatsAppInbox from './WhatsAppInbox';
 import WhatsAppCampaigns from './WhatsAppCampaigns';
 import WhatsAppScheduler from './WhatsAppScheduler';
 import MetaAPIFeatures from './MetaAPIFeatures';
+import MetaAppReviewDemo from './MetaAppReviewDemo';
 import IndividualWABASetup from './IndividualWABASetup';
 import EmbeddedSignup from './EmbeddedSignup';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
+import { FaVideo, FaExternalLinkAlt } from 'react-icons/fa';
 
 const WhatsAppHub = () => {
   const navigate = useNavigate();
+  
+  // Check if review tab should be opened from URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const shouldOpenReview = urlParams.get('review') === 'true';
   
   // Shared State - Connects all tabs
   const [sharedState, setSharedState] = useState({
     selectedProducts: [],
     selectedRetailers: new Set(),
+    customPhoneNumbers: [], // Array of {phone: string, name: string}
     currentMessage: '',
     messageImage: null,
     messageImageUrl: '',
     templateData: {},
   });
+  
+  // State for custom phone number input
+  const [customPhoneInput, setCustomPhoneInput] = useState('');
+  const [customNameInput, setCustomNameInput] = useState('');
 
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(shouldOpenReview ? 'review' : 'overview');
   const [whatsappConfig, setWhatsappConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState([]);
@@ -87,13 +98,61 @@ const WhatsAppHub = () => {
     return () => unsubscribe();
   }, [distributorId]);
 
-  // Fetch initial data
+  // Real-time listener for WhatsApp config changes
+  useEffect(() => {
+    if (!distributorId) return;
+    
+    const businessDocRef = doc(db, 'businesses', distributorId);
+    const unsubscribe = onSnapshot(businessDocRef, async (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        // Check if WABA is connected
+        if (data.whatsappBusinessAccountId) {
+          const config = await getWhatsAppConfig(distributorId);
+          setWhatsappConfig(config);
+        }
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [distributorId]);
+
+  // Fetch initial data and refresh periodically
   useEffect(() => {
     const fetchData = async () => {
       if (!distributorId) return;
       try {
         const config = await getWhatsAppConfig(distributorId);
-        setWhatsappConfig(config);
+        
+        // Also check if WABA is connected even if whatsappEnabled is false
+        // This handles the case where WABA is selected but config hasn't refreshed
+        const businessDoc = await getDoc(doc(db, 'businesses', distributorId));
+        if (businessDoc.exists()) {
+          const data = businessDoc.data();
+          // If WABA is connected, enable WhatsApp
+          if (data.whatsappBusinessAccountId) {
+            const updatedConfig = {
+              enabled: data.whatsappEnabled || true, // Enable if WABA exists
+              provider: data.whatsappProvider || WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+              phoneNumberId: data.whatsappPhoneNumberId || '',
+              businessAccountId: data.whatsappBusinessAccountId,
+              apiKey: config?.apiKey || '',
+              apiSecret: config?.apiSecret || '',
+              accessToken: config?.accessToken || '',
+              twilioAccountSid: config?.twilioAccountSid || '',
+              twilioAuthToken: config?.twilioAuthToken || '',
+              twilioWhatsAppFrom: config?.twilioWhatsAppFrom || '',
+              verified: data.whatsappVerified || false,
+              createdVia: data.whatsappCreatedVia || null,
+              webhookConfigured: data.whatsappWebhookConfigured || false,
+            };
+            setWhatsappConfig(updatedConfig);
+          } else {
+            setWhatsappConfig(config);
+          }
+        } else {
+          setWhatsappConfig(config);
+        }
 
         // Fetch retailers
         const retailersRef = collection(db, 'businesses', distributorId, 'connectedRetailers');
@@ -306,11 +365,14 @@ const WhatsAppHub = () => {
     }
   };
 
-  // Send message to selected retailers
+  // Send message to selected retailers and custom phone numbers
   const handleSendMessage = async () => {
     if (!distributorId) return;
-    if (sharedState.selectedRetailers.size === 0) {
-      toast.error('Please select at least one retailer');
+    const hasRetailers = sharedState.selectedRetailers.size > 0;
+    const hasCustomNumbers = sharedState.customPhoneNumbers.length > 0;
+    
+    if (!hasRetailers && !hasCustomNumbers) {
+      toast.error('Please select at least one retailer or enter a phone number');
       return;
     }
     if (!sharedState.currentMessage.trim()) {
@@ -324,12 +386,23 @@ const WhatsAppHub = () => {
       return;
     }
 
+    // Get retailers with phone numbers
     const retailersToSend = retailers.filter(r => 
       sharedState.selectedRetailers.has(r.id) && r.phone
     );
+    
+    // Get custom phone numbers
+    const customNumbersToSend = sharedState.customPhoneNumbers.map(custom => ({
+      id: custom.id,
+      phone: custom.phone,
+      businessName: custom.name,
+      retailerName: custom.name
+    }));
 
-    if (retailersToSend.length === 0) {
-      toast.error('No retailers with phone numbers selected');
+    const allRecipients = [...retailersToSend, ...customNumbersToSend];
+
+    if (allRecipients.length === 0) {
+      toast.error('No valid recipients selected');
       return;
     }
 
@@ -345,7 +418,7 @@ const WhatsAppHub = () => {
     let successCount = 0;
     let failCount = 0;
 
-    for (const retailer of retailersToSend) {
+    for (const retailer of allRecipients) {
       try {
         const result = await sendWhatsAppMessage(
           distributorId,
@@ -430,11 +503,14 @@ const WhatsAppHub = () => {
       setSharedState({
         selectedProducts: [],
         selectedRetailers: new Set(),
+        customPhoneNumbers: [],
         currentMessage: '',
         messageImage: null,
         messageImageUrl: '',
         templateData: {},
       });
+      setCustomPhoneInput('');
+      setCustomNameInput('');
       setActiveTab('overview');
     }
     
@@ -448,10 +524,12 @@ const WhatsAppHub = () => {
     { id: 'campaigns', label: 'Campaigns', icon: '📈', description: 'Campaign management' },
     { id: 'schedule', label: 'Schedule', icon: '⏰', description: 'Smart scheduling' },
     { id: 'history', label: 'History', icon: '📜', description: 'Message history' },
+    { id: 'review', label: 'Meta Review', icon: '🎬', description: 'App review dashboard' },
     { id: 'features', label: 'Features', icon: '🚀', description: 'API features' },
   ];
 
-  const isEnabled = whatsappConfig?.enabled;
+  // Check if WhatsApp is enabled - either from config or if WABA is connected
+  const isEnabled = whatsappConfig?.enabled || (whatsappConfig?.businessAccountId ? true : false);
   const isTechProvider = whatsappConfig?.provider === WHATSAPP_PROVIDERS.META_TECH_PROVIDER;
 
   if (loading) {
@@ -463,96 +541,96 @@ const WhatsAppHub = () => {
   }
 
   return (
-    <div className="p-6 text-white min-h-screen">
-      {/* Hero Section - Value Proposition for App Review */}
-      <div className="mb-8">
-        <div className="bg-gradient-to-br from-emerald-900/40 via-teal-900/30 to-cyan-900/40 rounded-2xl p-8 border-2 border-emerald-500/50 shadow-2xl">
-          <div className="flex items-center justify-between flex-wrap gap-6">
-            <div className="flex-1">
-              <h1 className="text-4xl font-bold mb-3 bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-green-400 to-teal-400">
-                💬 WhatsApp Business Hub
-              </h1>
-              <p className="text-lg text-gray-300 mb-4">
-                Connect with your retailers instantly. Send product catalogs, order updates, and promotional messages - all from one place.
-              </p>
-              
-              {/* Value Proposition for Tech Provider */}
-              {isTechProvider && (
-                <div className="bg-emerald-900/30 rounded-xl p-4 border border-emerald-500/30 mb-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">🚀</span>
-                    <p className="font-semibold text-emerald-300">Tech Provider Mode Active</p>
-      </div>
-                  <p className="text-sm text-gray-300">
-                    Your WhatsApp Business Account is managed centrally, enabling seamless messaging without complex setup.
-                  </p>
-                </div>
-              )}
-
-              {/* Status Badge */}
-      {isEnabled ? (
-            <div className="flex items-center gap-3">
-                  <div className="px-4 py-2 bg-emerald-500/20 border border-emerald-500/50 rounded-lg">
-                    <p className="text-sm font-semibold text-emerald-300">✅ WhatsApp Enabled</p>
-              </div>
-                  <div className="px-4 py-2 bg-blue-500/20 border border-blue-500/50 rounded-lg">
-                    <p className="text-sm font-semibold text-blue-300">
-                      {isTechProvider 
-                        ? '🚀 Tech Provider Mode' 
-                        : whatsappConfig?.provider === WHATSAPP_PROVIDERS.META
-                        ? '⚡ Meta API Mode'
-                        : '📱 Simple Mode'}
-                    </p>
-          </div>
-        </div>
-      ) : (
-                <div className="mt-4">
-                  <p className="text-sm text-gray-400 mb-4">
-                    Create your own WhatsApp Business Account to start messaging
-                  </p>
-                </div>
-      )}
+    <div className="flex h-screen text-white bg-slate-900">
+      {/* Left Sidebar Navigation */}
+      <div className="w-64 bg-slate-800 border-r border-white/10 flex flex-col">
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-white/10">
+          <h1 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <span className="text-2xl">💬</span>
+            WhatsApp Hub
+          </h1>
+          {isEnabled && (
+            <div className="flex items-center gap-2 mt-2">
+              <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
+              <span className="text-xs text-emerald-300">Connected</span>
             </div>
+          )}
+        </div>
 
-            {/* Quick Stats */}
-      {isEnabled && (
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-slate-900/60 rounded-xl p-4 border border-white/10 text-center">
-                  <p className="text-3xl font-bold text-emerald-400">{stats.sent}</p>
-                  <p className="text-xs text-gray-400 mt-1">Total Sent</p>
+        {/* Navigation Menu */}
+        <nav className="flex-1 overflow-y-auto p-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-1 transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-emerald-600 text-white'
+                  : 'text-gray-300 hover:bg-slate-700 hover:text-white'
+              }`}
+              title={tab.description}
+            >
+              <span className="text-lg">{tab.icon}</span>
+              <span className="font-medium">{tab.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Sidebar Footer - Quick Stats */}
+        {isEnabled && (
+          <div className="p-4 border-t border-white/10 bg-slate-900/50">
+            <p className="text-xs text-gray-400 mb-2">Quick Stats</p>
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Sent:</span>
+                <span className="text-emerald-300 font-semibold">{stats.sent}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Today:</span>
+                <span className="text-blue-300 font-semibold">{stats.today}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Success:</span>
+                <span className="text-emerald-300 font-semibold">{stats.successRate}%</span>
+              </div>
+            </div>
           </div>
-                <div className="bg-slate-900/60 rounded-xl p-4 border border-white/10 text-center">
-                  <p className="text-3xl font-bold text-emerald-400">{stats.today}</p>
-                  <p className="text-xs text-gray-400 mt-1">Today</p>
-          </div>
-                <div className="bg-slate-900/60 rounded-xl p-4 border border-white/10 text-center">
-                  <p className="text-3xl font-bold text-emerald-400">{stats.successRate}%</p>
-                  <p className="text-xs text-gray-400 mt-1">Success Rate</p>
-          </div>
-        </div>
-      )}
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Tab Navigation */}
-      <div className="mb-6 flex gap-2 border-b border-white/10 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 font-medium transition-colors border-b-2 whitespace-nowrap ${
-              activeTab === tab.id
-                ? 'border-emerald-400 text-emerald-300'
-                : 'border-transparent text-gray-400 hover:text-white'
-            }`}
-            title={tab.description}
-          >
-            <span className="mr-2">{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-6">
+          {/* Header Section */}
+          <div className="mb-6">
+            <div className="bg-gradient-to-br from-emerald-900/40 via-teal-900/30 to-cyan-900/40 rounded-2xl p-6 border-2 border-emerald-500/50">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex-1">
+                  <h2 className="text-3xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-green-400 to-teal-400">
+                    {tabs.find(t => t.id === activeTab)?.label || 'WhatsApp Business Hub'}
+                  </h2>
+                  <p className="text-gray-300">
+                    {tabs.find(t => t.id === activeTab)?.description || 'Manage your WhatsApp Business communications'}
+                  </p>
+                </div>
+                
+                {/* Status Badge */}
+                {isEnabled && (
+                  <div className="flex items-center gap-2">
+                    <div className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/50 rounded-lg">
+                      <p className="text-xs font-semibold text-emerald-300">✅ Enabled</p>
+                    </div>
+                    {isTechProvider && (
+                      <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/50 rounded-lg">
+                        <p className="text-xs font-semibold text-blue-300">🚀 Tech Provider</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
       {/* Tab Content */}
       <AnimatePresence mode="wait">
@@ -705,32 +783,114 @@ const WhatsAppHub = () => {
                 )}
                 
                 <div className="space-y-4">
-                  {/* Select Retailers */}
+                  {/* Select Retailers or Enter Phone Number */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Select Retailers</label>
-                    <div className="max-h-40 overflow-y-auto border border-white/10 rounded-lg p-2 bg-slate-800/40">
-                      {retailers.length === 0 ? (
-                        <p className="text-sm text-gray-400 p-2">No retailers connected yet</p>
-                      ) : (
-                        retailers.map((retailer) => (
-                          <label key={retailer.id} className="flex items-center gap-2 p-2 hover:bg-slate-700/30 rounded cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={sharedState.selectedRetailers.has(retailer.id)}
-                              onChange={(e) => {
-                                const newSet = new Set(sharedState.selectedRetailers);
-                                if (e.target.checked) {
-                                  newSet.add(retailer.id);
-                                } else {
-                                  newSet.delete(retailer.id);
-                                }
-                                setSharedState(prev => ({ ...prev, selectedRetailers: newSet }));
-                              }}
-                              className="rounded"
-                            />
-                            <span className="text-sm">{retailer.businessName || retailer.retailerName || retailer.phone}</span>
-                          </label>
-                        ))
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Select Retailers or Enter Phone Number
+                    </label>
+                    
+                    {/* Retailer Selection */}
+                    <div className="mb-4">
+                      <p className="text-xs text-gray-400 mb-2">Connected Retailers:</p>
+                      <div className="max-h-40 overflow-y-auto border border-white/10 rounded-lg p-2 bg-slate-800/40">
+                        {retailers.length === 0 ? (
+                          <p className="text-sm text-gray-400 p-2">No retailers connected yet</p>
+                        ) : (
+                          retailers.map((retailer) => (
+                            <label key={retailer.id} className="flex items-center gap-2 p-2 hover:bg-slate-700/30 rounded cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={sharedState.selectedRetailers.has(retailer.id)}
+                                onChange={(e) => {
+                                  const newSet = new Set(sharedState.selectedRetailers);
+                                  if (e.target.checked) {
+                                    newSet.add(retailer.id);
+                                  } else {
+                                    newSet.delete(retailer.id);
+                                  }
+                                  setSharedState(prev => ({ ...prev, selectedRetailers: newSet }));
+                                }}
+                                className="rounded"
+                              />
+                              <span className="text-sm flex-1">{retailer.businessName || retailer.retailerName || retailer.phone}</span>
+                              {retailer.phone && (
+                                <span className="text-xs text-gray-400">{retailer.phone}</span>
+                              )}
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Add Custom Phone Number */}
+                    <div className="border-t border-white/10 pt-4">
+                      <p className="text-xs text-gray-400 mb-2">Or Enter New Phone Number:</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Name (optional)"
+                          value={customNameInput}
+                          onChange={(e) => setCustomNameInput(e.target.value)}
+                          className="flex-1 bg-slate-800/60 border border-white/10 text-white placeholder-gray-400 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                        />
+                        <input
+                          type="tel"
+                          placeholder="+91XXXXXXXXXX"
+                          value={customPhoneInput}
+                          onChange={(e) => setCustomPhoneInput(e.target.value)}
+                          className="flex-1 bg-slate-800/60 border border-white/10 text-white placeholder-gray-400 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                        />
+                        <button
+                          onClick={() => {
+                            if (customPhoneInput.trim()) {
+                              const phone = customPhoneInput.trim().replace(/[^0-9+]/g, '');
+                              if (phone.length >= 10) {
+                                const newCustom = {
+                                  phone: phone.startsWith('+') ? phone : `+91${phone}`,
+                                  name: customNameInput.trim() || 'Custom Contact',
+                                  id: `custom_${Date.now()}`
+                                };
+                                setSharedState(prev => ({
+                                  ...prev,
+                                  customPhoneNumbers: [...prev.customPhoneNumbers, newCustom]
+                                }));
+                                setCustomPhoneInput('');
+                                setCustomNameInput('');
+                                toast.success('Phone number added');
+                              } else {
+                                toast.error('Please enter a valid phone number');
+                              }
+                            }
+                          }}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      
+                      {/* Show Added Custom Numbers */}
+                      {sharedState.customPhoneNumbers.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {sharedState.customPhoneNumbers.map((custom, idx) => (
+                            <div key={custom.id} className="flex items-center justify-between bg-emerald-900/20 border border-emerald-500/30 rounded-lg p-2">
+                              <div className="flex-1">
+                                <p className="text-sm text-white">{custom.name}</p>
+                                <p className="text-xs text-gray-400">{custom.phone}</p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setSharedState(prev => ({
+                                    ...prev,
+                                    customPhoneNumbers: prev.customPhoneNumbers.filter((_, i) => i !== idx)
+                                  }));
+                                }}
+                                className="text-red-400 hover:text-red-300 text-sm px-2"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -842,10 +1002,10 @@ const WhatsAppHub = () => {
                   <div className="flex gap-4">
                     <button
                       onClick={handleSendMessage}
-                      disabled={sending || !sharedState.currentMessage.trim() || sharedState.selectedRetailers.size === 0}
+                      disabled={sending || !sharedState.currentMessage.trim() || (sharedState.selectedRetailers.size === 0 && sharedState.customPhoneNumbers.length === 0)}
                       className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl shadow-lg transform transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {sending ? 'Sending...' : `📤 Send to ${sharedState.selectedRetailers.size} Retailer(s)`}
+                      {sending ? 'Sending...' : `📤 Send to ${sharedState.selectedRetailers.size + sharedState.customPhoneNumbers.length} Recipient(s)`}
                     </button>
                   </div>
                 </div>
@@ -944,9 +1104,22 @@ const WhatsAppHub = () => {
               )}
             </div>
           )}
+          {activeTab === 'review' && (
+            <MetaAppReviewDemo 
+              embedded={true} 
+              onSetupComplete={async () => {
+                // Refresh config after setup
+                const config = await getWhatsAppConfig(distributorId);
+                setWhatsappConfig(config);
+                toast.success('WhatsApp setup complete! Refreshing...');
+              }} 
+            />
+          )}
           {activeTab === 'features' && <MetaAPIFeatures />}
         </motion.div>
       </AnimatePresence>
+        </div>
+      </div>
     </div>
   );
 };

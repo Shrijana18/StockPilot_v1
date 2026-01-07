@@ -117,7 +117,9 @@ service cloud.firestore {
       // - Profile metadata: profileVersion, lastUpdated
       // - WhatsApp: whatsappBusinessAccountId, whatsappPhoneNumberId, whatsappPhoneNumber, whatsappPhoneRegistered,
       //   whatsappPhoneVerificationStatus, whatsappProvider, whatsappEnabled, whatsappLastSyncedAt, whatsappConnectedAt,
-      //   whatsappWebhookUrl, whatsappWebhookConfigured, whatsappWebhookConfiguredAt
+      //   whatsappWebhookUrl, whatsappWebhookConfigured, whatsappWebhookConfiguredAt, whatsappCreatedVia, whatsappCreatedAt,
+      //   whatsappAccountReviewStatus, whatsappAccountReviewUpdatedAt, whatsappPhoneUpdatedAt, whatsappVerified,
+      //   embeddedSignupData, whatsappAccessToken, whatsappOAuthCode, metaBusinessId
       allow update: if isAuthed()
         && isSelf(userId)
         && isEmailVerified()
@@ -363,6 +365,22 @@ service cloud.firestore {
         );
 
         allow write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- TABLES (Restaurant/Cafe/Hotel) ---
+      match /tables/{tableId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- KITCHEN ORDERS ---
+      match /kitchenOrders/{orderId} {
+        allow read, write: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
         );

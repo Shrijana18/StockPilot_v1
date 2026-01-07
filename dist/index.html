@@ -11,6 +11,29 @@
     <meta name="google-signin-client_id" content="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com" />
     <meta name="google-signin-hosted_domain" content="flypnow.com" />
     <link rel="canonical" href="https://flypnow.com/" />
+    <meta name="contact" content="admin@flypnow.com, +91 82638 74329" />
+    <meta name="telephone" content="+918263874329" />
+    <!-- Preload critical Lottie animations for faster loading -->
+    <link rel="preload" href="/assets/supplyFlow.json" as="fetch" crossorigin="anonymous" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "FLYP",
+      "url": "https://flypnow.com",
+      "logo": "https://flypnow.com/assets/flyp_logo.png",
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "telephone": "+91-82638-74329",
+        "contactType": "Customer Service",
+        "email": "admin@flypnow.com"
+      },
+      "email": "admin@flypnow.com",
+      "sameAs": [
+        "https://flypnow.com"
+      ]
+    }
+    </script>
     <meta http-equiv="Content-Security-Policy"
       content="
         default-src 'self' data: blob: capacitor: https:;
@@ -20,7 +43,8 @@
                     https://apis.google.com
                     https://maps.googleapis.com
                     https://www.googletagmanager.com
-                    https://www.gstatic.cn;
+                    https://www.gstatic.cn
+                    https://connect.facebook.net;
         worker-src  'self' blob:;
         style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
         font-src    'self' https://fonts.gstatic.com;
@@ -30,7 +54,9 @@
                     https://www.google.com
                     https://apis.google.com
                     https://recaptcha.google.com
-                    https://*.firebaseapp.com;
+                    https://*.firebaseapp.com
+                    https://www.facebook.com
+                    https://business.facebook.com;
         connect-src 'self' data: blob: ws: wss:
                     https://asia-south1-stockpilotv1.cloudfunctions.net
                     https://us-central1-stockpilotv1.cloudfunctions.net
@@ -58,12 +84,28 @@
       Firebase Auth injects the correct reCAPTCHA (v2 Invisible) script when using RecaptchaVerifier.
       Manual inclusion (v3 or enterprise) can cause auth/invalid-app-credential or "already been rendered" errors.
     -->
-    <script type="module" crossorigin src="/assets/index-CRiLjs5T.js"></script>
+    
+    <!-- Facebook JavaScript SDK for WhatsApp Embedded Signup -->
+    <!-- App ID: 1902565950686087 (FLYP Tech Provider) -->
+    <script>
+      window.fbAsyncInit = function() {
+        FB.init({
+          appId            : '1902565950686087',
+          autoLogAppEvents : true,
+          xfbml            : true,
+          version          : 'v24.0'
+        });
+      };
+    </script>
+    <script async defer crossorigin="anonymous"
+      src="https://connect.facebook.net/en_US/sdk.js">
+    </script>
+    <script type="module" crossorigin src="/assets/index-Ct_HLjRS.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-Ckhrjn13.js">
     <link rel="modulepreload" crossorigin href="/assets/router-Bg2-hh1n.js">
-    <link rel="modulepreload" crossorigin href="/assets/firebase-4Z3_LJ5b.js">
-    <link rel="modulepreload" crossorigin href="/assets/index.esm-AQ9HAnn4.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-BMJVko8S.css">
+    <link rel="modulepreload" crossorigin href="/assets/firebase-Bu32PJU6.js">
+    <link rel="modulepreload" crossorigin href="/assets/index.esm-CLM1uou9.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-D2PODfen.css">
   </head>
   <body class="bg-white text-gray-900">
     <div id="root"></div>

@@ -95,8 +95,15 @@ exports.sendMessageViaTechProvider = whatsappTechProvider.sendMessageViaTechProv
 exports.setupWebhookForClient = whatsappTechProvider.setupWebhookForClient;
 exports.whatsappTechProviderWebhook = whatsappTechProvider.whatsappTechProviderWebhook;
 exports.getWhatsAppSetupStatus = whatsappTechProvider.getWhatsAppSetupStatus;
-// Note: Removed OLD flow functions (createClientWABA, createIndividualWABA, requestPhoneNumber, 
-// verifyPhoneOTP, checkPhoneRegistrationStatus, getClientWABA) - not needed for Embedded Signup
+// WABA Management (for WABA selection and status)
+exports.getClientWABA = whatsappTechProvider.getClientWABA;
+exports.getWABAStatus = whatsappTechProvider.getWABAStatus;
+exports.saveWABADirect = whatsappTechProvider.saveWABADirect;
+exports.detectNewWABA = whatsappTechProvider.detectNewWABA;
+// Message Template Management (for Meta App Review)
+exports.createWhatsAppMessageTemplate = whatsappTechProvider.createWhatsAppMessageTemplate;
+// Note: Other flow functions (createClientWABA, createIndividualWABA, requestPhoneNumber, 
+// verifyPhoneOTP, checkPhoneRegistrationStatus) available but not exported - use Embedded Signup instead
 
 // ============================
 // Utility Modules (Internal use)

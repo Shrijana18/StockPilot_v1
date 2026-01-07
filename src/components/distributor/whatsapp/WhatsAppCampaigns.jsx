@@ -12,15 +12,44 @@ import { toast } from 'react-toastify';
 const WhatsAppCampaigns = () => {
   const [campaigns, setCampaigns] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [retailers, setRetailers] = useState([]);
+  const [selectedRetailers, setSelectedRetailers] = useState(new Set());
+  const [customPhoneNumbers, setCustomPhoneNumbers] = useState([]);
+  const [customPhoneInput, setCustomPhoneInput] = useState('');
+  const [customNameInput, setCustomNameInput] = useState('');
   const [newCampaign, setNewCampaign] = useState({
     name: '',
     goal: 'engagement', // engagement, sales, awareness
-    targetRetailers: 'all', // all, segment, custom
+    targetRetailers: 'selected', // all, selected, custom
     message: '',
     scheduledFor: '',
   });
 
   const distributorId = auth.currentUser?.uid;
+  
+  // Load retailers
+  useEffect(() => {
+    if (!distributorId) return;
+    const loadRetailers = async () => {
+      try {
+        const retailersRef = collection(db, 'businesses', distributorId, 'connectedRetailers');
+        const retailersSnap = await getDocs(retailersRef);
+        const retailersList = retailersSnap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            phone: data.phone || data.retailerPhone || '',
+            businessName: data.businessName || data.retailerName || '',
+          };
+        });
+        setRetailers(retailersList);
+      } catch (error) {
+        console.error('Error loading retailers:', error);
+      }
+    };
+    loadRetailers();
+  }, [distributorId]);
 
   useEffect(() => {
     if (!distributorId) return;
@@ -47,11 +76,25 @@ const WhatsAppCampaigns = () => {
       toast.error('Please fill in campaign name and message');
       return;
     }
+    
+    // Validate recipients
+    if (newCampaign.targetRetailers === 'selected' && selectedRetailers.size === 0 && customPhoneNumbers.length === 0) {
+      toast.error('Please select at least one retailer or enter a phone number');
+      return;
+    }
 
     try {
+      // Get selected retailer IDs and custom phone numbers
+      const selectedRetailerIds = Array.from(selectedRetailers);
+      const recipients = {
+        retailerIds: selectedRetailerIds,
+        customPhoneNumbers: customPhoneNumbers.map(c => ({ phone: c.phone, name: c.name }))
+      };
+
       const campaignsRef = collection(db, 'businesses', distributorId, 'whatsappCampaigns');
       await addDoc(campaignsRef, {
         ...newCampaign,
+        recipients,
         status: 'draft',
         sent: 0,
         delivered: 0,
@@ -65,10 +108,14 @@ const WhatsAppCampaigns = () => {
       setNewCampaign({
         name: '',
         goal: 'engagement',
-        targetRetailers: 'all',
+        targetRetailers: 'selected',
         message: '',
         scheduledFor: '',
       });
+      setSelectedRetailers(new Set());
+      setCustomPhoneNumbers([]);
+      setCustomPhoneInput('');
+      setCustomNameInput('');
       loadCampaigns();
     } catch (error) {
       console.error('Error creating campaign:', error);
@@ -170,6 +217,125 @@ const WhatsAppCampaigns = () => {
                   <option value="awareness">Awareness</option>
                 </select>
               </div>
+              
+              {/* Retailer Selection */}
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Select Recipients</label>
+                
+                {/* Target Type Selection */}
+                <select
+                  value={newCampaign.targetRetailers}
+                  onChange={(e) => setNewCampaign({ ...newCampaign, targetRetailers: e.target.value })}
+                  className="w-full bg-slate-800/60 border border-white/10 text-white px-3 py-2 rounded mb-3"
+                >
+                  <option value="all">All Retailers</option>
+                  <option value="selected">Selected Retailers / Custom Numbers</option>
+                </select>
+                
+                {newCampaign.targetRetailers === 'selected' && (
+                  <div className="space-y-3">
+                    {/* Retailer Selection */}
+                    <div>
+                      <p className="text-xs text-gray-400 mb-2">Connected Retailers:</p>
+                      <div className="max-h-40 overflow-y-auto border border-white/10 rounded-lg p-2 bg-slate-800/40">
+                        {retailers.length === 0 ? (
+                          <p className="text-sm text-gray-400 p-2">No retailers connected yet</p>
+                        ) : (
+                          retailers.map((retailer) => (
+                            <label key={retailer.id} className="flex items-center gap-2 p-2 hover:bg-slate-700/30 rounded cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedRetailers.has(retailer.id)}
+                                onChange={(e) => {
+                                  const newSet = new Set(selectedRetailers);
+                                  if (e.target.checked) {
+                                    newSet.add(retailer.id);
+                                  } else {
+                                    newSet.delete(retailer.id);
+                                  }
+                                  setSelectedRetailers(newSet);
+                                }}
+                                className="rounded"
+                              />
+                              <span className="text-sm flex-1">{retailer.businessName || retailer.retailerName || retailer.phone}</span>
+                              {retailer.phone && (
+                                <span className="text-xs text-gray-400">{retailer.phone}</span>
+                              )}
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Add Custom Phone Number */}
+                    <div className="border-t border-white/10 pt-3">
+                      <p className="text-xs text-gray-400 mb-2">Or Enter New Phone Number:</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Name (optional)"
+                          value={customNameInput}
+                          onChange={(e) => setCustomNameInput(e.target.value)}
+                          className="flex-1 bg-slate-800/60 border border-white/10 text-white placeholder-gray-400 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                        />
+                        <input
+                          type="tel"
+                          placeholder="+91XXXXXXXXXX"
+                          value={customPhoneInput}
+                          onChange={(e) => setCustomPhoneInput(e.target.value)}
+                          className="flex-1 bg-slate-800/60 border border-white/10 text-white placeholder-gray-400 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                        />
+                        <button
+                          onClick={() => {
+                            if (customPhoneInput.trim()) {
+                              const phone = customPhoneInput.trim().replace(/[^0-9+]/g, '');
+                              if (phone.length >= 10) {
+                                const newCustom = {
+                                  phone: phone.startsWith('+') ? phone : `+91${phone}`,
+                                  name: customNameInput.trim() || 'Custom Contact',
+                                  id: `custom_${Date.now()}`
+                                };
+                                setCustomPhoneNumbers([...customPhoneNumbers, newCustom]);
+                                setCustomPhoneInput('');
+                                setCustomNameInput('');
+                                toast.success('Phone number added');
+                              } else {
+                                toast.error('Please enter a valid phone number');
+                              }
+                            }
+                          }}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      
+                      {/* Show Added Custom Numbers */}
+                      {customPhoneNumbers.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {customPhoneNumbers.map((custom, idx) => (
+                            <div key={custom.id} className="flex items-center justify-between bg-emerald-900/20 border border-emerald-500/30 rounded-lg p-2">
+                              <div className="flex-1">
+                                <p className="text-sm text-white">{custom.name}</p>
+                                <p className="text-xs text-gray-400">{custom.phone}</p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setCustomPhoneNumbers(customPhoneNumbers.filter((_, i) => i !== idx));
+                                }}
+                                className="text-red-400 hover:text-red-300 text-sm px-2"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
               <div>
                 <label className="block text-sm text-gray-300 mb-1">Message</label>
                 <textarea

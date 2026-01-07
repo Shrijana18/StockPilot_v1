@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAuth } from "firebase/auth";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
@@ -14,8 +14,271 @@ import {
   FaPhone, FaIdCard, FaMapMarkerAlt, FaCity, FaGlobe,
   FaSave, FaUpload, FaInfoCircle, FaShieldAlt, FaChartLine,
   FaCreditCard, FaBell, FaLock, FaCalendarAlt, FaFileInvoiceDollar,
-  FaUniversity, FaStore
+  FaUniversity, FaStore, FaFacebook, FaArrowRight, FaSpinner,
+  FaExclamationTriangle, FaRocket, FaUsers, FaBullhorn, FaChartBar,
+  FaShieldVirus, FaLink, FaTimes
 } from "react-icons/fa";
+
+// Meta Embedded Signup URL - Tech Provider Configuration
+// App ID: 1902565950686087
+// Config ID: 844028501834041
+const EMBEDDED_SIGNUP_URL = 'https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=844028501834041&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D';
+
+// WhatsApp Setup Section Component - Built from scratch for first-time users
+const WhatsAppSetupSection = ({ formData, setFormData, user }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const popupRef = useRef(null);
+
+  const isConnected = formData.whatsappEnabled && formData.whatsappBusinessAccountId;
+
+  // Save WABA data to Firestore
+  const saveWABAData = async (wabaId, phoneNumberId, phoneNumber, embeddedData) => {
+    if (!user) throw new Error('User not authenticated');
+
+    const userRef = doc(db, 'businesses', user.uid);
+    await updateDoc(userRef, {
+      whatsappBusinessAccountId: wabaId,
+      whatsappPhoneNumberId: phoneNumberId,
+      whatsappPhoneNumber: phoneNumber,
+      whatsappProvider: 'meta_tech_provider',
+      whatsappEnabled: true,
+      whatsappCreatedVia: 'embedded_signup',
+      whatsappCreatedAt: new Date(),
+      whatsappPhoneRegistered: true,
+      whatsappPhoneVerificationStatus: 'verified',
+      embeddedSignupData: embeddedData
+    });
+  };
+
+  // Listen for Meta postMessage responses
+  useEffect(() => {
+    const handleMessage = async (event) => {
+      if (!event.origin.includes('facebook.com') && !event.origin.includes('meta.com')) return;
+
+      const data = event.data;
+      let wabaId, phoneNumberId, phoneNumber;
+
+      // Handle different response formats
+      if (data?.type === 'WHATSAPP_EMBEDDED_SIGNUP' && data.status === 'SUCCESS') {
+        wabaId = data.waba_id;
+        phoneNumberId = data.phone_number_id;
+        phoneNumber = data.phone_number;
+      } else if (data?.waba_id || data?.wabaId) {
+        wabaId = data.waba_id || data.wabaId;
+        phoneNumberId = data.phone_number_id || data.phoneNumberId;
+        phoneNumber = data.phone_number || data.phoneNumber;
+      }
+
+      if (wabaId) {
+        setLoading(false);
+        try {
+          await saveWABAData(wabaId, phoneNumberId, phoneNumber, data);
+          setFormData(prev => ({
+            ...prev,
+            whatsappBusinessAccountId: wabaId,
+            whatsappPhoneNumberId: phoneNumberId,
+            whatsappPhoneNumber: phoneNumber,
+            whatsappEnabled: true,
+            whatsappProvider: 'meta_tech_provider',
+            whatsappCreatedVia: 'embedded_signup',
+            whatsappPhoneRegistered: true,
+            whatsappPhoneVerificationStatus: 'verified',
+          }));
+          toast.success('WhatsApp Business Account connected successfully!');
+        } catch (err) {
+          console.error('Error saving WABA:', err);
+          setError('Failed to save account. Please try again.');
+          toast.error('Failed to save WhatsApp account');
+        }
+      } else if (data?.status === 'ERROR' || data?.status === 'CANCELLED') {
+        setLoading(false);
+        setError(data.error_message || 'Signup was cancelled');
+        toast.error(data.error_message || 'WhatsApp signup cancelled');
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [setFormData, user]);
+
+  // Open Meta Embedded Signup
+  const handleConnect = () => {
+    if (!user) {
+      toast.error('Please log in to continue');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const width = 800;
+    const height = 700;
+    const left = (window.screen.width - width) / 2;
+    const top = (window.screen.height - height) / 2;
+
+    const popup = window.open(
+      EMBEDDED_SIGNUP_URL,
+      'WhatsAppSignup',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+
+    popupRef.current = popup;
+
+    if (!popup || popup.closed) {
+      setError('Popup blocked. Please allow popups for this site.');
+      setLoading(false);
+      toast.error('Please allow popups to connect WhatsApp');
+      return;
+    }
+
+    // Monitor popup closure
+    const checkInterval = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(checkInterval);
+        if (loading) {
+          setLoading(false);
+          toast.info('WhatsApp signup window was closed');
+        }
+      }
+    }, 1000);
+  };
+
+  // If already connected, show simple status
+  if (isConnected) {
+    return (
+      <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-green-500/20 rounded-lg">
+            <FaWhatsapp className="w-6 h-6 text-green-400" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-white">WhatsApp Business Account</h2>
+            <p className="text-green-400 text-sm mt-1">✓ Setup Complete - Ready to use</p>
+          </div>
+        </div>
+        <div className="bg-slate-800/60 rounded-lg p-4 space-y-2">
+          {formData.whatsappBusinessAccountId && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">WABA ID:</span>
+              <span className="text-white font-mono text-sm">{formData.whatsappBusinessAccountId}</span>
+            </div>
+          )}
+          {formData.whatsappPhoneNumber && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Phone:</span>
+              <span className="text-white font-mono text-sm">{formData.whatsappPhoneNumber}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // FIRST-TIME USER DESIGN - Clean, simple, focused
+  return (
+    <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-8">
+      {/* Header */}
+      <div className="text-center mb-8">
+        <div className="flex justify-center mb-6">
+          <div className="relative">
+            <div className="absolute inset-0 bg-green-500/20 rounded-full blur-xl"></div>
+            <div className="relative p-5 bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-full border-2 border-green-500/50">
+              <FaWhatsapp className="w-16 h-16 text-green-400" />
+            </div>
+          </div>
+        </div>
+        <h2 className="text-3xl font-bold text-white mb-2">Connect WhatsApp Business</h2>
+        <p className="text-gray-400">Set up your WhatsApp Business Account to start messaging customers</p>
+      </div>
+
+      {/* Main Action Button */}
+      <div className="mb-8">
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={handleConnect}
+          disabled={loading}
+          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-bold py-5 px-6 rounded-xl transition-all flex items-center justify-center gap-3 text-lg shadow-lg shadow-green-500/30"
+        >
+          {loading ? (
+            <>
+              <FaSpinner className="animate-spin text-xl" />
+              <span>Connecting...</span>
+            </>
+          ) : (
+            <>
+              <FaFacebook className="text-2xl" />
+              <span>Connect with Facebook</span>
+              <FaArrowRight />
+            </>
+          )}
+        </motion.button>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-3">
+            <FaExclamationTriangle className="text-red-400" />
+            <div className="flex-1">
+              <p className="text-red-300 text-sm">{error}</p>
+            </div>
+            <button
+              onClick={handleConnect}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tech Provider Info */}
+      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 mb-6 text-center">
+        <div className="flex items-center justify-center gap-2 mb-2">
+          <FaShieldVirus className="text-emerald-400" />
+          <span className="text-sm font-semibold text-emerald-400">Meta Tech Provider</span>
+        </div>
+        <p className="text-xs text-gray-400">Powered by FLYP's official Meta integration</p>
+      </div>
+
+      {/* Benefits */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-400 text-center mb-4">What you'll get:</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+            <FaBullhorn className="text-green-400 mx-auto mb-2" />
+            <p className="text-xs text-gray-300">Marketing Messages</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+            <FaUsers className="text-green-400 mx-auto mb-2" />
+            <p className="text-xs text-gray-300">Customer Engagement</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+            <FaChartBar className="text-green-400 mx-auto mb-2" />
+            <p className="text-xs text-gray-300">Analytics</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+            <FaRocket className="text-green-400 mx-auto mb-2" />
+            <p className="text-xs text-gray-300">API Access</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Simple Instructions */}
+      <div className="mt-6 bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <FaInfoCircle className="text-blue-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-gray-400 space-y-1">
+            <p className="font-semibold text-white mb-1">How it works:</p>
+            <p>Click the button above → Log in with Facebook → Follow Meta's setup → Your account connects automatically</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ProfileSettings = () => {
   const { t } = useTranslation();
@@ -51,6 +314,15 @@ const ProfileSettings = () => {
     bankIfsc: "",
     bankAccountName: "",
     upiId: "",
+    // WhatsApp Business Account
+    whatsappBusinessAccountId: "",
+    whatsappPhoneNumberId: "",
+    whatsappPhoneNumber: "",
+    whatsappEnabled: false,
+    whatsappProvider: "",
+    whatsappCreatedVia: "",
+    whatsappPhoneRegistered: false,
+    whatsappPhoneVerificationStatus: "",
   });
   const [activeSection, setActiveSection] = useState("owner");
   const [logoFile, setLogoFile] = useState(null);
@@ -89,6 +361,7 @@ const ProfileSettings = () => {
     { id: "business", label: t("profile.businessDetails") || "Business", icon: FaBuilding, color: "from-indigo-500 to-blue-500" },
     { id: "tax", label: "Tax Information", icon: FaFileInvoiceDollar, color: "from-orange-500 to-red-500" },
     { id: "banking", label: "Banking & Payment", icon: FaUniversity, color: "from-blue-500 to-cyan-500" },
+    { id: "whatsapp", label: "WhatsApp Business", icon: FaWhatsapp, color: "from-green-500 to-emerald-500" },
     { id: "branding", label: t("profile.branding") || "Branding", icon: FaPalette, color: "from-pink-500 to-rose-500" },
     { id: "notifications", label: "Notifications", icon: FaBell, color: "from-yellow-500 to-orange-500" },
     { id: "preferences", label: t("profile.preferences") || "Preferences", icon: FaCog, color: "from-gray-500 to-slate-500" },
@@ -123,6 +396,15 @@ const ProfileSettings = () => {
             gstNumber: data.gstNumber ? String(data.gstNumber) : "",
             emailNotifications: data.emailNotifications !== undefined ? data.emailNotifications : true,
             smsNotifications: data.smsNotifications || false,
+            // WhatsApp fields
+            whatsappBusinessAccountId: data.whatsappBusinessAccountId || "",
+            whatsappPhoneNumberId: data.whatsappPhoneNumberId || "",
+            whatsappPhoneNumber: data.whatsappPhoneNumber || "",
+            whatsappEnabled: data.whatsappEnabled || false,
+            whatsappProvider: data.whatsappProvider || "",
+            whatsappCreatedVia: data.whatsappCreatedVia || "",
+            whatsappPhoneRegistered: data.whatsappPhoneRegistered || false,
+            whatsappPhoneVerificationStatus: data.whatsappPhoneVerificationStatus || "",
           };
           return newData;
         });
@@ -818,6 +1100,15 @@ const ProfileSettings = () => {
                     </motion.button>
                   </div>
                 </div>
+              )}
+
+              {/* WhatsApp Business Section */}
+              {activeSection === "whatsapp" && (
+                <WhatsAppSetupSection 
+                  formData={formData}
+                  setFormData={setFormData}
+                  user={user}
+                />
               )}
 
               {/* Branding Section */}
