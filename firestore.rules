@@ -1177,5 +1177,21 @@ service cloud.firestore {
       allow update: if false;
       allow delete: if false;
     }
+
+    // Event Leads - Public collection for expo/event lead management (no authentication required)
+    // This allows quick lead capture at events without requiring login
+    match /eventLeads/{leadId} {
+      // Allow anyone to create leads (for expo use)
+      allow create: if true;
+      
+      // Allow anyone to read leads (for viewing saved leads)
+      allow read: if true;
+      
+      // Allow anyone to update leads (for editing lead information)
+      allow update: if true;
+      
+      // Allow anyone to delete leads (for removing incorrect entries)
+      allow delete: if true;
+    }
   }
 }

@@ -12,6 +12,9 @@ const LeadManagement = () => {
   const [editingLead, setEditingLead] = useState(null);
   const [viewingLead, setViewingLead] = useState(null); // Lead being viewed in detail modal
 
+  // Use public collection for event leads (no authentication required)
+  const LEADS_COLLECTION = "eventLeads";
+
   // Exhibitor form state
   const [exhibitorForm, setExhibitorForm] = useState({
     companyName: "",
@@ -96,78 +99,26 @@ const LeadManagement = () => {
 
   const [loading, setLoading] = useState(false);
 
-  const getUid = () => auth.currentUser?.uid;
-  const STORAGE_KEY = "flyp_event_leads";
-
-  // Helper functions for localStorage
-  const loadLeadsFromStorage = () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (error) {
-      console.error("Error loading from localStorage:", error);
-    }
-    return [];
-  };
-
-  const saveLeadsToStorage = (leadsList) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(leadsList));
-    } catch (error) {
-      console.error("Error saving to localStorage:", error);
-      toast.error("Failed to save to local storage");
-    }
-  };
-
-  // Load leads from both Firestore (if authenticated) and localStorage
+  // Load leads from public Firestore collection
   useEffect(() => {
     const loadLeads = async () => {
-      const uid = getUid();
-      let allLeads = [];
-
-      // Load from localStorage first (always available)
-      const localLeads = loadLeadsFromStorage();
-      allLeads = [...localLeads];
-
-      // If authenticated, also load from Firestore and merge
-      if (uid) {
-        try {
-          const leadsRef = collection(db, "businesses", uid, "leads");
-          const q = query(leadsRef, orderBy("createdAt", "desc"));
-          const snapshot = await getDocs(q);
-          const firestoreLeads = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            firestoreLeads.push({ 
-              id: docSnap.id, 
-              ...data,
-              source: "firestore"
-            });
+      try {
+        const leadsRef = collection(db, LEADS_COLLECTION);
+        const q = query(leadsRef, orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(q);
+        const leadsList = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          leadsList.push({ 
+            id: docSnap.id, 
+            ...data
           });
-          
-          // Merge: prefer Firestore if duplicate IDs exist
-          const localIds = new Set(localLeads.map(l => l.id));
-          firestoreLeads.forEach(fLead => {
-            if (!localIds.has(fLead.id)) {
-              allLeads.push(fLead);
-            }
-          });
-        } catch (error) {
-          console.error("Error loading from Firestore:", error);
-          // Continue with localStorage data
-        }
+        });
+        setLeads(leadsList);
+      } catch (error) {
+        console.error("Error loading leads from Firestore:", error);
+        toast.error("Failed to load leads");
       }
-
-      // Sort by createdAt (most recent first)
-      allLeads.sort((a, b) => {
-        const aTime = a.createdAt?.toMillis?.() || a.createdAt || 0;
-        const bTime = b.createdAt?.toMillis?.() || b.createdAt || 0;
-        return bTime - aTime;
-      });
-
-      setLeads(allLeads);
     };
 
     loadLeads();
@@ -190,74 +141,40 @@ const LeadManagement = () => {
   // Save exhibitor
   const handleSaveExhibitor = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
 
-    // Allow saving even with empty fields - just need at least company name or contact info
-    if (!exhibitorForm.companyName.trim() && !exhibitorForm.contactPersonName.trim() && !exhibitorForm.phone.trim() && !exhibitorForm.email.trim()) {
-      toast.error("Please provide at least company name or contact information");
-      return;
-    }
+    // Prevent scroll on form submission - blur all inputs
+    const form = e.currentTarget;
+    const inputs = form.querySelectorAll('input, textarea, select');
+    inputs.forEach(input => input.blur());
+    
+    // Prevent any scroll behavior
+    const currentScrollY = window.scrollY;
+    window.scrollTo({ top: currentScrollY, behavior: 'instant' });
 
+    // No validation - allow saving with any data (including completely empty)
     setLoading(true);
     try {
-      const uid = getUid();
-      const now = Date.now();
+      const leadsRef = collection(db, LEADS_COLLECTION);
       const leadData = {
         type: "exhibitor",
         ...exhibitorForm,
-        createdAt: now,
-        updatedAt: now,
       };
 
       if (editingLead) {
-        // Update existing lead
-        leadData.id = editingLead.id;
-        leadData.createdAt = editingLead.createdAt || now;
-        
-        // Update in localStorage
-        const localLeads = loadLeadsFromStorage();
-        const updatedLeads = localLeads.map(l => 
-          l.id === editingLead.id ? leadData : l
-        );
-        saveLeadsToStorage(updatedLeads);
-        
-        // Update in Firestore if authenticated
-        if (uid) {
-          try {
-            const leadsRef = collection(db, "businesses", uid, "leads");
-            await updateDoc(doc(leadsRef, editingLead.id), {
-              ...leadData,
-              updatedAt: serverTimestamp(),
-            });
-          } catch (error) {
-            console.error("Error updating in Firestore:", error);
-          }
-        }
-        
+        // Update existing lead in Firestore
+        await updateDoc(doc(leadsRef, editingLead.id), {
+          ...leadData,
+          updatedAt: serverTimestamp(),
+        });
         toast.success("Exhibitor updated successfully!");
       } else {
-        // Create new lead
-        const newId = `lead_${now}_${Math.random().toString(36).substr(2, 9)}`;
-        leadData.id = newId;
-        
-        // Save to localStorage
-        const localLeads = loadLeadsFromStorage();
-        localLeads.push(leadData);
-        saveLeadsToStorage(localLeads);
-        
-        // Save to Firestore if authenticated
-        if (uid) {
-          try {
-            const leadsRef = collection(db, "businesses", uid, "leads");
-            await addDoc(leadsRef, {
-              ...leadData,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-          } catch (error) {
-            console.error("Error saving to Firestore:", error);
-          }
-        }
-        
+        // Create new lead in Firestore
+        await addDoc(leadsRef, {
+          ...leadData,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
         toast.success("Exhibitor saved successfully!");
       }
 
@@ -303,32 +220,22 @@ const LeadManagement = () => {
         tags: "",
       });
       setEditingLead(null);
-      setActiveTab("list");
       
-      // Reload leads
-      const allLeads = loadLeadsFromStorage();
-      if (uid) {
-        try {
-          const leadsRef = collection(db, "businesses", uid, "leads");
-          const q = query(leadsRef, orderBy("createdAt", "desc"));
-          const snapshot = await getDocs(q);
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            const existing = allLeads.find(l => l.id === docSnap.id);
-            if (!existing) {
-              allLeads.push({ id: docSnap.id, ...data, source: "firestore" });
-            }
-          });
-        } catch (error) {
-          console.error("Error reloading from Firestore:", error);
-        }
-      }
-      allLeads.sort((a, b) => {
-        const aTime = a.createdAt?.toMillis?.() || a.createdAt || 0;
-        const bTime = b.createdAt?.toMillis?.() || b.createdAt || 0;
-        return bTime - aTime;
+      // Reload leads from Firestore
+      const q = query(leadsRef, orderBy("createdAt", "desc"));
+      const snapshot = await getDocs(q);
+      const leadsList = [];
+      snapshot.forEach((docSnap) => {
+        leadsList.push({ id: docSnap.id, ...docSnap.data() });
       });
-      setLeads(allLeads);
+      setLeads(leadsList);
+      
+      // Switch to list tab without scrolling
+      setTimeout(() => {
+        setActiveTab("list");
+        // Prevent any scroll
+        window.scrollTo({ top: window.scrollY, behavior: 'instant' });
+      }, 100);
     } catch (error) {
       console.error("Error saving exhibitor:", error);
       toast.error("Failed to save exhibitor");
@@ -340,74 +247,40 @@ const LeadManagement = () => {
   // Save distributor
   const handleSaveDistributor = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
 
-    // Allow saving even with empty fields - just need at least company name or contact info
-    if (!distributorForm.companyName.trim() && !distributorForm.contactPersonName.trim() && !distributorForm.phone.trim() && !distributorForm.email.trim()) {
-      toast.error("Please provide at least company name or contact information");
-      return;
-    }
+    // Prevent scroll on form submission - blur all inputs
+    const form = e.currentTarget;
+    const inputs = form.querySelectorAll('input, textarea, select');
+    inputs.forEach(input => input.blur());
+    
+    // Prevent any scroll behavior
+    const currentScrollY = window.scrollY;
+    window.scrollTo({ top: currentScrollY, behavior: 'instant' });
 
+    // No validation - allow saving with any data (including completely empty)
     setLoading(true);
     try {
-      const uid = getUid();
-      const now = Date.now();
+      const leadsRef = collection(db, LEADS_COLLECTION);
       const leadData = {
         type: "distributor",
         ...distributorForm,
-        createdAt: now,
-        updatedAt: now,
       };
 
       if (editingLead) {
-        // Update existing lead
-        leadData.id = editingLead.id;
-        leadData.createdAt = editingLead.createdAt || now;
-        
-        // Update in localStorage
-        const localLeads = loadLeadsFromStorage();
-        const updatedLeads = localLeads.map(l => 
-          l.id === editingLead.id ? leadData : l
-        );
-        saveLeadsToStorage(updatedLeads);
-        
-        // Update in Firestore if authenticated
-        if (uid) {
-          try {
-            const leadsRef = collection(db, "businesses", uid, "leads");
-            await updateDoc(doc(leadsRef, editingLead.id), {
-              ...leadData,
-              updatedAt: serverTimestamp(),
-            });
-          } catch (error) {
-            console.error("Error updating in Firestore:", error);
-          }
-        }
-        
+        // Update existing lead in Firestore
+        await updateDoc(doc(leadsRef, editingLead.id), {
+          ...leadData,
+          updatedAt: serverTimestamp(),
+        });
         toast.success("Distributor updated successfully!");
       } else {
-        // Create new lead
-        const newId = `lead_${now}_${Math.random().toString(36).substr(2, 9)}`;
-        leadData.id = newId;
-        
-        // Save to localStorage
-        const localLeads = loadLeadsFromStorage();
-        localLeads.push(leadData);
-        saveLeadsToStorage(localLeads);
-        
-        // Save to Firestore if authenticated
-        if (uid) {
-          try {
-            const leadsRef = collection(db, "businesses", uid, "leads");
-            await addDoc(leadsRef, {
-              ...leadData,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-          } catch (error) {
-            console.error("Error saving to Firestore:", error);
-          }
-        }
-        
+        // Create new lead in Firestore
+        await addDoc(leadsRef, {
+          ...leadData,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
         toast.success("Distributor saved successfully!");
       }
 
@@ -449,32 +322,22 @@ const LeadManagement = () => {
         tags: "",
       });
       setEditingLead(null);
-      setActiveTab("list");
       
-      // Reload leads
-      const allLeads = loadLeadsFromStorage();
-      if (uid) {
-        try {
-          const leadsRef = collection(db, "businesses", uid, "leads");
-          const q = query(leadsRef, orderBy("createdAt", "desc"));
-          const snapshot = await getDocs(q);
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            const existing = allLeads.find(l => l.id === docSnap.id);
-            if (!existing) {
-              allLeads.push({ id: docSnap.id, ...data, source: "firestore" });
-            }
-          });
-        } catch (error) {
-          console.error("Error reloading from Firestore:", error);
-        }
-      }
-      allLeads.sort((a, b) => {
-        const aTime = a.createdAt?.toMillis?.() || a.createdAt || 0;
-        const bTime = b.createdAt?.toMillis?.() || b.createdAt || 0;
-        return bTime - aTime;
+      // Reload leads from Firestore
+      const q = query(leadsRef, orderBy("createdAt", "desc"));
+      const snapshot = await getDocs(q);
+      const leadsList = [];
+      snapshot.forEach((docSnap) => {
+        leadsList.push({ id: docSnap.id, ...docSnap.data() });
       });
-      setLeads(allLeads);
+      setLeads(leadsList);
+      
+      // Switch to list tab without scrolling
+      setTimeout(() => {
+        setActiveTab("list");
+        // Prevent any scroll
+        window.scrollTo({ top: window.scrollY, behavior: 'instant' });
+      }, 100);
     } catch (error) {
       console.error("Error saving distributor:", error);
       toast.error("Failed to save distributor");
@@ -499,24 +362,9 @@ const LeadManagement = () => {
   const handleDelete = async (leadId) => {
     if (!confirm("Are you sure you want to delete this lead?")) return;
 
-    const uid = getUid();
-
     try {
-      // Delete from localStorage
-      const localLeads = loadLeadsFromStorage();
-      const updatedLeads = localLeads.filter(l => l.id !== leadId);
-      saveLeadsToStorage(updatedLeads);
-      
-      // Delete from Firestore if authenticated
-      if (uid) {
-        try {
-          const leadRef = doc(db, "businesses", uid, "leads", leadId);
-          await deleteDoc(leadRef);
-        } catch (error) {
-          console.error("Error deleting from Firestore:", error);
-        }
-      }
-      
+      const leadRef = doc(db, LEADS_COLLECTION, leadId);
+      await deleteDoc(leadRef);
       toast.success("Lead deleted successfully");
       setLeads(leads.filter((l) => l.id !== leadId));
     } catch (error) {
@@ -572,12 +420,8 @@ const LeadManagement = () => {
             <div>
               <h1 className="text-3xl font-bold text-white mb-2">Lead Management</h1>
               <p className="text-white/60">Track exhibitors and distributors from Indusfood 2026</p>
+              <p className="text-white/40 text-xs mt-1">💾 Saving to Firestore • No login required • Accessible from Firebase Console</p>
             </div>
-            {!getUid() && (
-              <div className="px-4 py-2 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 text-sm">
-                💾 Saving locally - No login required
-              </div>
-            )}
           </div>
         </div>
 
@@ -813,7 +657,11 @@ const LeadManagement = () => {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-4xl mx-auto"
           >
-            <form onSubmit={handleSaveExhibitor} className="space-y-6">
+            <form 
+              onSubmit={handleSaveExhibitor} 
+              className="space-y-6"
+              onScroll={(e) => e.preventDefault()}
+            >
               <div className="rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-6">
                 <h2 className="text-2xl font-bold text-white mb-6">
                   {editingLead ? "Edit Exhibitor" : "Add New Exhibitor"}
@@ -1514,7 +1362,11 @@ const LeadManagement = () => {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-4xl mx-auto"
           >
-            <form onSubmit={handleSaveDistributor} className="space-y-6">
+            <form 
+              onSubmit={handleSaveDistributor} 
+              className="space-y-6"
+              onScroll={(e) => e.preventDefault()}
+            >
               <div className="rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-6">
                 <h2 className="text-2xl font-bold text-white mb-6">
                   {editingLead ? "Edit Distributor" : "Add New Distributor"}
