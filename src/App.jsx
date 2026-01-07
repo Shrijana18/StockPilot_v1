@@ -9,6 +9,7 @@ import ProductOwnerDashboard from './components/ProductOwnerDashboard.jsx';
 import Inventory from './pages/Inventory.jsx';
 import Billing from './pages/Billing.jsx';
 import AllInvoices from './pages/AllInvoices.jsx';
+import LeadManagement from './pages/LeadManagement.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import PublicInvoiceView from './pages/PublicInvoiceView.jsx';
 import EmployeeLogin from './components/employee/EmployeeLogin.jsx';
@@ -84,6 +85,7 @@ const App = () => {
             <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
             <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
             <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
+            <Route path="/leads" element={<LeadManagement />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
             <Route element={<EmployeeRoute kind="retailer" />}>
               <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
@@ -138,6 +140,7 @@ const App = () => {
             <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
             <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
             <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
+            <Route path="/leads" element={<LeadManagement />} />
             <Route path="/employee-login" element={<EmployeeLogin />} />
             <Route element={<EmployeeRoute kind="retailer" />}>
               <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
