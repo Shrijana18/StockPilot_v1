@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { db, auth } from "../firebase/firebaseConfig";
+import { db, auth, storage } from "../firebase/firebaseConfig";
 import { collection, addDoc, getDocs, query, orderBy, deleteDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { toast } from "react-toastify";
 
 const LeadManagement = () => {
@@ -56,6 +57,7 @@ const LeadManagement = () => {
     linkedinProfile: "",
     nextAction: "",
     tags: "",
+    photos: [], // Array of photo URLs
   });
 
   // Distributor form state
@@ -95,9 +97,104 @@ const LeadManagement = () => {
     linkedinProfile: "",
     nextAction: "",
     tags: "",
+    photos: [], // Array of photo URLs
   });
 
   const [loading, setLoading] = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+
+  // Photo upload handler
+  const handlePhotoUpload = async (e, formType) => {
+    const files = Array.from(e.target.files);
+    const maxPhotos = 4;
+    const currentPhotos = formType === "exhibitor" ? exhibitorForm.photos : distributorForm.photos;
+    
+    if (currentPhotos.length + files.length > maxPhotos) {
+      toast.error(`Maximum ${maxPhotos} photos allowed`);
+      return;
+    }
+
+    setUploadingPhotos(true);
+    try {
+      const uploadPromises = files.map(async (file) => {
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+          throw new Error(`${file.name} is not an image file`);
+        }
+
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error(`${file.name} is too large (max 5MB)`);
+        }
+
+        const timestamp = Date.now();
+        const fileName = `${timestamp}_${file.name}`;
+        const storageRef = ref(storage, `eventLeads/photos/${fileName}`);
+        
+        await uploadBytes(storageRef, file);
+        const downloadURL = await getDownloadURL(storageRef);
+        return downloadURL;
+      });
+
+      const uploadedUrls = await Promise.all(uploadPromises);
+      
+      if (formType === "exhibitor") {
+        setExhibitorForm(prev => ({
+          ...prev,
+          photos: [...prev.photos, ...uploadedUrls]
+        }));
+      } else {
+        setDistributorForm(prev => ({
+          ...prev,
+          photos: [...prev.photos, ...uploadedUrls]
+        }));
+      }
+      
+      toast.success(`${uploadedUrls.length} photo(s) uploaded successfully`);
+    } catch (error) {
+      console.error("Error uploading photos:", error);
+      toast.error(`Failed to upload photos: ${error.message}`);
+    } finally {
+      setUploadingPhotos(false);
+      // Reset file input
+      e.target.value = '';
+    }
+  };
+
+  // Remove photo handler
+  const handleRemovePhoto = async (photoUrl, formType) => {
+    try {
+      // Extract file path from URL to delete from storage
+      // Note: This is a simplified approach - in production, you might want to store the path separately
+      const urlParts = photoUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1].split('?')[0];
+      const storageRef = ref(storage, `eventLeads/photos/${fileName}`);
+      
+      try {
+        await deleteObject(storageRef);
+      } catch (deleteError) {
+        // If deletion fails, continue anyway (photo might not exist in storage)
+        console.warn("Could not delete photo from storage:", deleteError);
+      }
+
+      if (formType === "exhibitor") {
+        setExhibitorForm(prev => ({
+          ...prev,
+          photos: prev.photos.filter(url => url !== photoUrl)
+        }));
+      } else {
+        setDistributorForm(prev => ({
+          ...prev,
+          photos: prev.photos.filter(url => url !== photoUrl)
+        }));
+      }
+      
+      toast.success("Photo removed");
+    } catch (error) {
+      console.error("Error removing photo:", error);
+      toast.error("Failed to remove photo");
+    }
+  };
 
   // Load leads from public Firestore collection
   useEffect(() => {
@@ -218,6 +315,7 @@ const LeadManagement = () => {
         linkedinProfile: "",
         nextAction: "",
         tags: "",
+        photos: [],
       });
       setEditingLead(null);
       
@@ -320,6 +418,7 @@ const LeadManagement = () => {
         linkedinProfile: "",
         nextAction: "",
         tags: "",
+        photos: [],
       });
       setEditingLead(null);
       
@@ -350,10 +449,16 @@ const LeadManagement = () => {
   const handleEdit = (lead) => {
     setEditingLead(lead);
     if (lead.type === "exhibitor") {
-      setExhibitorForm(lead);
+      setExhibitorForm({
+        ...lead,
+        photos: lead.photos || [],
+      });
       setActiveTab("exhibitor");
     } else {
-      setDistributorForm(lead);
+      setDistributorForm({
+        ...lead,
+        photos: lead.photos || [],
+      });
       setActiveTab("distributor");
     }
   };
@@ -1329,12 +1434,80 @@ const LeadManagement = () => {
                       placeholder="e.g., premium, export-ready, tech-savvy"
                     />
                   </div>
+
+                  {/* Photos Section */}
+                  <div className="md:col-span-2 mt-4">
+                    <h3 className="text-lg font-semibold text-white mb-4 border-b border-white/10 pb-2">
+                      Photos ({exhibitorForm.photos?.length || 0}/4)
+                    </h3>
+                    <div className="space-y-4">
+                      {/* Photo Upload Button */}
+                      <div>
+                        <input
+                          type="file"
+                          id="exhibitor-photo-upload"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => handlePhotoUpload(e, "exhibitor")}
+                          disabled={uploadingPhotos || (exhibitorForm.photos?.length || 0) >= 4}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor="exhibitor-photo-upload"
+                          className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 border-dashed cursor-pointer transition ${
+                            uploadingPhotos || (exhibitorForm.photos?.length || 0) >= 4
+                              ? "border-white/20 bg-white/5 opacity-50 cursor-not-allowed"
+                              : "border-white/30 bg-white/5 hover:border-blue-500/50 hover:bg-white/10"
+                          }`}
+                        >
+                          {uploadingPhotos ? (
+                            <>
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                              <span className="text-white/70">Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-2xl">📷</span>
+                              <span className="text-white/70">
+                                {(exhibitorForm.photos?.length || 0) >= 4
+                                  ? "Maximum 4 photos reached"
+                                  : "Click to upload photos (max 4)"}
+                              </span>
+                            </>
+                          )}
+                        </label>
+                      </div>
+
+                      {/* Photo Thumbnails */}
+                      {exhibitorForm.photos && exhibitorForm.photos.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {exhibitorForm.photos.map((photoUrl, index) => (
+                            <div key={index} className="relative group">
+                              <img
+                                src={photoUrl}
+                                alt={`Photo ${index + 1}`}
+                                className="w-full h-32 object-cover rounded-lg border border-white/10"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePhoto(photoUrl, "exhibitor")}
+                                className="absolute top-2 right-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition"
+                                title="Remove photo"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex gap-4 mt-6">
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || uploadingPhotos}
                     className="flex-1 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
                     {loading ? "Saving..." : editingLead ? "Update Exhibitor" : "Save Exhibitor"}
@@ -1967,12 +2140,80 @@ const LeadManagement = () => {
                       placeholder="e.g., premium, export-ready, tech-savvy"
                     />
                   </div>
+
+                  {/* Photos Section */}
+                  <div className="md:col-span-2 mt-4">
+                    <h3 className="text-lg font-semibold text-white mb-4 border-b border-white/10 pb-2">
+                      Photos ({distributorForm.photos?.length || 0}/4)
+                    </h3>
+                    <div className="space-y-4">
+                      {/* Photo Upload Button */}
+                      <div>
+                        <input
+                          type="file"
+                          id="distributor-photo-upload"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => handlePhotoUpload(e, "distributor")}
+                          disabled={uploadingPhotos || (distributorForm.photos?.length || 0) >= 4}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor="distributor-photo-upload"
+                          className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 border-dashed cursor-pointer transition ${
+                            uploadingPhotos || (distributorForm.photos?.length || 0) >= 4
+                              ? "border-white/20 bg-white/5 opacity-50 cursor-not-allowed"
+                              : "border-white/30 bg-white/5 hover:border-purple-500/50 hover:bg-white/10"
+                          }`}
+                        >
+                          {uploadingPhotos ? (
+                            <>
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                              <span className="text-white/70">Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-2xl">📷</span>
+                              <span className="text-white/70">
+                                {(distributorForm.photos?.length || 0) >= 4
+                                  ? "Maximum 4 photos reached"
+                                  : "Click to upload photos (max 4)"}
+                              </span>
+                            </>
+                          )}
+                        </label>
+                      </div>
+
+                      {/* Photo Thumbnails */}
+                      {distributorForm.photos && distributorForm.photos.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {distributorForm.photos.map((photoUrl, index) => (
+                            <div key={index} className="relative group">
+                              <img
+                                src={photoUrl}
+                                alt={`Photo ${index + 1}`}
+                                className="w-full h-32 object-cover rounded-lg border border-white/10"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePhoto(photoUrl, "distributor")}
+                                className="absolute top-2 right-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition"
+                                title="Remove photo"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex gap-4 mt-6">
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || uploadingPhotos}
                     className="flex-1 px-6 py-3 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
                     {loading ? "Saving..." : editingLead ? "Update Distributor" : "Save Distributor"}
@@ -2263,6 +2504,30 @@ const LeadManagement = () => {
                   <div className="md:col-span-2 mt-4 pt-4 border-t border-white/10">
                     <div className="text-xs text-white/50">
                       Created: {new Date(viewingLead.createdAt?.toMillis?.() || viewingLead.createdAt || Date.now()).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Photos Section */}
+                {viewingLead.photos && viewingLead.photos.length > 0 && (
+                  <div className="md:col-span-2 mt-4">
+                    <h3 className="text-lg font-semibold text-white mb-4 border-b border-white/10 pb-2">
+                      Photos ({viewingLead.photos.length})
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {viewingLead.photos.map((photoUrl, index) => (
+                        <div key={index} className="relative group">
+                          <img
+                            src={photoUrl}
+                            alt={`Photo ${index + 1}`}
+                            className="w-full h-40 object-cover rounded-lg border border-white/10 cursor-pointer hover:opacity-80 transition"
+                            onClick={() => window.open(photoUrl, '_blank')}
+                          />
+                          <div className="absolute inset-0 bg-black/0 hover:bg-black/20 rounded-lg transition flex items-center justify-center opacity-0 group-hover:opacity-100">
+                            <span className="text-white text-sm">Click to view full size</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
