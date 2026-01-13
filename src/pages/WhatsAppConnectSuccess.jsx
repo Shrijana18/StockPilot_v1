@@ -26,13 +26,37 @@ const WhatsAppConnectSuccess = () => {
       }
 
       try {
+        // Check if this is a pending WABA that needs matching
+        const urlParams = new URLSearchParams(window.location.search);
+        const wabaId = urlParams.get('waba_id');
+        const isPending = urlParams.get('pending') === 'true';
+
+        // If pending, try to match WABA to user
+        if (isPending && wabaId) {
+          try {
+            const functions = getFunctions(undefined, "us-central1");
+            const detectNewWABA = httpsCallable(functions, "detectNewWABA");
+            const result = await detectNewWABA();
+            
+            if (result.data?.found && result.data?.wabaId === wabaId) {
+              // WABA was matched and saved
+              console.log("WABA matched and saved:", result.data);
+            }
+          } catch (err) {
+            console.warn("Could not match pending WABA:", err);
+          }
+        }
+
         // Wait a bit for Firestore to update
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
         const businessDoc = await getDoc(doc(db, 'businesses', distributorId));
         if (businessDoc.exists()) {
           const data = businessDoc.data();
-          if (data.whatsappEnabled && data.whatsappProvider === WHATSAPP_PROVIDERS.META) {
+          // Check for both META and meta_tech_provider
+          if (data.whatsappEnabled && 
+              (data.whatsappProvider === WHATSAPP_PROVIDERS.META || 
+               data.whatsappProvider === 'meta_tech_provider')) {
             setVerified(true);
           }
         }

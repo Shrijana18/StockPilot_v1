@@ -1,5 +1,3 @@
-
-
 // src/utils/pricing.js
 // Universal pricing helpers for FLYP (backward-compatible)
 //

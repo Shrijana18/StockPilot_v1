@@ -35,6 +35,18 @@
         "function": "whatsappConnectCallback"
       },
       {
+        "source": "/whatsapp/embedded-signup/callback",
+        "function": "whatsappEmbeddedSignupCallback"
+      },
+      {
+        "source": "/whatsapp/tech-provider/webhook",
+        "function": "whatsappTechProviderWebhook"
+      },
+      {
+        "source": "/whatsapp/webhook",
+        "function": "whatsappWebhook"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

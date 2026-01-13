@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAuth } from "firebase/auth";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 import { db, storage } from "../../firebase/firebaseConfig";
 import { toast } from "react-toastify";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -22,38 +22,76 @@ import {
 // Meta Embedded Signup URL - Tech Provider Configuration
 // App ID: 1902565950686087
 // Config ID: 844028501834041
-const EMBEDDED_SIGNUP_URL = 'https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=844028501834041&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D';
+// 
+// IMPORTANT: Meta Embedded Signup works in TWO ways:
+// 1. Popup/iframe → sends postMessage (works on localhost)
+// 2. Redirect callback → redirects to URL configured in Meta App Dashboard (production only)
+//
+// For localhost: Use popup method (postMessage) - no redirect needed
+// For production: Configure redirect_uri in Meta App Dashboard to: https://stockpilotv1.web.app/whatsapp/embedded-signup/callback
+//
+// DO NOT put redirect_uri in URL parameter - Meta ignores it. It must be configured in App Dashboard.
+const EMBEDDED_SIGNUP_URL = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=844028501834041&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D`;
 
 // WhatsApp Setup Section Component - Built from scratch for first-time users
 const WhatsAppSetupSection = ({ formData, setFormData, user }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [verifyingOTP, setVerifyingOTP] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [phoneVerificationStatus, setPhoneVerificationStatus] = useState(null);
   const popupRef = useRef(null);
 
   const isConnected = formData.whatsappEnabled && formData.whatsappBusinessAccountId;
 
-  // Save WABA data to Firestore
+  // Save WABA data via cloud function (ensures proper setup and webhook configuration)
   const saveWABAData = async (wabaId, phoneNumberId, phoneNumber, embeddedData) => {
     if (!user) throw new Error('User not authenticated');
 
-    const userRef = doc(db, 'businesses', user.uid);
-    await updateDoc(userRef, {
-      whatsappBusinessAccountId: wabaId,
-      whatsappPhoneNumberId: phoneNumberId,
-      whatsappPhoneNumber: phoneNumber,
-      whatsappProvider: 'meta_tech_provider',
-      whatsappEnabled: true,
-      whatsappCreatedVia: 'embedded_signup',
-      whatsappCreatedAt: new Date(),
-      whatsappPhoneRegistered: true,
-      whatsappPhoneVerificationStatus: 'verified',
-      embeddedSignupData: embeddedData
-    });
+    try {
+      const functions = getFunctions(undefined, "us-central1");
+      const saveWABA = httpsCallable(functions, "saveWABADirect");
+      
+      const result = await saveWABA({
+        wabaId,
+        phoneNumberId,
+        phoneNumber,
+        embeddedData
+      });
+
+      if (result.data?.success) {
+        // Setup webhook automatically after saving WABA
+        try {
+          const setupWebhook = httpsCallable(functions, "setupWebhookForClient");
+          await setupWebhook().catch(err => {
+            console.warn("Webhook setup failed (non-critical):", err);
+          });
+        } catch (webhookErr) {
+          console.warn("Could not setup webhook:", webhookErr);
+        }
+
+        return result.data;
+      } else {
+        throw new Error(result.data?.message || 'Failed to save WABA');
+      }
+    } catch (error) {
+      console.error('Error saving WABA via cloud function:', error);
+      throw error;
+    }
   };
 
   // Listen for Meta postMessage responses
   useEffect(() => {
     const handleMessage = async (event) => {
+      // Log ALL messages from Meta domains for debugging
+      if (event.origin.includes('facebook.com') || event.origin.includes('meta.com')) {
+        console.log('📨 Received message from Meta:', {
+          origin: event.origin,
+          data: event.data,
+          type: typeof event.data,
+        });
+      }
+
       if (!event.origin.includes('facebook.com') && !event.origin.includes('meta.com')) return;
 
       const data = event.data;
@@ -61,35 +99,68 @@ const WhatsAppSetupSection = ({ formData, setFormData, user }) => {
 
       // Handle different response formats
       if (data?.type === 'WHATSAPP_EMBEDDED_SIGNUP' && data.status === 'SUCCESS') {
+        console.log('✅ Received WHATSAPP_EMBEDDED_SIGNUP SUCCESS:', data);
         wabaId = data.waba_id;
         phoneNumberId = data.phone_number_id;
         phoneNumber = data.phone_number;
       } else if (data?.waba_id || data?.wabaId) {
+        console.log('✅ Received WABA data in message:', data);
         wabaId = data.waba_id || data.wabaId;
         phoneNumberId = data.phone_number_id || data.phoneNumberId;
         phoneNumber = data.phone_number || data.phoneNumber;
+      } else {
+        // Log other message types for debugging
+        console.log('ℹ️ Received other message from Meta:', data);
       }
 
       if (wabaId) {
         setLoading(false);
         try {
-          await saveWABAData(wabaId, phoneNumberId, phoneNumber, data);
-          setFormData(prev => ({
-            ...prev,
-            whatsappBusinessAccountId: wabaId,
-            whatsappPhoneNumberId: phoneNumberId,
-            whatsappPhoneNumber: phoneNumber,
-            whatsappEnabled: true,
-            whatsappProvider: 'meta_tech_provider',
-            whatsappCreatedVia: 'embedded_signup',
-            whatsappPhoneRegistered: true,
-            whatsappPhoneVerificationStatus: 'verified',
-          }));
-          toast.success('WhatsApp Business Account connected successfully!');
+          const result = await saveWABAData(wabaId, phoneNumberId, phoneNumber, data);
+          
+          // Refresh form data from Firestore to get latest status
+          const userRef = doc(db, 'businesses', user.uid);
+          const snapshot = await getDoc(userRef);
+          if (snapshot.exists()) {
+            const updatedData = snapshot.data();
+            setFormData(prev => ({
+              ...prev,
+              whatsappBusinessAccountId: updatedData.whatsappBusinessAccountId || wabaId,
+              whatsappPhoneNumberId: updatedData.whatsappPhoneNumberId || phoneNumberId,
+              whatsappPhoneNumber: updatedData.whatsappPhoneNumber || phoneNumber,
+              whatsappEnabled: updatedData.whatsappEnabled || false,
+              whatsappProvider: updatedData.whatsappProvider || 'meta_tech_provider',
+              whatsappCreatedVia: updatedData.whatsappCreatedVia || 'embedded_signup',
+              whatsappPhoneRegistered: updatedData.whatsappPhoneRegistered || false,
+              whatsappPhoneVerificationStatus: updatedData.whatsappPhoneVerificationStatus || 'pending',
+              whatsappAccountReviewStatus: updatedData.whatsappAccountReviewStatus || 'PENDING',
+            }));
+          }
+          
+          toast.success('WhatsApp Business Account connected successfully! Account is being verified...');
+          
+          // Check if phone verification is needed (2FA)
+          if (result?.phoneNumberId && result?.phoneNumber) {
+            // Phone number registration might require OTP verification
+            // Check status after a short delay
+            setTimeout(async () => {
+              try {
+                const functions = getFunctions(undefined, "us-central1");
+                const checkStatus = httpsCallable(functions, "getWABAStatus");
+                const statusResult = await checkStatus();
+                
+                if (statusResult.data?.status?.phone?.needsVerification) {
+                  toast.info('Phone number verification required. Please check Meta Business Suite for OTP.');
+                }
+              } catch (statusErr) {
+                console.warn("Could not check WABA status:", statusErr);
+              }
+            }, 2000);
+          }
         } catch (err) {
           console.error('Error saving WABA:', err);
-          setError('Failed to save account. Please try again.');
-          toast.error('Failed to save WhatsApp account');
+          setError(err.message || 'Failed to save account. Please try again.');
+          toast.error(err.message || 'Failed to save WhatsApp account');
         }
       } else if (data?.status === 'ERROR' || data?.status === 'CANCELLED') {
         setLoading(false);
@@ -102,6 +173,58 @@ const WhatsAppSetupSection = ({ formData, setFormData, user }) => {
     return () => window.removeEventListener('message', handleMessage);
   }, [setFormData, user]);
 
+  // Auto-detect WABA if user created account but it's not saved yet
+  useEffect(() => {
+    const detectWABA = async () => {
+      // Only check if user doesn't have a WABA yet
+      if (formData.whatsappBusinessAccountId || loading) return;
+      
+      try {
+        const functions = getFunctions(undefined, "us-central1");
+        const detectNewWABA = httpsCallable(functions, "detectNewWABA");
+        const result = await detectNewWABA();
+        
+        if (result.data?.found && result.data?.wabaId) {
+          toast.info('Found your WhatsApp Business Account! Connecting...');
+          
+          // Save the detected WABA
+          await saveWABAData(
+            result.data.wabaId,
+            result.data.primaryPhone?.id,
+            result.data.primaryPhone?.number,
+            { detected: true, matchReason: result.data.matchReason }
+          );
+          
+          // Refresh form data
+          const userRef = doc(db, 'businesses', user.uid);
+          const snapshot = await getDoc(userRef);
+          if (snapshot.exists()) {
+            const updatedData = snapshot.data();
+            setFormData(prev => ({
+              ...prev,
+              whatsappBusinessAccountId: updatedData.whatsappBusinessAccountId,
+              whatsappPhoneNumberId: updatedData.whatsappPhoneNumberId,
+              whatsappPhoneNumber: updatedData.whatsappPhoneNumber,
+              whatsappEnabled: updatedData.whatsappEnabled || false,
+              whatsappProvider: updatedData.whatsappProvider || 'meta_tech_provider',
+              whatsappCreatedVia: updatedData.whatsappCreatedVia || 'embedded_signup',
+              whatsappPhoneRegistered: updatedData.whatsappPhoneRegistered || false,
+              whatsappPhoneVerificationStatus: updatedData.whatsappPhoneVerificationStatus || 'pending',
+            }));
+          }
+        }
+      } catch (err) {
+        // Silently fail - this is just a background check
+        console.debug("WABA auto-detection check:", err.message);
+      }
+    };
+    
+    // Check once when component mounts, then every 2 minutes
+    detectWABA();
+    const interval = setInterval(detectWABA, 120000);
+    return () => clearInterval(interval);
+  }, [formData.whatsappBusinessAccountId, loading, user]);
+
   // Open Meta Embedded Signup
   const handleConnect = () => {
     if (!user) {
@@ -112,40 +235,181 @@ const WhatsAppSetupSection = ({ formData, setFormData, user }) => {
     setLoading(true);
     setError(null);
 
-    const width = 800;
-    const height = 700;
-    const left = (window.screen.width - width) / 2;
-    const top = (window.screen.height - height) / 2;
+    // Create a session to identify the user (for both postMessage and redirect callback)
+    const createSession = async () => {
+      try {
+        const sessionId = `embedded_${user.uid}_${Date.now()}`;
+        await setDoc(doc(db, 'whatsappOAuthSessions', sessionId), {
+          uid: user.uid,
+          createdAt: serverTimestamp(),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+          type: 'embedded_signup',
+        });
 
-    const popup = window.open(
-      EMBEDDED_SIGNUP_URL,
-      'WhatsAppSignup',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-    );
+        // Add state parameter to URL for user identification
+        const signupUrl = `${EMBEDDED_SIGNUP_URL}&state=${sessionId}`;
+        
+        // CRITICAL: Meta Embedded Signup works in TWO ways:
+        // 1. If opened in popup/iframe → sends postMessage (we're listening for this)
+        // 2. If redirect_uri configured in Meta Dashboard → redirects to callback URL
+        
+        // Try popup first (postMessage method - works immediately)
+        const width = 900;
+        const height = 700;
+        const left = (window.screen.width - width) / 2;
+        const top = (window.screen.height - height) / 2;
 
-    popupRef.current = popup;
+        const popup = window.open(
+          signupUrl,
+          'WhatsAppEmbeddedSignup',
+          `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+        );
 
-    if (!popup || popup.closed) {
-      setError('Popup blocked. Please allow popups for this site.');
-      setLoading(false);
-      toast.error('Please allow popups to connect WhatsApp');
+        popupRef.current = popup;
+
+        if (!popup || popup.closed) {
+          // Popup blocked - fallback to redirect method
+          console.warn('Popup blocked, using redirect method');
+          // Redirect to callback will be handled by Meta if redirect_uri is configured
+          window.location.href = signupUrl;
+        } else {
+          // Monitor popup for postMessage or closure
+          const checkInterval = setInterval(() => {
+            if (popup.closed) {
+              clearInterval(checkInterval);
+              if (loading) {
+                setLoading(false);
+                // If popup closed without postMessage, try detecting WABA
+                setTimeout(() => {
+                  // Trigger auto-detection
+                  const detectWABA = async () => {
+                    try {
+                      const functions = getFunctions(undefined, "us-central1");
+                      const detectNewWABA = httpsCallable(functions, "detectNewWABA");
+                      const result = await detectNewWABA();
+                      if (result.data?.found) {
+                        toast.info('Found your WhatsApp account! Connecting...');
+                        await saveWABAData(
+                          result.data.wabaId,
+                          result.data.primaryPhone?.id,
+                          result.data.primaryPhone?.number,
+                          { detected: true }
+                        );
+                        // Refresh form data
+                        const userRef = doc(db, 'businesses', user.uid);
+                        const snapshot = await getDoc(userRef);
+                        if (snapshot.exists()) {
+                          const updatedData = snapshot.data();
+                          setFormData(prev => ({
+                            ...prev,
+                            whatsappBusinessAccountId: updatedData.whatsappBusinessAccountId,
+                            whatsappPhoneNumberId: updatedData.whatsappPhoneNumberId,
+                            whatsappPhoneNumber: updatedData.whatsappPhoneNumber,
+                            whatsappEnabled: updatedData.whatsappEnabled || false,
+                          }));
+                        }
+                      }
+                    } catch (err) {
+                      console.debug("WABA detection after popup close:", err.message);
+                    }
+                  };
+                  detectWABA();
+                }, 2000);
+              }
+            }
+          }, 1000);
+        }
+      } catch (err) {
+        console.error('Error creating session:', err);
+        setError('Failed to start signup. Please try again.');
+        setLoading(false);
+        toast.error('Failed to start WhatsApp signup');
+      }
+    };
+
+    createSession();
+  };
+
+  // Check phone verification status
+  useEffect(() => {
+    const checkVerificationStatus = async () => {
+      if (!isConnected || !formData.whatsappBusinessAccountId) return;
+      
+      try {
+        const functions = getFunctions(undefined, "us-central1");
+        const checkStatus = httpsCallable(functions, "checkPhoneRegistrationStatus");
+        const result = await checkStatus();
+        
+        if (result.data?.success) {
+          setPhoneVerificationStatus(result.data);
+        }
+      } catch (err) {
+        console.warn("Could not check phone verification status:", err);
+      }
+    };
+    
+    checkVerificationStatus();
+    // Check every 30 seconds
+    const interval = setInterval(checkVerificationStatus, 30000);
+    return () => clearInterval(interval);
+  }, [isConnected, formData.whatsappBusinessAccountId]);
+
+  // Handle OTP verification (2FA)
+  const handleVerifyOTP = async () => {
+    if (!otpCode || otpCode.length !== 6) {
+      toast.error('Please enter a valid 6-digit OTP code');
       return;
     }
 
-    // Monitor popup closure
-    const checkInterval = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(checkInterval);
-        if (loading) {
-          setLoading(false);
-          toast.info('WhatsApp signup window was closed');
+    setVerifyingOTP(true);
+    setError(null);
+
+    try {
+      const functions = getFunctions(undefined, "us-central1");
+      const verifyOTP = httpsCallable(functions, "verifyPhoneOTP");
+      const result = await verifyOTP({ otpCode });
+
+      if (result.data?.success) {
+        toast.success('Phone number verified successfully! WhatsApp is now ready to use.');
+        setOtpCode('');
+        
+        // Refresh form data
+        const userRef = doc(db, 'businesses', user.uid);
+        const snapshot = await getDoc(userRef);
+        if (snapshot.exists()) {
+          const updatedData = snapshot.data();
+          setFormData(prev => ({
+            ...prev,
+            whatsappPhoneRegistered: updatedData.whatsappPhoneRegistered || true,
+            whatsappPhoneVerificationStatus: updatedData.whatsappPhoneVerificationStatus || 'verified',
+            whatsappEnabled: updatedData.whatsappEnabled || true,
+          }));
         }
+        
+        setPhoneVerificationStatus(prev => ({
+          ...prev,
+          status: 'verified',
+          verifiedPhone: result.data
+        }));
       }
-    }, 1000);
+    } catch (err) {
+      console.error('Error verifying OTP:', err);
+      setError(err.message || 'Failed to verify OTP. Please check the code and try again.');
+      toast.error(err.message || 'OTP verification failed');
+    } finally {
+      setVerifyingOTP(false);
+    }
   };
 
-  // If already connected, show simple status
+  // If already connected, show status with verification option
   if (isConnected) {
+    const needsVerification = phoneVerificationStatus?.requiresOTP || 
+                             formData.whatsappPhoneVerificationStatus === 'pending' ||
+                             formData.whatsappPhoneVerificationStatus === 'UNVERIFIED';
+    const isVerified = formData.whatsappPhoneVerificationStatus === 'verified' ||
+                      formData.whatsappPhoneVerificationStatus === 'VERIFIED' ||
+                      phoneVerificationStatus?.status === 'verified';
+
     return (
       <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -154,10 +418,13 @@ const WhatsAppSetupSection = ({ formData, setFormData, user }) => {
           </div>
           <div>
             <h2 className="text-2xl font-bold text-white">WhatsApp Business Account</h2>
-            <p className="text-green-400 text-sm mt-1">✓ Setup Complete - Ready to use</p>
+            <p className={`text-sm mt-1 ${isVerified ? 'text-green-400' : 'text-yellow-400'}`}>
+              {isVerified ? '✓ Setup Complete - Ready to use' : '⚠ Phone Verification Required'}
+            </p>
           </div>
         </div>
-        <div className="bg-slate-800/60 rounded-lg p-4 space-y-2">
+        
+        <div className="bg-slate-800/60 rounded-lg p-4 space-y-3 mb-4">
           {formData.whatsappBusinessAccountId && (
             <div className="flex justify-between">
               <span className="text-gray-400">WABA ID:</span>
@@ -170,7 +437,74 @@ const WhatsAppSetupSection = ({ formData, setFormData, user }) => {
               <span className="text-white font-mono text-sm">{formData.whatsappPhoneNumber}</span>
             </div>
           )}
+          {formData.whatsappAccountReviewStatus && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">Account Status:</span>
+              <span className={`text-sm font-medium ${
+                formData.whatsappAccountReviewStatus === 'APPROVED' ? 'text-green-400' :
+                formData.whatsappAccountReviewStatus === 'PENDING' ? 'text-yellow-400' :
+                'text-red-400'
+              }`}>
+                {formData.whatsappAccountReviewStatus}
+              </span>
+            </div>
+          )}
         </div>
+
+        {/* 2FA Phone Verification Section */}
+        {needsVerification && !isVerified && (
+          <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4 mb-4">
+            <div className="flex items-start gap-3 mb-3">
+              <FaShieldAlt className="text-yellow-400 mt-1" />
+              <div className="flex-1">
+                <h3 className="text-white font-semibold mb-1">Phone Number Verification Required (2FA)</h3>
+                <p className="text-gray-400 text-sm mb-3">
+                  Please enter the 6-digit OTP code sent to your phone number {formData.whatsappPhoneNumber} 
+                  to complete WhatsApp Business Account setup.
+                </p>
+                
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength="6"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Enter 6-digit OTP"
+                    className="flex-1 bg-slate-800 border border-white/10 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  />
+                  <motion.button
+                    onClick={handleVerifyOTP}
+                    disabled={verifyingOTP || otpCode.length !== 6}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`px-6 py-2 rounded-lg font-medium transition-all ${
+                      verifyingOTP || otpCode.length !== 6
+                        ? 'bg-gray-600 cursor-not-allowed text-gray-400'
+                        : 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                    }`}
+                  >
+                    {verifyingOTP ? (
+                      <>
+                        <FaSpinner className="animate-spin inline mr-2" />
+                        Verifying...
+                      </>
+                    ) : (
+                      'Verify OTP'
+                    )}
+                  </motion.button>
+                </div>
+                
+                {error && (
+                  <p className="text-red-400 text-sm mt-2">{error}</p>
+                )}
+                
+                <p className="text-gray-500 text-xs mt-2">
+                  Didn't receive the code? Check your phone or try requesting a new code from Meta Business Suite.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

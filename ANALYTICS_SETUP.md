@@ -24,7 +24,7 @@ Your website now has visitor tracking set up! You can track:
 - **Measurement ID:** `G-SENFJ2HSBW` (from Firebase config)
 - Automatically initializes when the page loads
 - Tracks all page views and events
-- View at: https://analytics.google.com/
+- View at: https://analytics.google.com/qa
 
 ### Firebase Analytics (Backup)
 - All data also saved to Firestore `websiteAnalytics` collection

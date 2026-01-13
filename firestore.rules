@@ -1193,5 +1193,43 @@ service cloud.firestore {
       // Allow anyone to delete leads (for removing incorrect entries)
       allow delete: if true;
     }
+
+    // ============================================================
+    // WHATSAPP OAUTH SESSIONS (for Embedded Signup)
+    // ============================================================
+    match /whatsappOAuthSessions/{sessionId} {
+      // Allow authenticated users to create their own sessions
+      allow create: if isAuthed() 
+        && isEmailVerified()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.type == 'embedded_signup';
+      
+      // Allow users to read their own sessions
+      allow read: if isAuthed() 
+        && isEmailVerified()
+        && resource.data.uid == request.auth.uid;
+      
+      // Allow users to delete their own sessions (cleanup after use)
+      allow delete: if isAuthed() 
+        && isEmailVerified()
+        && resource.data.uid == request.auth.uid;
+      
+      // No updates - sessions are immutable
+      allow update: if false;
+    }
+
+    // ============================================================
+    // PENDING WABAs (fallback for unmatched WABAs)
+    // ============================================================
+    match /pendingWABAs/{wabaId} {
+      // Cloud Functions can create pending WABAs
+      allow create: if false; // Only CF can create
+      
+      // Users can read pending WABAs (for matching)
+      allow read: if isAuthed() && isEmailVerified();
+      
+      // Cloud Functions can update/delete
+      allow update, delete: if false; // Only CF can update/delete
+    }
   }
 }

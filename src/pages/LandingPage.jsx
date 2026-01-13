@@ -7,6 +7,12 @@ import aiHSNSupport from "../../public/assets/AI_Support.json";
 import secureCloud from "../../public/assets/Secure_Cloud.json";
 import customerAnalysis from "../../public/assets/Customer_Analysis.json";
 import fastOnboard from "../../public/assets/Fast_Onboard.json";
+import paymentProcessing from "../../public/assets/Payment Processing.json";
+import bullhornMarketing from "../../public/assets/Bullhorn and social media icons for marketing.json";
+import loadingCar from "../../public/assets/Loading_car.json";
+import hiring from "../../public/assets/Hiring.json";
+import customerSupport from "../../public/assets/Customer Support _ Help _ Support Agent.json";
+import businessAnalytics from "../../public/assets/Business Analytics.json";
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import AOS from 'aos';
@@ -30,14 +36,7 @@ const THEME = {
 const LOGOS = {
   hero: '/assets/flyp_logo.png',
 };
-// Try multiple video paths for better compatibility
-const INTRO_VIDEO_PATHS = [
-  '/assets/Logo%20Intro.MP4',
-  '/assets/Logo Intro.MP4',
-  '/assets/logo-intro.mp4',
-  '/assets/LogoIntro.mp4',
-];
-const INTRO_VIDEO = INTRO_VIDEO_PATHS[0];
+// Video intro removed - landing page loads immediately
 const styles = `
   @keyframes auroraShift { 0%{ background-position: 0% 50% } 50%{ background-position: 100% 50% } 100%{ background-position: 0% 50% } }
   @keyframes shimmer { 0%{ background-position:-200% 0 } 100%{ background-position:200% 0 } }
@@ -46,123 +45,33 @@ const styles = `
   .kinetic-text { background: linear-gradient(90deg, rgba(255,255,255,.9), rgba(255,255,255,.6), rgba(16,185,129,.9)); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 6s linear infinite; }
   .grain::before { content:''; position:fixed; inset:-10%; pointer-events:none; background-image:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN0dPz8fwAJ8gPZpjGZ8QAAAABJRU5ErkJggg=='); opacity:.06; mix-blend-mode: overlay; }
   .glass { backdrop-filter: blur(10px); }
-  /* Intro overlay logo size adjustment */
+  /* Professional logo branding - clean and minimal */
   .brand-logo{ height:110px; width:auto; filter: drop-shadow(0 14px 32px rgba(0,0,0,.65)); }
-  .navbar-logo{ height:92px; width:auto; filter: drop-shadow(0 16px 35px rgba(0,0,0,.55)); transition: transform .35s ease; }
-  @media (min-width:768px){ .navbar-logo{ height:128px; } }
-  .logo-float{
-    position:absolute;
-    left: clamp(0.55rem, 2vw, 2.2rem);
-    top: clamp(0.3rem, 1vw, 0.9rem);
+  .navbar-logo{ 
+    height:64px; 
+    width:auto; 
+    filter: drop-shadow(0 6px 20px rgba(0,0,0,.4)); 
+    transition: transform .3s ease, opacity .3s ease; 
+  }
+  @media (min-width:768px){ 
+    .navbar-logo{ height:80px; } 
+  }
+  @media (min-width:1024px){ 
+    .navbar-logo{ height:90px; } 
+  }
+  .logo-brand{
     display:flex;
     align-items:center;
-    justify-content:center;
-    padding:0.65rem;
-    border-radius:30px;
-    background:linear-gradient(140deg, rgba(2,8,20,0.93), rgba(3,16,32,0.82));
-    border:1px solid rgba(16,185,129,0.5);
-    backdrop-filter: blur(14px);
-    box-shadow: 0 18px 50px rgba(0,0,0,0.58);
     z-index:60;
-    transition: transform .3s ease, box-shadow .3s ease, opacity .4s ease;
-    opacity:0;
-    transform: translate3d(-20px,-18px,0);
-    pointer-events:none;
+    transition: transform .3s ease, opacity .3s ease;
+    flex-shrink: 0;
   }
-  @media (min-width:768px){
-    .logo-float{ padding:0.8rem; border-radius:9999px; }
-  }
-  .logo-float.show{ opacity:1; transform: translate3d(0,0,0); pointer-events:auto; }
-  .logo-float:hover{ transform:translateY(-4px); box-shadow:0 22px 60px rgba(0,0,0,0.68); }
-  .logo-ring{
-    position:relative;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    border-radius:9999px;
-    padding:0.45rem;
-    background:radial-gradient(circle at 35% 35%, rgba(34,197,94,0.45), rgba(59,130,246,0.24));
-    box-shadow: inset 0 0 32px rgba(0,0,0,0.38), 0 0 24px rgba(34,197,94,0.18);
-  }
-  .logo-ring::after{
-    content:'';
-    position:absolute;
-    inset:-9px;
-    border-radius:inherit;
-    border:1px dashed rgba(16,185,129,0.2);
+  .logo-brand:hover .navbar-logo{
+    transform: scale(1.05);
+    opacity: 0.9;
   }
 
-  .intro-video-overlay{
-    position:fixed;
-    inset:0;
-    z-index:80;
-    background:radial-gradient(circle at center, rgba(1,4,9,0.94), rgba(1,4,9,1));
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    transition: opacity .6s ease, visibility .6s ease;
-  }
-  .intro-video-overlay.hide{
-    opacity:0;
-    visibility:hidden;
-    pointer-events:none;
-  }
-  .intro-video-frame{
-    width:min(460px, 78vw);
-    aspect-ratio:1;
-    border-radius:9999px;
-    overflow:hidden;
-    border:1px solid rgba(16,185,129,0.45);
-    box-shadow:0 32px 110px rgba(0,0,0,0.7);
-    background:radial-gradient(circle, rgba(34,197,94,0.3), transparent 70%);
-    position:relative;
-    transition: transform .8s cubic-bezier(.25,.8,.25,1), opacity .6s ease;
-  }
-  .intro-video-frame::before{
-    content:'';
-    position:absolute;
-    inset:-18%;
-    background:radial-gradient(circle, rgba(34,197,94,0.35), transparent 55%);
-    filter:blur(28px);
-    opacity:0.85;
-    animation:pulseGlow 3.2s ease-in-out infinite;
-    z-index:0;
-  }
-  .intro-video-frame video{
-    width:100%;
-    height:100%;
-    object-fit:cover;
-    position:relative;
-    z-index:1;
-    background:#000;
-  }
-  .intro-video-overlay.hide .intro-video-frame{
-    transform: translate(-145%, -145%) scale(0.24);
-    opacity:0.15;
-  }
-  @keyframes pulseGlow{
-    0%,100%{ opacity:0.6; transform:scale(0.9); }
-    50%{ opacity:0.95; transform:scale(1.05); }
-  }
-  .intro-skip{
-    position:absolute;
-    top:1.25rem;
-    right:1.25rem;
-    background:rgba(15,23,42,0.75);
-    border:1px solid rgba(255,255,255,0.25);
-    color:#f8fafc;
-    font-size:0.62rem;
-    letter-spacing:0.32em;
-    text-transform:uppercase;
-    padding:0.45rem 1.4rem;
-    border-radius:9999px;
-    cursor:pointer;
-    transition:all .25s ease;
-  }
-  .intro-skip:hover{
-    background:rgba(16,185,129,0.25);
-    border-color:rgba(16,185,129,0.5);
-  }
+  /* Video intro styles removed */
 
   @keyframes badgeSweep {
     0% { transform: translateX(0); opacity: 0.85; }
@@ -200,11 +109,7 @@ const LandingPage = () => {
   const auraRef = React.useRef(null);
   const [animationData, setAnimationData] = useState(null);
   const [themeMode, setThemeMode] = useState('dark'); // 'dark' | 'dusk'
-  const [showIntroOverlay, setShowIntroOverlay] = useState(() => !prefersReducedMotion);
-  const [introFading, setIntroFading] = useState(false);
-  const [logoReady, setLogoReady] = useState(() => prefersReducedMotion);
-  const [videoError, setVideoError] = useState(false);
-  const [videoLoaded, setVideoLoaded] = useState(false);
+  const [logoReady, setLogoReady] = useState(true); // Logo ready immediately, no video dependency
   
   // Book Demo Form State
   const [showDemoModal, setShowDemoModal] = useState(false);
@@ -237,27 +142,7 @@ const LandingPage = () => {
     try { localStorage.setItem('flyp_theme', themeMode); } catch {}
   }, [themeMode]);
 
-  const dismissIntroVideo = useCallback(() => {
-    if (!showIntroOverlay || introFading) return;
-    setIntroFading(true);
-    setTimeout(() => {
-      setShowIntroOverlay(false);
-      setLogoReady(true);
-    }, 650);
-  }, [showIntroOverlay, introFading]);
-
-  // Handle video loading errors
-  const handleVideoError = useCallback(() => {
-    console.warn('Intro video failed to load, skipping intro');
-    setVideoError(true);
-    setTimeout(() => {
-      dismissIntroVideo();
-    }, 500);
-  }, [dismissIntroVideo]);
-
-  const handleVideoLoaded = useCallback(() => {
-    setVideoLoaded(true);
-  }, []);
+  // Video intro removed - logo ready immediately
 
   // Handle Demo Form Submission
   const handleDemoSubmit = async (e) => {
@@ -353,13 +238,7 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
     }
   };
 
-  useEffect(() => {
-    if (!showIntroOverlay) return;
-    const fallback = setTimeout(() => {
-      dismissIntroVideo();
-    }, 5200);
-    return () => clearTimeout(fallback);
-  }, [showIntroOverlay, dismissIntroVideo]);
+  // Video intro removed
 
   // --- Headline kinetic words, scrollytelling state, metrics counters ---
   const words = ['Built to Fly', 'Inventory that Thinks', 'Analytics that Act', 'Stop running your business start flying it', 'Automate Everything', 'Billing in Seconds'];
@@ -556,14 +435,18 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
     return () => { io.disconnect(); cancelAnimationFrame(raf); };
   }, []);
     
-  // --- FIX: Removed '#whyflyp' from array as section does not exist ---
+  // Updated sections with new additions
+  // Storyline flow: Hero → Company → How It Works → Features → Use Cases → How It Helps → Integrations → Analytics → Security → Pricing → Testimonials → FAQ → Contact
   const sections = [
-    { id: 'hero', label: 'Intro' },
-    { id: 'story', label: 'Story' },
-    { id: 'recent-features', label: 'New Features' },
+    { id: 'hero', label: 'Home' },
+    { id: 'company', label: 'Company' },
+    { id: 'story', label: 'How It Works' },
     { id: 'features', label: 'Features' },
+    { id: 'use-cases', label: 'Use Cases' },
+    { id: 'how-it-helps', label: 'How It Helps' },
+    { id: 'integrations', label: 'Integrations' },
     { id: 'analytics', label: 'Analytics' },
-    { id: 'mission', label: 'Mission' },
+    { id: 'security', label: 'Security' },
     { id: 'pricing', label: 'Pricing' },
     { id: 'testimonials', label: 'Testimonials' },
     { id: 'faq', label: 'FAQ' },
@@ -789,58 +672,28 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
 
   return (
     <div className={`text-white min-h-screen aurora-bg anim-gradient grain bg-gradient-to-b ${THEME.bg} ${themeMode==='dusk' ? 'theme-dusk' : 'theme-dark'}`}>
-      {showIntroOverlay && !videoError && (
-        <div className={`intro-video-overlay ${introFading ? 'hide' : ''}`}>
-          <button className="intro-skip" onClick={dismissIntroVideo}>
-            Skip
-          </button>
-          <div className="intro-video-frame">
-            {!videoLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-16 h-16 border-4 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
-              </div>
-            )}
-            <video
-              autoPlay
-              muted
-              playsInline
-              preload="auto"
-              onEnded={dismissIntroVideo}
-              onError={handleVideoError}
-              onLoadedData={handleVideoLoaded}
-              onCanPlay={handleVideoLoaded}
-              style={{ opacity: videoLoaded ? 1 : 0, transition: 'opacity 0.5s ease' }}
-            >
-              <source src={INTRO_VIDEO_PATHS[0]} type="video/mp4" />
-              <source src={INTRO_VIDEO_PATHS[1]} type="video/mp4" />
-              <source src={INTRO_VIDEO_PATHS[2]} type="video/mp4" />
-              <source src={INTRO_VIDEO_PATHS[3]} type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
-            {/* Fallback if video doesn't load */}
-            {videoError && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="text-6xl mb-4">🚀</div>
-                  <div className="text-2xl font-bold text-white">FLYP</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
       <div aria-hidden className="fixed inset-0 -z-10 bg-[#020617]" />
       <div ref={auraRef} aria-hidden className="fixed top-0 left-0 z-0 pointer-events-none w-[300px] h-[300px] rounded-full" style={{ background: 'radial-gradient(150px 150px at center, rgba(16,185,129,0.25), rgba(16,185,129,0.0) 70%)', filter: 'blur(20px)' }} />
       <header className="sticky top-0 z-50 glass supports-[backdrop-filter]:bg-[#020617f0] bg-gradient-to-b from-[#020617ee] via-[#020617e0] to-[#020617f7] relative flex items-center gap-4 border-b border-white/10 py-4 px-6 md:py-5 md:px-10">
-        <div className="hidden md:flex flex-1" aria-hidden="true" />
+        <Link to="/" className="logo-brand" aria-label="FLYP home">
+          <img
+            src={LOGOS.hero}
+            alt="FLYP"
+            loading="eager"
+            className="navbar-logo select-none"
+          />
+        </Link>
         <div className="hidden md:flex flex-1 justify-center">
-          <nav className={`flex ${shrinkHeader ? 'gap-5 text-sm' : 'gap-6 text-base'} transition-all duration-300`}>
-            <a href="#story" className="hover:text-emerald-300">How It Works</a>
+          <nav className={`flex items-center ${shrinkHeader ? 'gap-3 text-xs' : 'gap-4 text-sm'} transition-all duration-300 whitespace-nowrap`}>
+            <a href="#company" className="hover:text-emerald-300 transition-colors">Company</a>
             <span className="text-white/30">•</span>
-            <a href="#recent-features" className="hover:text-emerald-300">What's New</a>
-            <a href="#features" className="hover:text-emerald-300">Features</a>
-            <a href="#analytics" className="hover:text-emerald-300">Analytics</a>
-            <a href="#pricing" className="hover:text-emerald-300">Pricing</a>
+            <a href="#features" className="hover:text-emerald-300 transition-colors">Features</a>
+            <span className="text-white/30">•</span>
+            <a href="#use-cases" className="hover:text-emerald-300 transition-colors">Use Cases</a>
+            <span className="text-white/30">•</span>
+            <a href="#how-it-helps" className="hover:text-emerald-300 transition-colors">Solutions</a>
+            <span className="text-white/30">•</span>
+            <a href="#pricing" className="hover:text-emerald-300 transition-colors">Pricing</a>
           </nav>
         </div>
         <div className="flex flex-1 items-center justify-end gap-3">
@@ -863,28 +716,16 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
             Register
           </button>
         </div>
-        <Link to="/" className={`logo-float ${logoReady ? 'show' : ''}`} aria-label="FLYP home">
-          <span className="logo-ring">
-            <img
-              src={LOGOS.hero}
-              alt="FLYP logo"
-              loading="lazy"
-              className="navbar-logo select-none"
-            />
-          </span>
-        </Link>
       </header>
 
       <div className="fixed top-0 left-0 h-1 bg-gradient-to-r from-green-500 via-yellow-500 to-blue-500 z-50 transition-[width]" style={{ width: `${scrollProgress}%` }} />
       {/* Section Navigator (floating dots) */}
       <nav aria-label="Section navigator" className="hidden md:flex fixed right-4 top-1/2 -translate-y-1/2 z-40 flex-col gap-3">
         {[
-          { id: 'recent-features', label: 'New Features' },
-          { id: 'features', label: 'Features' },
-          { id: 'mission', label: 'Mission' },
-          { id: 'pricing', label: 'Pricing' },
+            { id: 'company', label: 'Company' },
+            { id: 'features', label: 'Features' },
+            { id: 'pricing', label: 'Pricing' },
           { id: 'testimonials', label: 'Testimonials' },
-          { id: 'faq', label: 'FAQ' },
         ].map((s) => (
           <a key={s.id} href={`#${s.id}`} className={`section-dot ${currentSection===s.id ? 'active' : ''}`} data-label={s.label} />
         ))}
@@ -999,6 +840,445 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
           <svg className="w-full h-full" viewBox="0 0 1440 96" preserveAspectRatio="none">
             <path d="M0,64 C240,32 480,96 720,64 C960,32 1200,0 1440,32 L1440,96 L0,96 Z" fill="rgba(255,255,255,0.03)" />
           </svg>
+        </div>
+      </section>
+
+      {/* Company Stats Section */}
+      <section id="company-stats" className="relative py-16 px-6 md:px-10 section-divider">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {[
+              { value: '2,700+', label: 'Active Networks', sublabel: 'Supply chains powered' },
+              { value: '1.3M', label: 'Invoices/Month', sublabel: 'Synced automatically' },
+              { value: '42%', label: 'Faster Operations', sublabel: 'Time saved on tasks' },
+              { value: '99.9%', label: 'Uptime', sublabel: 'Reliable infrastructure' },
+            ].map((stat, i) => (
+              <div key={i} data-aos="fade-up" data-aos-delay={i*100} className={`text-center p-6 rounded-2xl ${THEME.card} hover:scale-105 transition-transform`}>
+                <div className="text-3xl md:text-4xl font-extrabold bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent mb-2">
+                  {stat.value}
+                </div>
+                <div className="text-sm font-semibold text-white mb-1">{stat.label}</div>
+                <div className="text-xs text-white/60">{stat.sublabel}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Company Overview Section */}
+      <section id="company" className="relative py-28 px-6 md:px-10 section-divider">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">About FLYP</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-6xl font-extrabold mb-6">
+              <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">India's First</span> Supply Chain OS
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 max-w-3xl mx-auto text-lg leading-relaxed">
+              Built for the future of commerce. FLYP empowers retailers, distributors, and product owners with intelligent tools that automate operations, enable real-time collaboration, and drive growth.
+            </p>
+          </div>
+          
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              {
+                icon: '🚀',
+                title: 'Innovation First',
+                desc: 'Cutting-edge AI and automation technology designed specifically for Indian supply chains.',
+              },
+              {
+                icon: '⚡',
+                title: 'Speed & Scale',
+                desc: 'Built to handle millions of transactions with sub-second response times and 99.9% uptime.',
+              },
+              {
+                icon: '🌐',
+                title: 'Made for India',
+                desc: 'GST-compliant, multi-language support, and integrations with local payment and logistics partners.',
+              },
+            ].map((item, i) => (
+              <div key={i} data-aos="fade-up" data-aos-delay={i*100} className={`p-8 rounded-2xl ${THEME.card} hover:border-emerald-400/40 transition-all`}>
+                <div className="text-4xl mb-4">{item.icon}</div>
+                <h3 className="text-xl font-bold mb-3 text-white">{item.title}</h3>
+                <p className="text-white/70 leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Use Cases Section */}
+      <section id="use-cases" className="relative py-28 px-6 md:px-10 section-divider">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">Use Cases</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-6xl font-extrabold mb-6">
+              Built for <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">Every Role</span>
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 max-w-3xl mx-auto text-lg">
+              Tailored solutions for retailers, distributors, and product owners across industries.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              {
+                role: 'Retailer',
+                icon: '🛒',
+                useCases: [
+                  'Voice-powered billing in seconds',
+                  'OCR invoice import and processing',
+                  'Customer analytics and segmentation',
+                  'Automated inventory management',
+                  'WhatsApp invoice sharing',
+                ],
+              },
+              {
+                role: 'Distributor',
+                icon: '🏭',
+                useCases: [
+                  'Multi-branch inventory sync',
+                  'Smart cart with AI suggestions',
+                  'Automated order processing',
+                  'Credit control and reminders',
+                  'Real-time catalog sharing',
+                ],
+              },
+              {
+                role: 'Product Owner',
+                icon: '📦',
+                useCases: [
+                  'Downstream catalog distribution',
+                  'Real-time sell-through analytics',
+                  'AI inventory generation',
+                  'Price list management',
+                  'Network-wide visibility',
+                ],
+              },
+            ].map((item, i) => (
+              <div key={i} data-aos="fade-up" data-aos-delay={i*100} className={`p-8 rounded-2xl ${THEME.card} hover:border-emerald-400/40 transition-all`}>
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="text-4xl">{item.icon}</div>
+                  <h3 className="text-2xl font-bold text-white">{item.role}</h3>
+                </div>
+                <ul className="space-y-3">
+                  {item.useCases.map((useCase, j) => (
+                    <li key={j} className="flex items-start gap-3 text-white/80">
+                      <span className="text-emerald-400 mt-1">✓</span>
+                      <span>{useCase}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Integrations Section - Enhanced with Animations */}
+      <section id="integrations" className="relative py-28 px-6 md:px-10 section-divider bg-gradient-to-b from-transparent via-white/[0.02] to-transparent overflow-hidden">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">Integrations</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-6xl font-extrabold mb-6">
+              Connect <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">Everything</span>
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 max-w-3xl mx-auto text-lg">
+              Seamlessly integrate with your existing tools and workflows.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              { category: 'Payment', items: ['UPI', 'Bank Transfers', 'Credit Cards', 'Wallets'], icon: '💳', color: 'from-emerald-400/20 to-emerald-600/10', lottie: paymentProcessing },
+              { category: 'Communication', items: ['WhatsApp', 'Email', 'SMS', 'Push Notifications'], icon: '📱', color: 'from-cyan-400/20 to-cyan-600/10', lottie: bullhornMarketing },
+              { category: 'Logistics', items: ['Delivery Partners', 'Tracking APIs', 'Inventory Sync'], icon: '🚚', color: 'from-teal-400/20 to-teal-600/10', lottie: loadingCar },
+              { category: 'Employee Management', items: ['Role-based Access', 'Team Permissions', 'Attendance Tracking', 'Performance Metrics'], icon: '👥', color: 'from-purple-400/20 to-purple-600/10', lottie: hiring },
+              { category: 'Customer Management', items: ['CRM Integration', 'Customer Analytics', 'Segmentation Tools', 'Loyalty Programs'], icon: '🤝', color: 'from-blue-400/20 to-blue-600/10', lottie: customerSupport },
+              { category: 'Analytics', items: ['Business Intelligence', 'Custom Reports', 'Data Export'], icon: '📈', color: 'from-pink-400/20 to-pink-600/10', lottie: businessAnalytics },
+            ].map((integration, i) => (
+              <div 
+                key={i} 
+                data-aos="fade-up" 
+                data-aos-delay={i*50} 
+                onMouseMove={handleTilt}
+                onMouseLeave={resetTilt}
+                className={`group relative p-6 rounded-2xl ${THEME.card} border border-white/10 hover:border-emerald-400/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_25px_70px_rgba(16,185,129,0.2)] integration-card overflow-hidden`}
+              >
+                {/* Animated gradient background on hover */}
+                <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${integration.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10`} />
+                
+                {/* Enhanced glow effect for Lottie cards */}
+                {integration.lottie && (
+                  <>
+                    <div className="absolute -inset-1 bg-gradient-to-r from-emerald-400/40 via-teal-400/30 to-cyan-400/40 rounded-2xl opacity-0 group-hover:opacity-100 blur-2xl transition-opacity duration-700 -z-20" />
+                    <div className="absolute -inset-0.5 bg-gradient-to-br from-emerald-400/20 via-teal-400/15 to-cyan-400/20 rounded-2xl opacity-0 group-hover:opacity-100 blur-sm transition-opacity duration-500 -z-15" />
+                  </>
+                )}
+                
+                {/* Icon/Title Section - Creative Design with Perfect Lottie Visibility */}
+                <div className="relative z-10 mb-6">
+                  {integration.lottie ? (
+                    /* Lottie Icon Design - Creative & Prominent (Similar to Features but Unique) */
+                    <div className="flex flex-col items-start gap-4">
+                      {/* Lottie Animation Container - Large & Visible like Features */}
+                      <div className="relative w-full">
+                        {/* Animated gradient glow behind container */}
+                        <div className="absolute -inset-3 bg-gradient-to-br from-emerald-400/40 via-teal-400/30 to-cyan-400/40 rounded-2xl blur-xl group-hover:blur-2xl group-hover:opacity-100 transition-all duration-700 opacity-50" />
+                        
+                        {/* Main Lottie Container - Similar to Features styling but unique */}
+                        <div className="relative w-[140px] h-[140px] mx-auto rounded-xl overflow-hidden bg-gradient-to-br from-[#1c1f24] to-[#101214] shadow-lg ring-1 ring-white/10 group-hover:ring-emerald-400/40 group-hover:shadow-[0_0_40px_rgba(16,185,129,0.3)] transition-all duration-500">
+                          {/* Animated shimmer overlay */}
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 z-10 pointer-events-none" />
+                          
+                          {/* Lottie Animation - Perfect visibility like Features */}
+                          <Lottie 
+                            animationData={integration.lottie} 
+                            loop 
+                            autoplay 
+                            style={{ width: '100%', height: '100%' }}
+                            className="group-hover:scale-105 transition-transform duration-500"
+                          />
+                        </div>
+                        
+                        {/* Floating accent particles */}
+                        <div className="absolute top-0 right-0 w-2 h-2 bg-emerald-400 rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping" />
+                        <div className="absolute bottom-0 left-0 w-1.5 h-1.5 bg-teal-400 rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-ping" style={{ animationDelay: '0.4s' }} />
+                      </div>
+                      
+                      {/* Category Title with Creative Styling */}
+                      <div className="flex flex-col gap-2 w-full items-center">
+                        <h3 className="text-xl font-bold text-white group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-emerald-300 group-hover:via-teal-300 group-hover:to-cyan-300 transition-all duration-500">
+                          {integration.category}
+                        </h3>
+                        {/* Animated gradient underline */}
+                        <div className="h-0.5 w-0 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 group-hover:w-full transition-all duration-500" />
+                      </div>
+                    </div>
+                  ) : (
+                    /* Emoji Icon Design - For cards without Lottie */
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="relative">
+                        <span className="text-3xl block group-hover:scale-110 transition-transform duration-300">{integration.icon}</span>
+                        <span className="absolute inset-0 text-3xl opacity-0 group-hover:opacity-30 group-hover:animate-ping">{integration.icon}</span>
+                      </div>
+                      <h3 className="text-lg font-bold text-white group-hover:text-emerald-300 transition-colors">{integration.category}</h3>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Items List */}
+                <ul className="space-y-3 relative z-10">
+                  {integration.items.map((item, j) => (
+                    <li 
+                      key={j} 
+                      className="text-sm text-white/80 group-hover:text-white flex items-center gap-3 transition-all duration-300 integration-item group/item"
+                      style={{ animationDelay: `${j * 50}ms` }}
+                    >
+                      <span className="relative flex items-center justify-center flex-shrink-0">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 group-hover:bg-emerald-300 group-hover:scale-125 transition-transform"></span>
+                        <span className="absolute w-2 h-2 rounded-full bg-emerald-400/50 group-hover:animate-ping"></span>
+                      </span>
+                      <span className="group-hover/item:translate-x-1 transition-transform duration-300">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+                
+                {/* Enhanced connection lines animation for Payment */}
+                {integration.lottie && (
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-0">
+                    <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      <path d="M10,25 Q50,15 90,25" stroke="rgba(16,185,129,0.5)" strokeWidth="1" fill="none" className="integration-line" />
+                      <path d="M10,75 Q50,85 90,75" stroke="rgba(34,211,238,0.5)" strokeWidth="1" fill="none" className="integration-line" style={{ animationDelay: '0.3s' }} />
+                    </svg>
+                  </div>
+                )}
+                
+                {/* Connection lines animation for other cards */}
+                {!integration.lottie && (
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
+                    <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      <path d="M0,50 Q50,30 100,50" stroke="rgba(16,185,129,0.3)" strokeWidth="0.5" fill="none" className="integration-line" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How It Helps Section - Business Categories with Lottie space */}
+      <section id="how-it-helps" className="relative py-28 px-6 md:px-10 section-divider bg-gradient-to-b from-transparent via-white/[0.02] to-transparent">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">How FLYP Helps</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-6xl font-extrabold mb-6">
+              Solutions for <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">Every Business</span>
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 max-w-3xl mx-auto text-lg">
+              Discover how FLYP transforms operations across different business categories and industries.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[
+              {
+                category: 'Retail',
+                icon: '🛒',
+                benefits: [
+                  'Voice-powered billing for instant transactions',
+                  'Customer analytics to boost repeat purchases',
+                  'Automated inventory management',
+                  'WhatsApp invoice sharing',
+                ],
+                lottieKey: 'retail',
+                color: 'from-emerald-400/20 to-emerald-600/10',
+              },
+              {
+                category: 'FMCG',
+                icon: '📦',
+                benefits: [
+                  'Real-time distributor network management',
+                  'Smart inventory optimization',
+                  'Automated order processing',
+                  'Multi-branch synchronization',
+                ],
+                lottieKey: 'fmcg',
+                color: 'from-cyan-400/20 to-cyan-600/10',
+              },
+              {
+                category: 'Electronics',
+                icon: '⚡',
+                benefits: [
+                  'Serial number tracking',
+                  'Warranty management',
+                  'Advanced inventory categorization',
+                  'Real-time pricing updates',
+                ],
+                lottieKey: 'electronics',
+                color: 'from-purple-400/20 to-purple-600/10',
+              },
+              {
+                category: 'Pharmaceuticals',
+                icon: '💊',
+                benefits: [
+                  'Expiry date tracking',
+                  'Batch management',
+                  'Regulatory compliance',
+                  'Temperature-controlled inventory',
+                ],
+                lottieKey: 'pharma',
+                color: 'from-blue-400/20 to-blue-600/10',
+              },
+              {
+                category: 'Textiles',
+                icon: '👕',
+                benefits: [
+                  'Variant and size management',
+                  'Color and pattern tracking',
+                  'Seasonal inventory planning',
+                  'Supplier collaboration tools',
+                ],
+                lottieKey: 'textiles',
+                color: 'from-pink-400/20 to-pink-600/10',
+              },
+              {
+                category: 'Automotive',
+                icon: '🚗',
+                benefits: [
+                  'Parts catalog management',
+                  'Service history tracking',
+                  'Multi-location inventory',
+                  'Workshop integration',
+                ],
+                lottieKey: 'automotive',
+                color: 'from-orange-400/20 to-orange-600/10',
+              },
+            ].map((business, i) => (
+              <div 
+                key={i} 
+                data-aos="zoom-in-up" 
+                data-aos-delay={i*100}
+                onMouseMove={handleTilt}
+                onMouseLeave={resetTilt}
+                className={`group relative p-8 rounded-2xl ${THEME.card} border border-white/10 hover:border-emerald-400/50 transition-all duration-500 hover:scale-[1.03] hover:shadow-[0_25px_70px_rgba(16,185,129,0.2)] business-card`}
+              >
+                {/* Lottie Animation Space */}
+                <div className="mb-6 h-[200px] flex items-center justify-center rounded-xl bg-gradient-to-br from-white/5 to-white/[0.02] border border-white/10 overflow-hidden">
+                  {/* Placeholder for Lottie - Replace with actual Lottie component when JSON files are ready */}
+                  <div className="text-6xl opacity-50 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500">
+                    {business.icon}
+                  </div>
+                  {/* TODO: Replace this div with Lottie component when JSON files are available
+                  <Lottie 
+                    animationData={business.lottieData} 
+                    loop 
+                    autoplay 
+                    className="w-full h-full"
+                  />
+                  */}
+                </div>
+
+                {/* Animated gradient background */}
+                <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${business.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10`} />
+                
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="text-3xl group-hover:scale-110 transition-transform duration-300">{business.icon}</span>
+                    <h3 className="text-2xl font-bold text-white group-hover:text-emerald-300 transition-colors">{business.category}</h3>
+                  </div>
+                  
+                  <ul className="space-y-3">
+                    {business.benefits.map((benefit, j) => (
+                      <li 
+                        key={j} 
+                        className="text-sm text-white/80 group-hover:text-white flex items-start gap-3 transition-all duration-300"
+                      >
+                        <span className="relative mt-1 flex items-center justify-center flex-shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 group-hover:bg-emerald-300 group-hover:scale-150 transition-transform"></span>
+                        </span>
+                        <span className="group-hover:translate-x-1 transition-transform duration-300">{benefit}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Security & Compliance Section */}
+      <section id="security" className="relative py-28 px-6 md:px-10 section-divider">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">Security & Compliance</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-6xl font-extrabold mb-6">
+              Your Data is <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">Protected</span>
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 max-w-3xl mx-auto text-lg">
+              Enterprise-grade security and full compliance with Indian regulations.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { title: 'End-to-End Encryption', desc: 'All data encrypted in transit and at rest', icon: '🔒' },
+              { title: 'GST Compliant', desc: 'Full compliance with Indian tax regulations', icon: '📋' },
+              { title: 'SOC 2 Certified', desc: 'Industry-standard security protocols', icon: '🛡️' },
+              { title: 'Regular Backups', desc: 'Automated backups with point-in-time recovery', icon: '💾' },
+              { title: 'Access Control', desc: 'Role-based permissions and multi-factor auth', icon: '👥' },
+              { title: 'Data Residency', desc: 'Data stored in India for compliance', icon: '🇮🇳' },
+              { title: 'Audit Logs', desc: 'Complete audit trail of all operations', icon: '📝' },
+              { title: 'Privacy First', desc: 'GDPR-ready privacy controls', icon: '🔐' },
+            ].map((item, i) => (
+              <div key={i} data-aos="zoom-in" data-aos-delay={i*50} className={`p-6 rounded-xl ${THEME.card} hover:scale-105 transition-transform text-center`}>
+                <div className="text-4xl mb-4">{item.icon}</div>
+                <h3 className="text-lg font-bold text-white mb-2">{item.title}</h3>
+                <p className="text-sm text-white/70">{item.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -1710,6 +1990,49 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
 
       {/* Pricing section remains unchanged above */}
 
+      {/* Partners & Trust Section */}
+      <section id="partners" className="relative py-20 px-6 md:px-10 section-divider bg-gradient-to-b from-transparent via-white/[0.02] to-transparent">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <div className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em] mb-4" data-aos="fade-up">Trusted By</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-3xl md:text-4xl font-extrabold mb-4">
+              Powering <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">Businesses</span> Across India
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 max-w-2xl mx-auto">
+              From small retailers to large distributors, FLYP powers supply chains across multiple industries.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 items-center opacity-60 hover:opacity-100 transition-opacity">
+            {['Retail', 'FMCG', 'Electronics', 'Pharma', 'Textiles', 'Automotive'].map((industry, i) => (
+              <div key={i} data-aos="fade-up" data-aos-delay={i*50} className={`p-6 rounded-xl ${THEME.card} text-center hover:scale-110 transition-transform`}>
+                <div className="text-3xl mb-2">{industry === 'Retail' ? '🛒' : industry === 'FMCG' ? '📦' : industry === 'Electronics' ? '⚡' : industry === 'Pharma' ? '💊' : industry === 'Textiles' ? '👕' : '🚗'}</div>
+                <div className="text-sm font-semibold text-white/80">{industry}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-16 text-center">
+            <div className="inline-flex items-center gap-8 px-8 py-4 rounded-2xl bg-white/5 border border-white/10">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-white">2,700+</div>
+                <div className="text-xs text-white/60">Active Networks</div>
+              </div>
+              <div className="w-px h-12 bg-white/20"></div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-white">1.3M+</div>
+                <div className="text-xs text-white/60">Monthly Transactions</div>
+              </div>
+              <div className="w-px h-12 bg-white/20"></div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-white">99.9%</div>
+                <div className="text-xs text-white/60">Uptime SLA</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Mission Section (upgraded) */}
       <section id="mission" className="relative py-28 text-center overflow-hidden">
         {/* animated background orbs */}
@@ -2190,7 +2513,67 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
         html { scroll-behavior: smooth; }
         .hover-raise { transition: transform .18s cubic-bezier(.2,.7,.3,1), box-shadow .18s ease; will-change: transform; }
         .hover-raise:hover { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(0,0,0,.32); }
-        @media (prefers-reduced-motion: reduce) { .anim-gradient, .wave-bar, .path-connector, .data-flow, .ai-scan-line, .animated-bar-chart, .animated-donut-chart, .pos-flip-inner, .ticker, .testimonial-track { animation: none !important; } }
+        /* Integration card animations */
+        .integration-card {
+          position: relative;
+          overflow: hidden;
+        }
+        .integration-item {
+          opacity: 0.8;
+          transform: translateX(0);
+        }
+        .integration-card:hover .integration-item {
+          opacity: 1;
+          animation: slideInRight 0.5s ease forwards;
+        }
+        @keyframes slideInRight {
+          from {
+            opacity: 0.8;
+            transform: translateX(-5px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        .integration-line {
+          stroke-dasharray: 200;
+          stroke-dashoffset: 200;
+          animation: drawLine 2s ease-in-out infinite;
+        }
+        @keyframes drawLine {
+          0% {
+            stroke-dashoffset: 200;
+          }
+          50% {
+            stroke-dashoffset: 0;
+          }
+          100% {
+            stroke-dashoffset: -200;
+          }
+        }
+        
+        /* Business card animations */
+        .business-card {
+          position: relative;
+          overflow: hidden;
+        }
+        .business-card::before {
+          content: '';
+          position: absolute;
+          top: -50%;
+          left: -50%;
+          width: 200%;
+          height: 200%;
+          background: radial-gradient(circle, rgba(16,185,129,0.1), transparent 70%);
+          opacity: 0;
+          transition: opacity 0.5s ease;
+        }
+        .business-card:hover::before {
+          opacity: 1;
+        }
+        
+        @media (prefers-reduced-motion: reduce) { .anim-gradient, .wave-bar, .path-connector, .data-flow, .ai-scan-line, .animated-bar-chart, .animated-donut-chart, .pos-flip-inner, .ticker, .testimonial-track, .integration-line, .integration-item { animation: none !important; } }
       `}</style>
     </div>
   );

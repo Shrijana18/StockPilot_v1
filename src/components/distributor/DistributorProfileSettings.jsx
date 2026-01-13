@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider, signOut } from "firebase/auth";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
-import { db, storage, functions } from "../../firebase/firebaseConfig";
+import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { db, storage, functions, auth } from "../../firebase/firebaseConfig";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { toast } from "react-toastify";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -18,7 +18,16 @@ import WABAAccountManager from "./whatsapp/WABAAccountManager";
 // Meta Embedded Signup URL - Tech Provider Configuration
 // App ID: 1902565950686087
 // Config ID: 844028501834041
-const EMBEDDED_SIGNUP_URL = 'https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=844028501834041&extras=%7B%22featureType%22%3A%22whatsapp_business_app_onboarding%22%2C%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D';
+// 
+// IMPORTANT: Meta Embedded Signup works in TWO ways:
+// 1. Popup/iframe → sends postMessage (works on localhost)
+// 2. Redirect callback → redirects to URL configured in Meta App Dashboard (production only)
+//
+// For localhost: Use popup method (postMessage) - no redirect needed
+// For production: Configure redirect_uri in Meta App Dashboard to: https://stockpilotv1.web.app/whatsapp/embedded-signup/callback
+//
+// DO NOT put redirect_uri in URL parameter - Meta ignores it. It must be configured in App Dashboard.
+const EMBEDDED_SIGNUP_URL = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1902565950686087&config_id=844028501834041&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D`;
 
 // WhatsApp Onboarding Section - Built for first-time users
 const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
@@ -27,6 +36,7 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
   const [statusData, setStatusData] = useState(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const popupRef = useRef(null);
+  const postMessageReceivedRef = useRef(false);
 
   const isConnected = formData.whatsappEnabled && formData.whatsappBusinessAccountId;
 
@@ -36,8 +46,7 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
 
     setCheckingStatus(true);
     try {
-      const functionsInstance = getFunctions(undefined, "us-central1");
-      const getWABAStatus = httpsCallable(functionsInstance, 'getWABAStatus');
+      const getWABAStatus = httpsCallable(functions, 'getWABAStatus');
       const result = await getWABAStatus();
       if (result.data?.success && result.data.status) {
         const status = result.data.status;
@@ -201,8 +210,7 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
 
     // Automatically setup webhook after account creation
     try {
-      const functionsInstance = getFunctions(undefined, "us-central1");
-      const setupWebhook = httpsCallable(functionsInstance, 'setupWebhookForClient');
+      const setupWebhook = httpsCallable(functions, 'setupWebhookForClient');
       await setupWebhook();
       console.log('✅ Webhook setup initiated');
     } catch (webhookError) {
@@ -216,10 +224,9 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
     if (!user) return null;
 
     try {
-      const functionsInstance = getFunctions(undefined, "us-central1");
       // Try to get WABAs associated with this user's Business Manager
       // We'll check if there's a new WABA that wasn't in our database
-      const getClientWABA = httpsCallable(functionsInstance, 'getClientWABA');
+      const getClientWABA = httpsCallable(functions, 'getClientWABA');
       
       // First, check if user already has a WABA in Firestore
       const userRef = doc(db, 'businesses', user.uid);
@@ -246,52 +253,51 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
         return;
       }
 
-      // Log all messages from Meta domains for debugging
+      // Log ALL messages from Meta domains for debugging
       if (event.origin.includes('facebook.com') || event.origin.includes('meta.com')) {
-        console.log('📨 Message from Meta:', {
+        console.log('📨 Received message from Meta:', {
           origin: event.origin,
           data: event.data,
-          type: typeof event.data
+          type: typeof event.data,
         });
       }
 
       const data = event.data;
       let wabaId, phoneNumberId, phoneNumber;
+      let isFinishEvent = false;
 
       // Handle different response formats - log everything for debugging
       console.log('🔍 Processing Meta message:', data);
 
+      // CRITICAL: Prioritize FINISH event - this is when user completes OTP and all data is available
+      // Format 1b: WA_EMBEDDED_SIGNUP with FINISH event (HIGHEST PRIORITY)
+      if (data?.type === 'WA_EMBEDDED_SIGNUP' && data.event === 'FINISH' && data.data) {
+        isFinishEvent = true;
+        wabaId = data.data.waba_id;
+        phoneNumberId = data.data.phone_number_id;
+        phoneNumber = data.data.phone_number;
+        console.log(`🎯 FINISH EVENT - WA_EMBEDDED_SIGNUP (OTP completed, all data available):`, { wabaId, phoneNumberId, phoneNumber });
+      }
       // Format 1: Standard Embedded Signup response (WHATSAPP_EMBEDDED_SIGNUP)
-      if (data?.type === 'WHATSAPP_EMBEDDED_SIGNUP' && data.status === 'SUCCESS') {
+      else if (data?.type === 'WHATSAPP_EMBEDDED_SIGNUP' && data.status === 'SUCCESS') {
+        console.log('✅ Received WHATSAPP_EMBEDDED_SIGNUP SUCCESS:', data);
         wabaId = data.waba_id;
         phoneNumberId = data.phone_number_id;
         phoneNumber = data.phone_number;
-        console.log('✅ Format 1 - Embedded Signup SUCCESS:', { wabaId, phoneNumberId, phoneNumber });
       }
-      // Format 1b: WA_EMBEDDED_SIGNUP (alternative event type from Meta)
-      // CRITICAL: Wait for 'FINISH' event - this is when phoneNumberId is guaranteed to be available
-      else if (data?.type === 'WA_EMBEDDED_SIGNUP') {
-        // Prioritize FINISH event - this is when user completes OTP verification
-        if (data.event === 'FINISH' && data.data) {
-          wabaId = data.data.waba_id;
-          phoneNumberId = data.data.phone_number_id;
-          phoneNumber = data.data.phone_number;
-          console.log(`✅ Format 1b - WA_EMBEDDED_SIGNUP FINISH (OTP completed):`, { wabaId, phoneNumberId, phoneNumber });
-        }
-        // Fallback to 'success' event if FINISH didn't have phoneNumberId
-        else if (data.event === 'success' && data.data && !wabaId) {
-          wabaId = data.data.waba_id;
-          phoneNumberId = data.data.phone_number_id;
-          phoneNumber = data.data.phone_number;
-          console.log(`✅ Format 1b - WA_EMBEDDED_SIGNUP success (fallback):`, { wabaId, phoneNumberId, phoneNumber });
-        }
+      // Format 1b fallback: WA_EMBEDDED_SIGNUP with 'success' event (if FINISH didn't fire)
+      else if (data?.type === 'WA_EMBEDDED_SIGNUP' && data.event === 'success' && data.data) {
+        wabaId = data.data.waba_id;
+        phoneNumberId = data.data.phone_number_id;
+        phoneNumber = data.data.phone_number;
+        console.log(`✅ Format 1b - WA_EMBEDDED_SIGNUP success (fallback):`, { wabaId, phoneNumberId, phoneNumber });
       } 
       // Format 2: Direct WABA ID in data
       else if (data?.waba_id || data?.wabaId) {
+        console.log('✅ Received WABA data in message:', data);
         wabaId = data.waba_id || data.wabaId;
         phoneNumberId = data.phone_number_id || data.phoneNumberId;
         phoneNumber = data.phone_number || data.phoneNumber;
-        console.log('✅ Format 2 - Direct WABA ID:', { wabaId, phoneNumberId, phoneNumber });
       }
       // Format 3: Check for nested data structures
       else if (data?.data?.waba_id || data?.result?.waba_id) {
@@ -314,29 +320,56 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
         } catch (e) {
           console.log('⚠️ Could not parse as JSON:', e);
         }
+      } else {
+        // Log other message types for debugging
+        console.log('ℹ️ Received other message from Meta:', data);
       }
 
       if (wabaId) {
-        // If phoneNumberId is missing, warn user but still save WABA
-        // The registration will happen when phoneNumberId becomes available
-        if (!phoneNumberId) {
-          console.warn('⚠️ WABA ID received but phoneNumberId is missing. User may need to complete OTP verification in Meta popup.');
-          toast.info('Account created! Please complete phone verification in the Meta popup if you haven\'t already.');
+        // Mark that postMessage was received
+        postMessageReceivedRef.current = true;
+        
+        // CRITICAL: If this is FINISH event, we MUST have phoneNumberId
+        // If phoneNumberId is missing on FINISH, something is wrong
+        if (isFinishEvent && !phoneNumberId) {
+          console.error('❌ FINISH event received but phoneNumberId is missing! This should not happen.');
+          toast.error('Account created but phone number data is incomplete. Please contact support.');
+          setLoading(false);
+          return;
+        }
+        
+        // If phoneNumberId is missing (non-FINISH event), warn user but still save WABA
+        if (!phoneNumberId && !isFinishEvent) {
+          console.warn('⚠️ WABA ID received but phoneNumberId is missing. Waiting for FINISH event...');
+          toast.info('Account created! Please complete phone verification in the Meta popup. Waiting for completion...');
+          // Don't save yet - wait for FINISH event
+          return;
         }
         
         setLoading(false);
         try {
-          // Use direct save function (preferred method - Gemini's suggestion)
-          // This ensures System User has proper access, webhook is configured, and phone is registered
-          const functionsInstance = getFunctions(undefined, "us-central1");
-          const saveWABADirect = httpsCallable(functionsInstance, 'saveWABADirect');
+          // CRITICAL: Use direct save function IMMEDIATELY when FINISH event is received
+          // This triggers the complete "Post-Signup Orchestration" flow:
+          // 1. Register phone number with Meta
+          // 2. Subscribe app to WABA
+          // 3. Update Firestore with enabled status
+          const saveWABADirect = httpsCallable(functions, 'saveWABADirect');
+          
+          console.log('🚀 Triggering saveWABADirect with complete data:', {
+            wabaId,
+            phoneNumberId,
+            phoneNumber,
+            isFinishEvent
+          });
+          
           const result = await saveWABADirect({
             wabaId,
-            phoneNumberId: phoneNumberId || null, // Allow null - backend will fetch if missing
+            phoneNumberId: phoneNumberId || null, // Should always be present in FINISH event
             phoneNumber: phoneNumber || null,
             embeddedData: {
               ...data,
-              pin: data.pin || data.registration_pin, // Include PIN if provided
+              pin: data.pin || data.registration_pin || data.data?.pin, // Include PIN if provided
+              isFinishEvent, // Flag to indicate this is from FINISH event
             }
           });
 
@@ -399,149 +432,198 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
     setLoading(true);
     setError(null);
 
-    const width = 800;
-    const height = 700;
-    const left = (window.screen.width - width) / 2;
-    const top = (window.screen.height - height) / 2;
+    // Create a session to identify the user (for both postMessage and redirect callback)
+    const createSession = async () => {
+      try {
+        const sessionId = `embedded_${user.uid}_${Date.now()}`;
+        await setDoc(doc(db, 'whatsappOAuthSessions', sessionId), {
+          uid: user.uid,
+          createdAt: serverTimestamp(),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+          type: 'embedded_signup',
+        });
 
-    const popup = window.open(
-      EMBEDDED_SIGNUP_URL,
-      'WhatsAppSignup',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-    );
-
-    popupRef.current = popup;
-
-    if (!popup || popup.closed) {
-      setError('Popup blocked. Please allow popups for this site.');
-      setLoading(false);
-      toast.error('Please allow popups to connect WhatsApp');
-      return;
-    }
-
-    // Monitor popup closure and check for account creation
-    const checkInterval = setInterval(async () => {
-      if (popup.closed) {
-        clearInterval(checkInterval);
-        setLoading(false);
+        // Add state parameter to URL for user identification
+        const signupUrl = `${EMBEDDED_SIGNUP_URL}&state=${sessionId}`;
         
-        // Wait a moment for Meta to process, then check if account was created
-              setTimeout(async () => {
-                console.log('🔍 Popup closed, checking if account was created...');
+        // CRITICAL: Meta Embedded Signup works in TWO ways:
+        // 1. If opened in popup/iframe → sends postMessage (we're listening for this)
+        // 2. If redirect_uri configured in Meta Dashboard → redirects to callback URL
+        
+        // Try popup first (postMessage method - works immediately)
+        const width = 900;
+        const height = 700;
+        const left = (window.screen.width - width) / 2;
+        const top = (window.screen.height - height) / 2;
+
+        const popup = window.open(
+          signupUrl,
+          'WhatsAppEmbeddedSignup',
+          `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+        );
+
+        popupRef.current = popup;
+
+        if (!popup || popup.closed) {
+          // Popup blocked - fallback to redirect method
+          console.warn('Popup blocked, using redirect method');
+          // Redirect to callback will be handled by Meta if redirect_uri is configured
+          window.location.href = signupUrl;
+        } else {
+          // Reset postMessage flag when opening new popup
+          postMessageReceivedRef.current = false;
+          
+          // Monitor popup for postMessage or closure
+          const checkInterval = setInterval(() => {
+            if (popup.closed) {
+              clearInterval(checkInterval);
+              
+              // If popup closed without postMessage, try detecting WABA
+              if (!postMessageReceivedRef.current) {
+                console.log('🔄 Popup closed without postMessage. Triggering WABA detection...');
+                toast.info('Detecting your WhatsApp account...');
                 
-                // Check if WABA was created by querying user's business document
-                try {
-                  const userRef = doc(db, 'businesses', user.uid);
-                  const userDoc = await getDoc(userRef);
-                  const currentWABAId = userDoc.data()?.whatsappBusinessAccountId;
-                  
-                  if (currentWABAId) {
-                    // Account already saved, just refresh status
-                    console.log('✅ Found existing WABA in Firestore:', currentWABAId);
-                    await fetchWABAStatus();
-                    toast.success('Account found! Refreshing status...');
-                  } else {
-                    // No WABA in Firestore - try to detect newly created account
-                    toast.info('Checking for newly created account...');
-                    
-                    try {
-                      const functionsInstance = getFunctions(undefined, "us-central1");
-                      const detectNewWABA = httpsCallable(functionsInstance, 'detectNewWABA');
-                      const detectResult = await detectNewWABA();
-                      
-                      if (detectResult.data?.success && detectResult.data.found) {
-                        // Found a new WABA! Save it
-                        const wabaId = detectResult.data.wabaId;
-                        const wabaData = detectResult.data.wabaData;
-                        const primaryPhone = detectResult.data.primaryPhone;
-                        
-                        await updateDoc(doc(db, 'businesses', user.uid), {
-                          whatsappBusinessAccountId: wabaId,
-                          whatsappPhoneNumberId: primaryPhone?.id || null,
-                          whatsappPhoneNumber: primaryPhone?.number || null,
-                          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-                          whatsappEnabled: true,
-                          whatsappCreatedVia: 'embedded_signup',
-                          whatsappPhoneRegistered: primaryPhone ? true : false,
-                          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
-                          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
-                        });
-                        
-                        setFormData(prev => ({
-                          ...prev,
-                          whatsappBusinessAccountId: wabaId,
-                          whatsappPhoneNumberId: primaryPhone?.id || null,
-                          whatsappPhoneNumber: primaryPhone?.number || null,
-                          whatsappEnabled: true,
-                          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-                          whatsappCreatedVia: 'embedded_signup',
-                          whatsappPhoneRegistered: primaryPhone ? true : false,
-                          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
-                          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
-                        }));
-                        
-                        // Fetch full status
-                        setTimeout(() => fetchWABAStatus(), 1000);
-                        toast.success('WhatsApp Business Account detected and connected!');
-                      } else {
-                        // Try getWABAStatus as fallback
-                        setTimeout(async () => {
-                          try {
-                            const getWABAStatus = httpsCallable(functionsInstance, 'getWABAStatus');
-                            const result = await getWABAStatus();
-                            
-                            if (result.data?.success && result.data.hasWABA) {
-                              const wabaId = result.data.wabaId;
-                              const status = result.data.status;
-                              
-                              await updateDoc(doc(db, 'businesses', user.uid), {
-                                whatsappBusinessAccountId: wabaId,
-                                whatsappPhoneNumberId: status.phone?.phoneNumberId || null,
-                                whatsappPhoneNumber: status.phone?.phoneNumber || null,
-                                whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-                                whatsappEnabled: true,
-                                whatsappCreatedVia: 'embedded_signup',
-                                whatsappPhoneRegistered: status.phone?.registered || false,
-                                whatsappPhoneVerificationStatus: status.phone?.verificationStatus || 'not_registered',
-                                whatsappVerified: status.phone?.verified || false,
-                              });
-                              
-                              setFormData(prev => ({
-                                ...prev,
-                                whatsappBusinessAccountId: wabaId,
-                                whatsappPhoneNumberId: status.phone?.phoneNumberId || null,
-                                whatsappPhoneNumber: status.phone?.phoneNumber || null,
-                                whatsappEnabled: true,
-                                whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-                                whatsappCreatedVia: 'embedded_signup',
-                                whatsappPhoneRegistered: status.phone?.registered || false,
-                                whatsappPhoneVerificationStatus: status.phone?.verificationStatus || 'not_registered',
-                                whatsappVerified: status.phone?.verified || false,
-                              }));
-                              
-                              setStatusData(status);
-                              toast.success('WhatsApp Business Account detected and connected!');
-                            } else {
-                              toast.info('Account creation may still be processing. Click "Check for Account" button if you completed the setup.');
-                            }
-                          } catch (err) {
-                            console.error('Error checking for account:', err);
-                            toast.info('If you completed the setup, click "Check for Account" to detect your new account.');
-                          }
-                        }, 3000);
-                      }
-                    } catch (err) {
-                      console.error('Error detecting new WABA:', err);
-                      toast.info('If you completed the setup, click "Check for Account" to detect your new account.');
+                // Trigger auto-detection after a short delay
+                setTimeout(async () => {
+                  try {
+                    // Ensure user is authenticated before calling function
+                    if (!user || !user.uid) {
+                      console.error('❌ User not authenticated');
+                      setLoading(false);
+                      toast.error('Please log in to continue');
+                      return;
                     }
+                    
+                    console.log('🔍 Calling detectNewWABA for user:', user.uid);
+                    
+                    // Get auth token for authenticated request
+                    const idToken = await auth.currentUser?.getIdToken();
+                    if (!idToken) {
+                      throw new Error('Failed to get authentication token');
+                    }
+                    
+                    // Call function via HTTP with auth token (onRequest function with CORS)
+                    const response = await fetch(
+                      'https://us-central1-stockpilotv1.cloudfunctions.net/detectNewWABA',
+                      {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${idToken}`
+                        },
+                        body: JSON.stringify({})
+                      }
+                    );
+                    
+                    if (!response.ok) {
+                      const errorData = await response.json().catch(() => ({}));
+                      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+                    }
+                    
+                    const result = { data: await response.json() };
+                    
+                    if (result.data?.found) {
+                      console.log('✅ Found WABA via detection:', result.data);
+                      
+                      // Check if this is a suggested WABA (fallback match)
+                      if (result.data.isSuggested) {
+                        const wabaName = result.data.wabaData?.name || result.data.wabaId;
+                        const confirmMessage = `Found 1 unassigned WABA: "${wabaName}". Is this your account?`;
+                        const confirmed = window.confirm(confirmMessage);
+                        
+                        if (!confirmed) {
+                          console.log('User rejected suggested WABA');
+                          toast.info('WABA not assigned. You can manually assign it later.');
+                          setLoading(false);
+                          return;
+                        }
+                        
+                        toast.info('Assigning suggested WABA...');
+                      } else {
+                        toast.success('Found your WhatsApp account! Saving...');
+                      }
+                      
+                      const wabaId = result.data.wabaId;
+                      const primaryPhone = result.data.primaryPhone;
+                      
+                      const saveWABADirect = httpsCallable(functions, 'saveWABADirect');
+                      const saveResult = await saveWABADirect({
+                        wabaId,
+                        phoneNumberId: primaryPhone?.id || null,
+                        phoneNumber: primaryPhone?.number || null,
+                        embeddedData: { 
+                          detected: true, 
+                          detectionMethod: result.data.matchReason || 'popup_close_fallback',
+                          isSuggested: result.data.isSuggested || false
+                        }
+                      });
+                      
+                      if (saveResult.data?.success) {
+                        // Refresh form data from Firestore
+                        const userRef = doc(db, 'businesses', user.uid);
+                        const snapshot = await getDoc(userRef);
+                        if (snapshot.exists()) {
+                          const updatedData = snapshot.data();
+                          setFormData(prev => ({
+                            ...prev,
+                            whatsappBusinessAccountId: updatedData.whatsappBusinessAccountId,
+                            whatsappPhoneNumberId: updatedData.whatsappPhoneNumberId,
+                            whatsappPhoneNumber: updatedData.whatsappPhoneNumber,
+                            whatsappEnabled: updatedData.whatsappEnabled || false,
+                            whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+                            whatsappCreatedVia: 'embedded_signup',
+                            whatsappPhoneRegistered: updatedData.whatsappPhoneRegistered || false,
+                            whatsappPhoneVerificationStatus: updatedData.whatsappPhoneVerificationStatus || 'pending',
+                            whatsappVerified: updatedData.whatsappVerified || false,
+                            whatsappAccountReviewStatus: updatedData.whatsappAccountReviewStatus || 'PENDING',
+                          }));
+                        }
+                        
+                        toast.success('WhatsApp Business Account connected successfully!');
+                        
+                        // Fetch status after a delay
+                        setTimeout(() => {
+                          fetchWABAStatus();
+                        }, 2000);
+                      } else {
+                        throw new Error(saveResult.data?.message || 'Failed to save WABA');
+                      }
+                    } else {
+                      console.log('⚠️ No WABA found via detection');
+                      toast.warning('Account created but not detected yet. Please refresh the page or click "Check for Account" button.');
+                    }
+                  } catch (err) {
+                    console.error("❌ WABA detection failed:", err);
+                    
+                    // Check if it's a CORS error
+                    if (err.message?.includes('CORS') || err.code === 'functions/cors-error') {
+                      console.error('❌ CORS error detected. This might be a Firebase Functions configuration issue.');
+                      toast.error('Connection error. Please refresh the page and try again, or click "Check for Account" button.');
+                    } else {
+                      toast.error('Failed to detect account. Please click "Check for Account" to try again.');
+                    }
+                  } finally {
+                    // Always set loading to false after detection completes
+                    setLoading(false);
                   }
-                } catch (err) {
-                  console.error('Error checking account after popup close:', err);
-                  toast.info('Setup completed. Click "Check for Account" if you finished the setup.');
-                }
-              }, 2000);
+                }, 3000); // Increased delay to 3 seconds to give Meta time to process
+              } else {
+                // PostMessage was received, loading will be handled by handleMessage
+                console.log('✅ PostMessage was received, skipping detection');
+                setLoading(false);
+              }
+            }
+          }, 1000);
+        }
+      } catch (err) {
+        console.error('Error creating session:', err);
+        setError('Failed to start signup. Please try again.');
+        setLoading(false);
+        toast.error('Failed to start WhatsApp signup');
       }
-    }, 1000);
+    };
+
+    createSession();
   };
 
   // If already connected, show status and WABAAccountManager
@@ -817,53 +899,160 @@ const WhatsAppOnboardingSection = ({ formData, setFormData, user }) => {
     toast.info('Checking for your WhatsApp account...');
 
     try {
-      const functionsInstance = getFunctions(undefined, "us-central1");
-      const detectNewWABA = httpsCallable(functionsInstance, 'detectNewWABA');
-      const result = await detectNewWABA();
+      // Get auth token for authenticated request
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('Failed to get authentication token');
+      }
+      
+      // Call function via HTTP with auth token (onRequest function with CORS)
+      const response = await fetch(
+        'https://us-central1-stockpilotv1.cloudfunctions.net/detectNewWABA',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({})
+        }
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+      }
+      
+      const result = { data: await response.json() };
 
       if (result.data?.success && result.data.found) {
-        // Found a new WABA! Save it
+        // Found a new WABA! Save it using saveWABADirect (includes orchestration)
         const wabaId = result.data.wabaId;
         const primaryPhone = result.data.primaryPhone;
 
-        await updateDoc(doc(db, 'businesses', user.uid), {
-          whatsappBusinessAccountId: wabaId,
-          whatsappPhoneNumberId: primaryPhone?.id || null,
-          whatsappPhoneNumber: primaryPhone?.number || null,
-          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-          whatsappEnabled: true,
-          whatsappCreatedVia: 'embedded_signup',
-          whatsappPhoneRegistered: primaryPhone ? true : false,
-          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
-          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
+        console.log('✅ Found WABA via manual check:', { wabaId, primaryPhone });
+        
+        // Check if this is a suggested WABA (fallback match)
+        if (result.data.isSuggested) {
+          const wabaName = result.data.wabaData?.name || wabaId;
+          const confirmMessage = `Found 1 unassigned WABA: "${wabaName}".\n\nIs this your WhatsApp Business Account?`;
+          const confirmed = window.confirm(confirmMessage);
+          
+          if (!confirmed) {
+            console.log('User rejected suggested WABA');
+            toast.info('WABA not assigned. You can manually assign it using the WABA ID.');
+            setLoading(false);
+            return;
+          }
+          
+          toast.info('Assigning suggested WABA...');
+        } else {
+          toast.success('Found your account! Saving...');
+        }
+
+        const saveWABADirect = httpsCallable(functions, 'saveWABADirect');
+        const saveResult = await saveWABADirect({
+          wabaId,
+          phoneNumberId: primaryPhone?.id || null,
+          phoneNumber: primaryPhone?.number || null,
+          embeddedData: { 
+            detected: true, 
+            detectionMethod: result.data.matchReason || 'manual_check',
+            isSuggested: result.data.isSuggested || false
+          }
         });
 
-        setFormData(prev => ({
-          ...prev,
-          whatsappBusinessAccountId: wabaId,
-          whatsappPhoneNumberId: primaryPhone?.id || null,
-          whatsappPhoneNumber: primaryPhone?.number || null,
-          whatsappEnabled: true,
-          whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
-          whatsappCreatedVia: 'embedded_signup',
-          whatsappPhoneRegistered: primaryPhone ? true : false,
-          whatsappPhoneVerificationStatus: primaryPhone?.verificationStatus || 'not_registered',
-          whatsappVerified: primaryPhone?.verificationStatus === 'VERIFIED' || false,
-        }));
+        if (saveResult.data?.success) {
+          // Refresh form data from Firestore
+          const userRef = doc(db, 'businesses', user.uid);
+          const snapshot = await getDoc(userRef);
+          if (snapshot.exists()) {
+            const updatedData = snapshot.data();
+            setFormData(prev => ({
+              ...prev,
+              whatsappBusinessAccountId: updatedData.whatsappBusinessAccountId,
+              whatsappPhoneNumberId: updatedData.whatsappPhoneNumberId,
+              whatsappPhoneNumber: updatedData.whatsappPhoneNumber,
+              whatsappEnabled: updatedData.whatsappEnabled || false,
+              whatsappProvider: WHATSAPP_PROVIDERS.META_TECH_PROVIDER,
+              whatsappCreatedVia: 'embedded_signup',
+              whatsappPhoneRegistered: updatedData.whatsappPhoneRegistered || false,
+              whatsappPhoneVerificationStatus: updatedData.whatsappPhoneVerificationStatus || 'pending',
+              whatsappVerified: updatedData.whatsappVerified || false,
+              whatsappAccountReviewStatus: updatedData.whatsappAccountReviewStatus || 'PENDING',
+            }));
+          }
 
-        // Fetch full status
-        setTimeout(() => fetchWABAStatus(), 1000);
-        toast.success('WhatsApp Business Account found and connected!');
-        setLoading(false);
+          // Fetch full status after a delay
+          setTimeout(() => fetchWABAStatus(), 2000);
+          toast.success('WhatsApp Business Account found and connected!');
+        } else {
+          throw new Error(saveResult.data?.message || 'Failed to save WABA');
+        }
       } else {
-        setLoading(false);
-        toast.info('No new account found. If you just completed setup, please wait a moment and try again.');
+        // Check if there are unassigned WABAs that could be manually assigned
+        if (result.data?.allWABAs && result.data.allWABAs.length > 0) {
+          const wabaList = result.data.allWABAs.map(w => `"${w.name || w.id}"`).join(', ');
+          const message = `Found ${result.data.allWABAs.length} unassigned WABA(s): ${wabaList}.\n\nWould you like to manually assign one?`;
+          const shouldAssign = window.confirm(message);
+          
+          if (shouldAssign) {
+            const wabaId = prompt(`Enter the WABA ID to assign:\n\nAvailable WABAs:\n${result.data.allWABAs.map(w => `- ${w.id} (${w.name || 'No name'})`).join('\n')}`);
+            if (wabaId && wabaId.trim()) {
+              try {
+                const saveWABADirect = httpsCallable(functions, 'saveWABADirect');
+                const saveResult = await saveWABADirect({
+                  wabaId: wabaId.trim(),
+                  embeddedData: { 
+                    detected: false, 
+                    detectionMethod: 'manual_assignment',
+                    assignedBy: user.uid
+                  }
+                });
+                
+                if (saveResult.data?.success) {
+                  toast.success('WABA assigned successfully!');
+                  // Refresh form data
+                  const userRef = doc(db, 'businesses', user.uid);
+                  const snapshot = await getDoc(userRef);
+                  if (snapshot.exists()) {
+                    const updatedData = snapshot.data();
+                    setFormData(prev => ({
+                      ...prev,
+                      whatsappBusinessAccountId: updatedData.whatsappBusinessAccountId,
+                      whatsappPhoneNumberId: updatedData.whatsappPhoneNumberId,
+                      whatsappPhoneNumber: updatedData.whatsappPhoneNumber,
+                      whatsappEnabled: updatedData.whatsappEnabled || false,
+                    }));
+                  }
+                  setTimeout(() => fetchWABAStatus(), 2000);
+                } else {
+                  throw new Error(saveResult.data?.message || 'Failed to assign WABA');
+                }
+              } catch (assignErr) {
+                console.error('Error assigning WABA:', assignErr);
+                toast.error('Failed to assign WABA: ' + assignErr.message);
+              }
+            }
+          }
+        } else {
+          toast.info('No new account found. If you just completed setup, please wait a moment and try again.');
+        }
       }
     } catch (err) {
-      console.error('Error checking for account:', err);
+      console.error('❌ Error checking for account:', err);
+      
+      // Check if it's a CORS error
+      if (err.message?.includes('CORS') || err.code === 'functions/cors-error' || err.message?.includes('Access-Control-Allow-Origin')) {
+        console.error('❌ CORS error detected. This might be a Firebase Functions configuration issue.');
+        setError('Connection error. Please refresh the page and try again.');
+        toast.error('Connection error. Please refresh the page and try again.');
+      } else {
+        setError('Failed to check for account. Please try again.');
+        toast.error('Failed to check for account: ' + (err.message || 'Unknown error'));
+      }
+    } finally {
       setLoading(false);
-      setError('Failed to check for account. Please try again.');
-      toast.error('Failed to check for account');
     }
   };
 

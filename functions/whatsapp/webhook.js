@@ -9,7 +9,8 @@ const admin = require("firebase-admin");
 const cors = require("cors")({ origin: true });
 
 // Webhook verification token (should match what you set in Meta)
-const WEBHOOK_VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "flyp_whatsapp_webhook_token";
+// Using unified token - same as tech provider webhook
+const WEBHOOK_VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "flyp_tech_provider_webhook_token";
 
 /**
  * Verify webhook subscription (required by Meta)

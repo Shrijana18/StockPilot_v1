@@ -89,6 +89,9 @@ exports.whatsappConnectCallback = whatsappConnect.whatsappConnectCallback;
 
 // WhatsApp Tech Provider (Embedded Signup Flow)
 const whatsappTechProvider = require("./whatsapp/techProvider");
+const whatsappEmbeddedSignupCallback = require("./whatsapp/embeddedSignupCallback");
+// Embedded Signup Callback (for Meta Embedded Signup redirect)
+exports.whatsappEmbeddedSignupCallback = whatsappEmbeddedSignupCallback.whatsappEmbeddedSignupCallback;
 // Messaging
 exports.sendMessageViaTechProvider = whatsappTechProvider.sendMessageViaTechProvider;
 // Webhook & Status (Required for Embedded Signup)
@@ -102,8 +105,11 @@ exports.saveWABADirect = whatsappTechProvider.saveWABADirect;
 exports.detectNewWABA = whatsappTechProvider.detectNewWABA;
 // Message Template Management (for Meta App Review)
 exports.createWhatsAppMessageTemplate = whatsappTechProvider.createWhatsAppMessageTemplate;
-// Note: Other flow functions (createClientWABA, createIndividualWABA, requestPhoneNumber, 
-// verifyPhoneOTP, checkPhoneRegistrationStatus) available but not exported - use Embedded Signup instead
+// Phone Verification (2FA) for Embedded Signup
+exports.verifyPhoneOTP = whatsappTechProvider.verifyPhoneOTP;
+exports.checkPhoneRegistrationStatus = whatsappTechProvider.checkPhoneRegistrationStatus;
+// Note: Other flow functions (createClientWABA, createIndividualWABA, requestPhoneNumber) 
+// available but not exported - use Embedded Signup instead
 
 // ============================
 // Utility Modules (Internal use)
