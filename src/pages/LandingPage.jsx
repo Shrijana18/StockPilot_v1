@@ -36,6 +36,12 @@ const THEME = {
 const LOGOS = {
   hero: '/assets/flyp_logo.png',
 };
+const IMAGES = {
+  dashboardPreview: '/assets/distributor-dashboard.png',
+  retailerTracking: '/assets/retailer-tracking.png',
+  inventoryStudio: '/assets/inventory-studio.png',
+  employeeManagement: '/assets/employee-management.png',
+};
 // Video intro removed - landing page loads immediately
 const styles = `
   @keyframes auroraShift { 0%{ background-position: 0% 50% } 50%{ background-position: 100% 50% } 100%{ background-position: 0% 50% } }
@@ -110,6 +116,8 @@ const LandingPage = () => {
   const [animationData, setAnimationData] = useState(null);
   const [themeMode, setThemeMode] = useState('dark'); // 'dark' | 'dusk'
   const [logoReady, setLogoReady] = useState(true); // Logo ready immediately, no video dependency
+  const [activeShowcase, setActiveShowcase] = useState(0);
+  const [showcasePaused, setShowcasePaused] = useState(false);
   
   // Book Demo Form State
   const [showDemoModal, setShowDemoModal] = useState(false);
@@ -669,6 +677,73 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
   };
   const resetTilt = (e) => { e.currentTarget.style.transform = 'perspective(900px) rotateX(0deg) rotateY(0deg)'; };
 
+  const productShowcases = [
+    {
+      id: 'territory',
+      title: 'Distributor Workspace',
+      subtitle: 'Territory-first operations for 100+ retailers',
+      description: 'A clean, high-performance command center built for scale. Visual territory coverage, live KPIs, and retailer activity in one workspace.',
+      bullets: [
+        'Territory mapping with retailer visibility',
+        'Live KPIs across branches and regions',
+        'Instant status updates and activity logs',
+        'Faster decision-making with unified view'
+      ],
+      image: IMAGES.dashboardPreview,
+      label: 'Distributor Workspace'
+    },
+    {
+      id: 'retailer-tracking',
+      title: 'Retailer Order Command Center',
+      subtitle: 'Track orders, payments, dues, and delivery status',
+      description: 'One place to create, accept, and track orders across 100+ retailers with live payment and credit visibility.',
+      bullets: [
+        'Order creation, acceptance, and tracking',
+        'Payment status, credit dues, and reminders',
+        'Delivery progress with live retailer updates',
+        'Top products and buying trends per retailer'
+      ],
+      image: IMAGES.retailerTracking,
+      label: 'Retailer Orders'
+    },
+    {
+      id: 'inventory-studio',
+      title: 'Digital Inventory Studio',
+      subtitle: 'Unlimited SKUs with a visual store',
+      description: 'Create and manage inventory at scale. Organize products visually, track locations, and push low-stock insights instantly.',
+      bullets: [
+        'Unlimited SKUs with instant search',
+        'Digital store layout and location tracking',
+        'Low-stock alerts and smart reorder insights',
+        'Fast product edits and bulk updates'
+      ],
+      image: IMAGES.inventoryStudio,
+      label: 'Inventory Studio'
+    },
+    {
+      id: 'employee-management',
+      title: 'Employee Operations',
+      subtitle: 'Assign tasks, track delivery, and measure performance',
+      description: 'Give each team member a focused workflow. Assign orders, track delivery progress, and keep accountability per employee.',
+      bullets: [
+        'Role-based access with individual logins',
+        'Order assignment and delivery tracking',
+        'Task queues per sales executive',
+        'Performance visibility by team member'
+      ],
+      image: IMAGES.employeeManagement,
+      label: 'Employee Ops'
+    }
+  ];
+
+  useEffect(() => {
+    if (prefersReducedMotion) return undefined;
+    const id = setInterval(() => {
+      if (showcasePaused) return;
+      setActiveShowcase((prev) => (prev + 1) % productShowcases.length);
+    }, 6500);
+    return () => clearInterval(id);
+  }, [prefersReducedMotion, showcasePaused, productShowcases.length]);
 
   return (
     <div className={`text-white min-h-screen aurora-bg anim-gradient grain bg-gradient-to-b ${THEME.bg} ${themeMode==='dusk' ? 'theme-dusk' : 'theme-dark'}`}>
@@ -840,6 +915,118 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
           <svg className="w-full h-full" viewBox="0 0 1440 96" preserveAspectRatio="none">
             <path d="M0,64 C240,32 480,96 720,64 C960,32 1200,0 1440,32 L1440,96 L0,96 Z" fill="rgba(255,255,255,0.03)" />
           </svg>
+        </div>
+      </section>
+
+      {/* Product Preview Section */}
+      <section
+        id="product-preview"
+        className="relative py-24 px-6 md:px-10 section-divider overflow-hidden"
+        onMouseEnter={() => setShowcasePaused(true)}
+        onMouseLeave={() => setShowcasePaused(false)}
+      >
+        <div aria-hidden className="absolute inset-0 opacity-70">
+          <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-emerald-400/10 blur-3xl" />
+          <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+        </div>
+        <motion.div
+          aria-hidden
+          className="absolute -top-16 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent blur-3xl"
+          animate={prefersReducedMotion ? { opacity: 0.35 } : { opacity: [0.35, 0.65, 0.35], scale: [1, 1.08, 1] }}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 8, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <div className="max-w-7xl mx-auto relative">
+          <div className="max-w-4xl space-y-6">
+            <div data-aos="fade-up" className="text-emerald-300/80 text-[11px] uppercase tracking-[0.22em]">Distributor Workspace</div>
+            <h2 data-aos="fade-up" data-aos-delay="50" className="text-4xl md:text-5xl font-extrabold">
+              A <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">live control room</span> for every distributor
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="100" className="text-white/70 text-lg leading-relaxed">
+              Beautifully designed workspaces that feel fast, clean, and intelligent. Switch between territory operations, retailer orders, inventory, and employee management instantly.
+            </p>
+          </div>
+
+          <div data-aos="fade-up" data-aos-delay="150" className="mt-8 flex flex-wrap gap-3">
+            {productShowcases.map((item, index) => (
+              <button
+                key={item.id}
+                onClick={() => setActiveShowcase(index)}
+                className={`px-4 py-2 rounded-full text-sm border transition-all ${
+                  activeShowcase === index
+                    ? 'bg-emerald-400/15 border-emerald-300/50 text-emerald-100 shadow-[0_10px_30px_rgba(16,185,129,0.25)]'
+                    : 'border-white/10 text-white/60 hover:text-white hover:border-white/30'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 h-1 w-full max-w-md rounded-full bg-white/10 overflow-hidden">
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300"
+              initial={false}
+              animate={{ width: `${((activeShowcase + 1) / productShowcases.length) * 100}%` }}
+              transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+            />
+          </div>
+
+          <div className="mt-10 grid lg:grid-cols-[0.9fr,1.6fr] gap-10 items-center">
+            <motion.div
+              key={productShowcases[activeShowcase].id}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
+              className="space-y-6"
+            >
+              <div className="text-xs uppercase tracking-[0.24em] text-emerald-300/70">
+                {String(activeShowcase + 1).padStart(2, '0')} / {String(productShowcases.length).padStart(2, '0')}
+              </div>
+              <h3 className="text-3xl md:text-4xl font-extrabold text-white">
+                {productShowcases[activeShowcase].title}
+              </h3>
+              <p className="text-emerald-200/80 text-base md:text-lg font-medium">
+                {productShowcases[activeShowcase].subtitle}
+              </p>
+              <p className="text-white/70 text-base leading-relaxed">
+                {productShowcases[activeShowcase].description}
+              </p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {productShowcases[activeShowcase].bullets.map((item) => (
+                  <div key={item} className={`flex items-start gap-3 p-4 rounded-2xl ${THEME.card}`}>
+                    <span className="text-emerald-400 mt-1">✓</span>
+                    <span className="text-white/80 text-sm">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+            <motion.div
+              key={`${productShowcases[activeShowcase].id}-image`}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
+              className="relative flex justify-center lg:justify-end lg:-mr-6"
+            >
+              <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-emerald-400/10 via-transparent to-cyan-400/10 blur-3xl" />
+              <div
+                className="relative will-change-transform"
+                onMouseMove={handleTilt}
+                onMouseLeave={resetTilt}
+              >
+                <motion.div
+                  animate={prefersReducedMotion ? { y: 0 } : { y: [0, -10, 0] }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 6, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <img
+                    src={productShowcases[activeShowcase].image}
+                    alt={productShowcases[activeShowcase].title}
+                    className="w-full max-w-7xl h-auto object-contain"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </motion.div>
+              </div>
+            </motion.div>
+          </div>
         </div>
       </section>
 
