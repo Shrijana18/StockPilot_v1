@@ -7,6 +7,7 @@
 import { doc, getDoc, updateDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore';
 import { db, functions } from '../firebase/firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
+import { WHATSAPP_WEBHOOK_VERIFY_TOKEN } from '../config/whatsappConfig';
 
 // WhatsApp Business API Configuration
 const WHATSAPP_PROVIDERS = {
@@ -881,12 +882,12 @@ export function getWebhookUrl() {
  */
 export async function getWebhookSetupInstructions(distributorId) {
   const config = await getWhatsAppConfig(distributorId);
-  if (!config || config.provider !== WHATSAPP_PROVIDERS.META) {
+  if (!config || ![WHATSAPP_PROVIDERS.META, WHATSAPP_PROVIDERS.META_TECH_PROVIDER].includes(config.provider)) {
     return { error: 'Meta API not configured' };
   }
 
   const webhookUrl = getWebhookUrl();
-  const verifyToken = 'flyp_whatsapp_webhook_token'; // Should match functions/whatsapp/webhook.js
+  const verifyToken = WHATSAPP_WEBHOOK_VERIFY_TOKEN; // Must match functions/whatsapp/webhook.js
 
   return {
     instructions: [

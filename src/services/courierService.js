@@ -240,5 +240,3 @@ export async function sendDeliveryTrackingUpdate(distributorId, order, trackingD
   });
 }
 
-export { COURIER_PROVIDERS };
-

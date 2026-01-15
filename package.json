@@ -9,6 +9,11 @@
     "autoprefixer": "^10.4.21",
     "cypress": "^14.5.3",
     "esbuild": "^0.25.9",
+    "eslint": "^9.39.2",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.26",
     "postcss": "^8.5.6",
     "rollup": "^4.50.1",
     "tailwindcss": "^3.4.17",
@@ -18,7 +23,8 @@
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview",
-    "start": "vite"
+    "start": "vite",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",

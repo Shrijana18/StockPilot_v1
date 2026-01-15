@@ -6,7 +6,7 @@
 import React from "react";
 import { 
   FaWhatsapp, FaSpinner, FaCheckCircle, FaExclamationCircle, 
-  FaTimes, FaPhone, FaShieldVirus, FaBuilding, FaInfoCircle,
+  FaTimes, FaPhone, FaShieldVirus, FaBuilding, FaInfoCircle, FaExclamationTriangle,
   FaVideo
 } from "react-icons/fa";
 

@@ -125,7 +125,10 @@ service cloud.firestore {
         && isEmailVerified()
         && request.resource.data.ownerId == resource.data.ownerId
         && emailUnchanged(request.resource.data)
-        && (!('phone' in request.resource.data) || isValidPhoneFormat(request.resource.data.phone));
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['phone'])
+          || isValidPhoneFormat(request.resource.data.phone)
+        );
 
       // Allow territory management (add/update/remove) - distributors can manage their territories at any time
       // Supports both old single territory format and new multiple territories array format

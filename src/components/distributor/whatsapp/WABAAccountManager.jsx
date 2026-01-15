@@ -26,6 +26,7 @@ import {
   FaLink
 } from 'react-icons/fa';
 import EmbeddedSignup from './EmbeddedSignup';
+import { META_APP_ID } from '../../../config/whatsappConfig';
 
 const WABAAccountManager = ({ onWABAChange }) => {
   const [loading, setLoading] = useState(false);
@@ -333,7 +334,7 @@ const WABAAccountManager = ({ onWABAChange }) => {
         icon={FaBuilding}
         status={setupStatus?.status?.credentials?.systemUserTokenConfigured ? 'complete' : 'error'}
         details={{
-          'App ID': setupStatus?.status?.credentials?.appId || '1902565950686087',
+          'App ID': setupStatus?.status?.credentials?.appId || META_APP_ID,
           'System User Token': setupStatus?.status?.credentials?.systemUserTokenConfigured ? '✅ Configured' : '❌ Missing',
           'Business Manager ID': setupStatus?.status?.credentials?.businessManagerId || '1337356574811477',
         }}

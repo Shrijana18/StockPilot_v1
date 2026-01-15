@@ -34,6 +34,8 @@ const Field = React.forwardRef(
   }
 );
 
+Field.displayName = "Field";
+
 const steps = [
   { label: "Brand & Category" },
   { label: "Product Types & Quantity" },

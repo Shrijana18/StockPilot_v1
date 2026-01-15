@@ -148,13 +148,14 @@ exports.saveWABADirect = onCall(
       }
 
       // Step 3: Save WABA data to Firestore
+      const createdVia = embeddedData?.manualEntry ? "manual_entry" : "embedded_signup";
       const wabaData = {
         whatsappBusinessAccountId: wabaId,
         whatsappPhoneNumberId: phoneNumberId || null,
         whatsappPhoneNumber: phoneNumber || null,
         whatsappProvider: "meta_tech_provider",
         whatsappEnabled: true,
-        whatsappCreatedVia: "embedded_signup",
+        whatsappCreatedVia: createdVia,
         whatsappCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
         // If registration succeeded, mark as registered. If pending PIN, leave as pending/not_registered
         whatsappPhoneRegistered: registrationSuccess,

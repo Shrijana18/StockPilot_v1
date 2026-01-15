@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { doc, onSnapshot, getDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db, functions, auth } from "../../../firebase/firebaseConfig";
 import { httpsCallable } from "firebase/functions";
 import { toast } from "react-toastify";
@@ -15,16 +15,7 @@ import {
   FaShieldVirus, FaRocket, FaUsers, FaBullhorn, FaChartBar, FaLock
 } from "react-icons/fa";
 import WhatsAppStatus from "./WhatsAppStatus";
-
-// Meta Embedded Signup Configuration
-const APP_ID = "1902565950686087";
-const CONFIG_ID = "844028501834041";
-
-// IMPORTANT: This must match the Cloud Function URL you deployed
-const REDIRECT_URI = "https://us-central1-stockpilotv1.cloudfunctions.net/whatsappEmbeddedSignupCallback";
-
-// Base URL for Embedded Signup
-const EMBEDDED_SIGNUP_URL = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=${APP_ID}&config_id=${CONFIG_ID}&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D`;
+import { EMBEDDED_SIGNUP_URL, WHATSAPP_EMBEDDED_SIGNUP_REDIRECT_URI } from "../../../config/whatsappConfig";
 
 const WhatsAppConnection = ({ user, formData, setFormData }) => {
   const [loading, setLoading] = useState(false);
@@ -37,6 +28,13 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
   const [pinInput, setPinInput] = useState("");
   const [pendingWabaData, setPendingWabaData] = useState(null);
   const [submittingPin, setSubmittingPin] = useState(false);
+  
+  // Manual entry states
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualWabaId, setManualWabaId] = useState("");
+  const [manualPhoneNumberId, setManualPhoneNumberId] = useState("");
+  const [manualPhoneNumber, setManualPhoneNumber] = useState("");
+  const [savingManual, setSavingManual] = useState(false);
 
   const popupRef = useRef(null);
   const postMessageReceivedRef = useRef(false);
@@ -305,6 +303,68 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
     }
   };
 
+  const handleManualSave = async () => {
+    if (!user) {
+      toast.error("Please log in to continue");
+      return;
+    }
+    if (!manualWabaId.trim()) {
+      toast.error("WABA ID is required");
+      return;
+    }
+
+    setSavingManual(true);
+    try {
+      const saveWABADirect = httpsCallable(functions, "saveWABADirect");
+      const requestData = {
+        wabaId: manualWabaId.trim(),
+        phoneNumberId: manualPhoneNumberId.trim() || null,
+        phoneNumber: manualPhoneNumber.trim() || null,
+        embeddedData: {
+          manualEntry: true,
+        },
+      };
+
+      const result = await saveWABADirect(requestData);
+
+      if (result.data?.requirePin) {
+        setPendingWabaData(requestData);
+        setShowManualModal(false);
+        setShowPinModal(true);
+        toast.info("Two-step verification PIN required.");
+        return;
+      }
+
+      if (result.data?.success) {
+        setFormData(prev => ({
+          ...prev,
+          whatsappBusinessAccountId: result.data.wabaId,
+          whatsappPhoneNumberId: result.data.phoneNumberId,
+          whatsappPhoneNumber: result.data.phoneNumber,
+          whatsappEnabled: true,
+          whatsappProvider: "meta_tech_provider",
+          whatsappCreatedVia: "manual_entry",
+          whatsappPhoneRegistered: !!result.data.phoneNumberId,
+          whatsappPhoneVerificationStatus: result.data.phoneNumberId ? "pending" : "not_registered",
+          whatsappVerified: false,
+          whatsappAccountReviewStatus: "PENDING",
+        }));
+
+        toast.success("WhatsApp details saved. Fetching status...");
+        setShowManualModal(false);
+        setManualWabaId("");
+        setManualPhoneNumberId("");
+        setManualPhoneNumber("");
+        setTimeout(() => fetchWABAStatus(), 1000);
+      }
+    } catch (err) {
+      console.error("Manual save failed:", err);
+      toast.error("Failed to save WhatsApp details. Please try again.");
+    } finally {
+      setSavingManual(false);
+    }
+  };
+
   // Open Meta Embedded Signup
   const handleConnect = async () => {
     if (!user) {
@@ -324,7 +384,7 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
         type: 'embedded_signup',
       });
 
-      const signupUrl = `${EMBEDDED_SIGNUP_URL}&state=${sessionId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+      const signupUrl = `${EMBEDDED_SIGNUP_URL}&state=${sessionId}&redirect_uri=${encodeURIComponent(WHATSAPP_EMBEDDED_SIGNUP_REDIRECT_URI)}`;
       
       console.log('🔗 Opening Signup URL with Redirect:', REDIRECT_URI);
 
@@ -504,6 +564,69 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* MANUAL ENTRY MODAL */}
+      <AnimatePresence>
+        {showManualModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/95 rounded-2xl p-6"
+          >
+            <div className="w-full max-w-md text-center">
+              <div className="mx-auto w-12 h-12 bg-blue-500/20 rounded-full flex items-center justify-center mb-4 border border-blue-500/50">
+                <FaInfoCircle className="text-blue-400 text-xl" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Enter WhatsApp Details</h3>
+              <p className="text-sm text-gray-400 mb-6">
+                If you already created your WABA, paste the details from Meta Business Manager.
+              </p>
+              
+              <div className="space-y-3 text-left">
+                <input
+                  type="text"
+                  value={manualWabaId}
+                  onChange={(e) => setManualWabaId(e.target.value)}
+                  placeholder="WABA ID (required)"
+                  className="w-full bg-slate-800 border border-white/20 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <input
+                  type="text"
+                  value={manualPhoneNumberId}
+                  onChange={(e) => setManualPhoneNumberId(e.target.value)}
+                  placeholder="Phone Number ID (optional)"
+                  className="w-full bg-slate-800 border border-white/20 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <input
+                  type="text"
+                  value={manualPhoneNumber}
+                  onChange={(e) => setManualPhoneNumber(e.target.value)}
+                  placeholder="Phone Number (optional)"
+                  className="w-full bg-slate-800 border border-white/20 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowManualModal(false)}
+                  className="flex-1 px-4 py-2 bg-slate-700 text-gray-300 rounded-lg hover:bg-slate-600 transition"
+                  disabled={savingManual}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleManualSave}
+                  disabled={savingManual}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingManual ? <FaSpinner className="animate-spin" /> : "Save Details"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="text-center mb-8">
         <motion.div
@@ -665,6 +788,16 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
                 <span>Check for My Account</span>
               </>
             )}
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setShowManualModal(true)}
+            disabled={loading}
+            className="w-full mt-3 bg-slate-700 hover:bg-slate-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-3"
+          >
+            <FaInfoCircle />
+            <span>Enter Details Manually</span>
           </motion.button>
         </motion.div>
       )}

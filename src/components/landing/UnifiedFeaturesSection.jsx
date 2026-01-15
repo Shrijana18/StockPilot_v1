@@ -185,7 +185,6 @@ const UnifiedFeaturesSection = ({ features, lottieAnimations }) => {
                     : 'border-white/5 hover:border-white/15 hover:bg-white/[0.04]'
                 }`}
                 whileHover={{ y: -8 }}
-                transition={{ type: "spring", stiffness: 300, damping: 30 }}
               >
                 {feature.badge && (
                   <span className={`absolute top-3 right-3 text-[9px] uppercase tracking-wider px-2 py-1 rounded-full border ${
