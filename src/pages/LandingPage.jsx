@@ -779,6 +779,24 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
     return () => clearInterval(id);
   }, [prefersReducedMotion, showcasePaused, productShowcases.length]);
 
+  // Preload all dashboard images for instant display
+  useEffect(() => {
+    const preloadImages = [
+      IMAGES.retailerDashboard,
+      IMAGES.distributorDashboardHero,
+      IMAGES.productOwnerDashboard,
+      ...productShowcases.map(item => item.image),
+    ];
+    
+    preloadImages.forEach(src => {
+      const link = document.createElement('link');
+      link.rel = 'preload';
+      link.as = 'image';
+      link.href = src;
+      document.head.appendChild(link);
+    });
+  }, []);
+
   return (
     <div className={`text-white min-h-screen aurora-bg anim-gradient grain bg-gradient-to-b ${THEME.bg} ${themeMode==='dusk' ? 'theme-dusk' : 'theme-dark'}`}>
       <div aria-hidden className="fixed inset-0 -z-10 bg-[#020617]" />
@@ -789,6 +807,7 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
             src={LOGOS.hero}
             alt="FLYP"
             loading="eager"
+            fetchPriority="high"
             className="navbar-logo select-none"
           />
         </Link>
@@ -1090,8 +1109,9 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
                           src={item.image}
                           alt={item.title}
                           className="relative w-full h-auto object-contain drop-shadow-[0_60px_160px_rgba(0,0,0,0.7)]"
-                          loading="lazy"
+                          loading={index === 1 ? "eager" : "eager"}
                           decoding="async"
+                          fetchPriority={index === 1 ? "high" : "high"}
                         />
                       </motion.div>
 
