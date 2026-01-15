@@ -41,6 +41,9 @@ const IMAGES = {
   retailerTracking: '/assets/retailer-tracking.png',
   inventoryStudio: '/assets/inventory-studio.png',
   employeeManagement: '/assets/employee-management.png',
+  retailerDashboard: '/assets/retailer-dashboard.png',
+  distributorDashboardHero: '/assets/Distri_dash.png',
+  productOwnerDashboard: '/assets/po-dash.png',
 };
 // Video intro removed - landing page loads immediately
 const styles = `
@@ -249,7 +252,7 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
   // Video intro removed
 
   // --- Headline kinetic words, scrollytelling state, metrics counters ---
-  const words = ['Built to Fly', 'Inventory that Thinks', 'Analytics that Act', 'Stop running your business start flying it', 'Automate Everything', 'Billing in Seconds'];
+  const words = ['Built to Fly', 'Inventory that Thinks', 'Analytics that Act', 'Automate Everything', 'Billing in Seconds'];
   const [wordIndex, setWordIndex] = useState(0);
   const [metrics, setMetrics] = useState({ hours: 0, accuracy: 0, growth: 0 });
   const [isYearly, setIsYearly] = useState(false); // pricing toggle
@@ -318,6 +321,9 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
   const [voiceDisplayTotal, setVoiceDisplayTotal] = useState(0);
   const [truck, setTruck] = useState({ x: 0, y: 0, angle: 0 });
   const pathPercents = [0.10, 0.52, 0.92]; // Product Owner, Distributor, Retailer
+
+  // Connected dashboards focus state
+  const [activeRoleDashboard, setActiveRoleDashboard] = useState(1);
 
   // Analytics section refs/state
   const analyticsRef = React.useRef(null);
@@ -736,6 +742,34 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
     }
   ];
 
+  const roleDashboards = [
+    {
+      id: 'retailer',
+      title: 'Retailer',
+      subtitle: 'Intelligent point-of-sale intelligence',
+      description: 'AI transforms your retail counter into a strategic command center. Real-time analytics and predictive insights drive decisions at the moment of sale.',
+      features: ['Predictive credit risk analysis', 'Voice-activated billing workflows', 'Customer lifetime value insights'],
+      image: IMAGES.retailerDashboard,
+    },
+    {
+      id: 'distributor',
+      title: 'Distributor',
+      subtitle: 'Network orchestration at enterprise scale',
+      description: 'Command your entire distribution network from one intelligence hub. Multi-territory visibility and automated orchestration across 100+ retail partners.',
+      features: ['AI-driven territory optimization', 'Automated order fulfillment pipeline', 'Real-time payment reconciliation'],
+      image: IMAGES.distributorDashboardHero,
+      highlight: true,
+    },
+    {
+      id: 'product-owner',
+      title: 'Product Owner',
+      subtitle: 'End-to-end supply chain command',
+      description: 'Master your product lifecycle with complete visibility. Network-wide analytics and predictive forecasting ensure optimal flow across your ecosystem.',
+      features: ['Predictive demand forecasting', 'Network-wide performance analytics', 'Intelligent inventory allocation'],
+      image: IMAGES.productOwnerDashboard,
+    },
+  ];
+
   useEffect(() => {
     if (prefersReducedMotion) return undefined;
     const id = setInterval(() => {
@@ -915,6 +949,177 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
           <svg className="w-full h-full" viewBox="0 0 1440 96" preserveAspectRatio="none">
             <path d="M0,64 C240,32 480,96 720,64 C960,32 1200,0 1440,32 L1440,96 L0,96 Z" fill="rgba(255,255,255,0.03)" />
           </svg>
+        </div>
+      </section>
+
+      {/* Role Dashboards Section */}
+      <section id="role-dashboards" className="relative py-28 px-6 md:px-10 section-divider overflow-hidden">
+        <div aria-hidden className="absolute inset-0">
+          <div className="absolute -top-24 left-10 h-72 w-72 rounded-full bg-emerald-400/10 blur-3xl" />
+          <div className="absolute -bottom-28 right-10 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+        </div>
+        <motion.div
+          aria-hidden
+          className="absolute inset-x-0 -top-16 h-24 bg-gradient-to-r from-transparent via-emerald-400/15 to-transparent blur-2xl"
+          animate={prefersReducedMotion ? { opacity: 0.3 } : { opacity: [0.3, 0.55, 0.3], scaleX: [0.9, 1.05, 0.9] }}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 7, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <div className="max-w-7xl mx-auto relative">
+          <div className="text-center max-w-2xl mx-auto mb-24">
+            <h2 data-aos="fade-up" className="text-5xl md:text-6xl font-semibold tracking-tight mb-6">
+              Three roles.<br />
+              <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">One supply chain</span>.
+            </h2>
+            <p data-aos="fade-up" data-aos-delay="50" className="text-white/60 text-lg leading-relaxed">
+              Connected in real time. Aligned across the network.
+            </p>
+          </div>
+
+          {/* Glossy water crystal statement */}
+          <motion.div
+            data-aos="fade-up"
+            data-aos-delay="100"
+            className="relative text-center mb-32"
+          >
+            <div className="relative inline-block">
+              {/* Water crystal glass effect background */}
+              <div className="absolute -inset-8 rounded-3xl bg-gradient-to-br from-white/5 via-white/10 to-white/5 backdrop-blur-xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]" 
+                style={{
+                  background: 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.1) 100%)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.1)',
+                }}
+              />
+              {/* Animated shimmer effect */}
+              <motion.div
+                className="absolute inset-0 rounded-3xl opacity-30"
+                animate={{
+                  background: [
+                    'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%)',
+                    'linear-gradient(90deg, transparent 100%, rgba(255,255,255,0.1) 50%, transparent 0%)',
+                  ],
+                }}
+                transition={{
+                  duration: 3,
+                  repeat: Infinity,
+                  ease: "linear",
+                }}
+                style={{
+                  backgroundPosition: ['0% 50%', '100% 50%'],
+                }}
+              />
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3, duration: 0.8 }}
+                className="relative px-12 py-8 text-3xl md:text-4xl lg:text-5xl font-light tracking-tight"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.95) 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  textShadow: '0 2px 20px rgba(255,255,255,0.3)',
+                  filter: 'drop-shadow(0 4px 12px rgba(16,185,129,0.2))',
+                }}
+              >
+                Stop running your business.{' '}
+                <span
+                  className="font-semibold"
+                  style={{
+                    background: 'linear-gradient(135deg, #34d399 0%, #2dd4bf 50%, #22d3ee 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    filter: 'drop-shadow(0 4px 16px rgba(16,185,129,0.4))',
+                  }}
+                >
+                  Start flying it.
+                </span>
+              </motion.p>
+            </div>
+          </motion.div>
+
+          <div className="relative" onMouseLeave={() => setActiveRoleDashboard(1)}>
+            <div className="grid gap-24 lg:grid-cols-3 max-w-7xl mx-auto">
+              {roleDashboards.map((item, index) => {
+                const isActive = activeRoleDashboard === index;
+                return (
+                  <motion.div
+                    key={item.id}
+                    data-aos="fade-up"
+                    data-aos-delay={120 + index * 80}
+                    initial={false}
+                    animate={{
+                      y: isActive ? -20 : 0,
+                      scale: isActive ? 1.08 : 1,
+                      opacity: isActive ? 1 : 0.6,
+                    }}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    onMouseEnter={() => setActiveRoleDashboard(index)}
+                    onClick={() => setActiveRoleDashboard(index)}
+                    onFocus={() => setActiveRoleDashboard(index)}
+                    tabIndex={0}
+                    className={`relative outline-none cursor-pointer ${isActive ? 'z-10' : ''}`}
+                  >
+                    <div className="space-y-8">
+                      {/* Minimal header */}
+                      <div className="space-y-3">
+                        <div className="text-[10px] uppercase tracking-[0.3em] text-emerald-400/50">
+                          {String(index + 1).padStart(2, '0')}
+                        </div>
+                        <h3 className={`text-3xl md:text-4xl font-semibold tracking-tight ${isActive ? 'text-white' : 'text-white/60'}`}>
+                          {item.title}
+                        </h3>
+                        {item.highlight && (
+                          <div className="inline-block mt-2">
+                            <span className="text-[9px] uppercase tracking-[0.35em] px-2.5 py-1 rounded-full text-emerald-300/70 bg-emerald-400/5 border border-emerald-400/10">
+                              Core Hub
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Hero dashboard image */}
+                      <motion.div
+                        className="relative"
+                        initial={false}
+                        animate={{ scale: isActive ? 1.2 : 1 }}
+                        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+                      >
+                        <div aria-hidden className={`absolute -inset-20 rounded-[50px] blur-3xl transition-opacity duration-700 ${isActive ? 'opacity-60' : 'opacity-0'} bg-gradient-to-br from-emerald-400/20 via-transparent to-cyan-400/20`} />
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="relative w-full h-auto object-contain drop-shadow-[0_60px_160px_rgba(0,0,0,0.7)]"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      </motion.div>
+
+                      {/* Minimal, powerful description */}
+                      <div className="space-y-4">
+                        <p className={`text-base leading-relaxed ${isActive ? 'text-white/90' : 'text-white/50'} transition-colors duration-500`}>
+                          {item.description}
+                        </p>
+                        
+                        {/* Single key feature highlight */}
+                        {isActive && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="pt-4 border-t border-white/5"
+                          >
+                            <div className="text-xs uppercase tracking-[0.2em] text-emerald-400/60 mb-2">Key Capability</div>
+                            <div className="text-sm text-white/80">{item.features[0]}</div>
+                          </motion.div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2744,6 +2949,73 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
           100% {
             stroke-dashoffset: -200;
           }
+        }
+
+        .connection-flow {
+          position: absolute;
+          top: -1px;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, rgba(52,211,153,.7), rgba(34,211,238,.7), transparent);
+          filter: drop-shadow(0 0 12px rgba(34,211,238,0.4));
+          animation: flowPulse 3.6s ease-in-out infinite;
+        }
+        @keyframes flowPulse {
+          0% { transform: scaleX(0.75); opacity: 0.4; }
+          50% { transform: scaleX(1); opacity: 0.9; }
+          100% { transform: scaleX(0.75); opacity: 0.4; }
+        }
+
+        .role-card::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(600px 200px at 20% -20%, rgba(52,211,153,0.15), transparent 60%),
+                      radial-gradient(600px 200px at 80% 120%, rgba(34,211,238,0.12), transparent 60%);
+          opacity: 0.6;
+          pointer-events: none;
+        }
+        .dashboard-frame {
+          position: relative;
+          overflow: hidden;
+        }
+        .dashboard-aspect {
+          aspect-ratio: 16 / 9;
+          background: rgba(2, 6, 23, 0.4);
+        }
+        .dashboard-frame::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(120deg, rgba(255,255,255,0.05), rgba(255,255,255,0.0) 40%, rgba(255,255,255,0.08));
+          opacity: 0.6;
+          mix-blend-mode: screen;
+          pointer-events: none;
+          animation: glassSweep 6s ease-in-out infinite;
+        }
+        .dashboard-image {
+          transform: translateZ(0);
+          transition: transform 0.6s cubic-bezier(.2,.7,.3,1);
+        }
+        .role-card:hover .dashboard-image {
+          transform: scale(1.04);
+        }
+        @keyframes glassSweep {
+          0% { transform: translateX(-35%); opacity: 0.2; }
+          50% { transform: translateX(0); opacity: 0.6; }
+          100% { transform: translateX(35%); opacity: 0.2; }
+        }
+
+        .connection-flow-arc {
+          position: absolute;
+          left: 0;
+          right: 0;
+          top: 18px;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, rgba(52,211,153,.6), rgba(34,211,238,.6), transparent);
+          filter: drop-shadow(0 0 10px rgba(34,211,238,0.4));
+          animation: flowPulse 3.6s ease-in-out infinite;
         }
         
         /* Business card animations */
