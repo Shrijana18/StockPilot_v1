@@ -132,8 +132,8 @@
   }
 
   /* Prevent overscroll bounce on iOS and set dark background */
-  html, body {
-    background-color: #0B0F14;
+  html, body, #root {
+    background-color: #020617;
     overscroll-behavior-y: none;
     -webkit-overflow-scrolling: touch;
   }
