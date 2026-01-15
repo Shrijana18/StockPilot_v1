@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { getFirestore, collection, getDocs, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion, runTransaction, query, where } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import html2pdf from 'html2pdf.js';
@@ -15,6 +15,7 @@ import { getDistributorEmployeeSession } from "../../../utils/distributorEmploye
 import { empAuth } from "../../../firebase/firebaseConfig";
 import { deductStockOnAccept, releaseReservedStock } from "../../../services/stockManagement";
 import { toast } from "react-toastify";
+import { FiDownload, FiSearch } from "react-icons/fi";
 
 const OrderRequests = () => {
   const [orders, setOrders] = useState([]);
@@ -35,17 +36,17 @@ const OrderRequests = () => {
   const [lineEditsMap, setLineEditsMap] = useState({}); // { [orderId]: { [lineIndex]: { itemDiscountPct, gstRate, ... } } }
   const [mode, setMode] = useState('all'); // 'all' | 'active' | 'passive'
   const renderModeTabs = () => (
-    <div className="p-4 pt-0">
-      <div className="mb-3 inline-flex rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow">
+    <div className="mb-6">
+      <div className="inline-flex rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-lg p-1.5">
         {['all','active','passive'].map((m) => (
           <button
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`px-4 py-2 text-sm first:rounded-l-xl last:rounded-r-xl transition ${
+            className={`px-5 py-2.5 text-sm font-semibold first:rounded-l-xl last:rounded-r-xl transition-all duration-200 relative ${
               mode === m
-                ? 'bg-emerald-500 text-slate-900 font-semibold'
-                : 'bg-transparent text-white hover:bg-white/10'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/5'
             }`}
           >
             {m[0].toUpperCase() + m.slice(1)}
@@ -1334,78 +1335,87 @@ const OrderRequests = () => {
 
 if (loading) {
   return (
-    <div className="p-4 text-white">
-      <div className="space-y-3">
-        {[0,1,2].map(i => (
-          <div key={i} className="rounded-xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 animate-pulse shadow-xl">
-            <div className="px-5 py-3 flex items-center justify-between">
-              <div className="space-y-2 w-full">
-                <div className="h-4 bg-white/10 rounded w-1/3" />
-                <div className="flex gap-3">
-                  <div className="h-3 bg-white/10 rounded w-1/5" />
-                  <div className="h-3 bg-white/10 rounded w-1/6" />
-                  <div className="h-3 bg-white/10 rounded w-1/6" />
-                </div>
+    <div className="space-y-4">
+      {[0,1,2].map(i => (
+        <div key={i} className="rounded-2xl overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 animate-pulse shadow-lg">
+          <div className="px-6 py-5 flex items-center justify-between">
+            <div className="space-y-3 flex-1">
+              <div className="h-5 bg-white/10 rounded-lg w-1/4" />
+              <div className="flex gap-4">
+                <div className="h-3 bg-white/10 rounded w-1/6" />
+                <div className="h-3 bg-white/10 rounded w-1/5" />
+                <div className="h-3 bg-white/10 rounded w-1/6" />
               </div>
-              <div className="h-6 w-20 bg-white/10 rounded-full" />
             </div>
+            <div className="h-8 w-24 bg-white/10 rounded-xl" />
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   );
 }
 
 if (!loading && orders.length === 0) {
   return (
-    <div className="p-6">
-      <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl text-white p-6 text-center shadow-xl">
-        <div className="text-2xl">🧺</div>
-        <p className="mt-2 font-medium">No order requests yet</p>
-        <p className="text-white/70 text-sm">New orders from retailers will appear here.</p>
+    <div className="flex items-center justify-center py-16">
+      <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl text-white p-12 text-center shadow-2xl max-w-md">
+        <div className="text-5xl mb-4">📦</div>
+        <p className="text-xl font-bold text-white mb-2">No order requests yet</p>
+        <p className="text-white/60 text-sm">New orders from retailers will appear here</p>
       </div>
     </div>
   );
 }
 
   return (
-    <div className="p-0 space-y-4 text-white">
-      {/* Ensure all child elements are properly nested and closed */}
+    <div className="space-y-6 text-white">
+      {/* Mode Tabs */}
       {renderModeTabs()}
-      <div className="p-4 space-y-4">
-      {/* Export buttons */}
-      <div className="flex justify-end mb-4">
-        <div className="flex gap-2">
-          <button
+      
+      {/* Header with Export */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+        <div>
+          <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-emerald-200 to-cyan-300">Order Requests</h2>
+          <p className="text-white/60 text-sm mt-1.5 font-medium">Review and process new orders from retailers</p>
+        </div>
+        <div className="flex gap-3">
+          <motion.button
             onClick={handleExportAllCSV}
-            className="px-3 py-1 rounded-lg text-sm bg-white/10 border border-white/15 hover:bg-white/15 transition shadow-sm backdrop-blur-xl"
+            whileHover={{ scale: 1.02, y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all flex items-center gap-2.5 shadow-lg hover:shadow-xl"
             aria-label="Export visible orders as CSV"
           >
-            Export CSV (visible)
-          </button>
-          <button
+            <FiDownload className="w-4 h-4" />
+            Export CSV
+          </motion.button>
+          <motion.button
             onClick={handleExportAllExcel}
-            className="px-3 py-1 rounded-lg text-sm bg-white/10 border border-white/15 hover:bg-white/15 transition shadow-sm backdrop-blur-xl"
+            whileHover={{ scale: 1.02, y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all flex items-center gap-2.5 shadow-lg hover:shadow-xl"
             aria-label="Export visible orders as Excel"
           >
-            Export Excel (visible)
-          </button>
-      </div>
+            <FiDownload className="w-4 h-4" />
+            Export Excel
+          </motion.button>
+        </div>
       </div>
 
       {/* Filters container */}
-      <div className="rounded-xl p-3 sm:p-4 mb-4 flex flex-col gap-3 border border-white/10 bg-[#0B0F14]/90 supports-[backdrop-filter]:bg-[#0B0F14]/70 backdrop-blur-xl shadow-lg">
+      <div className="rounded-2xl p-6 flex flex-col gap-5 border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl">
         {/* First row: Search and Retailer dropdown */}
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+        <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
           {/* Search */}
-          <div className="flex-1">
+          <div className="flex-1 relative">
             <input
               type="text"
               placeholder="Search by Order ID, Retailer Name, Email, Phone, City, or Address"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
-              className="w-full px-3 py-2 rounded-lg text-sm bg-white/10 border border-white/20 placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+              className="w-full pl-11 pr-4 py-3 rounded-xl text-sm bg-white/10 border border-white/20 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm"
             />
+            <FiSearch className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50 pointer-events-none" />
           </div>
           {/* Retailer dropdown */}
           <div className="w-full sm:min-w-[200px]">
@@ -1465,48 +1475,60 @@ if (!loading && orders.length === 0) {
         </div>
         
         {/* Second row: Status filter buttons */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm text-white/70 font-medium mr-1">Status:</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-sm text-white/70 font-semibold uppercase tracking-wide">Filter by Status:</span>
           {['All', 'Requested', 'Quoted', 'Accepted', 'Rejected'].map((status) => {
             const active = statusFilter === status;
-            const base = 'px-4 py-1.5 rounded-lg text-sm font-medium border transition whitespace-nowrap';
-            const on = 'bg-emerald-500 text-slate-900 border-transparent shadow-[0_4px_12px_rgba(16,185,129,0.3)]';
-            const off = 'bg-white/10 text-white border-white/20 hover:bg-white/15 hover:border-white/30';
             return (
-              <button
+              <motion.button
                 key={status}
                 type="button"
-                className={`${base} ${active ? on : off}`}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`px-5 py-2.5 rounded-xl text-sm font-semibold border transition-all whitespace-nowrap ${
+                  active 
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-transparent shadow-lg shadow-emerald-500/30' 
+                    : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:border-white/20 hover:text-white'
+                }`}
                 onClick={() => setStatusFilter(status)}
               >
                 {status}
-              </button>
+              </motion.button>
             );
           })}
         </div>
       </div>
 
       {/* Order List */}
-      <div id="order-requests-content">
-        {filteredOrders.map((order, idx) => (
-          <motion.div
-            key={order.id}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.03, duration: 0.28, type: 'spring', damping: 20 }}
-            className="rounded-xl overflow-hidden mb-4 bg-white/5 backdrop-blur-xl border border-white/10 shadow-xl"
-          >
+      <div id="order-requests-content" className="space-y-5">
+        {filteredOrders.length === 0 ? (
+          <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl p-16 text-center shadow-xl">
+            <div className="text-6xl mb-5">📦</div>
+            <p className="text-2xl font-bold text-white mb-2">No orders found</p>
+            <p className="text-white/60 text-sm">Try adjusting your filters or search terms</p>
+          </div>
+        ) : (
+          filteredOrders.map((order, idx) => (
+            <motion.div
+              key={order.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.03, duration: 0.3, type: 'spring', stiffness: 100, damping: 15 }}
+              className="rounded-2xl overflow-hidden bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl border border-white/10 shadow-xl hover:shadow-2xl hover:border-white/20 transition-all duration-300"
+            >
             {/* Header row: retailer name, status badge */}
             <div
-              className="flex items-center justify-between px-5 py-3 cursor-pointer select-none hover:bg-white/5 transition"
+              className="flex items-center justify-between px-6 py-5 cursor-pointer select-none hover:bg-white/5 transition-all duration-200 border-b border-white/10"
               onClick={() => toggleOrder(order.id)}
             >
-              <div>
-                <div className="font-bold text-lg text-white">
-                  {order.retailerName || 'N/A'}
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="font-bold text-xl text-white">
+                    {order.retailerName || 'N/A'}
+                  </div>
                   {(order.retailerMode === 'passive' || order.mode === 'passive' || order.isProvisional || order.provisionalRetailerId) && (
-                    <span className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-400/30">
-                      passive
+                    <span className="rounded-full px-2.5 py-1 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                      Passive
                     </span>
                   )}
                 </div>
@@ -1552,17 +1574,17 @@ if (!loading && orders.length === 0) {
                   </span>
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-2">
+              <div className="flex flex-col items-end gap-3">
                 <span className={
-                  `px-2 py-1 rounded-full text-xs font-medium
+                  `px-3 py-1.5 rounded-xl text-xs font-bold
                   ${
                     (order.status === 'Requested' || order.statusCode === 'REQUESTED')
-                      ? 'bg-sky-400/15 text-sky-300'
+                      ? 'bg-blue-500/20 text-blue-300 border border-blue-400/30'
                       : (order.status === 'Accepted' || order.statusCode === 'ACCEPTED')
-                      ? 'bg-emerald-400/15 text-emerald-300'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
                       : (order.status === 'Rejected' || order.statusCode === 'REJECTED')
-                      ? 'bg-rose-400/15 text-rose-300'
-                      : 'bg-white/10 text-white/80'
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-400/30'
+                      : 'bg-white/10 text-white/80 border border-white/20'
                   }
                   `
                 }>
@@ -1575,44 +1597,50 @@ if (!loading && orders.length === 0) {
                   <span className="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-400/20">Direct</span>
                 )}
                 {/* Quick actions in header */}
-                <div className="flex gap-2">
-                  <button
+                <div className="flex gap-2.5">
+                  <motion.button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); if (order.status === 'Requested') handleStatusUpdate(order.id, 'Accepted', null, isDirect(order), chargesDraftMap[order.id]); }}
                     disabled={order.status !== 'Requested'}
-                    className={`rounded-full px-3 py-0.5 text-xs font-medium transition ${
+                    whileHover={order.status === 'Requested' ? { scale: 1.05 } : {}}
+                    whileTap={order.status === 'Requested' ? { scale: 0.95 } : {}}
+                    className={`rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
                       order.status !== 'Requested'
-                        ? 'bg-white/10 text-white/40 cursor-not-allowed'
-                        : 'bg-emerald-500/90 text-slate-900 hover:bg-emerald-400'
+                        ? 'bg-white/5 text-white/30 cursor-not-allowed border border-white/10'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg hover:shadow-emerald-500/30'
                     }`}
                     aria-label="Quick accept order"
                   >
                     Accept
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); if (order.status === 'Requested') openRejectModal(order.id); }}
                     disabled={order.status !== 'Requested'}
-                    className={`rounded-full px-3 py-0.5 text-xs font-medium transition ${
+                    whileHover={order.status === 'Requested' ? { scale: 1.05 } : {}}
+                    whileTap={order.status === 'Requested' ? { scale: 0.95 } : {}}
+                    className={`rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
                       order.status !== 'Requested'
-                        ? 'bg-white/10 text-white/40 cursor-not-allowed'
-                        : 'bg-rose-600 text-white hover:bg-rose-700'
+                        ? 'bg-white/5 text-white/30 cursor-not-allowed border border-white/10'
+                        : 'bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:shadow-lg hover:shadow-rose-500/30'
                     }`}
                     aria-label="Quick reject order"
                   >
                     Reject
-                  </button>
+                  </motion.button>
                 </div>
-                <button
-                  className="text-xs text-emerald-300 underline focus:outline-none"
+                <motion.button
+                  className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold focus:outline-none transition-colors"
                   aria-expanded={expandedOrderIds.includes(order.id)}
                   onClick={() => toggleOrder(order.id)}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-1.5">
                     <span>{expandedOrderIds.includes(order.id) ? 'Hide Details' : 'Show Details'}</span>
-                    <span className={`transition-transform ${expandedOrderIds.includes(order.id) ? 'rotate-180' : ''}`}>▾</span>
+                    <span className={`transition-transform duration-200 ${expandedOrderIds.includes(order.id) ? 'rotate-180' : ''}`}>▾</span>
                   </span>
-                </button>
+                </motion.button>
               </div>
             </div>
 
@@ -2391,29 +2419,33 @@ if (!loading && orders.length === 0) {
                   </button>
                 </div>
                 {/* Accept/Reject Buttons */}
-                <div className="mt-4 flex gap-2">
-                  <button
+                <div className="mt-5 flex gap-3">
+                  <motion.button
                     disabled={order.status !== 'Requested'}
                     onClick={() => handleStatusUpdate(order.id, 'Accepted', null, isDirect(order), chargesDraftMap[order.id])}
-                    className={`rounded-full px-4 py-1 font-medium text-sm transition ${
+                    whileHover={order.status === 'Requested' ? { scale: 1.02, y: -1 } : {}}
+                    whileTap={order.status === 'Requested' ? { scale: 0.98 } : {}}
+                    className={`rounded-xl px-6 py-2.5 font-semibold text-sm transition-all ${
                       order.status !== 'Requested'
                         ? 'bg-white/10 text-white/40 cursor-not-allowed'
-                        : 'text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)]'
+                        : 'text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:shadow-xl hover:shadow-emerald-500/30'
                     }`}
                   >
                     Accept
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
                     disabled={order.status !== 'Requested'}
                     onClick={() => openRejectModal(order.id)}
-                    className={`rounded-full px-4 py-1 font-medium text-sm transition ${
+                    whileHover={order.status === 'Requested' ? { scale: 1.02, y: -1 } : {}}
+                    whileTap={order.status === 'Requested' ? { scale: 0.98 } : {}}
+                    className={`rounded-xl px-6 py-2.5 font-semibold text-sm transition-all ${
                       order.status !== 'Requested'
                         ? 'bg-white/10 text-white/40 cursor-not-allowed'
-                        : 'bg-rose-600 hover:bg-rose-700 text-white shadow'
+                        : 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 text-white shadow-lg hover:shadow-xl hover:shadow-rose-500/30'
                     }`}
                   >
                     Reject
-                  </button>
+                  </motion.button>
                 </div>
                 {order.rejectionNote && (
                   <p className="text-sm mt-2 text-rose-300"><strong>Reason:</strong> {order.rejectionNote}</p>
@@ -2421,44 +2453,83 @@ if (!loading && orders.length === 0) {
               </motion.div>
             )}
           </motion.div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Reject Modal */}
-      {showRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={closeRejectModal} />
-          <div className="relative w-full max-w-lg mx-4 rounded-xl border border-white/10 bg-[#0B0F14]/90 backdrop-blur-2xl text-white shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
-            <div className="px-5 py-4 border-b border-white/10">
-              <h3 className="text-lg font-semibold">Reject Order</h3>
-              <p className="text-sm text-white/70">Please provide a reason for rejection. This will be visible to the retailer.</p>
+      <AnimatePresence>
+        {showRejectModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+              onClick={closeRejectModal}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-lg mx-4 rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-2xl text-white shadow-2xl"
+            >
+            <div className="px-6 py-5 border-b border-white/10">
+              <h3 className="text-xl font-bold text-white mb-1.5">Reject Order</h3>
+              <p className="text-sm text-white/60">Please provide a reason for rejection. This will be visible to the retailer.</p>
             </div>
-            <div className="px-5 py-4">
-              <div className="mb-2 text-xs text-white/70">Quick reasons:</div>
-              <div className="flex flex-wrap gap-2 mb-4">
+            <div className="px-6 py-5">
+              <div className="mb-3 text-xs text-white/70 font-semibold uppercase tracking-wide">Quick reasons:</div>
+              <div className="flex flex-wrap gap-2 mb-5">
                 {['Out of stock','Incorrect pricing','Address mismatch','Credit overdue','Not serviceable','Duplicate request'].map((r) => (
-                  <button key={r} type="button" onClick={() => setRejectReason(r)} className="px-2.5 py-1 rounded-full border text-xs bg-white/10 border-white/20 hover:bg-white/15">
+                  <motion.button
+                    key={r}
+                    type="button"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setRejectReason(r)}
+                    className="px-3 py-1.5 rounded-lg border text-xs font-medium bg-white/5 border-white/20 hover:bg-white/10 hover:border-white/30 transition-all"
+                  >
                     {r}
-                  </button>
+                  </motion.button>
                 ))}
               </div>
-              <label className="block text-sm font-medium mb-1">Reason</label>
+              <label className="block text-sm font-semibold mb-2 text-white/90">Reason</label>
               <textarea
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 rows={4}
-                className="w-full rounded-md px-3 py-2 text-sm bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                className="w-full rounded-xl px-4 py-3 text-sm bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-rose-400/50 focus:border-rose-400/50 transition-all backdrop-blur-sm resize-none"
                 placeholder="Write the rejection reason..."
               />
             </div>
-            <div className="px-5 py-3 border-t border-white/10 flex justify-end gap-2 bg-white/5 rounded-b-xl">
-              <button onClick={closeRejectModal} className="px-4 py-2 text-sm rounded border bg-white/10 border-white/20 hover:bg-white/15">Cancel</button>
-              <button onClick={confirmReject} disabled={!rejectReason.trim()} className={`px-4 py-2 text-sm rounded ${rejectReason.trim() ? 'bg-rose-600 hover:bg-rose-700 text-white' : 'bg-white/10 text-white/40 cursor-not-allowed'}`}>Confirm Reject</button>
+            <div className="px-6 py-4 border-t border-white/10 flex justify-end gap-3 bg-white/5 rounded-b-2xl">
+              <motion.button
+                onClick={closeRejectModal}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-5 py-2.5 text-sm font-semibold rounded-xl border bg-white/10 border-white/20 hover:bg-white/15 transition-all"
+              >
+                Cancel
+              </motion.button>
+              <motion.button
+                onClick={confirmReject}
+                disabled={!rejectReason.trim()}
+                whileHover={rejectReason.trim() ? { scale: 1.02 } : {}}
+                whileTap={rejectReason.trim() ? { scale: 0.98 } : {}}
+                className={`px-5 py-2.5 text-sm font-semibold rounded-xl transition-all ${
+                  rejectReason.trim()
+                    ? 'bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 text-white shadow-lg shadow-rose-500/25'
+                    : 'bg-white/10 text-white/40 cursor-not-allowed'
+                }`}
+              >
+                Confirm Reject
+              </motion.button>
             </div>
+            </motion.div>
           </div>
-        </div>
-      )}
-      </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

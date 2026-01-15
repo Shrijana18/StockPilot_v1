@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { getFirestore, collection, onSnapshot, doc, updateDoc, getDoc, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { toast, ToastContainer } from 'react-toastify';
@@ -149,12 +150,28 @@ const PaymentMethodModal = ({ open, order, onClose, onConfirm }) => {
   const grandTotal = breakdown.grandTotal || 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div 
-        className="relative w-full max-w-2xl bg-gray-900/95 border border-white/20 rounded-2xl shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        >
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="relative w-full max-w-2xl bg-gradient-to-br from-slate-900/95 to-slate-950/95 border border-white/20 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/10">
           <div>
@@ -172,10 +189,10 @@ const PaymentMethodModal = ({ open, order, onClose, onConfirm }) => {
         {/* Content */}
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
           {/* Amount Display */}
-          <div className="text-center p-6 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-xl border border-emerald-500/30">
-            <p className="text-sm text-gray-400 mb-2">Amount to be Received</p>
-            <p className="text-4xl font-bold text-emerald-400">₹{grandTotal.toFixed(2)}</p>
-            <p className="text-sm text-gray-400 mt-2">Retailer: {order.retailerName || order.retailerBusinessName || 'N/A'}</p>
+          <div className="text-center p-6 bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 rounded-xl border border-emerald-500/30 shadow-lg shadow-emerald-500/10">
+            <p className="text-sm text-white/60 mb-2 font-medium">Amount to be Received</p>
+            <p className="text-4xl font-bold text-emerald-300">₹{grandTotal.toFixed(2)}</p>
+            <p className="text-sm text-white/70 mt-2">Retailer: <span className="font-semibold text-white/90">{order.retailerName || order.retailerBusinessName || 'N/A'}</span></p>
           </div>
 
           {/* Payment Method Selection */}
@@ -202,16 +219,18 @@ const PaymentMethodModal = ({ open, order, onClose, onConfirm }) => {
                   pink: 'bg-pink-500/20 text-pink-400'
                 };
                 return (
-                  <button
+                  <motion.button
                     key={method.code}
                     onClick={() => {
                       setSelectedMethod(method.code);
                       setTransactionId('');
                       setReference('');
                     }}
-                    className={`p-4 rounded-xl border-2 transition-all text-left ${
+                    whileHover={{ scale: 1.02, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`p-4 rounded-xl border-2 transition-all text-left shadow-md ${
                       isSelected
-                        ? colorClasses[method.color] || 'border-emerald-500 bg-emerald-500/20'
+                        ? `${colorClasses[method.color] || 'border-emerald-500 bg-emerald-500/20'} shadow-emerald-500/20`
                         : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
                     }`}
                   >
@@ -229,7 +248,7 @@ const PaymentMethodModal = ({ open, order, onClose, onConfirm }) => {
                         <FiCheck className={`w-5 h-5 ${iconColorClasses[method.color]?.split(' ')[1] || 'text-emerald-400'} flex-shrink-0`} />
                       )}
                     </div>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
@@ -251,7 +270,7 @@ const PaymentMethodModal = ({ open, order, onClose, onConfirm }) => {
                     value={transactionId}
                     onChange={(e) => setTransactionId(e.target.value)}
                     placeholder={method.placeholder || 'Enter transaction details'}
-                    className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all backdrop-blur-sm"
                   />
                 </div>
 
@@ -265,7 +284,7 @@ const PaymentMethodModal = ({ open, order, onClose, onConfirm }) => {
                       value={reference}
                       onChange={(e) => setReference(e.target.value)}
                       placeholder="Bank name, card type, etc."
-                      className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all backdrop-blur-sm"
                     />
                   </div>
                 )}
@@ -315,8 +334,10 @@ const PaymentMethodModal = ({ open, order, onClose, onConfirm }) => {
             )}
           </button>
         </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -1560,52 +1581,67 @@ const TrackOrders = () => {
       </div>
 
       {/* Filters */}
-      <div className="sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 supports-[backdrop-filter]:bg-[#0B0F14]/50 border border-white/15 rounded-xl p-3 sm:p-4 mb-3 sm:mb-4 flex flex-col lg:flex-row lg:items-center gap-3 sm:gap-4">
-        <input
-          type="text"
-          placeholder="Search by order ID, retailer, phone, email, etc."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="px-3 sm:px-4 py-2 rounded-lg w-full lg:w-1/2 bg-white/10 border border-white/15 placeholder-white/50 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/60 text-sm"
-        />
+      <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl p-4 mb-6 flex flex-col lg:flex-row lg:items-center gap-4">
+        <div className="relative flex-1 lg:max-w-md">
+          <input
+            type="text"
+            placeholder="Search by order ID, retailer, phone, email, etc."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 placeholder-white/50 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all text-sm backdrop-blur-sm"
+          />
+        </div>
         <input
           type="date"
           value={filterDate}
           onChange={(e) => setFilterDate(e.target.value)}
-          className="px-3 sm:px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 text-sm"
+          className="px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all text-sm backdrop-blur-sm"
         />
         {/* Mode filter */}
-        <div className="ml-auto inline-flex rounded-full bg-white/5 border border-white/15 overflow-hidden backdrop-blur-xl">
+        <div className="ml-auto inline-flex rounded-xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-xl p-1">
           {['all','active','passive'].map((m, i) => (
-            <button
+            <motion.button
               key={m}
               onClick={() => setMode(m)}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               className={
-                "px-3 py-2 font-medium text-xs transition focus:outline-none " +
-                (i>0 ? "border-l border-white/10 " : "") +
-                (mode===m ? "bg-cyan-400/25 text-cyan-200" : "text-white/70 hover:bg-white/5")
+                "px-4 py-2 font-semibold text-xs transition-all rounded-lg " +
+                (mode===m ? "bg-gradient-to-r from-cyan-500/30 to-blue-500/30 text-cyan-200 shadow-md" : "text-white/70 hover:bg-white/5")
               }
             >
               {m[0].toUpperCase()+m.slice(1)}
-            </button>
+            </motion.button>
           ))}
         </div>
       </div>
 
       {/* Section Toggle */}
-      <div className="inline-flex rounded-full bg-white/5 border border-white/15 overflow-hidden mb-4 backdrop-blur-xl">
-        <button onClick={() => setSectionAndHash('Out for Delivery')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none " + (activeSection==='Out for Delivery' ? "bg-emerald-500/20 text-emerald-200" : "text-white/70 hover:bg-white/5")}>
-          Out for Delivery ({outForDeliveryOrders.length})
-        </button>
-        <button onClick={() => setSectionAndHash('Payment Due')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " + (activeSection==='Payment Due' ? "bg-amber-500/20 text-amber-200" : "text-white/70 hover:bg-white/5")}>
-          Payment Due ({paymentDueOrders.length})
-        </button>
-        <button onClick={() => setSectionAndHash('Paid Orders')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " + (activeSection==='Paid Orders' ? "bg-sky-500/20 text-sky-200" : "text-white/70 hover:bg-white/5")}>
-          Paid Orders ({paidOrders.length})
-        </button>
-        <button onClick={() => setSectionAndHash('Quoted')} className={"px-4 py-2 font-medium text-sm transition focus:outline-none border-l border-white/10 " + (activeSection==='Quoted' ? "bg-amber-500/20 text-amber-200" : "text-white/70 hover:bg-white/5")}>
-          Quoted ({quotedOrders.length})
-        </button>
+      <div className="inline-flex rounded-2xl bg-gradient-to-br from-white/5 to-white/5 border border-white/10 overflow-hidden mb-6 backdrop-blur-xl shadow-lg p-1">
+        {[
+          { name: 'Out for Delivery', count: outForDeliveryOrders.length, color: 'emerald' },
+          { name: 'Payment Due', count: paymentDueOrders.length, color: 'amber' },
+          { name: 'Paid Orders', count: paidOrders.length, color: 'sky' },
+          { name: 'Quoted', count: quotedOrders.length, color: 'amber' }
+        ].map((section) => {
+          const isActive = activeSection === section.name;
+          const colorClasses = {
+            emerald: isActive ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/30 text-emerald-200 shadow-md' : 'text-white/70 hover:bg-white/5',
+            amber: isActive ? 'bg-gradient-to-r from-amber-500/30 to-orange-500/30 text-amber-200 shadow-md' : 'text-white/70 hover:bg-white/5',
+            sky: isActive ? 'bg-gradient-to-r from-sky-500/30 to-blue-500/30 text-sky-200 shadow-md' : 'text-white/70 hover:bg-white/5',
+          };
+          return (
+            <motion.button
+              key={section.name}
+              onClick={() => setSectionAndHash(section.name)}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`px-5 py-2.5 font-semibold text-sm transition-all rounded-xl ${colorClasses[section.color]}`}
+            >
+              {section.name} ({section.count})
+            </motion.button>
+          );
+        })}
       </div>
 
       {paymentDueOrders.length === 0 && paidOrders.length === 0 && outForDeliveryOrders.length === 0 && quotedOrders.length === 0 ? (
@@ -1619,8 +1655,14 @@ const TrackOrders = () => {
               {outForDeliveryOrders.length === 0 ? (
                 <div className="text-white/60 mb-6">No orders are currently out for delivery.</div>
               ) : (
-                outForDeliveryOrders.map((order) => (
-                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
+                outForDeliveryOrders.map((order, idx) => (
+                  <motion.div
+                    key={order.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.03, duration: 0.3, type: 'spring', stiffness: 100, damping: 15 }}
+                    className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition-all hover:shadow-2xl hover:border-white/20"
+                  >
                     {/* header */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
                       <div className="flex items-center gap-2">
@@ -1685,18 +1727,25 @@ const TrackOrders = () => {
                     {/* actions */}
                     <div className="px-4 pb-2 flex flex-col md:flex-row gap-2">
                       {(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid && (
-                        <button onClick={() => confirmCODPayment(order)} className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition flex items-center gap-2">
+                        <motion.button
+                          onClick={() => confirmCODPayment(order)}
+                          whileHover={{ scale: 1.02, y: -1 }}
+                          whileTap={{ scale: 0.98 }}
+                          className="rounded-xl px-5 py-2.5 font-semibold text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/30"
+                        >
                           <FiDollarSign className="w-4 h-4" />
                           Confirm Payment Received
-                        </button>
+                        </motion.button>
                       )}
-                      <button
+                      <motion.button
                         onClick={() => guardedMarkDelivered(order)}
-                        className={`rounded-lg px-4 py-2 font-medium text-white transition ${(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid ? 'bg-white/10 cursor-not-allowed' : 'bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-500'}`}
+                        whileHover={(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid ? {} : { scale: 1.02, y: -1 }}
+                        whileTap={(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid ? {} : { scale: 0.98 }}
+                        className={`rounded-xl px-5 py-2.5 font-semibold text-white transition-all ${(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid ? 'bg-white/10 cursor-not-allowed' : 'bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-500 shadow-lg shadow-sky-500/30'}`}
                         disabled={(order.paymentMethod === 'COD' || paymentUi(order).flags.isCOD) && !order.isPaid}
                       >
                         Mark Delivered
-                      </button>
+                      </motion.button>
                     </div>
 
                     {/* expand/collapse */}
@@ -2089,7 +2138,7 @@ const TrackOrders = () => {
                         </div>
                       </div>
                     )}
-                  </div>
+                  </motion.div>
                 ))
               )}
             </div>
@@ -2102,8 +2151,14 @@ const TrackOrders = () => {
               {paymentDueOrders.length === 0 ? (
                 <div className="text-white/60 mb-6">No payment due orders.</div>
               ) : (
-                paymentDueOrders.map((order) => (
-                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
+                paymentDueOrders.map((order, idx) => (
+                  <motion.div
+                    key={order.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.03, duration: 0.3, type: 'spring', stiffness: 100, damping: 15 }}
+                    className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition-all hover:shadow-2xl hover:border-white/20"
+                  >
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
@@ -2329,27 +2384,31 @@ const TrackOrders = () => {
                         {/* action */}
                         <div className="mt-4 flex flex-col md:flex-row gap-2 items-center">
                           {!order.isPaid && (
-                            <button
+                            <motion.button
                               onClick={() => openPaymentModal(order)}
-                              className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition flex items-center gap-2"
+                              whileHover={{ scale: 1.02, y: -1 }}
+                              whileTap={{ scale: 0.98 }}
+                              className="rounded-xl px-5 py-2.5 font-semibold text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-500 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/30"
                             >
                               <FiDollarSign className="w-4 h-4" />
                               Mark Credit as Paid
-                            </button>
+                            </motion.button>
                           )}
                           {order.status === 'Delivered' && (
-                            <button
+                            <motion.button
                               onClick={() => handleViewInvoice(order)}
                               disabled={loadingInvoice}
-                              className="rounded-lg px-4 py-2 font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-500 transition disabled:opacity-50"
+                              whileHover={!loadingInvoice ? { scale: 1.02, y: -1 } : {}}
+                              whileTap={!loadingInvoice ? { scale: 0.98 } : {}}
+                              className="rounded-xl px-5 py-2.5 font-semibold text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-500 transition-all disabled:opacity-50 shadow-lg shadow-blue-500/30"
                             >
                               {loadingInvoice ? 'Loading...' : 'View Invoice'}
-                            </button>
+                            </motion.button>
                           )}
                         </div>
                       </div>
                     )}
-                  </div>
+                  </motion.div>
                 ))
               )}
             </div>
@@ -2362,8 +2421,14 @@ const TrackOrders = () => {
               {paidOrders.length === 0 ? (
                 <div className="text-white/60 mb-6">No paid orders.</div>
               ) : (
-                paidOrders.map((order) => (
-                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
+                paidOrders.map((order, idx) => (
+                  <motion.div
+                    key={order.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.03, duration: 0.3, type: 'spring', stiffness: 100, damping: 15 }}
+                    className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition-all hover:shadow-2xl hover:border-white/20"
+                  >
                     {/* header */}
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
                       <div className="flex items-center gap-2">
@@ -2624,7 +2689,7 @@ const TrackOrders = () => {
                         )}
                       </div>
                     )}
-                  </div>
+                  </motion.div>
                 ))
               )}
             </div>
@@ -2637,8 +2702,14 @@ const TrackOrders = () => {
               {quotedOrders.length === 0 ? (
                 <div className="text-white/60 mb-6">No quoted orders.</div>
               ) : (
-                quotedOrders.map((order) => (
-                  <div key={order.id} className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition hover:bg-white/10">
+                quotedOrders.map((order, idx) => (
+                  <motion.div
+                    key={order.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.03, duration: 0.3, type: 'spring', stiffness: 100, damping: 15 }}
+                    className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl overflow-hidden mb-4 transition-all hover:shadow-2xl hover:border-white/20"
+                  >
                     <div className="flex justify-between items-center px-4 pt-4 pb-2">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-lg text-white">{order.retailerBusinessName || order.retailerName || order.retailer?.name || 'N/A'}</span>
@@ -2652,7 +2723,7 @@ const TrackOrders = () => {
                       <span><span className="font-medium text-white/80">Total:</span> ₹{(Array.isArray(order.items) ? order.items.reduce((s,it)=>s + (Number(it.quantity||0)*Number(it.price||it.unitPrice||0)),0) : 0).toFixed(2)}</span>
                       <span className="px-2 py-1 rounded-full bg-white/10 text-white/80 text-xs font-medium">Awaiting retailer acceptance</span>
                     </div>
-                  </div>
+                  </motion.div>
                 ))
               )}
             </div>

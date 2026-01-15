@@ -1,13 +1,12 @@
-const { onRequest, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
-const cors = require("cors")({ origin: true });
 
 // Attach Firebase secrets securely
 const MSG91_API_KEY = defineSecret("MSG91_API_KEY");
 
-// Firestore ref (single app initialized in index.js)
+// Firestore ref
 const db = admin.firestore();
 
 // Helper: normalize +91 numbers
@@ -17,71 +16,86 @@ const normalizeIN = (raw) => {
   return `+91${ten}`;
 };
 
-// ========== SEND OTP (Widget flow handles sending on the client) ==========
-exports.sendOtp = onRequest(
+// ========== SEND OTP ==========
+exports.sendOtp = onCall(
   { region: "us-central1", secrets: [MSG91_API_KEY] },
-  (req, res) => {
-    cors(req, res, async () => {
-      // Deprecated in widget flow. Keep a stub so old clients fail gracefully.
-      res.set("Access-Control-Allow-Origin", "*");
-      res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-      res.set("Access-Control-Allow-Headers", "Content-Type");
-      if (req.method === "OPTIONS") return res.status(204).end();
-      return res
-        .status(410)
-        .json({ error: "Use MSG91 OTP Widget on client; server only verifies access_token." });
-    });
+  async (request) => {
+    try {
+      const rawPhone = request.data?.phone;
+      if (!rawPhone) throw new HttpsError("invalid-argument", "Missing phone");
+
+      const e164 = normalizeIN(rawPhone);
+      // Remove + sign, keep country code (e.g., 919876543210)
+      const mobile = e164.replace("+", ""); 
+
+      const payload = {
+        authkey: MSG91_API_KEY.value(),
+        mobile: mobile,
+        otp_length: 6,
+        template_id: "6966924c16a75d490559f884" // Your correct Template ID
+      };
+
+      const resp = await fetch("https://control.msg91.com/api/v5/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const body = await resp.json().catch(() => ({}));
+      
+      // 🔍 DEBUG LOG: Check this in Google Cloud Logs if it fails!
+      console.log("[MSG91 Response]:", JSON.stringify(body));
+
+      if (!resp.ok || body.type === "error") {
+        throw new HttpsError("internal", body.message || "Failed to send OTP");
+      }
+      
+      return { success: true, message: "OTP sent successfully" };
+    } catch (err) {
+      console.error("[sendOtp] Error:", err);
+      throw new HttpsError("internal", err.message);
+    }
   }
 );
 
-// ========== VERIFY OTP via MSG91 Widget access_token (HTTP + CORS) ==========
-exports.verifyOtp = onRequest(
+// ========== VERIFY OTP ==========
+exports.verifyOtp = onCall(
   { region: "us-central1", secrets: [MSG91_API_KEY] },
-  (req, res) => {
-    cors(req, res, async () => {
-      try {
-        res.set("Access-Control-Allow-Origin", "*");
-        res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-        res.set("Access-Control-Allow-Headers", "Content-Type");
-        if (req.method === "OPTIONS") return res.status(204).end();
-        if (req.method !== "POST") return res.status(405).end();
+  async (request) => {
+    try {
+      const rawPhone = request.data?.phone;
+      const otp = request.data?.otp;
+      
+      if (!rawPhone || !otp) throw new HttpsError("invalid-argument", "Missing data");
 
-        const rawPhone = req.body?.phone || req.query?.phone;
-        const accessToken = req.body?.access_token || req.body?.accessToken;
-        if (!rawPhone) throw new HttpsError("invalid-argument", "Missing phone");
-        if (!accessToken) throw new HttpsError("invalid-argument", "Missing access_token");
+      const e164 = normalizeIN(rawPhone);
+      const mobile = e164.replace("+", ""); 
 
-        const e164 = normalizeIN(rawPhone);
+      // Verification uses GET request
+      const authKey = MSG91_API_KEY.value();
+      const url = `https://control.msg91.com/api/v5/otp/verify?authkey=${authKey}&mobile=${mobile}&otp=${otp}`;
 
-        // Verify access token with MSG91 Widget API
-        const resp = await fetch("https://control.msg91.com/api/v5/widget/verifyAccessToken", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            authkey: MSG91_API_KEY.value(),
-            "access-token": String(accessToken)
-          })
-        });
-        const body = await resp.json().catch(() => ({}));
-        const ok = resp.ok && (body.message === "Success" || /success/i.test(body.message || ""));
-        if (!ok) {
-          throw new HttpsError("permission-denied", body.message || "OTP invalid or expired");
-        }
+      const resp = await fetch(url, {
+        method: "GET"
+      });
 
-        // Mark as verified for this phone
-        const idxRef = db.doc(`phoneIndex/${e164}`);
-        await idxRef.set(
-          { verifiedAt: admin.firestore.FieldValue.serverTimestamp() },
-          { merge: true }
-        );
+      const body = await resp.json().catch(() => ({}));
 
-        return res.status(200).json({ ok: true });
-      } catch (err) {
-        const code = err?.code === undefined ? "internal" : err.code;
-        const msg = err?.message || "internal";
-        console.error("[verifyOtp]", code, msg);
-        return res.status(code === "permission-denied" ? 403 : 500).json({ error: msg });
+      if (!resp.ok || body.type === "error") {
+         throw new HttpsError("permission-denied", body.message || "Invalid OTP");
       }
-    });
+
+      // Mark verified in Firestore
+      const idxRef = db.doc(`phoneIndex/${e164}`);
+      await idxRef.set(
+        { verifiedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+
+      return { ok: true, verified: true };
+    } catch (err) {
+      console.error("[verifyOtp] Error:", err);
+      throw new HttpsError("permission-denied", "OTP verification failed");
+    }
   }
 );

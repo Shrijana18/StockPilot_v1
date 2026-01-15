@@ -401,18 +401,19 @@ export async function sendWhatsAppMessage(distributorId, to, message, options = 
     const formattedPhone = formatIndianPhone(to);
     if (formattedPhone) {
       const directLink = generateDirectLink(formattedPhone, message);
-    // Check if it's a recipient not allowed error
-    const isRecipientError = error.message?.includes('#131030') || 
-                             error.message?.includes('not in allowed list') ||
-                             error.code === 131030;
-    
-    return {
-      success: false,
-      error: error.message,
-      errorCode: isRecipientError ? 'RECIPIENT_NOT_ALLOWED' : undefined,
-      method: 'direct_fallback',
-      link: directLink,
-    };
+      // Check if it's a recipient not allowed error
+      const isRecipientError = error.message?.includes('#131030') || 
+                               error.message?.includes('not in allowed list') ||
+                               error.code === 131030 ||
+                               error.subcode === 131030;
+      
+      return {
+        success: false,
+        error: error.message,
+        errorCode: isRecipientError ? 'RECIPIENT_NOT_ALLOWED' : undefined,
+        method: 'direct_fallback',
+        link: directLink,
+      };
     }
     throw error;
   }
@@ -651,35 +652,35 @@ export async function verifyWhatsAppConnection(distributorId) {
         return { verified: true, method: result.method };
       }
       
-    // Handle specific Meta API errors gracefully
-    const errorMessage = result.error || '';
-    
-    // Error #10: Application does not have permission
-    if (result.errorCode === 'PERMISSION_DENIED' || 
-        errorMessage.includes('#10') || 
-        errorMessage.includes('does not have permission')) {
-      return { 
-        verified: false, 
-        error: 'Application does not have permission. Request Production Access in Meta Business Suite.',
-        errorCode: 'PERMISSION_DENIED',
-        credentialsValid: true,
-        instructions: 'Go to Meta Business Suite → WhatsApp → API Setup → Request Production Access'
-      };
-    }
-    
-    // Error #131030: Recipient not in allowed list
-    if (result.errorCode === 'RECIPIENT_NOT_ALLOWED' || 
-        errorMessage.includes('#131030') || 
-        errorMessage.includes('not in allowed list')) {
-      // Credentials are valid, but recipient number needs to be added to allowed list
-      return { 
-        verified: false, 
-        error: 'Recipient phone number not in allowed list. Add recipient numbers in Meta Business Suite.',
-        errorCode: 'RECIPIENT_NOT_ALLOWED',
-        credentialsValid: true, // Indicate credentials are correct
-        instructions: 'Go to Meta Business Suite → WhatsApp → API Setup → Add recipient phone numbers'
-      };
-    }
+      // Handle specific Meta API errors gracefully when result.success is false
+      const errorMessage = result.error || '';
+      
+      // Error #10: Application does not have permission
+      if (result.errorCode === 'PERMISSION_DENIED' || 
+          errorMessage.includes('#10') || 
+          errorMessage.includes('does not have permission')) {
+        return { 
+          verified: false, 
+          error: 'Application does not have permission. Request Production Access in Meta Business Suite.',
+          errorCode: 'PERMISSION_DENIED',
+          credentialsValid: true,
+          instructions: 'Go to Meta Business Suite → WhatsApp → API Setup → Request Production Access'
+        };
+      }
+      
+      // Error #131030: Recipient not in allowed list
+      if (result.errorCode === 'RECIPIENT_NOT_ALLOWED' || 
+          errorMessage.includes('#131030') || 
+          errorMessage.includes('not in allowed list')) {
+        // Credentials are valid, but recipient number needs to be added to allowed list
+        return { 
+          verified: false, 
+          error: 'Recipient phone number not in allowed list. Add recipient numbers in Meta Business Suite.',
+          errorCode: 'RECIPIENT_NOT_ALLOWED',
+          credentialsValid: true, // Indicate credentials are correct
+          instructions: 'Go to Meta Business Suite → WhatsApp → API Setup → Add recipient phone numbers'
+        };
+      }
       
       return { verified: false, error: result.error || 'Verification failed' };
     } catch (sendError) {

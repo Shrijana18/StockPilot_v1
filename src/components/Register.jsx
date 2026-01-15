@@ -44,12 +44,16 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from "../firebase/firebaseConfig";
+import OTPVerification from './OTPVerification';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
 const functions = getFunctions(app, 'us-central1');
 const reservePhone = httpsCallable(functions, 'reservePhone');
 const checkUniqueness = httpsCallable(functions, 'checkUniqueness');
+
+// Feature flag: Set to true to enable OTP verification (requires MSG91 DLT ID setup)
+const ENABLE_OTP_VERIFICATION = false;
 
 // Generate FLYP ID
 const genFlypId = () => `FLYP-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
@@ -219,6 +223,8 @@ const Register = ({ role = 'retailer' }) => {
   const [msg, setMsg] = useState({ error: '', success: '' });
   const [phoneStatus, setPhoneStatus] = useState({ validated: false, checking: false, message: '', error: false });
   const [emailStatus, setEmailStatus] = useState({ validated: false, checking: false, message: '', error: false });
+  const [showOtpVerification, setShowOtpVerification] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
 
   const navigate = useNavigate();
 
@@ -414,7 +420,30 @@ const Register = ({ role = 'retailer' }) => {
       return setMsg({ error: 'Accept Terms & Privacy to continue', success: '' });
     if (form.password !== form.confirmPassword)
       return setMsg({ error: 'Passwords do not match', success: '' });
+    if (!phoneStatus.validated)
+      return setMsg({ error: 'Please verify phone number availability', success: '' });
 
+    // OTP verification (temporarily disabled until MSG91 DLT ID is set up)
+    if (ENABLE_OTP_VERIFICATION) {
+      // Show OTP verification if not already verified
+      if (!phoneVerified) {
+        setShowOtpVerification(true);
+        return;
+      }
+    }
+
+    // Proceed with account creation (skip OTP if disabled)
+    await createAccount();
+  };
+
+  const handleOtpVerified = async (verifiedPhone) => {
+    setPhoneVerified(true);
+    setShowOtpVerification(false);
+    // Automatically proceed with account creation
+    await createAccount();
+  };
+
+  const createAccount = async () => {
     setLoading(true);
     try {
       // Create Auth account
@@ -1047,7 +1076,6 @@ const Register = ({ role = 'retailer' }) => {
                       placeholder="9876543210"
                       value={form.phone}
                       onChange={onChange}
-                      onBlur={handlePhoneBlur}
                       required
                       inputMode="numeric"
                       pattern="[0-9]{10}"
@@ -1140,7 +1168,6 @@ const Register = ({ role = 'retailer' }) => {
                       placeholder="your.email@example.com"
                       value={form.email}
                       onChange={onChange}
-                      onBlur={handleEmailBlur}
                       required
                       autoComplete="email"
                       className="w-full pl-10 pr-10 py-2.5 bg-transparent outline-none placeholder-white/50 text-white text-sm hover:bg-white/5 transition-colors duration-300"
@@ -1476,6 +1503,49 @@ const Register = ({ role = 'retailer' }) => {
           </div>
         </div>
       </div>
+
+      {/* OTP Verification Modal */}
+      {showOtpVerification && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div 
+            className="relative w-full max-w-md rounded-3xl backdrop-blur-2xl shadow-2xl overflow-hidden"
+            style={{
+              borderColor: `${roleTheme.accentColor}30`,
+              borderWidth: '1px',
+              borderStyle: 'solid',
+              background: `linear-gradient(to bottom right, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03))`,
+            }}
+          >
+            <div className="p-6 sm:p-8">
+              <button
+                onClick={() => {
+                  setShowOtpVerification(false);
+                  setPhoneVerified(false);
+                }}
+                className="absolute top-4 right-4 text-white/60 hover:text-white transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <OTPVerification
+                phone={toE164IN(sanitize10Digits(form.phone))}
+                onVerified={handleOtpVerified}
+                onError={(err) => {
+                  setMsg({ error: err?.message || 'OTP verification failed', success: '' });
+                }}
+                onCancel={() => {
+                  setShowOtpVerification(false);
+                  setPhoneVerified(false);
+                }}
+                autoSend={true}
+                themeColor={roleTheme.accentColor}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Enhanced keyframes for all animations */}
       <style>{`

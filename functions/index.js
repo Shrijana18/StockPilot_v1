@@ -81,35 +81,26 @@ exports.generatePaymentLink = require("./payment/generatePaymentLink");
 // Location Data (India)
 exports.fetchIndiaLocationData = require("./location/fetchIndiaLocationData");
 
-// WhatsApp Business API
-exports.whatsappWebhook = require("./whatsapp/webhook");
-const whatsappConnect = require("./whatsapp/connect");
-exports.whatsappConnectStart = whatsappConnect.whatsappConnectStart;
-exports.whatsappConnectCallback = whatsappConnect.whatsappConnectCallback;
+// WhatsApp Business API - New Clean Structure
+const whatsappWabaManager = require("./whatsapp/wabaManager");
+const whatsappEmbeddedSignup = require("./whatsapp/embeddedSignup");
+const whatsappWebhook = require("./whatsapp/webhook");
+const whatsappMessaging = require("./whatsapp/messaging");
 
-// WhatsApp Tech Provider (Embedded Signup Flow)
-const whatsappTechProvider = require("./whatsapp/techProvider");
-const whatsappEmbeddedSignupCallback = require("./whatsapp/embeddedSignupCallback");
-// Embedded Signup Callback (for Meta Embedded Signup redirect)
-exports.whatsappEmbeddedSignupCallback = whatsappEmbeddedSignupCallback.whatsappEmbeddedSignupCallback;
+// WABA Management
+exports.saveWABADirect = whatsappWabaManager.saveWABADirect;
+exports.getWABAStatus = whatsappWabaManager.getWABAStatus;
+exports.detectNewWABA = whatsappWabaManager.detectNewWABA;
+exports.getClientWABA = whatsappWabaManager.getClientWABA;
+
+// Embedded Signup
+exports.whatsappEmbeddedSignupCallback = whatsappEmbeddedSignup.whatsappEmbeddedSignupCallback;
+
+// Webhook
+exports.whatsappWebhook = whatsappWebhook;
+
 // Messaging
-exports.sendMessageViaTechProvider = whatsappTechProvider.sendMessageViaTechProvider;
-// Webhook & Status (Required for Embedded Signup)
-exports.setupWebhookForClient = whatsappTechProvider.setupWebhookForClient;
-exports.whatsappTechProviderWebhook = whatsappTechProvider.whatsappTechProviderWebhook;
-exports.getWhatsAppSetupStatus = whatsappTechProvider.getWhatsAppSetupStatus;
-// WABA Management (for WABA selection and status)
-exports.getClientWABA = whatsappTechProvider.getClientWABA;
-exports.getWABAStatus = whatsappTechProvider.getWABAStatus;
-exports.saveWABADirect = whatsappTechProvider.saveWABADirect;
-exports.detectNewWABA = whatsappTechProvider.detectNewWABA;
-// Message Template Management (for Meta App Review)
-exports.createWhatsAppMessageTemplate = whatsappTechProvider.createWhatsAppMessageTemplate;
-// Phone Verification (2FA) for Embedded Signup
-exports.verifyPhoneOTP = whatsappTechProvider.verifyPhoneOTP;
-exports.checkPhoneRegistrationStatus = whatsappTechProvider.checkPhoneRegistrationStatus;
-// Note: Other flow functions (createClientWABA, createIndividualWABA, requestPhoneNumber) 
-// available but not exported - use Embedded Signup instead
+exports.sendMessageViaTechProvider = whatsappMessaging.sendMessageViaTechProvider;
 
 // ============================
 // Utility Modules (Internal use)

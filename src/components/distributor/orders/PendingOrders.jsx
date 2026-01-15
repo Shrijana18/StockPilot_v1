@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import {
   getFirestore,
   collection,
@@ -620,31 +621,33 @@ const PendingOrders = () => {
   }, [pendingOrders, statusFilter]);
 
   return (
-    <div className="p-6 space-y-6 text-white">
+    <div className="space-y-6 text-white">
       {/* Segmented control for status filter */}
-      <div className="mb-4 sticky top-[72px] z-30 backdrop-blur-xl bg-[#0B0F14]/60 border border-white/10 rounded-xl px-3 py-2">
+      <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl p-1.5">
         <div className="flex gap-2 flex-wrap">
           {['All', 'Accepted', 'Packed', 'Modified'].map((status) => {
             const active = statusFilter === status;
-            const base = 'px-4 py-1 rounded-full text-sm border transition backdrop-blur-xl';
-            const on =
-              'bg-emerald-500 text-slate-900 border-transparent shadow-[0_8px_24px_rgba(16,185,129,0.35)]';
-            const off = 'bg-white/10 text-white border-white/15 hover:bg-white/15';
             return (
-              <button
+              <motion.button
                 key={status}
                 type="button"
-                className={`${base} ${active ? on : off}`}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`px-5 py-2.5 rounded-xl text-sm font-semibold border transition-all duration-200 ${
+                  active
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-transparent shadow-lg shadow-emerald-500/30'
+                    : 'bg-transparent text-white/70 border-white/10 hover:bg-white/5 hover:border-white/20 hover:text-white'
+                }`}
                 onClick={() => setStatusFilter(status)}
               >
                 {status}
-              </button>
+              </motion.button>
             );
           })}
         </div>
       </div>
 
-      {filteredOrders.map((order) => {
+      {filteredOrders.map((order, idx) => {
         const displayStatus =
           order.status ||
           (order.statusCode
@@ -653,25 +656,28 @@ const PendingOrders = () => {
         const paymentLabel = orderPolicy.formatPaymentLabel(order.paymentMode || order.payment);
 
         return (
-          <div
+          <motion.div
             key={order.id}
-            className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl hover:shadow-emerald-400/10 transition p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.03, duration: 0.3, type: 'spring', stiffness: 100, damping: 15 }}
+            className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl shadow-xl hover:shadow-2xl hover:border-white/20 transition-all duration-300 p-6"
           >
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-              <div className="flex flex-col gap-1">
-                <h3 className="font-semibold text-lg text-white">Retailer: {order.retailerName}</h3>
-                <p className="text-sm text-white/60">Order ID: {order.id}</p>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+              <div className="flex flex-col gap-2">
+                <h3 className="font-bold text-2xl text-white">Retailer: {order.retailerName}</h3>
+                <p className="text-sm text-white/60 font-medium">Order ID: <span className="font-mono text-white/80">{order.id}</span></p>
               </div>
               <div className="flex items-center gap-2">
                 <span
-                  className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold border shadow-md ${
                     order.statusCode === 'ACCEPTED'
-                      ? 'bg-emerald-400/15 text-emerald-300'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                       : order.statusCode === 'MODIFIED'
-                      ? 'bg-amber-400/15 text-amber-300'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                       : order.statusCode === 'PACKED'
-                      ? 'bg-sky-400/15 text-sky-300'
-                      : 'bg-white/10 text-white/80'
+                      ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                      : 'bg-white/10 text-white/80 border-white/20'
                   }`}
                 >
                   {displayStatus}
@@ -679,11 +685,11 @@ const PendingOrders = () => {
               </div>
             </div>
 
-            <div className="mt-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-              <p className="text-white/70">Email: {order.retailerEmail}</p>
+            <div className="mb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <p className="text-white/70 font-medium">Email: <span className="text-white/90">{order.retailerEmail}</span></p>
               {order.status === 'Modified' ? (
-                <label className="flex items-center gap-2">
-                  <span className="font-medium text-white/80">Payment Mode:</span>
+                <label className="flex items-center gap-3">
+                  <span className="font-semibold text-white/90">Payment Mode:</span>
                   <select
                     value={orderPolicy.extractPaymentCode(order.payment || order.paymentMode) || ''}
                     onChange={(e) =>
@@ -693,7 +699,7 @@ const PendingOrders = () => {
                         )
                       )
                     }
-                    className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                    className="rounded-xl px-4 py-2.5 bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm min-w-[200px]"
                   >
                     <option value="">Select</option>
                     <option value="COD">Cash on Delivery (COD)</option>
@@ -719,8 +725,8 @@ const PendingOrders = () => {
               {order.timestamp?.seconds ? formatDateTime(order.timestamp.seconds * 1000) : 'N/A'}
             </p>
 
-            <div className="mt-4 border border-white/10 rounded-lg overflow-hidden">
-              <div className="grid grid-cols-12 font-semibold bg-white/5 border-b border-white/10 px-4 py-2 text-white text-sm">
+            <div className="mt-5 border border-white/10 rounded-xl overflow-hidden bg-white/5 backdrop-blur-sm">
+              <div className="grid grid-cols-12 font-semibold bg-white/10 border-b border-white/10 px-4 py-3 text-white text-sm">
                 <div>Name</div>
                 <div>Brand</div>
                 <div>Category</div>
@@ -839,7 +845,7 @@ const PendingOrders = () => {
               )}
             </div>
 
-            {/* Full Breakdown */}
+                {/* Full Breakdown */}
             {(() => {
               const breakdown = getProformaBreakdown(order);
               const distributorState = order.distributorState || 'Maharashtra';
@@ -849,8 +855,8 @@ const PendingOrders = () => {
                 : `CGST + SGST (Intrastate: ${distributorState} → ${retailerState})`;
               
               return (
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-                  <h4 className="font-semibold mb-3 text-white">Proforma Breakdown</h4>
+                <div className="mt-5 rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl p-5 shadow-lg">
+                  <h4 className="font-bold text-lg mb-4 text-white">Proforma Breakdown</h4>
                   <div className="space-y-1 text-sm text-white/80">
                     <div className="flex justify-between"><span>Unit Price Total</span><span>₹{breakdown.grossItems.toFixed(2)}</span></div>
                     <div className="flex justify-between"><span>− Line Discounts</span><span>₹{breakdown.lineDiscountTotal.toFixed(2)}</span></div>
@@ -890,20 +896,22 @@ const PendingOrders = () => {
             })()}
 
             {/* Delivery Tracking Section */}
-            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
-              <button
+            <div className="mt-6 rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/5 backdrop-blur-xl p-5 shadow-lg">
+              <motion.button
                 type="button"
                 onClick={() => toggleDeliveryDetails(order.id)}
-                className="w-full flex items-center justify-between font-semibold text-white mb-2 hover:text-emerald-300 transition"
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                className="w-full flex items-center justify-between font-bold text-lg text-white mb-3 hover:text-emerald-300 transition-colors"
               >
-                <span className="flex items-center gap-2">
-                  <span>🚚</span>
+                <span className="flex items-center gap-3">
+                  <span className="text-2xl">🚚</span>
                   <span>Delivery Tracking & Logistics</span>
                 </span>
-                <span className="text-white/60">
+                <span className="text-white/60 text-xl transition-transform">
                   {expandedDeliveryDetails.has(order.id) ? '▼' : '▶'}
                 </span>
-              </button>
+              </motion.button>
 
               {expandedDeliveryDetails.has(order.id) && (
                 <div className="mt-4 space-y-4">
@@ -914,7 +922,7 @@ const PendingOrders = () => {
                       <select
                         value={order?.deliveryDetails?.personType || ''}
                         onChange={(e) => handleDeliveryFieldChange(order.id, 'personType', e.target.value)}
-                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        className="rounded-xl px-4 py-2.5 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm"
                       >
                         <option value="">Select Type</option>
                         <option value="employee">Employee</option>
@@ -938,7 +946,7 @@ const PendingOrders = () => {
                               handleDeliveryFieldChange(order.id, 'personDesignation', selectedEmployee.designation || selectedEmployee.role || '');
                             }
                           }}
-                          className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                          className="rounded-xl px-4 py-2.5 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm"
                         >
                           <option value="">Select Employee</option>
                           {employees.map((emp) => (
@@ -998,7 +1006,7 @@ const PendingOrders = () => {
                       <select
                         value={order?.deliveryDetails?.vehicleType || ''}
                         onChange={(e) => handleDeliveryFieldChange(order.id, 'vehicleType', e.target.value)}
-                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        className="rounded-xl px-4 py-2.5 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm"
                       >
                         <option value="">Select Vehicle</option>
                         <option value="car">Car</option>
@@ -1031,7 +1039,7 @@ const PendingOrders = () => {
                       <select
                         value={order?.deliveryDetails?.transportMethod || ''}
                         onChange={(e) => handleDeliveryFieldChange(order.id, 'transportMethod', e.target.value)}
-                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        className="rounded-xl px-4 py-2.5 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm"
                       >
                         <option value="">Select Method</option>
                         <option value="by-distributor">By Distributor (Own Vehicle)</option>
@@ -1114,7 +1122,7 @@ const PendingOrders = () => {
                       ),
                     );
                   }}
-                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        className="rounded-xl px-4 py-2.5 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm"
                 />
                     </div>
 
@@ -1132,7 +1140,7 @@ const PendingOrders = () => {
                       ),
                     );
                   }}
-                        className="rounded-lg px-3 py-2 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition"
+                        className="rounded-xl px-4 py-2.5 bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all backdrop-blur-sm"
                 >
                   <option value="">Select</option>
                   <option value="By Distributor">By Distributor</option>
@@ -1184,14 +1192,18 @@ const PendingOrders = () => {
 
             {/* Error messages for delivery date and mode */}
             {(order.deliveryDateError || order.deliveryModeError) && (
-              <div className="mt-4">
+              <div className="mt-4 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
                 {order.deliveryDateError && (
-                  <p className="text-rose-300 text-sm">Please select a valid delivery date.</p>
+                  <p className="text-rose-300 text-sm font-medium flex items-center gap-2">
+                    <span>⚠</span> Please select a valid delivery date.
+                  </p>
                 )}
-              {order.deliveryModeError && (
-                  <p className="text-rose-300 text-sm">Please select a delivery mode.</p>
-              )}
-            </div>
+                {order.deliveryModeError && (
+                  <p className="text-rose-300 text-sm font-medium flex items-center gap-2">
+                    <span>⚠</span> Please select a delivery mode.
+                  </p>
+                )}
+              </div>
             )}
 
             <div className="mt-4 flex gap-3 flex-wrap">
@@ -1211,7 +1223,7 @@ const PendingOrders = () => {
                 {shippingIds.has(order.id) ? 'Shipping…' : 'Mark as Shipped'}
               </button>
             </div>
-          </div>
+          </motion.div>
         );
       })}
     </div>

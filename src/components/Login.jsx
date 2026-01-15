@@ -4,15 +4,23 @@ import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
 import { useNavigate } from 'react-router-dom';
 import { logoutUser } from '../utils/authUtils';
+import OTPVerification from './OTPVerification';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// Feature flag: Set to true to enable OTP verification (requires MSG91 DLT ID setup)
+const ENABLE_OTP_VERIFICATION = false;
 
 const Login = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showOtpVerification, setShowOtpVerification] = useState(false);
+  const [userPhone, setUserPhone] = useState(null);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
 
   // simple keyframes via a style tag injected once
   const LoadBarKeyframes = () => (
@@ -52,6 +60,7 @@ const Login = () => {
       const password = (formData.password || '').trim();
       if (!email || !password) {
         setError('Please enter email and password.');
+        setLoading(false);
         return;
       }
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
@@ -65,6 +74,7 @@ const Login = () => {
       if (!snap.exists()) {
         setError('⚠️ Account not found. Please register first.');
         await auth.signOut();
+        setLoading(false);
         return;
       }
       
@@ -73,45 +83,28 @@ const Login = () => {
       if (userData.email && userData.email.toLowerCase() !== email.toLowerCase()) {
         setError('⚠️ Email mismatch detected. Please contact support.');
         await auth.signOut();
+        setLoading(false);
         return;
       }
-      // Check for both 'role' and 'businessType' fields (some users have businessType)
-      const rawRole = userData?.role || userData?.businessType || '';
-      const role = String(rawRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
-      console.log("[Login] raw role:", rawRole, "normalized role:", role);
-      console.log("[Login] Full user data:", userData);
-      
-      // More robust role detection
-      console.log("[Login] Role detection - raw:", rawRole, "normalized:", role);
-      
-      // Direct navigation after successful login
-      let targetPath = '/dashboard';
-      if (role.includes('retailer')) {
-        console.log("[Login] Redirecting to retailer dashboard");
-        targetPath = '/dashboard';
-      } else if (role.includes('distributor')) {
-        console.log("[Login] Redirecting to distributor dashboard");
-        targetPath = '/distributor-dashboard';
-      } else if (role.includes('productowner') || role.includes('product-owner')) {
-        console.log("[Login] Redirecting to product owner dashboard");
-        targetPath = '/product-owner-dashboard';
-      } else {
-        console.warn("[Login] Unknown role:", rawRole, "normalized:", role, "defaulting to retailer dashboard");
-        targetPath = '/dashboard';
-      }
-      
-      // Try React Router navigation first
-      navigate(targetPath, { replace: true });
-      
-      // Fallback for production: if navigation doesn't work, use window.location
-      if (isProduction) {
-        setTimeout(() => {
-          if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
-            console.log("[Login] React Router navigation failed, using window.location fallback");
-            window.location.href = targetPath;
+
+      // OTP verification (temporarily disabled until MSG91 DLT ID is set up)
+      if (ENABLE_OTP_VERIFICATION) {
+        // Get user's phone number for OTP verification
+        const phone = userData?.phone || '';
+        if (phone) {
+          // Show OTP verification if phone exists and not already verified
+          if (!phoneVerified) {
+            setUserPhone(phone);
+            setPendingUser({ user, userData, snap });
+            setShowOtpVerification(true);
+            setLoading(false);
+            return;
           }
-        }, 1000);
+        }
       }
+
+      // Proceed with login (skip OTP if disabled)
+      await completeLogin(user, userData);
     } catch (err) {
       console.error("[Login] error", err?.code, err?.message);
       const code = err?.code || '';
@@ -121,8 +114,63 @@ const Login = () => {
       if (code === 'auth/wrong-password') message = 'Incorrect password.';
       if (code === 'auth/too-many-requests') message = 'Too many attempts. Please wait a minute and try again.';
       setError(message);
-    } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOtpVerified = async (verifiedPhone) => {
+    setPhoneVerified(true);
+    setShowOtpVerification(false);
+    
+    if (pendingUser) {
+      setLoading(true);
+      try {
+        await completeLogin(pendingUser.user, pendingUser.userData);
+      } catch (err) {
+        setError(err?.message || 'Login failed after OTP verification');
+        setLoading(false);
+      }
+    }
+  };
+
+  const completeLogin = async (user, userData) => {
+    // Check for both 'role' and 'businessType' fields (some users have businessType)
+    const rawRole = userData?.role || userData?.businessType || '';
+    const role = String(rawRole).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
+    console.log("[Login] raw role:", rawRole, "normalized role:", role);
+    console.log("[Login] Full user data:", userData);
+    
+    // More robust role detection
+    console.log("[Login] Role detection - raw:", rawRole, "normalized:", role);
+    
+    // Direct navigation after successful login
+    let targetPath = '/dashboard';
+    if (role.includes('retailer')) {
+      console.log("[Login] Redirecting to retailer dashboard");
+      targetPath = '/dashboard';
+    } else if (role.includes('distributor')) {
+      console.log("[Login] Redirecting to distributor dashboard");
+      targetPath = '/distributor-dashboard';
+    } else if (role.includes('productowner') || role.includes('product-owner')) {
+      console.log("[Login] Redirecting to product owner dashboard");
+      targetPath = '/product-owner-dashboard';
+    } else {
+      console.warn("[Login] Unknown role:", rawRole, "normalized:", role, "defaulting to retailer dashboard");
+      targetPath = '/dashboard';
+    }
+    
+    // Try React Router navigation first
+    navigate(targetPath, { replace: true });
+    
+    // Fallback for production: if navigation doesn't work, use window.location
+    const isProduction = window.location.hostname !== 'localhost';
+    if (isProduction) {
+      setTimeout(() => {
+        if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
+          console.log("[Login] React Router navigation failed, using window.location fallback");
+          window.location.href = targetPath;
+        }
+      }, 1000);
     }
   };
 
@@ -348,6 +396,45 @@ const Login = () => {
           </div>
         </div>
       </div>
+
+      {/* OTP Verification Modal */}
+      {showOtpVerification && userPhone && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-md rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-2xl overflow-hidden">
+            <div className="p-6 sm:p-8">
+              <button
+                onClick={() => {
+                  setShowOtpVerification(false);
+                  setPhoneVerified(false);
+                  setPendingUser(null);
+                  auth.signOut();
+                }}
+                className="absolute top-4 right-4 text-white/60 hover:text-white transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <OTPVerification
+                phone={userPhone}
+                onVerified={handleOtpVerified}
+                onError={(err) => {
+                  setError(err?.message || 'OTP verification failed');
+                }}
+                onCancel={() => {
+                  setShowOtpVerification(false);
+                  setPhoneVerified(false);
+                  setPendingUser(null);
+                  auth.signOut();
+                }}
+                autoSend={true}
+                themeColor="rgb(16, 185, 129)"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1084,6 +1084,33 @@ service cloud.firestore {
           isDistributorEmployee(userId)
         );
       }
+
+      // --- Delivery Routes (Route Optimization) ---
+      match /deliveryRoutes/{routeId} {
+        // READ: Distributor and employees can read routes
+        allow read: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+        
+        // CREATE: Distributor and employees can create routes
+        allow create: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+        
+        // UPDATE: Distributor and employees can update routes
+        allow update: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+        
+        // DELETE: Distributor and employees can delete routes
+        allow delete: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
     }
 
     // ============================================================
