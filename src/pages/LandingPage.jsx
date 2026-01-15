@@ -1016,13 +1016,14 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
                   animate={prefersReducedMotion ? { y: 0 } : { y: [0, -10, 0] }}
                   transition={prefersReducedMotion ? { duration: 0 } : { duration: 6, repeat: Infinity, ease: "easeInOut" }}
                 >
-                  <img
-                    src={productShowcases[activeShowcase].image}
-                    alt={productShowcases[activeShowcase].title}
-                    className="w-full max-w-7xl h-auto object-contain"
-                    loading="lazy"
-                    decoding="async"
-                  />
+              <img
+                src={productShowcases[activeShowcase].image}
+                alt={productShowcases[activeShowcase].title}
+                className="w-full max-w-7xl h-auto object-contain"
+                loading="eager"
+                decoding="async"
+                fetchpriority="high"
+              />
                 </motion.div>
               </div>
             </motion.div>

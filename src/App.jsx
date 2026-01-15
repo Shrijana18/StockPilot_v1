@@ -7,6 +7,7 @@ import { getDistributorEmployeeSession, isDistributorEmployeePath } from './util
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute.jsx';
 import EmployeeRoute from './components/EmployeeRoute.jsx';
+import LoadingScreen from './components/common/LoadingScreen.jsx';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -38,11 +39,7 @@ const DistributorEmployeeDashboard = lazy(() => import('./components/distributor
 const WhatsAppConnectSuccess = lazy(() => import('./pages/WhatsAppConnectSuccess.jsx'));
 const WhatsAppConnectError = lazy(() => import('./pages/WhatsAppConnectError.jsx'));
 
-const PageFallback = () => (
-  <div className="min-h-[60vh] flex items-center justify-center text-white/70">
-    Loading…
-  </div>
-);
+const PageFallback = () => <LoadingScreen />;
 
 const App = () => {
   const { isNativeApp } = usePlatform();
