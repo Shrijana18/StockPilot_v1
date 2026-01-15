@@ -1,25 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
-import LandingPage from './pages/LandingPage.jsx';
-import AppLanding from './pages/AppLanding.jsx';
-import RetailerDashboard from './views/RetailerDashboard.jsx';
-import DistributorDashboard from './components/DistributorDashboard.jsx';
-import ProductOwnerDashboard from './components/ProductOwnerDashboard.jsx';
-import Inventory from './pages/Inventory.jsx';
-import Billing from './pages/Billing.jsx';
-import AllInvoices from './pages/AllInvoices.jsx';
-import LeadManagement from './pages/LeadManagement.jsx';
-import AuthPage from './pages/AuthPage.jsx';
-import PublicInvoiceView from './pages/PublicInvoiceView.jsx';
-import EmployeeLogin from './components/employee/EmployeeLogin.jsx';
-import EmployeeDashboard from './components/employee/EmployeeDashboard.jsx';
 import { getEmployeeSession, isEmployeePath } from './utils/employeeSession.js';
-import DistributorEmployeeLogin from './pages/DistributorEmployeeLogin.jsx';
-import DistributorEmployeeDashboard from './components/distributor/employees/DistributorEmployeeDashboard.jsx';
 import { getDistributorEmployeeSession, isDistributorEmployeePath } from './utils/distributorEmployeeSession.js';
-import WhatsAppConnectSuccess from './pages/WhatsAppConnectSuccess.jsx';
-import WhatsAppConnectError from './pages/WhatsAppConnectError.jsx';
 
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute.jsx';
@@ -36,6 +19,30 @@ import { usePlatform } from './hooks/usePlatform.js';
 
 import { App as CapacitorApp } from '@capacitor/app';
 import { Toast } from '@capacitor/toast';
+
+const LandingPage = lazy(() => import('./pages/LandingPage.jsx'));
+const AppLanding = lazy(() => import('./pages/AppLanding.jsx'));
+const RetailerDashboard = lazy(() => import('./views/RetailerDashboard.jsx'));
+const DistributorDashboard = lazy(() => import('./components/DistributorDashboard.jsx'));
+const ProductOwnerDashboard = lazy(() => import('./components/ProductOwnerDashboard.jsx'));
+const Inventory = lazy(() => import('./pages/Inventory.jsx'));
+const Billing = lazy(() => import('./pages/Billing.jsx'));
+const AllInvoices = lazy(() => import('./pages/AllInvoices.jsx'));
+const LeadManagement = lazy(() => import('./pages/LeadManagement.jsx'));
+const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
+const PublicInvoiceView = lazy(() => import('./pages/PublicInvoiceView.jsx'));
+const EmployeeLogin = lazy(() => import('./components/employee/EmployeeLogin.jsx'));
+const EmployeeDashboard = lazy(() => import('./components/employee/EmployeeDashboard.jsx'));
+const DistributorEmployeeLogin = lazy(() => import('./pages/DistributorEmployeeLogin.jsx'));
+const DistributorEmployeeDashboard = lazy(() => import('./components/distributor/employees/DistributorEmployeeDashboard.jsx'));
+const WhatsAppConnectSuccess = lazy(() => import('./pages/WhatsAppConnectSuccess.jsx'));
+const WhatsAppConnectError = lazy(() => import('./pages/WhatsAppConnectError.jsx'));
+
+const PageFallback = () => (
+  <div className="min-h-[60vh] flex items-center justify-center text-white/70">
+    Loading…
+  </div>
+);
 
 const App = () => {
   const { isNativeApp } = usePlatform();
@@ -76,51 +83,53 @@ const App = () => {
           }
           showFab
         >
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<AppLanding />} />
-            <Route path="/auth/*" element={<AuthPage />} />
-            <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
-            <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
-            <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
-            <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
-            <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
-            <Route path="/leads" element={<LeadManagement />} />
-            <Route path="/employee-login" element={<EmployeeLogin />} />
-            <Route element={<EmployeeRoute kind="retailer" />}>
-              <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
-            </Route>
-            <Route path="/distributor-employee-login" element={<DistributorEmployeeLogin />} />
-            <Route element={<EmployeeRoute kind="distributor" />}>
-              <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
-            </Route>
+          <Suspense fallback={<PageFallback />}>
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<AppLanding />} />
+              <Route path="/auth/*" element={<AuthPage />} />
+              <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
+              <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
+              <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
+              <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
+              <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
+              <Route path="/leads" element={<LeadManagement />} />
+              <Route path="/employee-login" element={<EmployeeLogin />} />
+              <Route element={<EmployeeRoute kind="retailer" />}>
+                <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+              </Route>
+              <Route path="/distributor-employee-login" element={<DistributorEmployeeLogin />} />
+              <Route element={<EmployeeRoute kind="distributor" />}>
+                <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
+              </Route>
 
-            {/* Protected Routes */}
-            {/* Retailer (no explicit role required) */}
-            <Route element={<PrivateRoute />}>
-              <Route path="/dashboard" element={<RetailerDashboard />} />
-            </Route>
-            {/* Distributor */}
-            <Route element={<PrivateRoute requireRole="distributor" />}>
-              <Route path="/distributor-dashboard" element={<DistributorDashboard />} />
-            </Route>
-            {/* Product Owner */}
-            <Route element={<PrivateRoute requireRole="productowner" />}>
-              <Route path="/product-owner-dashboard" element={<ProductOwnerDashboard />} />
-            </Route>
-            <Route element={<PrivateRoute />}>
-              <Route path="/inventory" element={<Inventory />} />
-            </Route>
-            <Route element={<PrivateRoute />}>
-              <Route path="/billing" element={<Billing />} />
-            </Route>
-            <Route element={<PrivateRoute />}>
-              <Route path="/invoices" element={<AllInvoices />} />
-            </Route>
+              {/* Protected Routes */}
+              {/* Retailer (no explicit role required) */}
+              <Route element={<PrivateRoute />}>
+                <Route path="/dashboard" element={<RetailerDashboard />} />
+              </Route>
+              {/* Distributor */}
+              <Route element={<PrivateRoute requireRole="distributor" />}>
+                <Route path="/distributor-dashboard" element={<DistributorDashboard />} />
+              </Route>
+              {/* Product Owner */}
+              <Route element={<PrivateRoute requireRole="productowner" />}>
+                <Route path="/product-owner-dashboard" element={<ProductOwnerDashboard />} />
+              </Route>
+              <Route element={<PrivateRoute />}>
+                <Route path="/inventory" element={<Inventory />} />
+              </Route>
+              <Route element={<PrivateRoute />}>
+                <Route path="/billing" element={<Billing />} />
+              </Route>
+              <Route element={<PrivateRoute />}>
+                <Route path="/invoices" element={<AllInvoices />} />
+              </Route>
 
-            {/* Future routes can be conditionally rendered based on role */}
-            <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
-          </Routes>
+              {/* Future routes can be conditionally rendered based on role */}
+              <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
+            </Routes>
+          </Suspense>
         </AppShell>
       ) : (
         <WebShell
@@ -131,51 +140,53 @@ const App = () => {
             </div>
           }
         >
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/auth/*" element={<AuthPage />} />
-            <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
-            <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
-            <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
-            <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
-            <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
-            <Route path="/leads" element={<LeadManagement />} />
-            <Route path="/employee-login" element={<EmployeeLogin />} />
-            <Route element={<EmployeeRoute kind="retailer" />}>
-              <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
-            </Route>
-            <Route path="/distributor-employee-login" element={<DistributorEmployeeLogin />} />
-            <Route element={<EmployeeRoute kind="distributor" />}>
-              <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
-            </Route>
+          <Suspense fallback={<PageFallback />}>
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/auth/*" element={<AuthPage />} />
+              <Route path="/login" element={<Navigate to="/auth?type=login" replace />} />
+              <Route path="/register" element={<Navigate to="/auth?type=register" replace />} />
+              <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
+              <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
+              <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
+              <Route path="/leads" element={<LeadManagement />} />
+              <Route path="/employee-login" element={<EmployeeLogin />} />
+              <Route element={<EmployeeRoute kind="retailer" />}>
+                <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+              </Route>
+              <Route path="/distributor-employee-login" element={<DistributorEmployeeLogin />} />
+              <Route element={<EmployeeRoute kind="distributor" />}>
+                <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
+              </Route>
 
-            {/* Protected Routes */}
-            {/* Retailer (no explicit role required) */}
-            <Route element={<PrivateRoute />}>
-              <Route path="/dashboard" element={<RetailerDashboard />} />
-            </Route>
-            {/* Distributor */}
-            <Route element={<PrivateRoute requireRole="distributor" />}>
-              <Route path="/distributor-dashboard" element={<DistributorDashboard />} />
-            </Route>
-            {/* Product Owner */}
-            <Route element={<PrivateRoute requireRole="productowner" />}>
-              <Route path="/product-owner-dashboard" element={<ProductOwnerDashboard />} />
-            </Route>
-            <Route element={<PrivateRoute />}>
-              <Route path="/inventory" element={<Inventory />} />
-            </Route>
-            <Route element={<PrivateRoute />}>
-              <Route path="/billing" element={<Billing />} />
-            </Route>
-            <Route element={<PrivateRoute />}>
-              <Route path="/invoices" element={<AllInvoices />} />
-            </Route>
+              {/* Protected Routes */}
+              {/* Retailer (no explicit role required) */}
+              <Route element={<PrivateRoute />}>
+                <Route path="/dashboard" element={<RetailerDashboard />} />
+              </Route>
+              {/* Distributor */}
+              <Route element={<PrivateRoute requireRole="distributor" />}>
+                <Route path="/distributor-dashboard" element={<DistributorDashboard />} />
+              </Route>
+              {/* Product Owner */}
+              <Route element={<PrivateRoute requireRole="productowner" />}>
+                <Route path="/product-owner-dashboard" element={<ProductOwnerDashboard />} />
+              </Route>
+              <Route element={<PrivateRoute />}>
+                <Route path="/inventory" element={<Inventory />} />
+              </Route>
+              <Route element={<PrivateRoute />}>
+                <Route path="/billing" element={<Billing />} />
+              </Route>
+              <Route element={<PrivateRoute />}>
+                <Route path="/invoices" element={<AllInvoices />} />
+              </Route>
 
-            {/* Future routes can be conditionally rendered based on role */}
-            <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
-          </Routes>
+              {/* Future routes can be conditionally rendered based on role */}
+              <Route path="*" element={<Navigate to="/auth?type=login" replace />} />
+            </Routes>
+          </Suspense>
         </WebShell>
       )}
       <ToastContainer position="top-right" autoClose={3000} />
