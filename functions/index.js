@@ -94,6 +94,7 @@ exports.detectNewWABA = whatsappWabaManager.detectNewWABA;
 exports.getClientWABA = whatsappWabaManager.getClientWABA;
 exports.adminLinkWABA = whatsappWabaManager.adminLinkWABA;
 exports.registerClientPhone = whatsappWabaManager.registerClientPhone;
+exports.exchangeCodeForWABA = whatsappWabaManager.exchangeCodeForWABA;
 
 // Embedded Signup
 exports.whatsappEmbeddedSignupCallback = whatsappEmbeddedSignup.whatsappEmbeddedSignupCallback;

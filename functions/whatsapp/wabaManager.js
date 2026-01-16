@@ -63,18 +63,35 @@ exports.saveWABADirect = onCall(
         throw new HttpsError("failed-precondition", "System User Token not configured");
       }
 
+      // UPDATED: PIN is ALWAYS required for phone registration per Meta docs
+      // Priority for getting PIN:
+      // 1. Explicit PIN passed from frontend (user entered it in modal)
+      // 2. PIN from embedded data (rare, but check anyway)
+      const registrationPin = pin || embeddedData?.pin || embeddedData?.registration_pin || embeddedData?.data?.pin;
+
       // Step 1: Register phone number with Meta (if phoneNumberId provided)
-      // This is crucial for Embedded Signup to "finish" the setup
+      // IMPORTANT: Per Meta Cloud API docs (2025+), PIN is REQUIRED for registration
+      // If no PIN provided, we need to ask user for it
       let registrationSuccess = false;
       
       if (phoneNumberId) {
+        // If no PIN provided, ask frontend to get it from user
+        if (!registrationPin) {
+          console.log("⚠️ Phone registration requires PIN. Asking frontend for PIN input.");
+          return {
+            success: false,
+            requirePin: true,
+            wabaId,
+            phoneNumberId,
+            phoneNumber,
+            message: "Phone registration requires a 6-digit PIN. If this phone has Two-Step Verification enabled, enter your existing PIN. Otherwise, create a new PIN.",
+            pinRequired: true,
+            embeddedData // Pass back so frontend doesn't lose context
+          };
+        }
+
         try {
-          console.log(`📞 Registering phone ${phoneNumberId}...`);
-          
-          // UPDATED: Priority logic for PIN
-          // 1. Explicit PIN passed from frontend (if user entered it in modal)
-          // 2. PIN from embedded data (often missing, but we check anyway)
-          const registrationPin = pin || embeddedData?.pin || embeddedData?.registration_pin || embeddedData?.data?.pin;
+          console.log(`📞 Registering phone ${phoneNumberId} with PIN...`);
 
           const registerResponse = await fetch(
             `${META_API_BASE}/${phoneNumberId}/register`,
@@ -95,43 +112,53 @@ exports.saveWABADirect = onCall(
             const error = await registerResponse.json();
             console.warn("Phone registration warning:", JSON.stringify(error));
             
-            // FIXED: Comprehensive 2FA PIN error detection
-            // Meta API error codes for two-step verification:
-            // - 136025: Two-step verification PIN is required or incorrect
-            // - 100: Generic error that may contain PIN-related message
-            // - Error message patterns: "two-step", "2fa", "pin", "verification"
+            // Detect PIN-related errors
             const errorCode = error.error?.code;
             const errorSubcode = error.error?.error_subcode;
             const errorMessage = (error.error?.message || "").toLowerCase();
             
-            const isPinError = 
-              errorCode === 136025 ||  // Specific 2FA PIN error code
+            // Check if PIN was incorrect (not missing, since we provided one)
+            const isPinIncorrect = 
+              errorCode === 136025 ||
               errorSubcode === 136025 ||
-              errorCode === 100 && (
-                errorMessage.includes("two-step") ||
-                errorMessage.includes("two step") ||
-                errorMessage.includes("2fa") ||
-                errorMessage.includes("verification pin") ||
-                errorMessage.includes("pin is required") ||
-                errorMessage.includes("incorrect pin")
-              ) ||
-              errorMessage.includes("two-step verification") ||
-              errorMessage.includes("two step verification");
+              errorMessage.includes("incorrect pin") ||
+              errorMessage.includes("invalid pin") ||
+              errorMessage.includes("wrong pin");
 
-            console.log(`📋 PIN Error Check: code=${errorCode}, subcode=${errorSubcode}, isPinError=${isPinError}`);
+            // Check if PIN is required (shouldn't happen since we provide one, but just in case)
+            const isPinMissing = 
+              errorMessage.includes("pin is required") ||
+              errorMessage.includes("pin required") ||
+              errorMessage.includes("two-step verification");
 
-            if (isPinError) {
-              console.log("⚠️ Registration failed due to missing/incorrect 2FA PIN. Asking frontend for PIN.");
-              // Return a specific status so frontend can show the PIN modal
+            console.log(`📋 PIN Error Check: code=${errorCode}, subcode=${errorSubcode}, isPinIncorrect=${isPinIncorrect}, isPinMissing=${isPinMissing}`);
+
+            if (isPinIncorrect) {
+              console.log("⚠️ PIN was incorrect. Asking user to try again.");
+              return {
+                success: false,
+                requirePin: true,
+                pinIncorrect: true,
+                wabaId,
+                phoneNumberId,
+                phoneNumber,
+                message: "Incorrect PIN. Please enter your WhatsApp Two-Step Verification PIN.",
+                errorCode: errorCode,
+                embeddedData
+              };
+            }
+
+            if (isPinMissing) {
+              console.log("⚠️ PIN still required (unexpected). Asking user again.");
               return {
                 success: false,
                 requirePin: true,
                 wabaId,
                 phoneNumberId,
                 phoneNumber,
-                message: "Two-step verification PIN required",
+                message: "PIN required for registration.",
                 errorCode: errorCode,
-                embeddedData // Pass back so frontend doesn't lose context
+                embeddedData
               };
             }
             
@@ -374,40 +401,97 @@ exports.detectNewWABA = onRequest(
           }
   
           const currentWABAId = businessDoc.data()?.whatsappBusinessAccountId;
-  
-          // Get all WABAs from Meta Business Manager
-          const businessesResponse = await fetch(
-            `${META_API_BASE}/me/businesses?access_token=${systemToken}`
-          );
-  
-          if (!businessesResponse.ok) {
-            return res.status(500).json({ error: "Failed to fetch businesses" });
-          }
-  
-          const businessesData = await businessesResponse.json();
           const allWABAs = [];
-  
-          // For each business, get WABAs
-          for (const business of businessesData.data || []) {
-            try {
-              const wabasResponse = await fetch(
-                `${META_API_BASE}/${business.id}/owned_whatsapp_business_accounts?access_token=${systemToken}`
-              );
-  
-              if (wabasResponse.ok) {
-                const wabasData = await wabasResponse.json();
-                for (const waba of wabasData.data || []) {
-                  allWABAs.push({
-                    id: waba.id,
-                    name: waba.name,
-                    businessId: business.id,
-                  });
-                }
+
+          console.log("🔍 Detecting WABAs for user:", uid);
+
+          // METHOD 1: Get WABAs directly from System User (includes shared WABAs from Embedded Signup)
+          // This is the CORRECT way to find client WABAs created via Embedded Signup
+          try {
+            const directWabasResponse = await fetch(
+              `${META_API_BASE}/me/whatsapp_business_accounts?fields=id,name,account_review_status,on_behalf_of_business_info&access_token=${systemToken}`
+            );
+            
+            if (directWabasResponse.ok) {
+              const directWabas = await directWabasResponse.json();
+              console.log("📋 Direct WABAs found:", directWabas.data?.length || 0);
+              
+              for (const waba of directWabas.data || []) {
+                allWABAs.push({
+                  id: waba.id,
+                  name: waba.name,
+                  accountReviewStatus: waba.account_review_status,
+                  onBehalfOf: waba.on_behalf_of_business_info,
+                  source: "direct_system_user",
+                });
               }
-            } catch (err) {
-              console.warn("Error fetching WABAs for business:", err);
+            } else {
+              const errData = await directWabasResponse.json();
+              console.warn("Direct WABA fetch failed:", JSON.stringify(errData));
             }
+          } catch (err) {
+            console.warn("Error fetching direct WABAs:", err);
           }
+
+          // METHOD 2: Get WABAs from your businesses (owned WABAs)
+          try {
+            const businessesResponse = await fetch(
+              `${META_API_BASE}/me/businesses?access_token=${systemToken}`
+            );
+
+            if (businessesResponse.ok) {
+              const businessesData = await businessesResponse.json();
+
+              for (const business of businessesData.data || []) {
+                // Get OWNED WABAs
+                try {
+                  const ownedResponse = await fetch(
+                    `${META_API_BASE}/${business.id}/owned_whatsapp_business_accounts?fields=id,name,account_review_status&access_token=${systemToken}`
+                  );
+                  if (ownedResponse.ok) {
+                    const ownedData = await ownedResponse.json();
+                    for (const waba of ownedData.data || []) {
+                      if (!allWABAs.find(w => w.id === waba.id)) {
+                        allWABAs.push({
+                          id: waba.id,
+                          name: waba.name,
+                          accountReviewStatus: waba.account_review_status,
+                          businessId: business.id,
+                          source: "owned",
+                        });
+                      }
+                    }
+                  }
+                } catch (e) {}
+
+                // Get CLIENT WABAs (shared via Embedded Signup)
+                try {
+                  const clientResponse = await fetch(
+                    `${META_API_BASE}/${business.id}/client_whatsapp_business_accounts?fields=id,name,account_review_status&access_token=${systemToken}`
+                  );
+                  if (clientResponse.ok) {
+                    const clientData = await clientResponse.json();
+                    console.log(`📋 Client WABAs for business ${business.id}:`, clientData.data?.length || 0);
+                    for (const waba of clientData.data || []) {
+                      if (!allWABAs.find(w => w.id === waba.id)) {
+                        allWABAs.push({
+                          id: waba.id,
+                          name: waba.name,
+                          accountReviewStatus: waba.account_review_status,
+                          businessId: business.id,
+                          source: "client_embedded_signup",
+                        });
+                      }
+                    }
+                  }
+                } catch (e) {}
+              }
+            }
+          } catch (err) {
+            console.warn("Error fetching business WABAs:", err);
+          }
+
+          console.log("📊 Total WABAs found:", allWABAs.length, allWABAs.map(w => ({ id: w.id, name: w.name, source: w.source })));
   
           // LOGIC UPDATE: Priority 1 - New WABA, Priority 2 - Existing WABA with new info
           // We look for the most recently created or relevant WABA
@@ -852,4 +936,333 @@ function getPendingActions(wabaInfo) {
   }
   
   return actions;
+}
+
+// App configuration for code exchange
+const META_APP_ID = "1902565950686087";
+
+/**
+ * Get Meta App Secret (if configured)
+ */
+function getMetaAppSecret() {
+  // Try environment variable first (for cases where secret isn't available)
+  return process.env.META_APP_SECRET || null;
+}
+
+/**
+ * Exchange Facebook Auth Code for WABA Details
+ * This is the PROPER way to complete Embedded Signup per Meta docs
+ * 
+ * Flow:
+ * 1. Frontend calls FB.login() → gets auth code
+ * 2. Frontend sends auth code to this function
+ * 3. This function exchanges code for access token
+ * 4. This function fetches WABA details using the token
+ * 5. Saves everything to Firestore
+ */
+exports.exchangeCodeForWABA = onCall(
+  {
+    region: "us-central1",
+    memory: "512MiB",
+    timeoutSeconds: 60,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const { code, phoneNumberId, wabaId } = request.data || {};
+
+    // If wabaId is provided directly (from SDK FINISH event), skip code exchange
+    if (wabaId) {
+      console.log("📥 Direct WABA ID provided, skipping code exchange");
+      return await processWABAData(uid, { wabaId, phoneNumberId });
+    }
+
+    if (!code) {
+      throw new HttpsError("invalid-argument", "Authorization code is required");
+    }
+
+    try {
+      const appSecret = getMetaAppSecret();
+      if (!appSecret) {
+        console.warn("⚠️ META_APP_SECRET not configured, using System User Token flow");
+      }
+
+      let accessToken = null;
+      let tokenType = "exchanged";
+
+      // Step 1: Exchange auth code for access token
+      if (appSecret) {
+        console.log("🔄 Exchanging auth code for access token...");
+        
+        const tokenResponse = await fetch(
+          `${META_API_BASE}/oauth/access_token?` +
+          `client_id=${META_APP_ID}&` +
+          `client_secret=${appSecret}&` +
+          `code=${code}`
+        );
+
+        if (!tokenResponse.ok) {
+          const error = await tokenResponse.json();
+          console.error("Token exchange failed:", error);
+          
+          // Fall back to System User Token
+          accessToken = getSystemUserToken();
+          tokenType = "system_user_fallback";
+          
+          if (!accessToken) {
+            throw new HttpsError("internal", error.error?.message || "Token exchange failed");
+          }
+        } else {
+          const tokenData = await tokenResponse.json();
+          accessToken = tokenData.access_token;
+          console.log("✅ Access token obtained successfully");
+        }
+      } else {
+        // No app secret, use system user token
+        accessToken = getSystemUserToken();
+        tokenType = "system_user";
+      }
+
+      if (!accessToken) {
+        throw new HttpsError("failed-precondition", "No valid access token available");
+      }
+
+      // Step 2: Get user's WABA from the shared business accounts
+      console.log(`🔍 Fetching WABAs using ${tokenType} token...`);
+      
+      let detectedWABA = null;
+      let detectedPhone = null;
+
+      // Method 1: Get WABAs directly accessible via the token
+      try {
+        const wabasResponse = await fetch(
+          `${META_API_BASE}/me/whatsapp_business_accounts?fields=id,name,account_review_status,phone_numbers{id,display_phone_number,verified_name,code_verification_status}&access_token=${accessToken}`
+        );
+
+        if (wabasResponse.ok) {
+          const wabasData = await wabasResponse.json();
+          console.log("📋 WABAs found:", wabasData.data?.length || 0);
+
+          if (wabasData.data?.length > 0) {
+            // Get the most recently connected/created WABA
+            detectedWABA = wabasData.data[0];
+            
+            // Get phone number if available
+            if (detectedWABA.phone_numbers?.data?.length > 0) {
+              detectedPhone = detectedWABA.phone_numbers.data[0];
+            }
+          }
+        } else {
+          const errData = await wabasResponse.json();
+          console.warn("WABA fetch failed:", JSON.stringify(errData));
+        }
+      } catch (fetchErr) {
+        console.warn("Error fetching WABAs:", fetchErr);
+      }
+
+      // Method 2: If no WABA found via direct access, check System User's shared WABAs
+      if (!detectedWABA && tokenType !== "system_user") {
+        const systemToken = getSystemUserToken();
+        if (systemToken) {
+          console.log("🔄 Falling back to System User token for WABA detection...");
+          
+          try {
+            const sysWabasResponse = await fetch(
+              `${META_API_BASE}/me/whatsapp_business_accounts?fields=id,name,account_review_status&access_token=${systemToken}`
+            );
+            
+            if (sysWabasResponse.ok) {
+              const sysWabas = await sysWabasResponse.json();
+              
+              // Check existing WABAs in Firestore
+              const businessDoc = await db.collection("businesses").doc(uid).get();
+              const existingWabaId = businessDoc.data()?.whatsappBusinessAccountId;
+              
+              // Find a new WABA (not the existing one)
+              for (const waba of sysWabas.data || []) {
+                if (waba.id !== existingWabaId) {
+                  detectedWABA = waba;
+                  
+                  // Fetch phone numbers for this WABA
+                  const phonesResponse = await fetch(
+                    `${META_API_BASE}/${waba.id}/phone_numbers?fields=id,display_phone_number,code_verification_status&access_token=${systemToken}`
+                  );
+                  
+                  if (phonesResponse.ok) {
+                    const phonesData = await phonesResponse.json();
+                    if (phonesData.data?.length > 0) {
+                      detectedPhone = phonesData.data[0];
+                    }
+                  }
+                  
+                  break;
+                }
+              }
+            }
+          } catch (sysErr) {
+            console.warn("System user WABA fetch failed:", sysErr);
+          }
+        }
+      }
+
+      if (!detectedWABA) {
+        console.log("⚠️ No WABA detected after code exchange");
+        return {
+          success: false,
+          detected: false,
+          message: "No WhatsApp Business Account found. Please complete the setup in the popup window.",
+        };
+      }
+
+      // Process and save the WABA data
+      return await processWABAData(uid, {
+        wabaId: detectedWABA.id,
+        wabaName: detectedWABA.name,
+        accountReviewStatus: detectedWABA.account_review_status,
+        phoneNumberId: detectedPhone?.id || phoneNumberId,
+        phoneNumber: detectedPhone?.display_phone_number,
+        phoneVerificationStatus: detectedPhone?.code_verification_status,
+      });
+
+    } catch (error) {
+      console.error("Error in exchangeCodeForWABA:", error);
+      if (error instanceof HttpsError) throw error;
+      throw new HttpsError("internal", error.message || "Failed to exchange code for WABA");
+    }
+  }
+);
+
+/**
+ * Helper function to process and save WABA data
+ */
+async function processWABAData(uid, data) {
+  const {
+    wabaId,
+    wabaName,
+    accountReviewStatus,
+    phoneNumberId,
+    phoneNumber,
+    phoneVerificationStatus,
+    pin,
+  } = data;
+
+  const systemToken = getSystemUserToken();
+
+  // Register phone number if we have one
+  let registrationSuccess = false;
+  let requirePin = false;
+
+  if (phoneNumberId && systemToken) {
+    try {
+      console.log(`📞 Registering phone ${phoneNumberId}...`);
+      
+      const registerResponse = await fetch(
+        `${META_API_BASE}/${phoneNumberId}/register`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${systemToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            ...(pin && { pin }),
+          }),
+        }
+      );
+
+      if (!registerResponse.ok) {
+        const error = await registerResponse.json();
+        const errorCode = error.error?.code;
+        const errorMessage = (error.error?.message || "").toLowerCase();
+        
+        const isPinError = 
+          errorCode === 136025 ||
+          errorMessage.includes("two-step") ||
+          errorMessage.includes("two step") ||
+          errorMessage.includes("2fa") ||
+          errorMessage.includes("pin");
+
+        if (isPinError) {
+          console.log("⚠️ 2FA PIN required for phone registration");
+          requirePin = true;
+        } else {
+          console.warn("Phone registration warning:", JSON.stringify(error));
+        }
+      } else {
+        console.log("✅ Phone registered successfully");
+        registrationSuccess = true;
+      }
+    } catch (regErr) {
+      console.warn("Phone registration error:", regErr);
+    }
+  }
+
+  // Subscribe app to WABA if we have system token
+  if (systemToken && wabaId) {
+    try {
+      await fetch(
+        `${META_API_BASE}/${wabaId}/subscribed_apps`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${systemToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            subscribed_fields: ["messages", "message_status", "account_update", "account_review_update"],
+          }),
+        }
+      );
+      console.log("✅ App subscribed to WABA events");
+    } catch (subErr) {
+      console.warn("App subscription error:", subErr);
+    }
+  }
+
+  // Save to Firestore
+  const wabaData = {
+    whatsappBusinessAccountId: wabaId,
+    whatsappBusinessName: wabaName || null,
+    whatsappPhoneNumberId: phoneNumberId || null,
+    whatsappPhoneNumber: phoneNumber || null,
+    whatsappProvider: "meta_tech_provider",
+    whatsappEnabled: true,
+    whatsappCreatedVia: "embedded_signup_sdk",
+    whatsappCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    whatsappPhoneRegistered: registrationSuccess,
+    whatsappPhoneVerificationStatus: registrationSuccess ? "valid" : (phoneVerificationStatus || "pending"),
+    whatsappVerified: false,
+    whatsappAccountReviewStatus: accountReviewStatus || "PENDING",
+    whatsappStatusLastChecked: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  await db.collection("businesses").doc(uid).set(wabaData, { merge: true });
+
+  console.log(`✅ WABA ${wabaId} saved for user ${uid}`);
+
+  if (requirePin) {
+    return {
+      success: false,
+      requirePin: true,
+      wabaId,
+      phoneNumberId,
+      phoneNumber,
+      message: "Two-step verification PIN required to complete phone registration",
+    };
+  }
+
+  return {
+    success: true,
+    wabaId,
+    wabaName,
+    phoneNumberId,
+    phoneNumber,
+    registrationSuccess,
+    message: "WhatsApp Business Account connected successfully!",
+  };
 }
