@@ -1670,514 +1670,444 @@ const DistributorViewEmployees = () => {
   }, [employeeActivity, employees]);
 
   return (
-    <div className="p-4 text-white">
-      {/* Tabs */}
-      <div className="flex gap-4 mb-6 border-b border-white/10">
-        <button
-          onClick={() => setActiveTab('manage')}
-          className={`pb-2 px-4 font-semibold transition-colors ${
-            activeTab === 'manage'
-              ? 'text-emerald-400 border-b-2 border-emerald-400'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          Manage Employees
-        </button>
-        <button
-          onClick={() => setActiveTab('activity')}
-          className={`pb-2 px-4 font-semibold transition-colors ${
-            activeTab === 'activity'
-              ? 'text-emerald-400 border-b-2 border-emerald-400'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          Employee Activity Analytics
-        </button>
-      </div>
-
-      {activeTab === 'manage' ? (
-        <>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-semibold">Distributor Employees</h2>
-        <div className="flex items-center gap-3">
+    <div className="w-full text-white">
+      <div className="w-full">
+        {/* Tabs */}
+        <div className="flex gap-6 mb-8 border-b border-white/10">
           <button
-            onClick={handleMigration}
-            disabled={migrating}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50 text-white rounded-lg transition-colors"
+            onClick={() => setActiveTab('manage')}
+            className={`pb-3 px-1 font-semibold text-sm transition-colors ${
+              activeTab === 'manage'
+                ? 'text-emerald-400 border-b-2 border-emerald-400'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
           >
-            <FiDatabase className="w-4 h-4" />
-            {migrating ? 'Migrating...' : 'Migrate IDs'}
+            Manage Employees
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors"
+            onClick={() => setActiveTab('activity')}
+            className={`pb-3 px-1 font-semibold text-sm transition-colors ${
+              activeTab === 'activity'
+                ? 'text-emerald-400 border-b-2 border-emerald-400'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
           >
-            <FiPlus className="w-4 h-4" />
-            Add Employee
+            Employee Activity Analytics
           </button>
         </div>
-      </div>
 
-      {/* Enhanced Filters and Search */}
-      <div className="mb-6 space-y-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Search Bar */}
-          <div className="flex-1 relative">
-            <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
-        <input
-          type="text"
-              placeholder="Search employees by name, email, role, or ID..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl backdrop-blur-md bg-white/10 border border-white/20 placeholder-gray-500 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-        />
-      </div>
+        {activeTab === 'manage' ? (
+          <>
+            {/* Header Section */}
+            <div className="mb-8">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-6">
+                <div>
+                  <h1 className="text-3xl font-bold text-white mb-2">Employee Management</h1>
+                  <p className="text-slate-400">Manage your team members, permissions, and access controls</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleMigration}
+                    disabled={migrating}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700/50 text-slate-200 hover:bg-slate-700/80 disabled:opacity-50 transition-all"
+                  >
+                    <FiDatabase className="w-4 h-4" />
+                    {migrating ? 'Migrating...' : 'Migrate IDs'}
+                  </button>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-white font-semibold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+                  >
+                    <FiPlus className="w-5 h-5" />
+                    Add Employee
+                  </button>
+                </div>
+              </div>
 
-          {/* Status Filter */}
-          <div className="relative">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full md:w-48 px-4 py-3 rounded-xl backdrop-blur-md bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent appearance-none cursor-pointer"
-            >
-              <option value="all" className="bg-gray-900">All Statuses</option>
-              <option value="active" className="bg-gray-900">Active</option>
-              <option value="inactive" className="bg-gray-900">Inactive</option>
-            </select>
-            <FiChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
-        </div>
-          
-          {/* Role Filter */}
-          <div className="relative">
+              {/* Filters Section */}
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="relative md:col-span-2">
+                    <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by name, email, role, or ID..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-900/50 border border-slate-700/50 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
+                    />
+                  </div>
+                  <div className="relative">
                     <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="w-full md:w-48 px-4 py-3 rounded-xl backdrop-blur-md bg-white/10 border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent appearance-none cursor-pointer"
-            >
-              <option value="all" className="bg-gray-900">All Roles</option>
-                      <option value="Manager" className="bg-gray-900">Manager</option>
-                      <option value="Sales Executive" className="bg-gray-900">Sales Executive</option>
-                      <option value="Order Manager" className="bg-gray-900">Order Manager</option>
-                      <option value="Dispatch Manager" className="bg-gray-900">Dispatch Manager</option>
-                      <option value="Admin" className="bg-gray-900">Admin</option>
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full pl-4 pr-10 py-3 rounded-xl bg-slate-900/50 border border-slate-700/50 text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 appearance-none cursor-pointer"
+                    >
+                      <option value="all" className="bg-slate-900">All Statuses</option>
+                      <option value="active" className="bg-slate-900">Active</option>
+                      <option value="inactive" className="bg-slate-900">Inactive</option>
                     </select>
-            <FiChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
-                    </div>
-          
-          {/* Result Count */}
-          <div className="flex items-center justify-end px-4 py-3 rounded-xl bg-white/5 border border-white/10">
-            <span className="text-sm font-medium text-gray-300">
-              <span className="text-white font-bold">{filteredEmployees.length}</span>
-              <span className="text-gray-500 mx-1">of</span>
-              <span className="text-white font-bold">{employees.length}</span>
-              <span className="text-gray-500 ml-1">employees</span>
-            </span>
-          </div>
-        </div>
-        
-        {/* Enhanced Quick Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="relative overflow-hidden bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-xl p-5 border border-white/10 backdrop-blur-sm hover:border-white/20 transition-all group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 group-hover:bg-white/10 transition-colors"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Total</div>
-                <FiUser className="w-4 h-4 text-gray-500" />
+                    <FiChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                  </div>
+                  <div className="relative">
+                    <select
+                      value={roleFilter}
+                      onChange={(e) => setRoleFilter(e.target.value)}
+                      className="w-full pl-4 pr-10 py-3 rounded-xl bg-slate-900/50 border border-slate-700/50 text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 appearance-none cursor-pointer"
+                    >
+                      <option value="all" className="bg-slate-900">All Roles</option>
+                      <option value="Manager" className="bg-slate-900">Manager</option>
+                      <option value="Sales Executive" className="bg-slate-900">Sales Executive</option>
+                      <option value="Order Manager" className="bg-slate-900">Order Manager</option>
+                      <option value="Dispatch Manager" className="bg-slate-900">Dispatch Manager</option>
+                      <option value="Admin" className="bg-slate-900">Admin</option>
+                    </select>
+                    <FiChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                  </div>
+                </div>
               </div>
-              <div className="text-3xl font-bold text-white mb-1">{employees.length}</div>
-              <div className="text-xs text-gray-500">Employees</div>
+
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-5 backdrop-blur-sm">
+                  <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Total</div>
+                  <div className="text-3xl font-bold text-white">{employees.length}</div>
+                  <div className="text-xs text-slate-500 mt-1">Employees</div>
+                </div>
+                <div className="rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 p-5 backdrop-blur-sm">
+                  <div className="text-xs font-medium text-emerald-300 uppercase tracking-wider mb-2">Active</div>
+                  <div className="text-3xl font-bold text-emerald-200">
+                    {employees.filter(e => e.status === 'active').length}
+                  </div>
+                  <div className="text-xs text-emerald-400/70 mt-1">Currently active</div>
+                </div>
+                <div className="rounded-xl border border-sky-500/30 bg-gradient-to-br from-sky-500/10 to-sky-600/5 p-5 backdrop-blur-sm">
+                  <div className="text-xs font-medium text-sky-300 uppercase tracking-wider mb-2">Online</div>
+                  <div className="text-3xl font-bold text-sky-200">
+                    {employees.filter(e => e.online).length}
+                  </div>
+                  <div className="text-xs text-sky-400/70 mt-1">Currently online</div>
+                </div>
+                <div className="rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/10 to-purple-600/5 p-5 backdrop-blur-sm">
+                  <div className="text-xs font-medium text-purple-300 uppercase tracking-wider mb-2">Assigned</div>
+                  <div className="text-3xl font-bold text-purple-200">
+                    {employees.filter(e => e.zones?.length > 0 || e.assignedRetailers?.length > 0).length}
+                  </div>
+                  <div className="text-xs text-purple-400/70 mt-1">With assignments</div>
+                </div>
+              </div>
             </div>
-          </div>
-          
-          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 rounded-xl p-5 border border-emerald-500/30 backdrop-blur-sm hover:border-emerald-500/50 transition-all group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full -mr-12 -mt-12 group-hover:bg-emerald-500/20 transition-colors"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-medium text-emerald-300 uppercase tracking-wider">Active</div>
-                <FiCheckCircle className="w-4 h-4 text-emerald-400" />
+
+            {/* Employee Table */}
+            {loading ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-400 mx-auto mb-4"></div>
+                  <p className="text-slate-400">Loading employees...</p>
+                </div>
               </div>
-              <div className="text-3xl font-bold text-emerald-400 mb-1">
-                {employees.filter(e => e.status === 'active').length}
+            ) : filteredEmployees.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-12 text-center">
+                <FiUser className="w-16 h-16 mx-auto mb-4 text-slate-600" />
+                <p className="text-slate-300 text-lg mb-2">No employees found</p>
+                <p className="text-slate-500 text-sm">Try adjusting your search or filters</p>
               </div>
-              <div className="text-xs text-emerald-400/70">Currently active</div>
-            </div>
-          </div>
-          
-          <div className="relative overflow-hidden bg-gradient-to-br from-blue-500/10 to-blue-600/5 rounded-xl p-5 border border-blue-500/30 backdrop-blur-sm hover:border-blue-500/50 transition-all group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full -mr-12 -mt-12 group-hover:bg-blue-500/20 transition-colors"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-medium text-blue-300 uppercase tracking-wider">Online</div>
-                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-900/50 border-b border-white/10">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Employee</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Contact</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Role</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Assignments</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">PIN</th>
+                        <th className="px-6 py-4 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {filteredEmployees.map((emp) => {
+                        const pinStatus = getPinStatus(emp);
+                        const isVisible = visiblePins[emp.flypEmployeeId || emp.id];
+                        const empKey = emp.flypEmployeeId || emp.id;
+                        const temp = tempPins[empKey];
+                        const enabledPermissions = emp.accessSections 
+                          ? Object.entries(emp.accessSections).filter(([_, enabled]) => enabled).length 
+                          : 0;
+
+                        return (
+                          <tr key={emp.id} className="hover:bg-white/5 transition-colors group">
+                            {/* Employee Info */}
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="relative h-10 w-10 rounded-full overflow-hidden border-2 border-white/20 bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center flex-shrink-0">
+                                  {emp.profilePictureUrl ? (
+                                    <img
+                                      src={emp.profilePictureUrl}
+                                      alt={emp.name || 'Employee'}
+                                      className="h-full w-full object-cover"
+                                      onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.parentElement.innerHTML = `<span class="text-sm font-bold text-white">${(emp.name || 'E').charAt(0).toUpperCase()}</span>`;
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className="text-sm font-bold text-white">
+                                      {(emp.name || 'E').charAt(0).toUpperCase()}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-semibold text-white truncate">{emp.name || 'Unnamed Employee'}</h3>
+                                    {emp.online && (
+                                      <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse flex-shrink-0"></div>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-slate-400 font-mono truncate">{emp.flypEmployeeId || emp.id || 'No ID'}</p>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Contact */}
+                            <td className="px-6 py-4">
+                              <div className="space-y-1">
+                                {emp.email && (
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-300">
+                                    <FiMail className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                                    <span className="truncate max-w-[200px]">{emp.email}</span>
+                                  </div>
+                                )}
+                                {emp.phone && (
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-300">
+                                    <FiPhone className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                                    <span>{emp.phone}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Role */}
+                            <td className="px-6 py-4">
+                              <RoleSelector
+                                employee={emp}
+                                currentUser={currentUser}
+                                customRoles={customRoles}
+                                onRoleChange={async (newRole) => {
+                                  if (newRole && !['Manager', 'Sales Executive', 'Order Manager', 'Dispatch Manager', 'Admin', ...customRoles].includes(newRole)) {
+                                    setCustomRoles(prev => [...prev, newRole]);
+                                  }
+                                  await updateDoc(doc(db, 'businesses', currentUser.uid, 'distributorEmployees', emp.id), {
+                                    role: newRole
+                                  });
+                                  toast.success(`Role updated to ${newRole}`);
+                                }}
+                              />
+                            </td>
+
+                            {/* Status */}
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col gap-2">
+                                <button
+                                  onClick={() => handleToggleStatus(emp)}
+                                  className={`w-fit px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                                    emp.status === 'active'
+                                      ? 'bg-emerald-500/10 text-emerald-200 border-emerald-400/30 hover:bg-emerald-500/20'
+                                      : 'bg-slate-700/40 text-slate-300 border-slate-600/50 hover:bg-slate-700/60'
+                                  }`}
+                                >
+                                  {emp.status === 'active' ? 'Active' : 'Inactive'}
+                                </button>
+                                {!emp.online && (
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                    <FiClock className="w-3 h-3" />
+                                    <span>{formatLastSeen(emp.lastSeen)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Assignments */}
+                            <td className="px-6 py-4">
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedEmployeeForZones(emp);
+                                      setShowZoneRetailerModal(true);
+                                    }}
+                                    className="px-2.5 py-1 rounded-md bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-300 text-xs transition-all"
+                                  >
+                                    <FiMapPin className="w-3.5 h-3.5 inline mr-1" />
+                                    Assign
+                                  </button>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {emp.zones?.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-400/20 text-purple-300 text-xs">
+                                      {emp.zones.length} zone{emp.zones.length > 1 ? 's' : ''}
+                                    </span>
+                                  )}
+                                  {emp.assignedRetailers?.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-400/20 text-emerald-300 text-xs">
+                                      {emp.assignedRetailers.length} retailer{emp.assignedRetailers.length > 1 ? 's' : ''}
+                                    </span>
+                                  )}
+                                  {(!emp.zones?.length && !emp.assignedRetailers?.length) && (
+                                    <span className="text-xs text-slate-500 italic">None</span>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setSelectedEmployeeForPermissions(emp);
+                                    setShowPermissionModal(true);
+                                  }}
+                                  className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                                >
+                                  {enabledPermissions} permission{enabledPermissions !== 1 ? 's' : ''}
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* PIN */}
+                            <td className="px-6 py-4">
+                              <div className="space-y-2">
+                                {temp && temp.expiresAt > Date.now() ? (
+                                  <div className="space-y-1">
+                                    <div className="text-xs text-amber-200">New PIN:</div>
+                                    <div className="font-mono text-sm font-bold text-amber-300">{temp.pin}</div>
+                                    <div className="text-xs text-amber-400">
+                                      Expires in {formatCountdown(temp.expiresAt - Date.now())}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                                        pinStatus === 'expired'
+                                          ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                                          : pinStatus === 'expiring'
+                                          ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                          : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                      }`}>
+                                        {pinStatus}
+                                      </span>
+                                      <button
+                                        onClick={() => confirmAndReset(empKey, emp.name)}
+                                        className="text-xs text-amber-300 hover:text-amber-200 underline"
+                                      >
+                                        Reset
+                                      </button>
+                                    </div>
+                                    <button
+                                      onClick={() => togglePinVisibility(empKey)}
+                                      className={`w-full px-2 py-1.5 rounded-md border text-xs font-mono transition-all ${
+                                        pinStatus === 'expired'
+                                          ? 'border-red-400/30 bg-red-500/10 text-red-200'
+                                          : pinStatus === 'expiring'
+                                          ? 'border-yellow-400/30 bg-yellow-500/10 text-yellow-200'
+                                          : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                                      }`}
+                                    >
+                                      {isVisible ? (emp.pin || 'No PIN') : '••••••'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-6 py-4">
+                              <div className="flex items-center justify-end gap-2">
+                                <a
+                                  href={`${(typeof window !== 'undefined' && window.location ? window.location.origin : 'https://flypnow.com')}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-8 h-8 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/30 text-sky-200 flex items-center justify-center transition-all"
+                                  title="Open Login Link"
+                                >
+                                  <FiExternalLink className="w-4 h-4" />
+                                </a>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const base = (typeof window !== 'undefined' && window.location) ? window.location.origin : 'https://flypnow.com';
+                                      const loginLink = `${base}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`;
+                                      if (navigator.share) {
+                                        try {
+                                          await navigator.share({ 
+                                            title: 'Employee Login Link', 
+                                            text: `Login link for ${emp.name}`, 
+                                            url: loginLink 
+                                          });
+                                          toast.success('Link shared!');
+                                          return;
+                                        } catch (err) {
+                                          if (err.name !== 'AbortError') {
+                                            console.log('Share failed:', err);
+                                            // Fall through to copy
+                                          } else {
+                                            return; // User cancelled
+                                          }
+                                        }
+                                      }
+                                      await navigator.clipboard.writeText(loginLink);
+                                      toast.success('Link copied to clipboard!');
+                                    } catch (err) {
+                                      toast.error('Failed to copy link');
+                                    }
+                                  }}
+                                  className="w-8 h-8 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 text-emerald-200 flex items-center justify-center transition-all"
+                                  title="Share or Copy Login Link"
+                                >
+                                  <FiCopy className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedEmployeeForEdit(emp);
+                                    setShowEditModal(true);
+                                  }}
+                                  className="w-8 h-8 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-200 flex items-center justify-center transition-all"
+                                  title="Edit"
+                                >
+                                  <FiSettings className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(emp.id)}
+                                  className="w-8 h-8 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/30 text-rose-200 flex items-center justify-center transition-all"
+                                  title="Delete"
+                                >
+                                  <FiTrash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-6 py-4 border-t border-white/10 bg-slate-900/30">
+                  <div className="text-sm text-slate-400">
+                    Showing <span className="text-white font-semibold">{filteredEmployees.length}</span> of{' '}
+                    <span className="text-white font-semibold">{employees.length}</span> employees
+                  </div>
+                </div>
               </div>
-              <div className="text-3xl font-bold text-blue-400 mb-1">
-                {employees.filter(e => e.online).length}
-              </div>
-              <div className="text-xs text-blue-400/70">Currently online</div>
-            </div>
-          </div>
-          
-          <div className="relative overflow-hidden bg-gradient-to-br from-purple-500/10 to-purple-600/5 rounded-xl p-5 border border-purple-500/30 backdrop-blur-sm hover:border-purple-500/50 transition-all group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/10 rounded-full -mr-12 -mt-12 group-hover:bg-purple-500/20 transition-colors"></div>
-            <div className="relative">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-medium text-purple-300 uppercase tracking-wider">Assigned</div>
-                <FiMapPin className="w-4 h-4 text-purple-400" />
-              </div>
-              <div className="text-3xl font-bold text-purple-400 mb-1">
-                {employees.filter(e => e.zones?.length > 0 || e.assignedRetailers?.length > 0).length}
-              </div>
-              <div className="text-xs text-purple-400/70">With zones/retailers</div>
-            </div>
-          </div>
-        </div>
+            )}
+          </>
+        ) : (
+          <EnhancedEmployeeActivityAnalytics
+            activitiesByEmployee={activitiesByEmployee}
+            employees={employees}
+            loadingActivity={loadingActivity}
+            currentUser={currentUser}
+            db={db}
+          />
+        )}
       </div>
-
-      {loading ? (
-        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-12 text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-400 mx-auto mb-4"></div>
-          <p className="text-gray-300">Loading employees...</p>
-        </div>
-      ) : filteredEmployees.length === 0 ? (
-        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-12 text-center">
-          <FiUser className="w-16 h-16 mx-auto mb-4 text-gray-500" />
-          <p className="text-gray-300 text-lg mb-2">No employees found</p>
-          <p className="text-gray-500 text-sm">Try adjusting your search or filters</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {filteredEmployees.map((emp) => (
-            <div
-              key={emp.id}
-              className="group relative overflow-hidden bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all hover:shadow-2xl hover:shadow-emerald-500/10"
-            >
-              {/* Status Indicator */}
-              <div className={`absolute top-0 right-0 w-1 h-full ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-gray-500'}`}></div>
-              
-              {/* Header Section */}
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center">
-                      {emp.profilePictureUrl ? (
-                        <img
-                          src={emp.profilePictureUrl}
-                          alt={emp.name || 'Employee'}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            // Fallback to initial if image fails to load
-                            e.target.style.display = 'none';
-                            e.target.parentElement.innerHTML = `<span class="text-xl font-bold text-white">${(emp.name || 'E').charAt(0).toUpperCase()}</span>`;
-                          }}
-                        />
-                      ) : (
-                        <span className="text-xl font-bold text-white">{(emp.name || 'E').charAt(0).toUpperCase()}</span>
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-white mb-0.5">{emp.name || 'Unnamed Employee'}</h3>
-                      <p className="text-xs text-gray-400 font-mono">{emp.flypEmployeeId || emp.id || 'No ID'}</p>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Action Buttons */}
-                <div className="flex items-center gap-2">
-                  {/* Edit Button */}
-                  <button
-                    onClick={() => {
-                      setSelectedEmployeeForEdit(emp);
-                      setShowEditModal(true);
-                    }}
-                    className="w-8 h-8 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 flex items-center justify-center transition-all"
-                    title="Edit employee information"
-                  >
-                    <FiSettings className="w-4 h-4" />
-                  </button>
-                  
-                  {/* Status Badge */}
-                    <button
-                      onClick={() => handleToggleStatus(emp)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
-                        emp.status === 'active'
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30 hover:bg-emerald-500/30'
-                        : 'bg-gray-500/20 text-gray-400 border-gray-500/30 hover:bg-gray-500/30'
-                      }`}
-                    >
-                      {emp.status === 'active' ? 'Active' : 'Inactive'}
-                    </button>
-                </div>
-              </div>
-
-              {/* Contact Information */}
-              <div className="space-y-2 mb-4">
-                {emp.email && (
-                  <div className="flex items-center gap-2 text-sm text-gray-300">
-                    <FiMail className="w-4 h-4 text-gray-500" />
-                    <span className="truncate">{emp.email}</span>
-                  </div>
-                )}
-                {emp.phone && (
-                  <div className="flex items-center gap-2 text-sm text-gray-300">
-                    <FiPhone className="w-4 h-4 text-gray-500" />
-                    <span>{emp.phone}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Role Selector with Custom Role Support */}
-              <RoleSelector
-                employee={emp}
-                currentUser={currentUser}
-                customRoles={customRoles}
-                onRoleChange={async (newRole) => {
-                  if (newRole && !['Manager', 'Sales Executive', 'Order Manager', 'Dispatch Manager', 'Admin', ...customRoles].includes(newRole)) {
-                    // Add new custom role to list
-                    setCustomRoles(prev => [...prev, newRole]);
-                  }
-                  await updateDoc(doc(db, 'businesses', currentUser.uid, 'distributorEmployees', emp.id), {
-                    role: newRole
-                  });
-                  toast.success(`Role updated to ${newRole}`);
-                }}
-              />
-
-              {/* Zones/Retailers Section */}
-              <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-gray-400">Zones & Retailers</label>
-                  <button
-                    onClick={() => {
-                      setSelectedEmployeeForZones(emp);
-                      setShowZoneRetailerModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-300 text-xs transition-all"
-                  >
-                    <FiMapPin className="w-3.5 h-3.5" />
-                    Assign
-                        </button>
-                </div>
-                {(emp.zones?.length > 0 || emp.territories?.length > 0 || emp.assignedRetailers?.length > 0) ? (
-                  <div className="flex flex-wrap gap-2">
-                    {emp.zones?.length > 0 && (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-500/10 border border-purple-400/20 text-purple-300 text-xs">
-                        <FiMapPin className="w-3 h-3" />
-                        {emp.zones.length} zone{emp.zones.length > 1 ? 's' : ''}
-                      </span>
-                    )}
-                    {emp.territories?.length > 0 && (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10 border border-blue-400/20 text-blue-300 text-xs">
-                        <FiMapPin className="w-3 h-3" />
-                        {emp.territories.length} territor{emp.territories.length > 1 ? 'ies' : 'y'}
-                      </span>
-                    )}
-                    {emp.assignedRetailers?.length > 0 && (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-400/20 text-emerald-300 text-xs">
-                        <FiUsers className="w-3 h-3" />
-                        {emp.assignedRetailers.length} retailer{emp.assignedRetailers.length > 1 ? 's' : ''}
-                      </span>
-                    )}
-                      </div>
-                    ) : (
-                  <p className="text-xs text-gray-500 italic">No assignments yet</p>
-                )}
-              </div>
-
-              {/* Access Permissions */}
-              <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs text-gray-400">Access Permissions</label>
-                  <button
-                    onClick={() => {
-                      setSelectedEmployeeForPermissions(emp);
-                      setShowPermissionModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-300 text-xs transition-all"
-                  >
-                    <FiShield className="w-3.5 h-3.5" />
-                    Manage
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {emp.accessSections ? (() => {
-                    const permissionLabels = {
-                      addRetailers: 'Add Retailers',
-                      createOrders: 'Create Orders',
-                      manageOrders: 'Manage Orders',
-                      trackOrders: 'Track Orders',
-                      analytics: 'Analytics',
-                      inventory: 'Inventory',
-                      dispatch: 'Dispatch',
-                      aiForecast: 'AI Forecast',
-                      manualBilling: 'Billing',
-                      invoices: 'Invoices',
-                      productOwners: 'Products',
-                      retailerRequests: 'Retailer Requests'
-                    };
-                    
-                    // Define consistent order for permissions
-                    const permissionOrder = [
-                      'addRetailers',
-                      'retailerRequests',
-                      'createOrders',
-                      'manageOrders',
-                      'trackOrders',
-                      'inventory',
-                      'dispatch',
-                      'analytics',
-                      'aiForecast',
-                      'manualBilling',
-                      'invoices',
-                      'productOwners'
-                    ];
-                    
-                    // Get enabled permissions and sort by defined order
-                    const enabledPermissions = Object.entries(emp.accessSections)
-                      .filter(([_, enabled]) => enabled)
-                      .map(([key]) => key)
-                      .sort((a, b) => {
-                        const indexA = permissionOrder.indexOf(a);
-                        const indexB = permissionOrder.indexOf(b);
-                        // If not found in order, put at end
-                        if (indexA === -1 && indexB === -1) return a.localeCompare(b);
-                        if (indexA === -1) return 1;
-                        if (indexB === -1) return -1;
-                        return indexA - indexB;
-                      });
-                    
-                    if (enabledPermissions.length === 0) {
-                      return <p className="text-xs text-gray-500 italic">No permissions assigned</p>;
-                    }
-                    
-                    return enabledPermissions.map((key) => {
-                      const label = permissionLabels[key] || key;
-                      return (
-                        <span
-                          key={key}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-400/20 text-emerald-300 text-xs"
-                        >
-                          <FiCheckCircle className="w-3 h-3" />
-                          {label}
-                        </span>
-                      );
-                    });
-                  })() : (
-                    <p className="text-xs text-gray-500 italic">No permissions assigned</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Presence & Metadata */}
-              <div className="flex items-center justify-between mb-4 text-xs">
-                    <div className="flex items-center gap-2">
-                    {emp.online ? (
-                    <>
-                      <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-                      <span className="text-emerald-300 font-medium">Online</span>
-                    </>
-                  ) : (
-                    <>
-                      <FiClock className="w-3.5 h-3.5 text-gray-500" />
-                      <span className="text-gray-400">Last seen: {formatLastSeen(emp.lastSeen)}</span>
-                    </>
-                  )}
-                </div>
-                <span className="text-gray-500">{emp.createdAt?.toDate?.().toLocaleDateString() || '-'}</span>
-              </div>
-
-              {/* PIN Management */}
-              <div className="mb-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-amber-300 font-medium">PIN Management</label>
-                  <button
-                    onClick={() => confirmAndReset(emp.flypEmployeeId || emp.id, emp.name)}
-                    className="text-xs text-amber-300 hover:text-amber-200 underline"
-                  >
-                    Reset
-                        </button>
-                      </div>
-                      {(() => {
-                        const key = emp.flypEmployeeId || emp.id;
-                        const temp = tempPins[key];
-                        if (temp && temp.expiresAt > Date.now()) {
-                          const remaining = temp.expiresAt - Date.now();
-                          return (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-amber-200">New PIN:</span>
-                        <span className="font-mono text-sm font-bold text-amber-300">{temp.pin}</span>
-                        <span className="text-xs text-amber-400">({formatCountdown(remaining)})</span>
-                      </div>
-                    );
-                  }
-                          const pinStatus = getPinStatus(emp);
-                          const isVisible = visiblePins[key];
-                          return (
-                              <button
-                                onClick={() => togglePinVisibility(key)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-md border text-xs font-mono transition-all ${
-                                  pinStatus === 'expired' 
-                                    ? 'border-red-400/30 bg-red-500/10 text-red-200'
-                                    : pinStatus === 'expiring'
-                                    ? 'border-yellow-400/30 bg-yellow-500/10 text-yellow-200'
-                          : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
-                      }`}
-                    >
-                      <span>{isVisible ? (emp.pin || 'No PIN') : '••••••'}</span>
-                      {pinStatus === 'expired' && <span className="text-red-300">Expired</span>}
-                      {pinStatus === 'expiring' && <span className="text-yellow-300">Expires Soon</span>}
-                              </button>
-                  );
-                      })()}
-              </div>
-
-              {/* Actions Footer */}
-              <div className="flex items-center gap-2 pt-4 border-t border-white/10">
-                <a
-                  href={`${(typeof window !== 'undefined' && window.location ? window.location.origin : 'https://flypnow.com')}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-300 text-sm transition-all"
-                >
-                  <FiExternalLink className="w-4 h-4" />
-                  Open Link
-                </a>
-                      <button
-                  onClick={async () => {
-                    try {
-                      const base = (typeof window !== 'undefined' && window.location) ? window.location.origin : 'https://flypnow.com';
-                      const loginLink = `${base}/distributor-employee-login?distributorId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`;
-                      if (navigator.share) {
-                        try {
-                          await navigator.share({ title: 'Employee Login Link', text: `Login link for ${emp.name}`, url: loginLink });
-                          toast.success('Link shared!');
-                          return;
-                        } catch (err) {
-                          if (err.name !== 'AbortError') console.log('Share failed:', err);
-                        }
-                      }
-                      await navigator.clipboard.writeText(loginLink);
-                      toast.success('Link copied!');
-                    } catch (err) {
-                      toast.error('Failed to copy link');
-                    }
-                  }}
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 text-emerald-300 text-sm transition-all"
-                >
-                  <FiCopy className="w-4 h-4" />
-                  Copy Link
-                      </button>
-                      <button
-                  onClick={() => handleDelete(emp.id)}
-                  className="px-3 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-300 transition-all"
-                  title="Delete employee"
-                >
-                  <FiTrash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-            </div>
-              ))}
-        </div>
-      )}
 
       <ConfirmResetModal
         open={confirmReset.open}
@@ -2230,16 +2160,6 @@ const DistributorViewEmployees = () => {
         employee={selectedEmployeeForPermissions}
         currentUser={currentUser}
       />
-        </>
-      ) : (
-        <EnhancedEmployeeActivityAnalytics
-          activitiesByEmployee={activitiesByEmployee}
-          employees={employees}
-          loadingActivity={loadingActivity}
-          currentUser={currentUser}
-          db={db}
-        />
-      )}
     </div>
   );
 };

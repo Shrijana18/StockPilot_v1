@@ -269,7 +269,7 @@ const DistributorAnalytics = ({ distributorId }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0B1220] via-[#0F1A2A] to-[#0B1220]">
+    <div className="w-full">
       <style>{`
         .vignette { position: relative; }
         .vignette:before { content: ""; position: absolute; inset: 0; border-radius: 0.75rem; pointer-events: none; box-shadow: inset 0 0 120px rgba(0,0,0,.18); }
@@ -284,7 +284,7 @@ const DistributorAnalytics = ({ distributorId }) => {
           animation: shimmer 3s infinite;
         }
       `}</style>
-      <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+      <div className="w-full space-y-6">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}

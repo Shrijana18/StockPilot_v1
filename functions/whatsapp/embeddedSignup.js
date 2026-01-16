@@ -13,7 +13,8 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-const META_API_VERSION = "v18.0";
+// Updated to match Meta Dashboard API version
+const META_API_VERSION = "v24.0";
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 const META_SYSTEM_USER_TOKEN_SECRET = defineSecret("META_SYSTEM_USER_TOKEN");
 

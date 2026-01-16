@@ -386,7 +386,7 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
 
       const signupUrl = `${EMBEDDED_SIGNUP_URL}&state=${sessionId}&redirect_uri=${encodeURIComponent(WHATSAPP_EMBEDDED_SIGNUP_REDIRECT_URI)}`;
       
-      console.log('🔗 Opening Signup URL with Redirect:', REDIRECT_URI);
+      console.log('🔗 Opening Signup URL with Redirect:', WHATSAPP_EMBEDDED_SIGNUP_REDIRECT_URI);
 
       const width = 900;
       const height = 700;

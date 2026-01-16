@@ -154,36 +154,47 @@ export async function reserveStockForOrder(distributorId, orderId, orderItems) {
 
   try {
     // First, fetch all product references by SKU (outside transaction)
-    const skus = orderItems
-      .map(item => item.sku || item.SKU)
-      .filter(Boolean);
+    // Aggregate quantities by SKU to avoid multiple reads/updates per product
+    const qtyBySku = new Map();
+    for (const item of orderItems) {
+      const sku = item.sku || item.SKU;
+      const qty = Number(item.qty || item.quantity || 0);
+      if (!sku || qty <= 0) continue;
+      qtyBySku.set(sku, (qtyBySku.get(sku) || 0) + qty);
+    }
+    const skus = Array.from(qtyBySku.keys());
     
     if (skus.length === 0) {
       throw new Error('No valid SKUs found in order items');
     }
 
     const productsRef = collection(db, `businesses/${distributorId}/products`);
-    const productQuery = query(productsRef, where('sku', 'in', skus.length > 10 ? skus.slice(0, 10) : skus));
-    const productSnap = await getDocs(productQuery);
-    
+    // Firestore 'in' queries are limited to 10 items, so we need to handle this
+    const productQueries = [];
+    for (let i = 0; i < skus.length; i += 10) {
+      productQueries.push(query(productsRef, where('sku', 'in', skus.slice(i, i + 10))));
+    }
+    const productSnaps = await Promise.all(productQueries.map(q => getDocs(q)));
+
     // Create a map of SKU -> DocumentReference
     const skuToRef = new Map();
-    productSnap.forEach(doc => {
-      const sku = doc.data().sku;
-      if (sku) skuToRef.set(sku, doc.ref);
+    productSnaps.forEach(snap => {
+      snap.forEach(doc => {
+        const sku = doc.data().sku;
+        if (sku) skuToRef.set(sku, doc.ref);
+      });
     });
 
     // Now perform the transaction
     const result = await runTransaction(db, async (transaction) => {
       const reservations = [];
       const errors = [];
+      const productDataBySku = new Map();
 
-      for (const orderItem of orderItems) {
-        const sku = orderItem.sku || orderItem.SKU;
-        const requestedQty = Number(orderItem.qty || orderItem.quantity || 0);
-
+      // READS FIRST: load all product docs in the transaction
+      for (const [sku, requestedQty] of qtyBySku.entries()) {
         if (!sku || requestedQty <= 0) {
-          errors.push(`Invalid item: ${JSON.stringify(orderItem)}`);
+          errors.push(`Invalid item: ${sku}`);
           continue;
         }
 
@@ -193,7 +204,6 @@ export async function reserveStockForOrder(distributorId, orderId, orderItems) {
           continue;
         }
 
-        // Read product data within transaction
         const productSnap = await transaction.get(productRef);
         if (!productSnap.exists()) {
           errors.push(`Product with SKU ${sku} not found`);
@@ -212,9 +222,23 @@ export async function reserveStockForOrder(distributorId, orderId, orderItems) {
           continue;
         }
 
-        // Reserve the stock
-        const newReservedQty = reservedStock + requestedQty;
-        transaction.update(productRef, {
+        productDataBySku.set(sku, {
+          ref: productRef,
+          snap: productSnap,
+          currentStock,
+          reservedStock,
+          requestedQty
+        });
+      }
+
+      if (errors.length > 0) {
+        throw new Error(`Stock reservation failed: ${errors.join('; ')}`);
+      }
+
+      // WRITES AFTER READS: reserve stock
+      for (const [sku, data] of productDataBySku.entries()) {
+        const newReservedQty = data.reservedStock + data.requestedQty;
+        transaction.update(data.ref, {
           reservedQuantity: newReservedQty,
           lastReservedAt: serverTimestamp(),
           lastReservedBy: orderId
@@ -222,14 +246,10 @@ export async function reserveStockForOrder(distributorId, orderId, orderItems) {
 
         reservations.push({
           sku,
-          productId: productSnap.id,
-          quantity: requestedQty,
+          productId: data.snap.id,
+          quantity: data.requestedQty,
           reservedQuantity: newReservedQty
         });
-      }
-
-      if (errors.length > 0) {
-        throw new Error(`Stock reservation failed: ${errors.join('; ')}`);
       }
 
       return { success: true, reservations, errors: [] };
@@ -305,9 +325,15 @@ export async function deductStockOnAccept(distributorId, orderId, orderItems) {
 
   try {
     // First, fetch all product references by SKU (outside transaction)
-    const skus = orderItems
-      .map(item => item.sku || item.SKU)
-      .filter(Boolean);
+    // Aggregate quantities by SKU to avoid multiple reads/updates per product
+    const qtyBySku = new Map();
+    for (const item of orderItems) {
+      const sku = item.sku || item.SKU;
+      const qty = Number(item.qty || item.quantity || 0);
+      if (!sku || qty <= 0) continue;
+      qtyBySku.set(sku, (qtyBySku.get(sku) || 0) + qty);
+    }
+    const skus = Array.from(qtyBySku.keys());
     
     if (skus.length === 0) {
       throw new Error('No valid SKUs found in order items');
@@ -339,13 +365,12 @@ export async function deductStockOnAccept(distributorId, orderId, orderItems) {
     const result = await runTransaction(db, async (transaction) => {
       const deductions = [];
       const errors = [];
+      const productDataBySku = new Map();
 
-      for (const orderItem of orderItems) {
-        const sku = orderItem.sku || orderItem.SKU;
-        const qtyToDeduct = Number(orderItem.qty || orderItem.quantity || 0);
-
+      // READS FIRST: load all product docs in the transaction
+      for (const [sku, qtyToDeduct] of qtyBySku.entries()) {
         if (!sku || qtyToDeduct <= 0) {
-          errors.push(`Invalid item: ${JSON.stringify(orderItem)}`);
+          errors.push(`Invalid item: ${sku}`);
           continue;
         }
 
@@ -355,7 +380,6 @@ export async function deductStockOnAccept(distributorId, orderId, orderItems) {
           continue;
         }
 
-        // Read product data within transaction
         const productSnap = await transaction.get(productRef);
         if (!productSnap.exists()) {
           errors.push(`Product with SKU ${sku} not found`);
@@ -368,7 +392,6 @@ export async function deductStockOnAccept(distributorId, orderId, orderItems) {
 
         // Verify we have enough reserved stock
         if (reservedStock < qtyToDeduct) {
-          // If reservation is less than requested, use available stock
           const availableStock = currentStock - reservedStock;
           if (availableStock < qtyToDeduct) {
             errors.push(
@@ -378,33 +401,42 @@ export async function deductStockOnAccept(distributorId, orderId, orderItems) {
           }
         }
 
-        // Deduct from both total and reserved quantities
-        const newStock = Math.max(0, currentStock - qtyToDeduct);
-        const newReserved = Math.max(0, reservedStock - qtyToDeduct);
+        productDataBySku.set(sku, {
+          ref: productRef,
+          snap: productSnap,
+          productName: productData.productName || productData.name || 'Unknown',
+          currentStock,
+          reservedStock,
+          qtyToDeduct
+        });
+      }
 
-        transaction.update(productRef, {
+      if (errors.length > 0) {
+        throw new Error(`Stock deduction failed: ${errors.join('; ')}`);
+      }
+
+      // WRITES AFTER READS: apply deductions
+      for (const [sku, data] of productDataBySku.entries()) {
+        const newStock = Math.max(0, data.currentStock - data.qtyToDeduct);
+        const newReserved = Math.max(0, data.reservedStock - data.qtyToDeduct);
+
+        transaction.update(data.ref, {
           quantity: newStock,
           reservedQuantity: newReserved,
           lastDeductedAt: serverTimestamp(),
           lastDeductedBy: orderId
         });
 
-        const deduction = {
+        deductions.push({
           sku,
-          productId: productSnap.id,
-          productName: productData.productName || productData.name || 'Unknown',
-          quantityDeducted: qtyToDeduct,
-          previousStock: currentStock,
+          productId: data.snap.id,
+          productName: data.productName,
+          quantityDeducted: data.qtyToDeduct,
+          previousStock: data.currentStock,
           newStock,
-          previousReserved: reservedStock,
+          previousReserved: data.reservedStock,
           newReserved
-        };
-
-        deductions.push(deduction);
-      }
-
-      if (errors.length > 0) {
-        throw new Error(`Stock deduction failed: ${errors.join('; ')}`);
+        });
       }
 
       return { success: true, deductions, errors: [] };

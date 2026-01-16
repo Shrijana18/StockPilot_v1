@@ -12,9 +12,11 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
   const [countdown, setCountdown] = useState(null); // null, 3, 2, or 1
   const [uploading, setUploading] = useState(false);
   const [stream, setStream] = useState(null);
+  const [cameraReady, setCameraReady] = useState(false);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const countdownIntervalRef = useRef(null);
+  const isCapturingRef = useRef(false); // Prevent multiple captures
   
   // Reset state when modal opens
   useEffect(() => {
@@ -23,32 +25,56 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
       setCapturedImage(null);
       setUploading(false);
       setCountdown(null);
+      setCameraReady(false);
+      isCapturingRef.current = false;
+      
+      // Clear any existing countdown interval
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
       }
-    }
-    return () => {
+    } else {
+      // When modal closes, ensure everything is cleaned up
+      stopCamera();
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
       }
+      isCapturingRef.current = false;
+    }
+    
+    return () => {
+      // Cleanup on unmount
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      stopCamera();
+      isCapturingRef.current = false;
     };
   }, [open]);
 
   useEffect(() => {
     if (open && step === 1) {
+      // Only start camera when modal is open and on step 1
       startCamera();
-    } else if (!open || step === 3 || step === 4) {
+    } else {
+      // Stop camera when modal closes or step changes
       stopCamera();
     }
+    
     return () => {
-      if (step !== 1) stopCamera();
+      // Cleanup camera when effect changes
+      if (step !== 1 || !open) {
+        stopCamera();
+      }
     };
   }, [open, step]);
 
   const startCamera = async () => {
     try {
       stopCamera(); // Stop any existing stream first
+      setCameraReady(false);
       
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -62,31 +88,72 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         
-        // Wait for video to be ready
+        // Wait for video to be ready before allowing capture
         videoRef.current.onloadedmetadata = () => {
-          console.log('[StartSession] Camera ready, video dimensions:', {
-            width: videoRef.current?.videoWidth,
-            height: videoRef.current?.videoHeight
-          });
+          // Additional check to ensure video is actually playing
+          const checkVideoReady = () => {
+            if (videoRef.current && 
+                videoRef.current.readyState >= 2 && 
+                videoRef.current.videoWidth > 0 && 
+                videoRef.current.videoHeight > 0) {
+              setCameraReady(true);
+              console.log('[StartSession] Camera ready, video dimensions:', {
+                width: videoRef.current.videoWidth,
+                height: videoRef.current.videoHeight
+              });
+            } else {
+              // Retry after a short delay if not ready
+              setTimeout(checkVideoReady, 100);
+            }
+          };
+          checkVideoReady();
+        };
+        
+        // Also check on play event
+        videoRef.current.onplaying = () => {
+          if (videoRef.current && 
+              videoRef.current.readyState >= 2 && 
+              videoRef.current.videoWidth > 0 && 
+              videoRef.current.videoHeight > 0) {
+            setCameraReady(true);
+          }
         };
       }
     } catch (err) {
       console.error('Error accessing camera:', err);
       toast.error('Could not access camera. Please grant camera permissions.');
+      setCameraReady(false);
     }
   };
 
   const stopCamera = () => {
+    // Clear any countdown before stopping camera
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setCountdown(null);
+    
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      // Remove event listeners
+      videoRef.current.onloadedmetadata = null;
+      videoRef.current.onplaying = null;
     }
+    setCameraReady(false);
   };
 
   const capturePhoto = () => {
+    // Prevent multiple simultaneous captures
+    if (isCapturingRef.current) {
+      console.warn('[StartSession] Capture already in progress, ignoring duplicate call');
+      return;
+    }
+    
     if (!videoRef.current || !canvasRef.current) {
       console.error('[StartSession] Video or canvas ref not available');
       toast.error('Camera not ready. Please try again.');
@@ -96,7 +163,7 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // Check if video is ready (readyState 4 = HAVE_ENOUGH_DATA)
+    // Check if video is ready (readyState >= 2 = HAVE_CURRENT_DATA or better)
     if (video.readyState < 2) {
       console.error('[StartSession] Video not ready, readyState:', video.readyState);
       toast.error('Camera not ready. Please wait a moment for the camera to initialize.');
@@ -109,26 +176,44 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
       return;
     }
 
-    const ctx = canvas.getContext('2d');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
-
-    const imageData = canvas.toDataURL('image/jpeg', 0.9);
-    console.log('[StartSession] Image captured successfully, data URL length:', imageData.length);
-    if (!imageData || imageData.length < 100) {
-      console.error('[StartSession] Invalid image data');
-      toast.error('Failed to capture image. Please try again.');
-      return;
-    }
+    // Set capturing flag to prevent duplicate captures
+    isCapturingRef.current = true;
     
-    setCapturedImage(imageData);
-    setStep(3);
-    stopCamera();
+    try {
+      const ctx = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+
+      const imageData = canvas.toDataURL('image/jpeg', 0.9);
+      console.log('[StartSession] Image captured successfully, data URL length:', imageData.length);
+      if (!imageData || imageData.length < 100) {
+        console.error('[StartSession] Invalid image data');
+        toast.error('Failed to capture image. Please try again.');
+        isCapturingRef.current = false;
+        return;
+      }
+      
+      setCapturedImage(imageData);
+      setStep(3);
+      stopCamera();
+    } catch (error) {
+      console.error('[StartSession] Error during capture:', error);
+      toast.error('Failed to capture image. Please try again.');
+      isCapturingRef.current = false;
+    }
   };
 
   const retakePhoto = () => {
+    // Reset capturing flag
+    isCapturingRef.current = false;
     setCapturedImage(null);
+    setCountdown(null);
+    // Clear any countdown interval
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
     setStep(1);
   };
 
@@ -182,6 +267,9 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
 
       toast.success('Session started successfully!');
 
+      // Reset capturing flag
+      isCapturingRef.current = false;
+
       // Immediately call callback to update dashboard state
       // The onSnapshot listener in the dashboard will pick up the sessionActive change
       onSessionStarted?.({ sessionId: createdSessionId, selfieUrl: downloadURL });
@@ -195,6 +283,9 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
         message: error.message,
         stack: error.stack
       });
+      
+      // Reset capturing flag on error
+      isCapturingRef.current = false;
       
       // Provide more specific error messages
       let errorMessage = 'Failed to start session. Please try again.';
@@ -212,9 +303,23 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
   };
 
   const handleClose = () => {
-    stopCamera();
-    setStep(1);
+    // Clear countdown interval
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    
+    // Reset all state
+    isCapturingRef.current = false;
+    setCountdown(null);
     setCapturedImage(null);
+    setStep(1);
+    setCameraReady(false);
+    
+    // Stop camera
+    stopCamera();
+    
+    // Call onClose callback
     onClose();
   };
 
@@ -281,6 +386,11 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
                   {step === 1 && (
                     <button
                       onClick={() => {
+                        // Prevent multiple clicks during countdown
+                        if (countdown !== null || isCapturingRef.current) {
+                          return;
+                        }
+                        
                         // Check if camera is ready before allowing capture
                         if (!videoRef.current) {
                           toast.error('Camera not initialized. Please wait.');
@@ -297,18 +407,35 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
                           toast.error('Camera not ready. Please wait a moment.');
                           return;
                         }
-
-                        // Start countdown
-                        setCountdown(3);
                         
-                        // Clear any existing interval
+                        // Additional check: ensure cameraReady state is true
+                        if (!cameraReady) {
+                          toast.error('Camera is still initializing. Please wait.');
+                          return;
+                        }
+
+                        // Clear any existing interval first
                         if (countdownIntervalRef.current) {
                           clearInterval(countdownIntervalRef.current);
+                          countdownIntervalRef.current = null;
                         }
+                        
+                        // Start countdown
+                        setCountdown(3);
                         
                         // Countdown then capture
                         let currentCountdown = 3;
                         countdownIntervalRef.current = setInterval(() => {
+                          // Check if modal is still open and on step 1
+                          if (!open || step !== 1) {
+                            if (countdownIntervalRef.current) {
+                              clearInterval(countdownIntervalRef.current);
+                              countdownIntervalRef.current = null;
+                            }
+                            setCountdown(null);
+                            return;
+                          }
+                          
                           currentCountdown--;
                           setCountdown(currentCountdown);
                           
@@ -318,15 +445,19 @@ const StartSessionModal = ({ open, onClose, employeeId, distributorId, onSession
                               countdownIntervalRef.current = null;
                             }
                             setCountdown(null);
-                            capturePhoto();
+                            
+                            // Only capture if still on step 1 and modal is open
+                            if (step === 1 && open && !isCapturingRef.current) {
+                              capturePhoto();
+                            }
                           }
                         }, 1000);
                       }}
-                      disabled={countdown !== null}
+                      disabled={countdown !== null || !cameraReady || isCapturingRef.current}
                       className="flex items-center gap-3 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <FiCamera className="w-5 h-5" />
-                      {countdown ? `Capturing in ${countdown}...` : 'Capture Photo'}
+                      {countdown ? `Capturing in ${countdown}...` : (!cameraReady ? 'Initializing Camera...' : 'Capture Photo')}
                     </button>
                   )}
                 </div>

@@ -36,15 +36,40 @@ module.exports = onCall(async (request) => {
     // Generate new PIN (6 digits)
     const newPin = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Update employee document
-    const employeeRef = admin.firestore()
+    const employeesCol = admin.firestore()
       .collection("businesses")
       .doc(distributorId)
-      .collection("distributorEmployees")
-      .doc(employeeId.toUpperCase());
+      .collection("distributorEmployees");
+
+    // Resolve employee doc: prefer direct doc id, fallback to flypEmployeeId lookup
+    const normalizedEmployeeId = employeeId.toUpperCase();
+    let employeeRef = employeesCol.doc(normalizedEmployeeId);
+    let employeeSnap = await employeeRef.get();
+
+    if (!employeeSnap.exists) {
+      const byFlypIdSnap = await employeesCol
+        .where("flypEmployeeId", "==", normalizedEmployeeId)
+        .limit(1)
+        .get();
+      if (!byFlypIdSnap.empty) {
+        employeeSnap = byFlypIdSnap.docs[0];
+        employeeRef = employeeSnap.ref;
+      }
+    }
+
+    if (!employeeSnap.exists) {
+      return {
+        success: false,
+        message: "Employee not found"
+      };
+    }
+
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     await employeeRef.update({
       pin: newPin,
+      pinCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      pinExpiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
