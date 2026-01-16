@@ -1234,19 +1234,18 @@ service cloud.firestore {
     // ============================================================
     match /whatsappOAuthSessions/{sessionId} {
       // Allow authenticated users to create their own sessions
+      // Accepts both 'embedded_signup' and 'embedded_signup_sdk' types
       allow create: if isAuthed() 
-        && isEmailVerified()
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.type == 'embedded_signup';
+        && (request.resource.data.type == 'embedded_signup' 
+            || request.resource.data.type == 'embedded_signup_sdk');
       
       // Allow users to read their own sessions
       allow read: if isAuthed() 
-        && isEmailVerified()
         && resource.data.uid == request.auth.uid;
       
       // Allow users to delete their own sessions (cleanup after use)
       allow delete: if isAuthed() 
-        && isEmailVerified()
         && resource.data.uid == request.auth.uid;
       
       // No updates - sessions are immutable
