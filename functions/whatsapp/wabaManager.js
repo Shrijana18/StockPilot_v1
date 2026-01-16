@@ -606,6 +606,222 @@ exports.getClientWABA = onCall(
 );
 
 /**
+ * Admin function to manually link WABA to a client
+ * Use this when Embedded Signup callback fails to capture data
+ */
+exports.adminLinkWABA = onCall(
+  {
+    region: "us-central1",
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    // TODO: Add admin check here if needed
+    // For now, only allow tech provider admin
+
+    const { 
+      clientUid,        // The client's Firebase UID
+      wabaId,           // WABA ID from Meta Dashboard
+      phoneNumberId,    // Phone Number ID from Meta Dashboard
+      phoneNumber,      // Display phone number
+      businessId,       // Meta Business ID (optional)
+    } = request.data || {};
+
+    if (!clientUid || !wabaId) {
+      throw new HttpsError("invalid-argument", "clientUid and wabaId are required");
+    }
+
+    try {
+      // Verify the client exists
+      const clientDoc = await db.collection("businesses").doc(clientUid).get();
+      if (!clientDoc.exists) {
+        throw new HttpsError("not-found", "Client business profile not found");
+      }
+
+      const systemToken = getSystemUserToken();
+      
+      // Try to fetch additional info from Meta API
+      let wabaName = null;
+      let accountReviewStatus = "PENDING";
+      let phoneVerificationStatus = "pending_registration";
+      
+      if (systemToken && wabaId) {
+        try {
+          const wabaResponse = await fetch(
+            `${META_API_BASE}/${wabaId}?fields=id,name,account_review_status&access_token=${systemToken}`
+          );
+          if (wabaResponse.ok) {
+            const wabaData = await wabaResponse.json();
+            wabaName = wabaData.name;
+            accountReviewStatus = wabaData.account_review_status || "PENDING";
+          }
+        } catch (e) {
+          console.warn("Could not fetch WABA details:", e);
+        }
+      }
+
+      // If phone number ID provided, check its status
+      if (systemToken && phoneNumberId) {
+        try {
+          const phoneResponse = await fetch(
+            `${META_API_BASE}/${phoneNumberId}?fields=id,display_phone_number,code_verification_status&access_token=${systemToken}`
+          );
+          if (phoneResponse.ok) {
+            const phoneData = await phoneResponse.json();
+            phoneVerificationStatus = phoneData.code_verification_status || "pending_registration";
+          }
+        } catch (e) {
+          console.warn("Could not fetch phone details:", e);
+        }
+      }
+
+      // Save to Firestore
+      const wabaData = {
+        whatsappBusinessAccountId: wabaId,
+        whatsappPhoneNumberId: phoneNumberId || null,
+        whatsappPhoneNumber: phoneNumber || null,
+        whatsappProvider: "meta_tech_provider",
+        whatsappEnabled: true,
+        whatsappCreatedVia: "admin_linked",
+        whatsappCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        whatsappPhoneRegistered: false, // Will be true after phone registration
+        whatsappPhoneVerificationStatus: phoneVerificationStatus,
+        whatsappVerified: false,
+        whatsappAccountReviewStatus: accountReviewStatus,
+        whatsappStatusLastChecked: admin.firestore.FieldValue.serverTimestamp(),
+        ...(businessId && { metaBusinessId: businessId }),
+        ...(wabaName && { whatsappBusinessName: wabaName }),
+      };
+
+      await db.collection("businesses").doc(clientUid).set(wabaData, { merge: true });
+
+      console.log(`✅ Admin linked WABA ${wabaId} to client ${clientUid}`);
+
+      return {
+        success: true,
+        message: `WABA ${wabaId} linked to client successfully`,
+        wabaData: {
+          wabaId,
+          phoneNumberId,
+          phoneNumber,
+          accountReviewStatus,
+          phoneVerificationStatus,
+        },
+        nextSteps: [
+          "Complete phone registration using saveWABADirect with 2FA PIN",
+          "Client may need to complete setup tasks in Meta Business Suite",
+        ],
+      };
+
+    } catch (error) {
+      console.error("Error in adminLinkWABA:", error);
+      throw new HttpsError("internal", error.message || "Failed to link WABA");
+    }
+  }
+);
+
+/**
+ * Register phone number for a client WABA
+ * This completes the phone setup after Embedded Signup
+ */
+exports.registerClientPhone = onCall(
+  {
+    region: "us-central1",
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    const { 
+      clientUid,     // The client's Firebase UID (optional, defaults to caller)
+      phoneNumberId, // Phone Number ID to register
+      pin,           // 2FA PIN (6 digits)
+    } = request.data || {};
+
+    const targetUid = clientUid || callerUid;
+
+    if (!phoneNumberId) {
+      throw new HttpsError("invalid-argument", "phoneNumberId is required");
+    }
+
+    try {
+      const systemToken = getSystemUserToken();
+      if (!systemToken) {
+        throw new HttpsError("failed-precondition", "System token not configured");
+      }
+
+      console.log(`📞 Registering phone ${phoneNumberId} for ${targetUid}...`);
+
+      // Call Meta API to register the phone number
+      const registerResponse = await fetch(
+        `${META_API_BASE}/${phoneNumberId}/register`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${systemToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            ...(pin && { pin }),
+          }),
+        }
+      );
+
+      const registerResult = await registerResponse.json();
+
+      if (!registerResponse.ok) {
+        const errorCode = registerResult.error?.code;
+        const errorMessage = registerResult.error?.message;
+
+        // Check for 2FA PIN requirement
+        if (errorCode === 136025 || errorMessage?.includes("two-step") || errorMessage?.includes("pin")) {
+          return {
+            success: false,
+            requiresPin: true,
+            message: "Two-step verification PIN required. Please provide the 6-digit PIN.",
+            error: registerResult.error,
+          };
+        }
+
+        throw new HttpsError("internal", errorMessage || "Phone registration failed");
+      }
+
+      // Update Firestore with registration success
+      await db.collection("businesses").doc(targetUid).update({
+        whatsappPhoneRegistered: true,
+        whatsappPhoneVerificationStatus: "pending_verification",
+        whatsappStatusLastChecked: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      console.log(`✅ Phone ${phoneNumberId} registered successfully`);
+
+      return {
+        success: true,
+        message: "Phone number registered successfully!",
+        data: registerResult,
+      };
+
+    } catch (error) {
+      console.error("Error registering phone:", error);
+      if (error instanceof HttpsError) throw error;
+      throw new HttpsError("internal", error.message || "Failed to register phone");
+    }
+  }
+);
+
+/**
  * Helper function to determine pending actions for WABA setup
  */
 function getPendingActions(wabaInfo) {
