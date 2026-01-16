@@ -3,12 +3,15 @@
  * Displays WABA status and account information
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { 
   FaWhatsapp, FaSpinner, FaCheckCircle, FaExclamationCircle, 
   FaTimes, FaPhone, FaShieldVirus, FaBuilding, FaInfoCircle, FaExclamationTriangle,
-  FaVideo, FaFlask, FaUnlink
+  FaVideo, FaFlask, FaUnlink, FaKey, FaLock
 } from "react-icons/fa";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../../../firebase/firebaseConfig";
+import { toast } from "react-toastify";
 
 const WhatsAppStatus = ({ 
   user, 
@@ -20,6 +23,71 @@ const WhatsAppStatus = ({
   onDisconnect,
   isTestMode 
 }) => {
+  // Registration states
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [registrationPin, setRegistrationPin] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState(null);
+
+  // Handle phone registration with PIN
+  const handleRegisterPhone = async () => {
+    if (!registrationPin || registrationPin.length !== 6 || !/^\d{6}$/.test(registrationPin)) {
+      toast.error("Please enter a valid 6-digit PIN");
+      return;
+    }
+
+    if (!formData.whatsappPhoneNumberId) {
+      toast.error("Phone Number ID is missing. Please re-enter your WABA details.");
+      return;
+    }
+
+    setIsRegistering(true);
+    setRegisterError(null);
+
+    try {
+      const registerPhoneNumber = httpsCallable(functions, 'registerPhoneNumber');
+      const result = await registerPhoneNumber({
+        phoneNumberId: formData.whatsappPhoneNumberId,
+        pin: registrationPin,
+      });
+
+      if (result.data?.success) {
+        toast.success("🎉 Phone registered successfully! You can now send messages.");
+        setShowRegisterModal(false);
+        setRegistrationPin("");
+        
+        // Update local state
+        setFormData(prev => ({
+          ...prev,
+          whatsappPhoneRegistered: true,
+          whatsappPhoneVerificationStatus: 'CONNECTED',
+        }));
+
+        // Refresh status
+        setTimeout(() => fetchWABAStatus(), 1500);
+      } else {
+        // Handle error
+        if (result.data?.error === 'incorrect_pin') {
+          setRegisterError("Incorrect PIN. If Two-Step Verification is enabled on your WhatsApp Business number, enter your existing PIN. Otherwise, try a different 6-digit PIN.");
+        } else {
+          setRegisterError(result.data?.message || "Registration failed. Please try again.");
+        }
+        toast.error(result.data?.message || "Registration failed");
+      }
+    } catch (err) {
+      console.error("Registration error:", err);
+      setRegisterError(err.message || "Failed to register. Please try again.");
+      toast.error("Failed to register phone number");
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  // Check if phone needs registration
+  const needsRegistration = formData.whatsappPhoneNumberId && 
+    (statusData?.phone?.needsVerification || 
+     formData.whatsappPhoneVerificationStatus === 'pending' ||
+     !formData.whatsappPhoneRegistered);
   return (
     <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
       {/* Test Mode Banner */}
@@ -210,8 +278,17 @@ const WhatsAppStatus = ({
                 </span>
               </div>
               {statusData.phone.needsVerification && (
-                <div className="mt-2 p-2 bg-yellow-900/30 rounded text-xs text-yellow-300">
-                  💡 Complete phone verification in Meta Business Suite to start sending messages
+                <div className="mt-3 space-y-2">
+                  <div className="p-2 bg-yellow-900/30 rounded text-xs text-yellow-300">
+                    💡 Your phone is verified but not registered with Cloud API. Click "Register Phone" to complete setup.
+                  </div>
+                  <button
+                    onClick={() => setShowRegisterModal(true)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <FaKey />
+                    Register Phone with PIN
+                  </button>
                 </div>
               )}
             </div>
@@ -281,6 +358,107 @@ const WhatsAppStatus = ({
             <div>
               <h3 className="font-bold text-white">Status Information</h3>
               <p className="text-sm text-gray-400">Click "Refresh Status" to see your account review and phone verification status</p>
+            </div>
+          </div>
+          
+          {/* Show Register button if phone ID exists but may not be registered */}
+          {formData.whatsappPhoneNumberId && !formData.whatsappPhoneRegistered && (
+            <button
+              onClick={() => setShowRegisterModal(true)}
+              className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <FaKey />
+              Register Phone Number
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Phone Registration Modal */}
+      {showRegisterModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-blue-500/20 rounded-full">
+                <FaKey className="text-blue-400 text-xl" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Register Phone Number</h3>
+                <p className="text-sm text-gray-400">Complete Cloud API registration</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 bg-blue-900/30 border border-blue-500/30 rounded-lg text-sm">
+                <p className="text-blue-200 font-medium mb-2">🔐 About the 6-digit PIN:</p>
+                <ul className="text-blue-300 space-y-1 text-xs">
+                  <li>• If you have <strong>Two-Step Verification enabled</strong> on WhatsApp, enter your existing PIN</li>
+                  <li>• If you DON'T have 2FA enabled, create a NEW 6-digit PIN (this will enable 2FA)</li>
+                  <li>• Remember this PIN - you'll need it if re-registering</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Enter 6-Digit PIN
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={registrationPin}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setRegistrationPin(value);
+                    setRegisterError(null);
+                  }}
+                  placeholder="Enter 6-digit PIN"
+                  className="w-full px-4 py-3 bg-slate-700 border border-white/10 rounded-lg text-white text-center text-2xl tracking-widest font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  {registrationPin.length}/6 digits
+                </p>
+              </div>
+
+              {registerError && (
+                <div className="p-3 bg-red-900/30 border border-red-500/30 rounded-lg">
+                  <p className="text-red-300 text-sm">{registerError}</p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowRegisterModal(false);
+                    setRegistrationPin("");
+                    setRegisterError(null);
+                  }}
+                  disabled={isRegistering}
+                  className="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRegisterPhone}
+                  disabled={isRegistering || registrationPin.length !== 6}
+                  className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isRegistering ? (
+                    <>
+                      <FaSpinner className="animate-spin" />
+                      Registering...
+                    </>
+                  ) : (
+                    <>
+                      <FaLock />
+                      Register Phone
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 text-center">
+                Phone Number ID: <code className="text-gray-400">{formData.whatsappPhoneNumberId}</code>
+              </p>
             </div>
           </div>
         </div>

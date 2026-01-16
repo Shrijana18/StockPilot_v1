@@ -346,7 +346,10 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
       });
 
       // Check if Facebook SDK is available
-      if (typeof window.FB !== "undefined" && window.FB.login) {
+      // NOTE: FB.login() requires HTTPS - skip SDK on localhost and use popup fallback
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      
+      if (!isLocalhost && typeof window.FB !== "undefined" && window.FB.login) {
         console.log("🔗 Starting Facebook SDK login...");
         
         // Use FB.login with the proper Embedded Signup configuration
@@ -405,7 +408,11 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
         );
       } else {
         // Fallback: Open popup with URL
-        console.log("⚠️ FB SDK not available, using popup fallback");
+        // Used when FB SDK is not available OR on localhost (HTTPS required for FB.login)
+        console.log(isLocalhost 
+          ? "⚠️ Localhost detected - using popup fallback (FB.login requires HTTPS)"
+          : "⚠️ FB SDK not available, using popup fallback"
+        );
         openPopupFallback(sessionId);
       }
     } catch (err) {
@@ -525,51 +532,61 @@ const WhatsAppConnection = ({ user, formData, setFormData }) => {
 
     setSavingManual(true);
     try {
-      const saveWABADirect = httpsCallable(functions, "saveWABADirect");
-      const requestData = {
-        wabaId: manualWabaId.trim(),
-        phoneNumberId: manualPhoneNumberId.trim() || null,
-        phoneNumber: manualPhoneNumber.trim() || null,
-        embeddedData: {
-          manualEntry: true,
-        },
+      // Direct Firestore save for manual entry (more reliable than Cloud Function)
+      const wabaId = manualWabaId.trim();
+      const phoneNumberId = manualPhoneNumberId.trim() || null;
+      const phoneNumber = manualPhoneNumber.trim() || null;
+      
+      console.log("📝 Saving WABA manually:", { wabaId, phoneNumberId, phoneNumber });
+      
+      const userRef = doc(db, 'businesses', user.uid);
+      const wabaData = {
+        ownerId: user.uid,
+        whatsappBusinessAccountId: wabaId,
+        whatsappPhoneNumberId: phoneNumberId,
+        whatsappPhoneNumber: phoneNumber,
+        whatsappProvider: "meta_tech_provider",
+        whatsappEnabled: true,
+        whatsappCreatedVia: "manual_entry",
+        whatsappCreatedAt: serverTimestamp(),
+        whatsappPhoneRegistered: false, // Will be true after PIN registration
+        whatsappPhoneVerificationStatus: phoneNumberId ? "pending" : "not_registered",
+        whatsappVerified: false,
+        whatsappAccountReviewStatus: "PENDING",
+        whatsappStatusLastChecked: serverTimestamp(),
       };
+      
+      await setDoc(userRef, wabaData, { merge: true });
+      
+      console.log("✅ WABA saved to Firestore");
 
-      const result = await saveWABADirect(requestData);
+      // Update local state
+      setFormData(prev => ({
+        ...prev,
+        whatsappBusinessAccountId: wabaId,
+        whatsappPhoneNumberId: phoneNumberId,
+        whatsappPhoneNumber: phoneNumber,
+        whatsappEnabled: true,
+        whatsappProvider: "meta_tech_provider",
+        whatsappCreatedVia: "manual_entry",
+        whatsappPhoneRegistered: false,
+        whatsappPhoneVerificationStatus: phoneNumberId ? "pending" : "not_registered",
+        whatsappVerified: false,
+        whatsappAccountReviewStatus: "PENDING",
+      }));
 
-      if (result.data?.requirePin) {
-        setPendingWabaData(requestData);
-        setShowManualModal(false);
-        setShowPinModal(true);
-        toast.info("Two-step verification PIN required.");
-        return;
-      }
-
-      if (result.data?.success) {
-        setFormData(prev => ({
-          ...prev,
-          whatsappBusinessAccountId: result.data.wabaId,
-          whatsappPhoneNumberId: result.data.phoneNumberId,
-          whatsappPhoneNumber: result.data.phoneNumber,
-          whatsappEnabled: true,
-          whatsappProvider: "meta_tech_provider",
-          whatsappCreatedVia: "manual_entry",
-          whatsappPhoneRegistered: !!result.data.phoneNumberId,
-          whatsappPhoneVerificationStatus: result.data.phoneNumberId ? "pending" : "not_registered",
-          whatsappVerified: false,
-          whatsappAccountReviewStatus: "PENDING",
-        }));
-
-        toast.success("WhatsApp details saved. Fetching status...");
-        setShowManualModal(false);
-        setManualWabaId("");
-        setManualPhoneNumberId("");
-        setManualPhoneNumber("");
-        setTimeout(() => fetchWABAStatus(), 1000);
-      }
+      toast.success("✅ WhatsApp details saved! Fetching status...");
+      setShowManualModal(false);
+      setManualWabaId("");
+      setManualPhoneNumberId("");
+      setManualPhoneNumber("");
+      
+      // Fetch status from Meta API (this will also register the phone)
+      setTimeout(() => fetchWABAStatus(), 1500);
+      
     } catch (err) {
       console.error("Manual save failed:", err);
-      toast.error("Failed to save WhatsApp details. Please try again.");
+      toast.error("Failed to save WhatsApp details: " + (err.message || "Please try again."));
     } finally {
       setSavingManual(false);
     }

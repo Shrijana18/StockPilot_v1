@@ -1093,6 +1093,14 @@ service cloud.firestore {
         );
       }
 
+      // --- WhatsApp Menus (Automated Response Menus) ---
+      match /whatsappMenus/{menuId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
       // --- Delivery Routes (Route Optimization) ---
       match /deliveryRoutes/{routeId} {
         // READ: Distributor and employees can read routes

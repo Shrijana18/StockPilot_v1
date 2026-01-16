@@ -19,6 +19,7 @@ import MetaAppReviewDemo from './MetaAppReviewDemo';
 import IndividualWABASetup from './IndividualWABASetup';
 import EmbeddedSignup from './EmbeddedSignup';
 import SendTemplateMessage from './SendTemplateMessage';
+import MenuBoards from './MenuBoards';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import { FaVideo, FaExternalLinkAlt } from 'react-icons/fa';
@@ -520,8 +521,10 @@ const WhatsAppHub = () => {
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: '📊', description: 'Dashboard & stats' },
+    { id: 'inbox', label: 'Inbox', icon: '💬', description: 'WhatsApp-style chat' },
+    { id: 'menus', label: 'Menu Boards', icon: '🤖', description: 'Automated responses' },
+    { id: 'stock', label: 'Stock Reminders', icon: '📦', description: 'Bulk stock alerts' },
     { id: 'send', label: 'Send Message', icon: '📤', description: 'Compose & send' },
-    { id: 'inbox', label: 'Inbox', icon: '💬', description: 'Two-way messaging' },
     { id: 'campaigns', label: 'Campaigns', icon: '📈', description: 'Campaign management' },
     { id: 'schedule', label: 'Schedule', icon: '⏰', description: 'Smart scheduling' },
     { id: 'history', label: 'History', icon: '📜', description: 'Message history' },
@@ -732,30 +735,38 @@ const WhatsAppHub = () => {
                   {/* Quick Actions */}
                 <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
                     <h3 className="text-xl font-semibold mb-4">Quick Actions</h3>
-                    <div className="grid md:grid-cols-3 gap-4">
+                    <div className="grid md:grid-cols-4 gap-4">
                     <button
-                        onClick={() => setActiveTab('send')}
-                        className="p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-lg hover:bg-emerald-500/30 transition-colors text-left"
-                    >
-                        <div className="text-2xl mb-2">📤</div>
-                        <p className="font-semibold">Send Message</p>
-                        <p className="text-sm text-gray-400">Compose and send to retailers</p>
-                    </button>
-                <button
                         onClick={() => setActiveTab('inbox')}
-                        className="p-4 bg-blue-500/20 border border-blue-500/50 rounded-lg hover:bg-blue-500/30 transition-colors text-left"
-                      >
+                        className="p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-lg hover:bg-emerald-500/30 transition-colors text-left transform hover:scale-105"
+                    >
                         <div className="text-2xl mb-2">💬</div>
-                        <p className="font-semibold">View Inbox</p>
-                        <p className="text-sm text-gray-400">Check received messages</p>
+                        <p className="font-semibold">Chat Inbox</p>
+                        <p className="text-sm text-gray-400">WhatsApp-style messaging</p>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('menus')}
+                        className="p-4 bg-blue-500/20 border border-blue-500/50 rounded-lg hover:bg-blue-500/30 transition-colors text-left transform hover:scale-105"
+                      >
+                        <div className="text-2xl mb-2">🤖</div>
+                        <p className="font-semibold">Menu Boards</p>
+                        <p className="text-sm text-gray-400">Automated responses</p>
                 </button>
                   <button
-                        onClick={() => setActiveTab('campaigns')}
-                        className="p-4 bg-purple-500/20 border border-purple-500/50 rounded-lg hover:bg-purple-500/30 transition-colors text-left"
+                        onClick={() => setActiveTab('stock')}
+                        className="p-4 bg-orange-500/20 border border-orange-500/50 rounded-lg hover:bg-orange-500/30 transition-colors text-left transform hover:scale-105"
                       >
-                        <div className="text-2xl mb-2">📈</div>
-                        <p className="font-semibold">Create Campaign</p>
-                        <p className="text-sm text-gray-400">Launch promotional campaigns</p>
+                        <div className="text-2xl mb-2">📦</div>
+                        <p className="font-semibold">Stock Reminders</p>
+                        <p className="text-sm text-gray-400">Bulk stock alerts</p>
+                  </button>
+                  <button
+                        onClick={() => setActiveTab('send')}
+                        className="p-4 bg-purple-500/20 border border-purple-500/50 rounded-lg hover:bg-purple-500/30 transition-colors text-left transform hover:scale-105"
+                      >
+                        <div className="text-2xl mb-2">📤</div>
+                        <p className="font-semibold">Send Message</p>
+                        <p className="text-sm text-gray-400">Compose & send</p>
                   </button>
                         </div>
                         </div>
@@ -1056,6 +1067,8 @@ const WhatsAppHub = () => {
 
           {/* Other tabs - Only show if WhatsApp is enabled */}
           {activeTab === 'inbox' && isEnabled && <WhatsAppInbox />}
+          {activeTab === 'menus' && isEnabled && <MenuBoards />}
+          {activeTab === 'stock' && isEnabled && <StockRefillReminder />}
           {activeTab === 'campaigns' && isEnabled && <WhatsAppCampaigns />}
           {activeTab === 'schedule' && isEnabled && <WhatsAppScheduler />}
           {activeTab === 'history' && (

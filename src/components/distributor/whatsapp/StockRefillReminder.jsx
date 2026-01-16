@@ -250,39 +250,61 @@ const StockRefillReminder = () => {
   }
 
   return (
-    <div className="p-6 text-white">
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-teal-400">
-          📦 Stock Refill Reminders
-        </h2>
-        <p className="text-sm text-gray-400">
-          Send WhatsApp reminders to retailers about low stock items
-        </p>
+    <div className="p-6 text-white space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-teal-400">
+            📦 Stock Refill Reminders
+          </h2>
+          <p className="text-gray-400">
+            Send bulk WhatsApp reminders to retailers about low stock items
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">
+            {selectedProducts.size} products • {selectedRetailers.size} retailers
+          </span>
+        </div>
       </div>
 
       {/* Threshold Setting */}
-      <div className="mb-6 p-4 bg-slate-800/40 rounded-lg border border-white/10">
-        <label className="block mb-2 text-sm font-medium text-gray-300">
-          Low Stock Threshold
-        </label>
-        <input
-          type="number"
-          value={threshold}
-          onChange={(e) => setThreshold(Number(e.target.value) || 0)}
-          min="1"
-          className="w-full max-w-xs bg-slate-700/60 border border-white/10 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-        <p className="text-xs text-gray-400 mt-1">
-          Products with stock ≤ {threshold} will be shown
-        </p>
+      <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-white mb-1">Low Stock Threshold</h3>
+            <p className="text-sm text-gray-400">Set the minimum stock level to trigger reminders</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              value={threshold}
+              onChange={(e) => setThreshold(Number(e.target.value) || 0)}
+              min="1"
+              className="w-24 bg-slate-700/60 border border-white/10 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center font-semibold"
+            />
+            <span className="text-gray-400">units</span>
+          </div>
+        </div>
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+          <p className="text-sm text-emerald-300">
+            📊 <strong>{lowStockProducts.length}</strong> products found with stock ≤ {threshold} units
+          </p>
+        </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6 mb-6">
+      <div className="grid md:grid-cols-2 gap-6">
         {/* Products List */}
-        <div className="bg-slate-900/80 border border-white/10 rounded-xl p-4">
-          <h3 className="font-semibold mb-3 text-emerald-300">
-            Low Stock Products ({lowStockProducts.length})
-          </h3>
+        <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-emerald-300 flex items-center gap-2">
+              <span>📦</span>
+              Low Stock Products
+            </h3>
+            <span className="text-sm bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full">
+              {lowStockProducts.length} items
+            </span>
+          </div>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {lowStockProducts.length === 0 ? (
               <p className="text-sm text-gray-400">No low stock products found</p>
@@ -318,16 +340,22 @@ const StockRefillReminder = () => {
         </div>
 
         {/* Retailers List */}
-        <div className="bg-slate-900/80 border border-white/10 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-blue-300">
-              Connected Retailers ({retailers.length})
+        <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-blue-300 flex items-center gap-2">
+              <span>👥</span>
+              Connected Retailers
             </h3>
-            {retailers.filter(r => !r.phone).length > 0 && (
-              <span className="text-xs text-amber-400 bg-amber-900/30 px-2 py-1 rounded-full">
-                ⚠️ {retailers.filter(r => !r.phone).length} without phone
+            <div className="flex items-center gap-2">
+              <span className="text-sm bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full">
+                {retailers.length} total
               </span>
-            )}
+              {retailers.filter(r => !r.phone).length > 0 && (
+                <span className="text-xs text-amber-400 bg-amber-900/30 px-2 py-1 rounded-full">
+                  ⚠️ {retailers.filter(r => !r.phone).length} without phone
+                </span>
+              )}
+            </div>
           </div>
           
           {retailers.filter(r => !r.phone).length > 0 && (
@@ -406,42 +434,65 @@ const StockRefillReminder = () => {
         </div>
       </div>
 
-      {/* Send Button */}
-      <div className="flex justify-end gap-3">
+      {/* Send Button Section */}
+      <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
         {(() => {
           const retailersWithPhone = retailers.filter(
             (r) => selectedRetailers.has(r.id) && r.phone
           );
-          // With bulk messaging, it's one message per retailer (containing all selected products)
           const totalMessages = retailersWithPhone.length;
           const retailersWithoutPhone = retailers.filter(
             (r) => selectedRetailers.has(r.id) && !r.phone
           );
           
           return (
-            <div className="flex flex-col items-end gap-2">
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-emerald-300">{selectedProducts.size}</p>
+                  <p className="text-xs text-gray-400">Products Selected</p>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-blue-300">{retailersWithPhone.length}</p>
+                  <p className="text-xs text-gray-400">Retailers Ready</p>
+                </div>
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-purple-300">{totalMessages}</p>
+                  <p className="text-xs text-gray-400">Messages to Send</p>
+                </div>
+              </div>
+
               {retailersWithoutPhone.length > 0 && (
-                <p className="text-xs text-amber-400">
-                  ⚠️ {retailersWithoutPhone.length} retailer(s) will be skipped (no phone)
-                </p>
+                <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-3">
+                  <p className="text-sm text-amber-300">
+                    ⚠️ {retailersWithoutPhone.length} retailer(s) will be skipped (no phone number)
+                  </p>
+                </div>
               )}
+
               <button
                 onClick={handleSendReminders}
                 disabled={sending || selectedProducts.size === 0 || retailersWithPhone.length === 0}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="w-full px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl font-semibold transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-3 text-lg"
               >
-                <span>💬</span>
-                {sending
-                  ? 'Sending...'
-                  : totalMessages > 0
-                  ? `Send ${totalMessages} Reminder(s)`
-                  : 'Select Products & Retailers'}
+                {sending ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    <span>Sending Reminders...</span>
+                  </>
+                ) : totalMessages > 0 ? (
+                  <>
+                    <span>📤</span>
+                    <span>Send {totalMessages} Reminder{totalMessages > 1 ? 's' : ''}</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📦</span>
+                    <span>Select Products & Retailers</span>
+                  </>
+                )}
               </button>
-              {totalMessages > 0 && (
-                <p className="text-xs text-gray-400">
-                  Will send to {retailersWithPhone.length} retailer(s) with phone numbers
-                </p>
-              )}
             </div>
           );
         })()}

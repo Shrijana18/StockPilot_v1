@@ -239,6 +239,144 @@ exports.saveWABADirect = onCall(
 );
 
 /**
+ * Register Phone Number with Cloud API
+ * This is called when phone is verified (OTP done) but not registered for Cloud API
+ * 
+ * Per Meta docs: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/registration
+ * - PIN is REQUIRED (6-digit)
+ * - If 2FA is enabled on the phone, use the existing 2FA PIN
+ * - If 2FA is NOT enabled, this will set the PIN as the new 2FA PIN
+ */
+exports.registerPhoneNumber = onCall(
+  {
+    region: "us-central1",
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const { phoneNumberId, pin, dataLocalization } = request.data || {};
+
+    if (!phoneNumberId) {
+      throw new HttpsError("invalid-argument", "Phone Number ID is required");
+    }
+
+    if (!pin || pin.length !== 6 || !/^\d{6}$/.test(pin)) {
+      throw new HttpsError("invalid-argument", "PIN must be exactly 6 digits");
+    }
+
+    try {
+      const systemToken = getSystemUserToken();
+      if (!systemToken) {
+        throw new HttpsError("failed-precondition", "System User Token not configured");
+      }
+
+      console.log(`📞 Registering phone number ${phoneNumberId} with Cloud API...`);
+
+      // Call the /register endpoint
+      // https://developers.facebook.com/docs/whatsapp/cloud-api/reference/registration
+      const requestBody = {
+        messaging_product: "whatsapp",
+        pin: pin,
+      };
+
+      // Optional: Add data localization if provided (for compliance)
+      if (dataLocalization) {
+        requestBody.data_localization_region = dataLocalization;
+      }
+
+      const registerResponse = await fetch(
+        `${META_API_BASE}/${phoneNumberId}/register`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${systemToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      const responseData = await registerResponse.json();
+
+      if (!registerResponse.ok) {
+        console.error("❌ Registration failed:", JSON.stringify(responseData));
+        
+        const errorCode = responseData.error?.code;
+        const errorSubcode = responseData.error?.error_subcode;
+        const errorMessage = responseData.error?.message || "Unknown error";
+
+        // Check for specific errors
+        // Error 136025: Incorrect PIN (Two-step verification PIN is incorrect)
+        if (errorCode === 136025 || errorSubcode === 136025 || 
+            errorMessage.toLowerCase().includes("incorrect pin") ||
+            errorMessage.toLowerCase().includes("invalid pin")) {
+          return {
+            success: false,
+            error: "incorrect_pin",
+            message: "Incorrect PIN. If you have Two-Step Verification enabled, enter your existing PIN. Otherwise, the PIN you entered might have a typo.",
+            errorCode: errorCode,
+          };
+        }
+
+        // Error: Already registered
+        if (errorMessage.toLowerCase().includes("already registered")) {
+          // This is actually success - phone is already registered
+          console.log("✅ Phone was already registered");
+          
+          // Update Firestore to reflect registered status
+          await db.collection("businesses").doc(uid).update({
+            whatsappPhoneRegistered: true,
+            whatsappPhoneVerificationStatus: "CONNECTED",
+            whatsappStatusLastChecked: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          return {
+            success: true,
+            message: "Phone number is already registered and ready to use!",
+            alreadyRegistered: true,
+          };
+        }
+
+        // Other errors
+        return {
+          success: false,
+          error: "registration_failed",
+          message: errorMessage,
+          errorCode: errorCode,
+          errorSubcode: errorSubcode,
+        };
+      }
+
+      console.log("✅ Phone number registered successfully:", JSON.stringify(responseData));
+
+      // Update Firestore with registered status
+      await db.collection("businesses").doc(uid).update({
+        whatsappPhoneRegistered: true,
+        whatsappPhoneVerificationStatus: "CONNECTED",
+        whatsappPhoneHas2FA: true, // 2FA is now enabled since we provided a PIN
+        whatsappStatusLastChecked: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return {
+        success: true,
+        message: "Phone number registered successfully! You can now send and receive messages.",
+        data: responseData,
+      };
+
+    } catch (error) {
+      console.error("Registration error:", error);
+      throw new HttpsError("internal", error.message || "Failed to register phone number");
+    }
+  }
+);
+
+/**
  * Get WABA status from Meta API
  */
 exports.getWABAStatus = onCall(
@@ -363,6 +501,195 @@ exports.getWABAStatus = onCall(
 );
 
 /**
+ * Repair/Refresh WABA Webhook Subscription
+ * This function checks and re-subscribes the app to WABA webhook events
+ * Call this if incoming messages are not being received
+ */
+exports.repairWebhookSubscription = onCall(
+  {
+    region: "us-central1",
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    secrets: [META_SYSTEM_USER_TOKEN_SECRET],
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    try {
+      const businessDoc = await db.collection("businesses").doc(uid).get();
+      if (!businessDoc.exists) {
+        throw new HttpsError("not-found", "Business not found");
+      }
+
+      const businessData = businessDoc.data();
+      const wabaId = businessData.whatsappBusinessAccountId;
+      const phoneNumberId = businessData.whatsappPhoneNumberId;
+
+      if (!wabaId) {
+        return {
+          success: false,
+          message: "No WABA ID found. Please complete WhatsApp setup first.",
+        };
+      }
+
+      const systemToken = getSystemUserToken();
+      if (!systemToken) {
+        throw new HttpsError("failed-precondition", "System User Token not configured");
+      }
+
+      const results = {
+        wabaId,
+        phoneNumberId,
+        checks: [],
+        repairs: [],
+      };
+
+      // Step 1: Check current subscription status
+      console.log(`🔍 Checking webhook subscription for WABA: ${wabaId}`);
+      try {
+        const subCheckResponse = await fetch(
+          `${META_API_BASE}/${wabaId}/subscribed_apps?access_token=${systemToken}`
+        );
+        
+        if (subCheckResponse.ok) {
+          const subData = await subCheckResponse.json();
+          results.currentSubscription = subData;
+          results.checks.push({
+            name: "Check Subscription",
+            status: "success",
+            data: subData
+          });
+          
+          // Check if our app is subscribed
+          const ourApp = subData.data?.find(app => app.id === "190256595068087"); // FLYP App ID
+          if (ourApp) {
+            results.checks.push({
+              name: "App Subscribed",
+              status: "success",
+              subscribedFields: ourApp.subscribed_fields || []
+            });
+          } else {
+            results.checks.push({
+              name: "App Subscribed",
+              status: "warning",
+              message: "FLYP app not found in subscriptions"
+            });
+          }
+        } else {
+          const errData = await subCheckResponse.json();
+          results.checks.push({
+            name: "Check Subscription",
+            status: "error",
+            error: errData.error?.message
+          });
+        }
+      } catch (checkErr) {
+        results.checks.push({
+          name: "Check Subscription",
+          status: "error",
+          error: checkErr.message
+        });
+      }
+
+      // Step 2: Re-subscribe to webhook events
+      console.log(`🔧 Re-subscribing app to WABA events...`);
+      try {
+        const subscribeResponse = await fetch(
+          `${META_API_BASE}/${wabaId}/subscribed_apps`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${systemToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              subscribed_fields: ["messages", "message_status", "account_update", "account_review_update"],
+            }),
+          }
+        );
+
+        if (subscribeResponse.ok) {
+          const subResult = await subscribeResponse.json();
+          results.repairs.push({
+            name: "Resubscribe to Webhook",
+            status: "success",
+            result: subResult
+          });
+          console.log("✅ Successfully re-subscribed to WABA webhook events");
+        } else {
+          const errData = await subscribeResponse.json();
+          results.repairs.push({
+            name: "Resubscribe to Webhook",
+            status: "error",
+            error: errData.error?.message || "Failed to subscribe"
+          });
+          console.error("❌ Failed to subscribe:", errData);
+        }
+      } catch (subErr) {
+        results.repairs.push({
+          name: "Resubscribe to Webhook",
+          status: "error",
+          error: subErr.message
+        });
+      }
+
+      // Step 3: Verify subscription after repair
+      console.log(`🔍 Verifying subscription after repair...`);
+      try {
+        const verifyResponse = await fetch(
+          `${META_API_BASE}/${wabaId}/subscribed_apps?access_token=${systemToken}`
+        );
+        
+        if (verifyResponse.ok) {
+          const verifyData = await verifyResponse.json();
+          results.finalSubscription = verifyData;
+          
+          // Check for messages field
+          const hasMessages = verifyData.data?.some(app => 
+            app.subscribed_fields?.includes("messages")
+          );
+          
+          results.repairs.push({
+            name: "Verify Messages Subscription",
+            status: hasMessages ? "success" : "warning",
+            message: hasMessages 
+              ? "✅ 'messages' field is now subscribed" 
+              : "⚠️ 'messages' field still not subscribed - check Meta Dashboard manually"
+          });
+        }
+      } catch (verifyErr) {
+        console.warn("Verification check failed:", verifyErr);
+      }
+
+      // Update Firestore
+      await db.collection("businesses").doc(uid).update({
+        webhookSubscriptionRepairedAt: admin.firestore.FieldValue.serverTimestamp(),
+        webhookSubscriptionStatus: results.repairs.some(r => r.status === "success") ? "repaired" : "needs_attention",
+      });
+
+      return {
+        success: true,
+        message: "Webhook subscription repair completed. Please test by sending a message from a customer phone.",
+        results,
+        nextSteps: [
+          "1. Send a test message from a customer phone to your WhatsApp Business number",
+          "2. Check Cloud Function logs for '💬 Incoming message from...'",
+          "3. If still not working, verify webhook URL in Meta Developer Dashboard",
+          "4. Webhook URL should be: https://us-central1-stockpilotv1.cloudfunctions.net/whatsappWebhook",
+          "5. Verify Token should be: flyp_tech_provider_webhook_token"
+        ]
+      };
+    } catch (error) {
+      console.error("Error repairing webhook subscription:", error);
+      throw new HttpsError("internal", error.message || "Failed to repair webhook subscription");
+    }
+  }
+);
+
+/**
  * Detect newly created WABA (for fallback detection)
  */
 /**
@@ -405,90 +732,98 @@ exports.detectNewWABA = onRequest(
 
           console.log("🔍 Detecting WABAs for user:", uid);
 
-          // METHOD 1: Get WABAs directly from System User (includes shared WABAs from Embedded Signup)
-          // This is the CORRECT way to find client WABAs created via Embedded Signup
-          try {
-            const directWabasResponse = await fetch(
-              `${META_API_BASE}/me/whatsapp_business_accounts?fields=id,name,account_review_status,on_behalf_of_business_info&access_token=${systemToken}`
-            );
-            
-            if (directWabasResponse.ok) {
-              const directWabas = await directWabasResponse.json();
-              console.log("📋 Direct WABAs found:", directWabas.data?.length || 0);
-              
-              for (const waba of directWabas.data || []) {
-                allWABAs.push({
-                  id: waba.id,
-                  name: waba.name,
-                  accountReviewStatus: waba.account_review_status,
-                  onBehalfOf: waba.on_behalf_of_business_info,
-                  source: "direct_system_user",
-                });
-              }
-            } else {
-              const errData = await directWabasResponse.json();
-              console.warn("Direct WABA fetch failed:", JSON.stringify(errData));
-            }
-          } catch (err) {
-            console.warn("Error fetching direct WABAs:", err);
-          }
+          // FLYP Tech Provider Business ID (from Meta Business Manager)
+          // This is the business that owns the Tech Provider app
+          const FLYP_BUSINESS_ID = "880857384343434"; // From your WhatsApp Manager URL
 
-          // METHOD 2: Get WABAs from your businesses (owned WABAs)
+          // METHOD 1: Get businesses associated with System User
+          let businessIds = [];
           try {
+            console.log("📋 Fetching businesses for System User...");
             const businessesResponse = await fetch(
-              `${META_API_BASE}/me/businesses?access_token=${systemToken}`
+              `${META_API_BASE}/me/businesses?fields=id,name&access_token=${systemToken}`
             );
 
             if (businessesResponse.ok) {
               const businessesData = await businessesResponse.json();
-
-              for (const business of businessesData.data || []) {
-                // Get OWNED WABAs
-                try {
-                  const ownedResponse = await fetch(
-                    `${META_API_BASE}/${business.id}/owned_whatsapp_business_accounts?fields=id,name,account_review_status&access_token=${systemToken}`
-                  );
-                  if (ownedResponse.ok) {
-                    const ownedData = await ownedResponse.json();
-                    for (const waba of ownedData.data || []) {
-                      if (!allWABAs.find(w => w.id === waba.id)) {
-                        allWABAs.push({
-                          id: waba.id,
-                          name: waba.name,
-                          accountReviewStatus: waba.account_review_status,
-                          businessId: business.id,
-                          source: "owned",
-                        });
-                      }
-                    }
-                  }
-                } catch (e) {}
-
-                // Get CLIENT WABAs (shared via Embedded Signup)
-                try {
-                  const clientResponse = await fetch(
-                    `${META_API_BASE}/${business.id}/client_whatsapp_business_accounts?fields=id,name,account_review_status&access_token=${systemToken}`
-                  );
-                  if (clientResponse.ok) {
-                    const clientData = await clientResponse.json();
-                    console.log(`📋 Client WABAs for business ${business.id}:`, clientData.data?.length || 0);
-                    for (const waba of clientData.data || []) {
-                      if (!allWABAs.find(w => w.id === waba.id)) {
-                        allWABAs.push({
-                          id: waba.id,
-                          name: waba.name,
-                          accountReviewStatus: waba.account_review_status,
-                          businessId: business.id,
-                          source: "client_embedded_signup",
-                        });
-                      }
-                    }
-                  }
-                } catch (e) {}
-              }
+              console.log("📋 Businesses found:", businessesData.data?.length || 0, 
+                businessesData.data?.map(b => ({ id: b.id, name: b.name })));
+              
+              businessIds = businessesData.data?.map(b => b.id) || [];
+            } else {
+              const errData = await businessesResponse.json();
+              console.warn("Businesses fetch failed:", JSON.stringify(errData));
             }
           } catch (err) {
-            console.warn("Error fetching business WABAs:", err);
+            console.warn("Error fetching businesses:", err);
+          }
+
+          // Add FLYP Business ID if not already in list
+          if (!businessIds.includes(FLYP_BUSINESS_ID)) {
+            businessIds.push(FLYP_BUSINESS_ID);
+            console.log("📋 Added FLYP Business ID to search:", FLYP_BUSINESS_ID);
+          }
+
+          // METHOD 2: For each business, get owned and client WABAs
+          for (const businessId of businessIds) {
+            console.log(`🔍 Checking business ${businessId} for WABAs...`);
+            
+            // Get OWNED WABAs
+            try {
+              const ownedResponse = await fetch(
+                `${META_API_BASE}/${businessId}/owned_whatsapp_business_accounts?fields=id,name,account_review_status,phone_numbers{id,display_phone_number}&access_token=${systemToken}`
+              );
+              if (ownedResponse.ok) {
+                const ownedData = await ownedResponse.json();
+                console.log(`✅ Owned WABAs for ${businessId}:`, ownedData.data?.length || 0);
+                for (const waba of ownedData.data || []) {
+                  if (!allWABAs.find(w => w.id === waba.id)) {
+                    allWABAs.push({
+                      id: waba.id,
+                      name: waba.name,
+                      accountReviewStatus: waba.account_review_status,
+                      phoneNumbers: waba.phone_numbers?.data || [],
+                      businessId: businessId,
+                      source: "owned",
+                    });
+                  }
+                }
+              } else {
+                const errData = await ownedResponse.json();
+                console.log(`⚠️ Owned WABAs error for ${businessId}:`, errData.error?.message);
+              }
+            } catch (e) {
+              console.warn(`Error fetching owned WABAs for ${businessId}:`, e.message);
+            }
+
+            // Get CLIENT WABAs (shared via Embedded Signup)
+            try {
+              const clientResponse = await fetch(
+                `${META_API_BASE}/${businessId}/client_whatsapp_business_accounts?fields=id,name,account_review_status,phone_numbers{id,display_phone_number}&access_token=${systemToken}`
+              );
+              if (clientResponse.ok) {
+                const clientData = await clientResponse.json();
+                console.log(`✅ Client WABAs for ${businessId}:`, clientData.data?.length || 0, 
+                  clientData.data?.map(w => ({ id: w.id, name: w.name })));
+                for (const waba of clientData.data || []) {
+                  if (!allWABAs.find(w => w.id === waba.id)) {
+                    allWABAs.push({
+                      id: waba.id,
+                      name: waba.name,
+                      accountReviewStatus: waba.account_review_status,
+                      phoneNumbers: waba.phone_numbers?.data || [],
+                      businessId: businessId,
+                      source: "client_embedded_signup",
+                    });
+                  }
+                }
+              } else {
+                const errData = await clientResponse.json();
+                console.log(`⚠️ Client WABAs error for ${businessId}:`, errData.error?.message);
+              }
+            } catch (e) {
+              console.warn(`Error fetching client WABAs for ${businessId}:`, e.message);
+            }
           }
 
           console.log("📊 Total WABAs found:", allWABAs.length, allWABAs.map(w => ({ id: w.id, name: w.name, source: w.source })));
@@ -517,19 +852,38 @@ exports.detectNewWABA = onRequest(
   
           if (targetWABA) {
             let primaryPhone = null;
-            try {
-              const phonesResponse = await fetch(
-                `${META_API_BASE}/${targetWABA.id}/phone_numbers?access_token=${systemToken}`
-              );
-  
-              if (phonesResponse.ok) {
-                const phonesData = await phonesResponse.json();
-                // Get the first verified or pending phone number
-                primaryPhone = phonesData.data?.[0] || null;
+            
+            // First check if we already have phone numbers from the WABA query
+            if (targetWABA.phoneNumbers && targetWABA.phoneNumbers.length > 0) {
+              primaryPhone = targetWABA.phoneNumbers[0];
+              console.log("📱 Using phone from WABA data:", primaryPhone.id, primaryPhone.display_phone_number);
+            } else {
+              // Fallback: Fetch phone numbers separately
+              try {
+                const phonesResponse = await fetch(
+                  `${META_API_BASE}/${targetWABA.id}/phone_numbers?fields=id,display_phone_number,verified_name,code_verification_status&access_token=${systemToken}`
+                );
+    
+                if (phonesResponse.ok) {
+                  const phonesData = await phonesResponse.json();
+                  console.log("📱 Phone numbers for WABA:", phonesData.data?.length || 0);
+                  primaryPhone = phonesData.data?.[0] || null;
+                } else {
+                  const errData = await phonesResponse.json();
+                  console.warn("Phone fetch error:", errData.error?.message);
+                }
+              } catch (err) {
+                console.warn("Error fetching phone numbers:", err);
               }
-            } catch (err) {
-              console.warn("Error fetching phone numbers:", err);
             }
+
+            console.log("✅ Found WABA:", {
+              wabaId: targetWABA.id,
+              name: targetWABA.name,
+              phoneId: primaryPhone?.id,
+              phoneNumber: primaryPhone?.display_phone_number,
+              matchReason,
+            });
   
             return res.json({
               success: true,
