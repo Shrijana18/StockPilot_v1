@@ -18,6 +18,7 @@ import MetaAPIFeatures from './MetaAPIFeatures';
 import MetaAppReviewDemo from './MetaAppReviewDemo';
 import IndividualWABASetup from './IndividualWABASetup';
 import EmbeddedSignup from './EmbeddedSignup';
+import SendTemplateMessage from './SendTemplateMessage';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import { FaVideo, FaExternalLinkAlt } from 'react-icons/fa';
@@ -766,8 +767,48 @@ const WhatsAppHub = () => {
           {/* SEND MESSAGE TAB - With Catalog & Product Selection */}
           {activeTab === 'send' && isEnabled && (
             <div className="space-y-6">
+              {/* Template Message Section - Works outside 24-hour window! */}
+              <SendTemplateMessage 
+                onMessageSent={(result) => {
+                  toast.success('Template message sent!');
+                  // Refresh message history
+                  setTimeout(async () => {
+                    try {
+                      const messagesRef = collection(db, 'businesses', distributorId, 'whatsappMessages');
+                      const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(100));
+                      const snapshot = await getDocs(q);
+                      const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                      setMessageHistory(messages);
+                    } catch (err) {
+                      console.warn('Could not refresh message history:', err);
+                    }
+                  }, 1000);
+                }}
+              />
+
+              {/* Divider */}
+              <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                <span className="text-xs text-gray-400 uppercase tracking-wider">Or Send Free-Form Message</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+              </div>
+
+              {/* 24-Hour Window Warning */}
+              <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-xl">⚠️</span>
+                  <div>
+                    <p className="font-semibold text-amber-300 mb-1">Free-Form Messages: 24-Hour Window Required</p>
+                    <p className="text-sm text-amber-200/70">
+                      Free-form text messages below will only be delivered if the recipient has messaged you in the last 24 hours.
+                      For guaranteed delivery, use <strong>Template Messages</strong> above.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
-                <h3 className="text-xl font-semibold mb-4">📤 Send Message</h3>
+                <h3 className="text-xl font-semibold mb-4">📤 Send Free-Form Message</h3>
                 <p className="text-gray-400 mb-4">
                   Compose a message and send it to your connected retailers. You can include products, images, and promotional offers.
                 </p>

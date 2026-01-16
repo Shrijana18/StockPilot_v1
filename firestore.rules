@@ -119,11 +119,16 @@ service cloud.firestore {
       //   whatsappPhoneVerificationStatus, whatsappProvider, whatsappEnabled, whatsappLastSyncedAt, whatsappConnectedAt,
       //   whatsappWebhookUrl, whatsappWebhookConfigured, whatsappWebhookConfiguredAt, whatsappCreatedVia, whatsappCreatedAt,
       //   whatsappAccountReviewStatus, whatsappAccountReviewUpdatedAt, whatsappPhoneUpdatedAt, whatsappVerified,
+      //   whatsappStatusLastChecked, whatsappTestMode, whatsappTestRecipient, whatsappTestAccessToken,
       //   embeddedSignupData, whatsappAccessToken, whatsappOAuthCode, metaBusinessId
       allow update: if isAuthed()
         && isSelf(userId)
         && isEmailVerified()
-        && request.resource.data.ownerId == resource.data.ownerId
+        && (
+          // ownerId must equal userId (user can only update their own doc)
+          // This handles both: setting ownerId on legacy docs AND keeping it unchanged
+          request.resource.data.ownerId == userId
+        )
         && emailUnchanged(request.resource.data)
         && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['phone'])

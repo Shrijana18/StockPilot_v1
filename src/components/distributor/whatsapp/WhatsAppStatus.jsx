@@ -7,7 +7,7 @@ import React from "react";
 import { 
   FaWhatsapp, FaSpinner, FaCheckCircle, FaExclamationCircle, 
   FaTimes, FaPhone, FaShieldVirus, FaBuilding, FaInfoCircle, FaExclamationTriangle,
-  FaVideo
+  FaVideo, FaFlask, FaUnlink
 } from "react-icons/fa";
 
 const WhatsAppStatus = ({ 
@@ -16,35 +16,75 @@ const WhatsAppStatus = ({
   setFormData, 
   statusData, 
   checkingStatus, 
-  fetchWABAStatus 
+  fetchWABAStatus,
+  onDisconnect,
+  isTestMode 
 }) => {
   return (
     <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+      {/* Test Mode Banner */}
+      {isTestMode && (
+        <div className="bg-purple-900/30 border border-purple-500/50 rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FaFlask className="text-purple-400 text-xl" />
+              <div>
+                <p className="text-purple-300 font-semibold">🧪 Test Mode Active</p>
+                <p className="text-xs text-gray-400">Using Meta's test WABA for development. Messages only work with whitelisted numbers.</p>
+              </div>
+            </div>
+            {onDisconnect && (
+              <button
+                onClick={onDisconnect}
+                className="flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                <FaUnlink />
+                Disconnect Test
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-white flex items-center gap-3">
           <div className="p-2 bg-green-500/20 rounded-lg">
             <FaWhatsapp className="w-6 h-6 text-green-400" />
           </div>
           WhatsApp Business
+          {isTestMode && <span className="text-xs bg-purple-600 text-white px-2 py-1 rounded ml-2">TEST</span>}
         </h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={fetchWABAStatus}
-            disabled={checkingStatus}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            <FaSpinner className={checkingStatus ? 'animate-spin' : ''} />
-            Refresh Status
-          </button>
-          <button
-            onClick={() => {
-              window.location.href = '/distributor-dashboard#/distributor-dashboard?tab=whatsapp&review=true';
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            <FaVideo className="text-xs" />
-            Meta App Review
-          </button>
+          {!isTestMode && (
+            <button
+              onClick={fetchWABAStatus}
+              disabled={checkingStatus}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              <FaSpinner className={checkingStatus ? 'animate-spin' : ''} />
+              Refresh Status
+            </button>
+          )}
+          {!isTestMode && (
+            <button
+              onClick={() => {
+                window.location.href = '/distributor-dashboard#/distributor-dashboard?tab=whatsapp&review=true';
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <FaVideo className="text-xs" />
+              Meta App Review
+            </button>
+          )}
+          {onDisconnect && !isTestMode && (
+            <button
+              onClick={onDisconnect}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <FaUnlink />
+              Disconnect
+            </button>
+          )}
         </div>
       </div>
 

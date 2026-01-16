@@ -50,7 +50,6 @@ exports.sendMessageViaTechProvider = onCall(
         throw new HttpsError("invalid-argument", "Recipient phone number and message are required");
       }
 
-      const systemUserToken = getSystemUserToken();
       const businessDoc = await db.collection("businesses").doc(uid).get();
 
       if (!businessDoc || !businessDoc.exists) {
@@ -59,12 +58,43 @@ exports.sendMessageViaTechProvider = onCall(
 
       const businessData = businessDoc.data();
       const phoneNumberId = businessData.whatsappPhoneNumberId;
+      const isTestMode = businessData.whatsappTestMode === true;
+      const testAccessToken = businessData.whatsappTestAccessToken;
+      const testRecipient = businessData.whatsappTestRecipient;
 
       if (!phoneNumberId) {
         throw new HttpsError(
           "failed-precondition",
           "Phone number not configured. Please add and verify a phone number first."
         );
+      }
+
+      // For test mode, use the temp access token instead of system user token
+      let accessToken;
+      if (isTestMode) {
+        if (!testAccessToken) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Test mode requires a temporary access token. Please update your test configuration with a fresh token from Meta Dashboard → WhatsApp → API Testing."
+          );
+        }
+        accessToken = testAccessToken;
+        console.log("📧 Using TEST MODE with temporary access token");
+        
+        // Validate recipient in test mode
+        const normalizedTo = to.replace(/[\s-]/g, "");
+        const normalizedTestRecipient = (testRecipient || "").replace(/[\s-]/g, "");
+        if (testRecipient && !normalizedTo.includes(normalizedTestRecipient.replace("+", ""))) {
+          console.warn(`⚠️ Test mode: Recipient ${to} may not be whitelisted. Expected: ${testRecipient}`);
+        }
+      } else {
+        accessToken = getSystemUserToken();
+        if (!accessToken) {
+          throw new HttpsError(
+            "failed-precondition",
+            "System User Token not configured. Please set META_SYSTEM_USER_TOKEN in Firebase secrets."
+          );
+        }
       }
 
       // Format phone number (remove +)
@@ -115,7 +145,7 @@ exports.sendMessageViaTechProvider = onCall(
 
       // Send message
       const sendResponse = await fetch(
-        `${META_API_BASE}/${phoneNumberId}/messages?access_token=${systemUserToken}`,
+        `${META_API_BASE}/${phoneNumberId}/messages?access_token=${accessToken}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
