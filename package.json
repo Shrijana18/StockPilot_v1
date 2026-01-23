@@ -27,7 +27,14 @@
     "build": "vite build",
     "serve": "vite preview",
     "start": "vite",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "dev:customer": "vite --config vite.customer.config.js",
+    "build:customer": "vite build --config vite.customer.config.js",
+    "icons:customer": "node scripts/generate-customer-icons.js",
+    "android:customer": "node scripts/build-customer-android.js",
+    "android:customer:apk": "node scripts/build-customer-android.js --apk",
+    "android:customer:install": "node scripts/build-customer-android.js --install",
+    "android:customer:release": "npm run build:customer && cd android-customer && ./gradlew assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",
@@ -71,6 +78,7 @@
     "i18next-browser-languagedetector": "^8.2.0",
     "jspdf": "^3.0.2",
     "jspdf-autotable": "^5.0.2",
+    "leaflet": "^1.9.4",
     "lottie-react": "^2.4.1",
     "moment": "^2.30.1",
     "moment-timezone": "^0.6.0",
@@ -86,6 +94,7 @@
     "react-i18next": "^16.3.3",
     "react-icons": "^5.5.0",
     "react-intersection-observer": "^9.16.0",
+    "react-leaflet": "^4.2.1",
     "react-router-dom": "^7.9.1",
     "react-select": "^5.10.2",
     "react-toastify": "^11.0.5",

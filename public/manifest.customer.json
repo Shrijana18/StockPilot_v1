@@ -1,0 +1,69 @@
+{
+  "name": "FLYP Shop",
+  "short_name": "FLYP Shop",
+  "description": "Quick delivery from local stores. Order groceries, essentials and more from nearby retailers.",
+  "start_url": "/shop",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#10B981",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/assets/flyp_shop_icon_72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/flyp_shop_icon_96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/flyp_shop_icon_128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/flyp_shop_icon_144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/flyp_shop_icon_152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/flyp_shop_icon_192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/flyp_shop_icon_384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/flyp_shop_icon_512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["shopping", "food", "lifestyle"],
+  "screenshots": [
+    {
+      "src": "/assets/screenshots/home.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ]
+}

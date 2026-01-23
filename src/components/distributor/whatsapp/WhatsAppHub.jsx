@@ -20,9 +20,83 @@ import IndividualWABASetup from './IndividualWABASetup';
 import EmbeddedSignup from './EmbeddedSignup';
 import SendTemplateMessage from './SendTemplateMessage';
 import MenuBoards from './MenuBoards';
+import FlowBuilder from './FlowBuilder';
+import CatalogSync from './CatalogSync';
+import OrderBot from './OrderBot';
+import BotQuickSetup from './BotQuickSetup';
+import WhatsAppOrders from './WhatsAppOrders';
+import QuickSend from './QuickSend';
+import MessageTemplates from './MessageTemplates';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import { FaVideo, FaExternalLinkAlt } from 'react-icons/fa';
+
+// Custom styles for improved UI/UX - WhatsApp Theme
+const hubStyles = `
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(134, 150, 160, 0.2);
+    border-radius: 10px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(134, 150, 160, 0.35);
+  }
+  .scrollbar-thumb-slate-600::-webkit-scrollbar-thumb {
+    background: rgba(42, 57, 66, 0.6);
+  }
+  .scrollbar-track-transparent::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  /* WhatsApp-like card styles */
+  .wa-card {
+    background: #111b21;
+    border: 1px solid #222d34;
+    border-radius: 12px;
+  }
+  
+  .wa-card-hover:hover {
+    border-color: #00a884;
+    box-shadow: 0 0 0 1px rgba(0, 168, 132, 0.2);
+  }
+  
+  /* Button styles */
+  .wa-btn-primary {
+    background: linear-gradient(135deg, #00a884 0%, #075e54 100%);
+    transition: all 0.2s ease;
+  }
+  
+  .wa-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 168, 132, 0.3);
+  }
+  
+  /* Stats card animation */
+  @keyframes statFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .stat-card {
+    animation: statFadeIn 0.3s ease forwards;
+  }
+  
+  .stat-card:nth-child(1) { animation-delay: 0ms; }
+  .stat-card:nth-child(2) { animation-delay: 50ms; }
+  .stat-card:nth-child(3) { animation-delay: 100ms; }
+  .stat-card:nth-child(4) { animation-delay: 150ms; }
+`;
 
 const WhatsAppHub = () => {
   const navigate = useNavigate();
@@ -47,6 +121,25 @@ const WhatsAppHub = () => {
   const [customNameInput, setCustomNameInput] = useState('');
 
   const [activeTab, setActiveTab] = useState(shouldOpenReview ? 'review' : 'overview');
+  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
+  
+  // Organized sidebar structure with better icons
+  const tabs = [
+    { id: 'overview', label: 'Overview', icon: '📊', description: 'Dashboard & stats' },
+    { id: 'inbox', label: 'Inbox', icon: '💬', description: 'WhatsApp-style chat', showBadge: true },
+    { id: 'catalog', label: 'Catalog Sync', icon: '📦', description: 'Sync products' },
+    { id: 'quicksetup', label: 'Bot Setup', icon: '🚀', description: 'Bot configuration & automation' },
+    { id: 'flowbuilder', label: 'Flow Builder', icon: '🔀', description: 'Automated flows' },
+    { id: 'orders', label: 'Orders', icon: '📋', description: 'All WhatsApp orders' },
+    { id: 'stock', label: 'Stock Reminders', icon: '🔔', description: 'Stock alerts' },
+    { id: 'templates', label: 'Templates', icon: '🎨', description: 'Manage message templates' },
+    { id: 'campaigns', label: 'Campaigns', icon: '📈', description: 'Campaigns' },
+    { id: 'schedule', label: 'Schedule', icon: '⏰', description: 'Scheduling' },
+    { id: 'history', label: 'History', icon: '📜', description: 'History' },
+  ];
+
+  // State for Bot Setup sub-sections
+  const [botSetupSubTab, setBotSetupSubTab] = useState('setup'); // 'setup' or 'orderbot'
   const [whatsappConfig, setWhatsappConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState([]);
@@ -63,6 +156,28 @@ const WhatsAppHub = () => {
   const [sending, setSending] = useState(false);
 
   const distributorId = auth.currentUser?.uid;
+
+  // Listen for total unread messages count
+  useEffect(() => {
+    if (!distributorId) return;
+    
+    const inboxRef = collection(db, 'businesses', distributorId, 'whatsappInbox');
+    const unsubscribe = onSnapshot(
+      query(inboxRef, limit(500)),
+      (snapshot) => {
+        let unread = 0;
+        snapshot.docs.forEach(doc => {
+          const data = doc.data();
+          if (!data.read && data.read !== true) {
+            unread++;
+          }
+        });
+        setTotalUnreadCount(unread);
+      }
+    );
+    
+    return () => unsubscribe();
+  }, [distributorId]);
 
   // Real-time product updates
   useEffect(() => {
@@ -519,19 +634,6 @@ const WhatsAppHub = () => {
     setSending(false);
   };
 
-  const tabs = [
-    { id: 'overview', label: 'Overview', icon: '📊', description: 'Dashboard & stats' },
-    { id: 'inbox', label: 'Inbox', icon: '💬', description: 'WhatsApp-style chat' },
-    { id: 'menus', label: 'Menu Boards', icon: '🤖', description: 'Automated responses' },
-    { id: 'stock', label: 'Stock Reminders', icon: '📦', description: 'Bulk stock alerts' },
-    { id: 'send', label: 'Send Message', icon: '📤', description: 'Compose & send' },
-    { id: 'campaigns', label: 'Campaigns', icon: '📈', description: 'Campaign management' },
-    { id: 'schedule', label: 'Schedule', icon: '⏰', description: 'Smart scheduling' },
-    { id: 'history', label: 'History', icon: '📜', description: 'Message history' },
-    { id: 'review', label: 'Meta Review', icon: '🎬', description: 'App review dashboard' },
-    { id: 'features', label: 'Features', icon: '🚀', description: 'API features' },
-  ];
-
   // Check if WhatsApp is enabled - either from config or if WABA is connected
   const isEnabled = whatsappConfig?.enabled || (whatsappConfig?.businessAccountId ? true : false);
   const isTechProvider = whatsappConfig?.provider === WHATSAPP_PROVIDERS.META_TECH_PROVIDER;
@@ -545,96 +647,116 @@ const WhatsAppHub = () => {
   }
 
   return (
-    <div className="flex h-screen text-white bg-slate-900">
-      {/* Left Sidebar Navigation */}
-      <div className="w-64 bg-slate-800 border-r border-white/10 flex flex-col">
+    <div className="flex w-full h-full text-white bg-[#0b141a] overflow-hidden relative">
+      <style>{hubStyles}</style>
+      {/* Left Sidebar Navigation - Modern Design */}
+      <div className="w-56 bg-[#111b21] border-r border-[#222d34] flex flex-col flex-shrink-0 h-full overflow-hidden">
         {/* Sidebar Header */}
-        <div className="p-4 border-b border-white/10">
-          <h1 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
-            <span className="text-2xl">💬</span>
-            WhatsApp Hub
-          </h1>
-          {isEnabled && (
-            <div className="flex items-center gap-2 mt-2">
-              <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
-              <span className="text-xs text-emerald-300">Connected</span>
+        <div className="p-4 border-b border-[#222d34] flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00a884] to-[#075e54] flex items-center justify-center shadow-lg shadow-[#00a884]/20">
+              <span className="text-xl">💬</span>
             </div>
-          )}
-        </div>
-
-        {/* Navigation Menu */}
-        <nav className="flex-1 overflow-y-auto p-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-1 transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-gray-300 hover:bg-slate-700 hover:text-white'
-              }`}
-              title={tab.description}
-            >
-              <span className="text-lg">{tab.icon}</span>
-              <span className="font-medium">{tab.label}</span>
-            </button>
-          ))}
-        </nav>
-
-        {/* Sidebar Footer - Quick Stats */}
-        {isEnabled && (
-          <div className="p-4 border-t border-white/10 bg-slate-900/50">
-            <p className="text-xs text-gray-400 mb-2">Quick Stats</p>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Sent:</span>
-                <span className="text-emerald-300 font-semibold">{stats.sent}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Today:</span>
-                <span className="text-blue-300 font-semibold">{stats.today}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Success:</span>
-                <span className="text-emerald-300 font-semibold">{stats.successRate}%</span>
-              </div>
+            <div>
+              <h1 className="text-base font-semibold text-white">WhatsApp Hub</h1>
+              {isEnabled && (
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="w-1.5 h-1.5 bg-[#00a884] rounded-full animate-pulse"></div>
+                  <span className="text-[11px] text-[#00a884] font-medium">Connected</span>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
+
+        {/* Navigation Menu - Scrollable */}
+        <nav className="flex-1 overflow-y-auto py-2 px-2 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            const showUnreadBadge = tab.showBadge && totalUnreadCount > 0;
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  // Reset sub-tab when switching to Bot Setup
+                  if (tab.id === 'quicksetup') {
+                    setBotSetupSubTab('setup');
+                  }
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-200 group relative ${
+                  isActive
+                    ? 'bg-[#00a884] text-white shadow-lg shadow-[#00a884]/25'
+                    : 'text-[#aebac1] hover:bg-[#202c33] hover:text-white'
+                }`}
+                title={tab.description}
+              >
+                <span className={`text-base ${isActive ? 'scale-110' : 'group-hover:scale-105'} transition-transform`}>
+                  {tab.icon}
+                </span>
+                <span className="font-medium text-sm flex-1 text-left">{tab.label}</span>
+                
+                {/* Unread Badge for Inbox */}
+                {showUnreadBadge && (
+                  <span className={`min-w-[20px] h-5 px-1.5 text-[11px] font-bold rounded-full flex items-center justify-center ${
+                    isActive 
+                      ? 'bg-white text-[#00a884]' 
+                      : 'bg-[#00a884] text-white'
+                  }`}>
+                    {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+        
+        {/* Sidebar Footer */}
+        <div className="p-3 border-t border-[#222d34]">
+          <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-[#202c33]/50">
+            <div className="w-2 h-2 bg-[#00a884] rounded-full"></div>
+            <span className="text-[11px] text-[#8696a0]">
+              {stats.today > 0 ? `${stats.today} messages today` : 'Ready to send'}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-6">
-          {/* Header Section */}
-          <div className="mb-6">
-            <div className="bg-gradient-to-br from-emerald-900/40 via-teal-900/30 to-cyan-900/40 rounded-2xl p-6 border-2 border-emerald-500/50">
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex-1">
-                  <h2 className="text-3xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-green-400 to-teal-400">
-                    {tabs.find(t => t.id === activeTab)?.label || 'WhatsApp Business Hub'}
-                  </h2>
-                  <p className="text-gray-300">
-                    {tabs.find(t => t.id === activeTab)?.description || 'Manage your WhatsApp Business communications'}
-                  </p>
+      <div className={`flex-1 h-full bg-[#0b141a] ${activeTab === 'inbox' ? 'overflow-hidden' : 'overflow-y-auto scroll-smooth scrollbar-thin'}`}>
+        <div className={`${activeTab === 'inbox' ? 'h-full overflow-hidden' : 'p-5'}`}>
+          {/* Compact Status Bar - Only show if WhatsApp is enabled */}
+          {activeTab !== 'inbox' && isEnabled && (
+            <div className="mb-5 flex items-center justify-between gap-3 pb-4 border-b border-[#222d34]">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#00a884]/10 border border-[#00a884]/30 rounded-lg">
+                  <div className="w-2 h-2 bg-[#00a884] rounded-full animate-pulse"></div>
+                  <span className="text-xs font-medium text-[#00a884]">Connected</span>
                 </div>
-                
-                {/* Status Badge */}
-                {isEnabled && (
-                  <div className="flex items-center gap-2">
-                    <div className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/50 rounded-lg">
-                      <p className="text-xs font-semibold text-emerald-300">✅ Enabled</p>
-                    </div>
-                    {isTechProvider && (
-                      <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/50 rounded-lg">
-                        <p className="text-xs font-semibold text-blue-300">🚀 Tech Provider</p>
-                      </div>
-                    )}
+                {isTechProvider && (
+                  <div className="px-3 py-1.5 bg-[#3b82f6]/10 border border-[#3b82f6]/30 rounded-lg">
+                    <span className="text-xs font-medium text-[#3b82f6]">🚀 Tech Provider</span>
                   </div>
                 )}
               </div>
+              {/* Quick Stats */}
+              <div className="flex items-center gap-4 text-xs text-[#8696a0]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00a884]"></span>
+                  {stats.sent} sent
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]"></span>
+                  {stats.successRate}% success
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#a855f7]"></span>
+                  {stats.today} today
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
       {/* Tab Content */}
       <AnimatePresence mode="wait">
@@ -647,13 +769,15 @@ const WhatsAppHub = () => {
         >
           {/* OVERVIEW TAB - Dashboard */}
           {activeTab === 'overview' && (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {!isEnabled ? (
                 <div>
-                  <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-6 mb-6 text-center">
-                    <div className="text-5xl mb-4">📱</div>
+                  <div className="bg-gradient-to-br from-[#00a884]/10 to-[#075e54]/5 border border-[#00a884]/20 rounded-2xl p-8 mb-6 text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[#00a884]/20 flex items-center justify-center">
+                      <span className="text-4xl">📱</span>
+                    </div>
                     <h3 className="text-2xl font-bold text-white mb-2">Create Your WhatsApp Business Account</h3>
-                    <p className="text-gray-300 mb-4 max-w-2xl mx-auto">
+                    <p className="text-[#8696a0] mb-4 max-w-2xl mx-auto">
                       Set up your own WhatsApp Business Account with your phone number to start sending messages, 
                       managing conversations, and automating customer interactions.
                     </p>
@@ -683,100 +807,122 @@ const WhatsAppHub = () => {
                 <>
                   {/* Stats Grid */}
                   <div className="grid md:grid-cols-4 gap-4">
-                    <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
-                      <div className="text-3xl mb-2">📤</div>
-                      <p className="text-2xl font-bold text-white">{stats.sent}</p>
-                      <p className="text-sm text-gray-400">Messages Sent</p>
+                    <div className="stat-card bg-[#111b21] border border-[#222d34] rounded-xl p-5 hover:border-[#00a884]/30 transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="w-10 h-10 rounded-lg bg-[#00a884]/20 flex items-center justify-center">
+                          <span className="text-xl">📤</span>
                         </div>
-                    <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
-                      <div className="text-3xl mb-2">✅</div>
-                      <p className="text-2xl font-bold text-emerald-400">{stats.successRate}%</p>
-                      <p className="text-sm text-gray-400">Success Rate</p>
+                        <span className="text-2xl font-bold text-white">{stats.sent}</span>
+                      </div>
+                      <p className="text-sm text-[#8696a0]">Messages Sent</p>
                     </div>
-                    <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
-                      <div className="text-3xl mb-2">📅</div>
-                      <p className="text-2xl font-bold text-blue-400">{stats.today}</p>
-                      <p className="text-sm text-gray-400">Sent Today</p>
-              </div>
-                    <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
-                      <div className="text-3xl mb-2">📊</div>
-                      <p className="text-2xl font-bold text-purple-400">{stats.thisWeek}</p>
-                      <p className="text-sm text-gray-400">This Week</p>
-                </div>
-            </div>
+                    <div className="stat-card bg-[#111b21] border border-[#222d34] rounded-xl p-5 hover:border-[#00a884]/30 transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="w-10 h-10 rounded-lg bg-[#00a884]/20 flex items-center justify-center">
+                          <span className="text-xl">✅</span>
+                        </div>
+                        <span className="text-2xl font-bold text-[#00a884]">{stats.successRate}%</span>
+                      </div>
+                      <p className="text-sm text-[#8696a0]">Success Rate</p>
+                    </div>
+                    <div className="stat-card bg-[#111b21] border border-[#222d34] rounded-xl p-5 hover:border-[#00a884]/30 transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="w-10 h-10 rounded-lg bg-[#3b82f6]/20 flex items-center justify-center">
+                          <span className="text-xl">📅</span>
+                        </div>
+                        <span className="text-2xl font-bold text-[#3b82f6]">{stats.today}</span>
+                      </div>
+                      <p className="text-sm text-[#8696a0]">Sent Today</p>
+                    </div>
+                    <div className="stat-card bg-[#111b21] border border-[#222d34] rounded-xl p-5 hover:border-[#00a884]/30 transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="w-10 h-10 rounded-lg bg-[#a855f7]/20 flex items-center justify-center">
+                          <span className="text-xl">📊</span>
+                        </div>
+                        <span className="text-2xl font-bold text-[#a855f7]">{stats.thisWeek}</span>
+                      </div>
+                      <p className="text-sm text-[#8696a0]">This Week</p>
+                    </div>
+                  </div>
 
                   {/* Message Types Breakdown */}
-                <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
-                    <h3 className="text-xl font-semibold mb-4">Message Types</h3>
-                    <div className="grid md:grid-cols-5 gap-4">
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-emerald-400">{stats.byType.catalog}</p>
-                        <p className="text-sm text-gray-400">Catalogs</p>
+                  <div className="bg-[#111b21] border border-[#222d34] rounded-xl p-6">
+                    <h3 className="text-lg font-semibold mb-4 text-white flex items-center gap-2">
+                      <span className="w-8 h-8 rounded-lg bg-[#00a884]/20 flex items-center justify-center text-sm">📊</span>
+                      Message Types
+                    </h3>
+                    <div className="grid grid-cols-5 gap-3">
+                      {[
+                        { label: 'Catalogs', value: stats.byType.catalog, color: '#00a884' },
+                        { label: 'Promotional', value: stats.byType.promotional, color: '#3b82f6' },
+                        { label: 'Order Updates', value: stats.byType.order, color: '#a855f7' },
+                        { label: 'Stock Reminders', value: stats.byType.stock, color: '#f59e0b' },
+                        { label: 'Payment', value: stats.byType.payment, color: '#06b6d4' },
+                      ].map((item, idx) => (
+                        <div key={idx} className="text-center p-3 rounded-lg bg-[#202c33]/50 hover:bg-[#202c33] transition-colors">
+                          <p className="text-xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                          <p className="text-xs text-[#8696a0] mt-1">{item.label}</p>
+                        </div>
+                      ))}
                     </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-blue-400">{stats.byType.promotional}</p>
-                        <p className="text-sm text-gray-400">Promotional</p>
-                    </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-purple-400">{stats.byType.order}</p>
-                        <p className="text-sm text-gray-400">Order Updates</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-orange-400">{stats.byType.stock}</p>
-                        <p className="text-sm text-gray-400">Stock Reminders</p>
                   </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-cyan-400">{stats.byType.payment}</p>
-                        <p className="text-sm text-gray-400">Payment</p>
-                </div>
-                  </div>
-                </div>
 
                   {/* Quick Actions */}
-                <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
-                    <h3 className="text-xl font-semibold mb-4">Quick Actions</h3>
-                    <div className="grid md:grid-cols-4 gap-4">
-                    <button
+                  <div className="bg-[#111b21] border border-[#222d34] rounded-xl p-6">
+                    <h3 className="text-lg font-semibold mb-4 text-white flex items-center gap-2">
+                      <span className="w-8 h-8 rounded-lg bg-[#00a884]/20 flex items-center justify-center text-sm">⚡</span>
+                      Quick Actions
+                    </h3>
+                    <div className="grid md:grid-cols-4 gap-3">
+                      <button
                         onClick={() => setActiveTab('inbox')}
-                        className="p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-lg hover:bg-emerald-500/30 transition-colors text-left transform hover:scale-105"
-                    >
-                        <div className="text-2xl mb-2">💬</div>
-                        <p className="font-semibold">Chat Inbox</p>
-                        <p className="text-sm text-gray-400">WhatsApp-style messaging</p>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('menus')}
-                        className="p-4 bg-blue-500/20 border border-blue-500/50 rounded-lg hover:bg-blue-500/30 transition-colors text-left transform hover:scale-105"
+                        className="group p-4 bg-[#202c33]/50 border border-[#222d34] rounded-xl hover:border-[#00a884]/50 hover:bg-[#00a884]/10 transition-all text-left"
                       >
-                        <div className="text-2xl mb-2">🤖</div>
-                        <p className="font-semibold">Menu Boards</p>
-                        <p className="text-sm text-gray-400">Automated responses</p>
-                </button>
-                  <button
+                        <div className="w-10 h-10 rounded-lg bg-[#00a884]/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                          <span className="text-xl">💬</span>
+                        </div>
+                        <p className="font-medium text-white text-sm">Chat Inbox</p>
+                        <p className="text-xs text-[#8696a0] mt-0.5">WhatsApp-style messaging</p>
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('catalog')}
+                        className="group p-4 bg-[#202c33]/50 border border-[#222d34] rounded-xl hover:border-[#3b82f6]/50 hover:bg-[#3b82f6]/10 transition-all text-left"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-[#3b82f6]/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                          <span className="text-xl">📦</span>
+                        </div>
+                        <p className="font-medium text-white text-sm">Catalog Sync</p>
+                        <p className="text-xs text-[#8696a0] mt-0.5">Sync products</p>
+                      </button>
+                      <button
                         onClick={() => setActiveTab('stock')}
-                        className="p-4 bg-orange-500/20 border border-orange-500/50 rounded-lg hover:bg-orange-500/30 transition-colors text-left transform hover:scale-105"
+                        className="group p-4 bg-[#202c33]/50 border border-[#222d34] rounded-xl hover:border-[#f59e0b]/50 hover:bg-[#f59e0b]/10 transition-all text-left"
                       >
-                        <div className="text-2xl mb-2">📦</div>
-                        <p className="font-semibold">Stock Reminders</p>
-                        <p className="text-sm text-gray-400">Bulk stock alerts</p>
-                  </button>
-                  <button
-                        onClick={() => setActiveTab('send')}
-                        className="p-4 bg-purple-500/20 border border-purple-500/50 rounded-lg hover:bg-purple-500/30 transition-colors text-left transform hover:scale-105"
+                        <div className="w-10 h-10 rounded-lg bg-[#f59e0b]/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                          <span className="text-xl">🔔</span>
+                        </div>
+                        <p className="font-medium text-white text-sm">Stock Reminders</p>
+                        <p className="text-xs text-[#8696a0] mt-0.5">Bulk stock alerts</p>
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('orders')}
+                        className="group p-4 bg-[#202c33]/50 border border-[#222d34] rounded-xl hover:border-[#a855f7]/50 hover:bg-[#a855f7]/10 transition-all text-left"
                       >
-                        <div className="text-2xl mb-2">📤</div>
-                        <p className="font-semibold">Send Message</p>
-                        <p className="text-sm text-gray-400">Compose & send</p>
-                  </button>
+                        <div className="w-10 h-10 rounded-lg bg-[#a855f7]/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                          <span className="text-xl">📋</span>
                         </div>
-                        </div>
+                        <p className="font-medium text-white text-sm">Orders</p>
+                        <p className="text-xs text-[#8696a0] mt-0.5">View all orders</p>
+                      </button>
+                    </div>
+                  </div>
                 </>
               )}
                         </div>
           )}
 
-          {/* SEND MESSAGE TAB - With Catalog & Product Selection */}
-          {activeTab === 'send' && isEnabled && (
+          {/* Removed: Send Message tab - functionality moved to Quick Send */}
+          {false && activeTab === 'send' && isEnabled && (
             <div className="space-y-6">
               {/* Template Message Section - Works outside 24-hour window! */}
               <SendTemplateMessage 
@@ -1066,14 +1212,67 @@ const WhatsAppHub = () => {
           )}
 
           {/* Other tabs - Only show if WhatsApp is enabled */}
-          {activeTab === 'inbox' && isEnabled && <WhatsAppInbox />}
-          {activeTab === 'menus' && isEnabled && <MenuBoards />}
+          {activeTab === 'inbox' && isEnabled && (
+            <div className="h-full w-full overflow-hidden" style={{ height: '100%' }}>
+              <WhatsAppInbox />
+            </div>
+          )}
+          {activeTab === 'catalog' && isEnabled && <CatalogSync />}
+          {activeTab === 'quicksetup' && isEnabled && (
+            <div className="space-y-4">
+              {/* Compact Tab Navigation */}
+              <div className="flex gap-2 border-b border-white/10 pb-2">
+                <button
+                  onClick={() => setBotSetupSubTab('setup')}
+                  className={`px-4 py-2 font-semibold text-sm transition-all duration-200 border-b-2 ${
+                    botSetupSubTab === 'setup'
+                      ? 'text-emerald-400 border-emerald-400'
+                      : 'text-gray-400 border-transparent hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🚀</span>
+                    <span>Quick Setup</span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => setBotSetupSubTab('orderbot')}
+                  className={`px-4 py-2 font-semibold text-sm transition-all duration-200 border-b-2 ${
+                    botSetupSubTab === 'orderbot'
+                      ? 'text-emerald-400 border-emerald-400'
+                      : 'text-gray-400 border-transparent hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>🛒</span>
+                    <span>Order Bot</span>
+                  </span>
+                </button>
+              </div>
+
+              {/* Sub-tab Content */}
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={botSetupSubTab}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {botSetupSubTab === 'setup' && <BotQuickSetup />}
+                  {botSetupSubTab === 'orderbot' && <OrderBot />}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          )}
+          {activeTab === 'flowbuilder' && isEnabled && <FlowBuilder />}
+          {activeTab === 'orders' && isEnabled && <WhatsAppOrders />}
           {activeTab === 'stock' && isEnabled && <StockRefillReminder />}
+          {activeTab === 'templates' && isEnabled && <MessageTemplates />}
           {activeTab === 'campaigns' && isEnabled && <WhatsAppCampaigns />}
           {activeTab === 'schedule' && isEnabled && <WhatsAppScheduler />}
           {activeTab === 'history' && (
             <div className="space-y-4">
-                <h3 className="text-xl font-semibold">📜 Message History</h3>
                 
                 {/* Important Notice */}
                 {isTechProvider && (

@@ -428,9 +428,45 @@ export async function sendWhatsAppMessage(distributorId, to, message, options = 
  * @param {Object} result - Send result
  * @param {Object} options - Additional metadata
  */
+// Helper function to remove undefined values from object
+function removeUndefined(obj) {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(removeUndefined).filter(item => item !== undefined);
+  }
+  const cleaned = {};
+  for (const key in obj) {
+    if (obj[key] !== undefined) {
+      cleaned[key] = removeUndefined(obj[key]);
+    }
+  }
+  return cleaned;
+}
+
 async function logWhatsAppMessage(distributorId, to, message, result, options = {}) {
   try {
     const messagesRef = collection(db, 'businesses', distributorId, 'whatsappMessages');
+    
+    // Build metadata object, filtering out undefined values
+    const metadata = {
+      ...(options.metadata || {}),
+      // Ensure imageUrl is always included if present
+      imageUrl: options.metadata?.imageUrl || null,
+      videoUrl: options.metadata?.videoUrl || null,
+      linkUrl: options.metadata?.linkUrl || null,
+      productIds: options.metadata?.productIds || [],
+      productCount: options.metadata?.productCount || 0,
+      retailerId: options.metadata?.retailerId || null,
+      retailerName: options.metadata?.retailerName || null,
+      templateId: options.metadata?.templateId || null,
+      templateName: options.metadata?.templateName || null,
+    };
+    
+    // Remove undefined values from metadata
+    const cleanedMetadata = removeUndefined(metadata);
+    
     await addDoc(messagesRef, {
       to,
       message,
@@ -440,15 +476,7 @@ async function logWhatsAppMessage(distributorId, to, message, result, options = 
       orderId: options.orderId || null,
       messageType: options.messageType || 'general',
       createdAt: serverTimestamp(),
-      metadata: {
-        ...(options.metadata || {}),
-        // Ensure imageUrl is always included if present
-        imageUrl: options.metadata?.imageUrl || null,
-        productIds: options.metadata?.productIds || [],
-        productCount: options.metadata?.productCount || 0,
-        retailerId: options.metadata?.retailerId || null,
-        retailerName: options.metadata?.retailerName || null,
-      },
+      metadata: cleanedMetadata,
     });
   } catch (error) {
     console.error('Error logging WhatsApp message:', error);

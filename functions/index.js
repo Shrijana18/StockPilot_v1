@@ -86,6 +86,7 @@ const whatsappWabaManager = require("./whatsapp/wabaManager");
 const whatsappEmbeddedSignup = require("./whatsapp/embeddedSignup");
 const whatsappWebhook = require("./whatsapp/webhook");
 const whatsappMessaging = require("./whatsapp/messaging");
+const whatsappOrderNotifications = require("./whatsapp/orderNotifications");
 
 // WABA Management
 exports.saveWABADirect = whatsappWabaManager.saveWABADirect;
@@ -106,6 +107,10 @@ exports.whatsappWebhook = whatsappWebhook;
 
 // Messaging
 exports.sendMessageViaTechProvider = whatsappMessaging.sendMessageViaTechProvider;
+
+// Order notifications
+exports.whatsappOrderStatusNotifier = whatsappOrderNotifications.whatsappOrderStatusNotifier;
+exports.sendOrderUpdateNotification = whatsappOrderNotifications.sendOrderUpdateNotification;
 
 // ============================
 // Utility Modules (Internal use)

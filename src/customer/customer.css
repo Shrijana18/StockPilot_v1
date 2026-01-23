@@ -1,0 +1,446 @@
+/**
+ * Customer App Styles - Premium Dark Theme with Green Branding
+ * Navy/Blue gradient, Emerald green accents, Premium effects
+ */
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+html, body, #root {
+  background: linear-gradient(to bottom, #0a0f1c, #0f172a) !important;
+  min-height: 100vh;
+  color: white;
+}
+
+#root > div,
+main,
+main > div {
+  background: transparent !important;
+  min-height: 100vh;
+}
+
+/* ============================================
+   SCROLLBAR STYLES
+   ============================================ */
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.5);
+}
+
+/* ============================================
+   GLASSMORPHISM EFFECTS
+   ============================================ */
+
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-emerald {
+  background: rgba(16, 185, 129, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================
+   EMERALD GLOW EFFECTS
+   ============================================ */
+
+.emerald-glow {
+  box-shadow: 0 0 50px rgba(16, 185, 129, 0.4);
+}
+
+.emerald-glow-md {
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+}
+
+.emerald-glow-sm {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.25);
+}
+
+.emerald-shadow {
+  box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+}
+
+/* ============================================
+   GRADIENT BACKGROUNDS
+   ============================================ */
+
+.bg-emerald-gradient {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+}
+
+.bg-emerald-gradient-soft {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.1) 100%);
+}
+
+.bg-dark-gradient {
+  background: linear-gradient(to bottom, #0a0f1c, #0f172a);
+}
+
+/* ============================================
+   TEXT EFFECTS
+   ============================================ */
+
+.text-gradient {
+  background: linear-gradient(135deg, #10B981 0%, #34D399 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-gold {
+  background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+/* Smooth page transitions */
+.page-enter {
+  opacity: 0;
+  transform: translateY(15px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 250ms ease-out, transform 250ms ease-out;
+}
+
+.page-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.page-exit-active {
+  opacity: 0;
+  transform: translateY(-15px);
+  transition: opacity 200ms ease-in, transform 200ms ease-in;
+}
+
+/* Premium hover lift */
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), 
+              box-shadow 0.3s ease,
+              border-color 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+/* Button press */
+.btn-press {
+  transition: transform 0.15s ease;
+}
+
+.btn-press:active {
+  transform: scale(0.96);
+}
+
+/* Loading skeleton */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease infinite;
+}
+
+/* Emerald pulse */
+@keyframes emerald-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(16, 185, 129, 0);
+  }
+}
+
+.emerald-pulse {
+  animation: emerald-pulse 2s infinite;
+}
+
+/* Floating animation */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Glow pulse */
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.5);
+  }
+}
+
+.glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Fade in up */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Scale in */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.scale-in {
+  animation: scaleIn 0.3s ease-out forwards;
+}
+
+/* ============================================
+   SAFE AREAS
+   ============================================ */
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ============================================
+   INPUT STYLES
+   ============================================ */
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.5) !important;
+}
+
+input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ============================================
+   SELECTION & INTERACTION
+   ============================================ */
+
+::selection {
+  background: rgba(16, 185, 129, 0.4);
+  color: white;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, a {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ============================================
+   HEADER BLUR
+   ============================================ */
+
+.header-blur {
+  background: rgba(10, 15, 28, 0.9);
+  backdrop-filter: saturate(180%) blur(25px);
+  -webkit-backdrop-filter: saturate(180%) blur(25px);
+}
+
+/* ============================================
+   BORDER UTILITIES
+   ============================================ */
+
+.border-subtle {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.border-emerald {
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.hover-emerald-border:hover {
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+/* ============================================
+   CARD STYLES
+   ============================================ */
+
+.card-dark {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+}
+
+.card-dark:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.card-emerald {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 16px;
+}
+
+/* ============================================
+   BADGE STYLES
+   ============================================ */
+
+.badge-emerald {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34D399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-gold {
+  background: rgba(245, 158, 11, 0.2);
+  color: #FBBF24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-blue {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* ============================================
+   BUTTON STYLES
+   ============================================ */
+
+.btn-emerald {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  color: white;
+  border: none;
+  box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-emerald:hover {
+  box-shadow: 0 12px 35px rgba(16, 185, 129, 0.4);
+  transform: translateY(-2px);
+}
+
+.btn-emerald:active {
+  transform: translateY(0);
+}
+
+.btn-outline-emerald {
+  background: transparent;
+  color: #10B981;
+  border: 2px solid rgba(16, 185, 129, 0.4);
+  transition: all 0.2s ease;
+}
+
+.btn-outline-emerald:hover {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: #10B981;
+}
+
+/* ============================================
+   CUSTOM HEIGHT UTILITIES
+   ============================================ */
+
+.h-13 {
+  height: 3.25rem;
+}
+
+.w-18 {
+  width: 4.5rem;
+}
+
+.h-18 {
+  height: 4.5rem;
+}
+
+.w-22 {
+  width: 5.5rem;
+}
+
+.h-22 {
+  height: 5.5rem;
+}

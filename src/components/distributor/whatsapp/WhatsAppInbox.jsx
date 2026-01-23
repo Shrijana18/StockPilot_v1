@@ -1,14 +1,13 @@
 /**
- * WhatsApp Inbox - Redesigned "Amber Glass" Edition
- * A modern, luxurious messenger interface with warm amber accents
- * and glassmorphic design language
+ * WhatsApp Inbox - Complete Redesign
+ * Exact WhatsApp-like UI/UX with proper scroll isolation
  */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   collection, query, limit, onSnapshot, 
-  getDocs, doc, getDoc, orderBy
+  getDocs, doc, getDoc, orderBy, updateDoc, where, writeBatch
 } from 'firebase/firestore';
 import { db, auth, functions } from '../../../firebase/firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
@@ -17,85 +16,131 @@ import { toast } from 'react-toastify';
 import { 
   FaSearch, FaPaperPlane, FaPhone, FaVideo, FaEllipsisV, 
   FaCheck, FaCheckDouble, FaMicrophone, FaRegSmile, FaPaperclip, 
-  FaArrowLeft, FaTimes, FaComments, FaBug, FaSync, FaWrench
+  FaArrowLeft, FaTimes, FaComments, FaBug, FaSync, FaWrench, FaExclamationTriangle, FaRobot,
+  FaList, FaMousePointer, FaShoppingCart
 } from 'react-icons/fa';
 import { HiSparkles } from 'react-icons/hi';
 
-// --- Custom Styles ---
+// --- WhatsApp Web Exact Clone Styles ---
 const customStyles = `
-  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@300;400;500;600;700&display=swap');
   
-  .inbox-container {
-    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  .wa-inbox-root {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    height: calc(100vh - 200px);
+    min-height: 500px;
+    width: 100%;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+    background: #111b21;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   }
   
-  .glass-panel {
-    background: rgba(15, 15, 20, 0.7);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+  /* Chat list panel */
+  .wa-chat-list {
+    width: 35%;
+    min-width: 320px;
+    max-width: 420px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #111b21;
+    border-right: 1px solid rgba(134, 150, 160, 0.15);
   }
   
-  .glass-panel-light {
-    background: rgba(25, 25, 35, 0.6);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+  /* Chat area panel */
+  .wa-chat-area {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background: #0b141a;
   }
   
-  .amber-glow {
-    box-shadow: 0 0 30px rgba(251, 191, 36, 0.15), 0 0 60px rgba(251, 191, 36, 0.05);
+  /* WhatsApp doodle background pattern */
+  .wa-chat-bg {
+    position: absolute;
+    inset: 0;
+    background-color: #0b141a;
+    background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAAeCAYAAABwmH1PAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFFmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS42LWMxNDUgNzkuMTYzNDk5LCAyMDE4LzA4LzEzLTE2OjQwOjIyICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIi8+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InIiPz7/7gAOQWRvYmUAZMAAAAAB/9sAhAAGBAQEBQQGBQUGCQYFBgkLCAYGCAsMCgoLCgoMEAwMDAwMDBAMDg8QDw4MExMUFBMTHBsbGxwfHx8fHx8fHx8fAQcHBw0MDRgQEBgaFREVGh8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx//wAARCAAeADwDAREAAhEBAxEB/8QAewABAQEBAQAAAAAAAAAAAAAAAAcIBgQBAQAAAAAAAAAAAAAAAAAAAAAQAAEDAwMCBAUEAgMAAAAAAAECAwQABQYREgchCBMxQVEUImFxkSMyQlKBobFyFREBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8A0lQKBQRPl3mq44Lk1kx2DjLl1ul0ZefCXpKI7TLKFbFLKkKUolStgA0PhkUHQcecgycqxSLkN4sDuPPvPPNtwn5DT77aGXVNhTi2SlKSspKgE6j3Jqg71AoFAoFBmLyN8pu4fPLpgeJW9i23Kw7m7tfccU6086h4obKkoSEBsJCQdCo9dexArRjQcNxa7uyLKxKkPOyH3obDrrzzhW444ttKlLWtRJUpR1JJOpoOhoFAoMheRXkC8Ye/wAPeY3jcYWYKuSrU/fnILb5mmFvqihDSXt6G1oU3qF6FJPj6UGu6BQKCDeTXlCXwvlFoxJeHi+C5QnXlOm4+QI2xnG2/wBvxlav3df6j/tBuugUCgjnJGQ3Czx/brYXXYJu7qoT8pgqS4GGQVOPLQR7K0SI+v0cVQb1x+6wrxYLXdLcFi33KGxPihYAWGX2kurQFAkbglaRuHv7UCgUH/9k=");
+    opacity: 0.04;
+    pointer-events: none;
   }
   
-  .message-incoming {
-    background: linear-gradient(135deg, rgba(30, 30, 40, 0.95) 0%, rgba(25, 25, 35, 0.9) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+  /* Message bubbles - WhatsApp exact colors */
+  .wa-msg-incoming {
+    background: #202c33;
+    border-radius: 8px;
+    border-top-left-radius: 0;
   }
   
-  .message-outgoing {
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(245, 158, 11, 0.15) 100%);
-    border: 1px solid rgba(251, 191, 36, 0.25);
+  .wa-msg-outgoing {
+    background: #005c4b;
+    border-radius: 8px;
+    border-top-right-radius: 0;
   }
   
-  .inbox-scrollbar::-webkit-scrollbar {
-    width: 5px;
+  /* Scrollbar - WhatsApp style */
+  .wa-scrollbar::-webkit-scrollbar {
+    width: 6px;
   }
-  .inbox-scrollbar::-webkit-scrollbar-track {
+  .wa-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
-  .inbox-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(251, 191, 36, 0.2);
-    border-radius: 10px;
+  .wa-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.15);
+    border-radius: 3px;
   }
-  .inbox-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(251, 191, 36, 0.35);
-  }
-  
-  .conversation-item {
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .conversation-item:hover {
-    background: rgba(251, 191, 36, 0.08);
-    transform: translateX(4px);
-  }
-  .conversation-item.active {
-    background: linear-gradient(90deg, rgba(251, 191, 36, 0.15) 0%, transparent 100%);
-    border-left: 3px solid #fbbf24;
+  .wa-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.25);
   }
   
-  .input-glow:focus-within {
-    box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.2), 0 4px 20px rgba(0, 0, 0, 0.3);
+  /* Conversation hover */
+  .wa-conv-item {
+    transition: all 0.15s ease;
+  }
+  .wa-conv-item:hover {
+    background: rgba(32, 44, 51, 0.8);
+  }
+  .wa-conv-item.active {
+    background: #2a3942;
   }
   
-  .mesh-gradient {
-    background: 
-      radial-gradient(ellipse at 10% 10%, rgba(251, 191, 36, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at 90% 90%, rgba(245, 158, 11, 0.06) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 50%, rgba(30, 30, 40, 1) 0%, rgba(15, 15, 20, 1) 100%);
+  /* Header style */
+  .wa-header {
+    background: #202c33;
+    height: 60px;
+    min-height: 60px;
   }
   
-  .chat-pattern {
-    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23fbbf24' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  /* Input area */
+  .wa-input-area {
+    background: #202c33;
+    padding: 10px 16px;
+  }
+  
+  .wa-input-box {
+    background: #2a3942;
+    border-radius: 8px;
+  }
+  
+  /* Animations */
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .wa-conv-item {
+    animation: fadeInUp 0.2s ease forwards;
   }
 `;
 
@@ -112,38 +157,81 @@ const WhatsAppInbox = () => {
   const [debugInfo, setDebugInfo] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [repairing, setRepairing] = useState(false);
+  const [botEnabled, setBotEnabled] = useState(null);
   
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
+  const selectedConversationRef = useRef(null);
   const distributorId = auth.currentUser?.uid;
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
-  // Debug function to check WhatsApp configuration
+  // Check bot status on load
+  useEffect(() => {
+    if (!distributorId) return;
+    
+    const checkBotStatus = async () => {
+      try {
+        const orderBotRef = doc(db, 'businesses', distributorId, 'whatsappBot', 'orderConfig');
+        const orderBotDoc = await getDoc(orderBotRef);
+        const enabled = orderBotDoc.exists() && orderBotDoc.data()?.enabled === true;
+        
+        const flowsRef = collection(db, 'businesses', distributorId, 'whatsappFlows');
+        const flowsSnap = await getDocs(query(flowsRef, where('isActive', '==', true)));
+        const hasActiveFlows = flowsSnap.size > 0;
+        
+        setBotEnabled(enabled || hasActiveFlows);
+      } catch (err) {
+        console.error('Error checking bot status:', err);
+      }
+    };
+    
+    checkBotStatus();
+    // Re-check every 10 seconds
+    const interval = setInterval(checkBotStatus, 10000);
+    return () => clearInterval(interval);
+  }, [distributorId]);
+
+  // Debug function
   const checkWhatsAppSetup = async () => {
     if (!distributorId) return;
     
     try {
       const businessDocRef = doc(db, 'businesses', distributorId);
-      const businessDoc = await getDoc(businessDocRef);
+      const orderBotRef = doc(db, 'businesses', distributorId, 'whatsappBot', 'orderConfig');
+      const flowsRef = collection(db, 'businesses', distributorId, 'whatsappFlows');
+      
+      const [businessDoc, orderBotDoc, flowsSnap] = await Promise.all([
+        getDoc(businessDocRef),
+        getDoc(orderBotRef),
+        getDocs(query(flowsRef, where('isActive', '==', true)))
+      ]);
+      
+      const inboxRef = collection(db, 'businesses', distributorId, 'whatsappInbox');
+      const sentRef = collection(db, 'businesses', distributorId, 'whatsappMessages');
+      
+      const [inboxSnap, sentSnap] = await Promise.all([
+        getDocs(query(inboxRef, limit(100))),
+        getDocs(query(sentRef, limit(100)))
+      ]);
+      
+      let lastInboxFrom = 'None';
+      let lastInboxText = '';
+      if (inboxSnap.docs.length > 0) {
+        const lastDoc = inboxSnap.docs[0].data();
+        lastInboxFrom = lastDoc.from || lastDoc.phoneNumber || 'Unknown';
+        lastInboxText = (lastDoc.text || lastDoc.message || '').substring(0, 30);
+      }
+      
+      const orderBotEnabled = orderBotDoc.exists() && orderBotDoc.data()?.enabled === true;
+      const activeFlows = flowsSnap.size;
       
       if (businessDoc.exists()) {
         const data = businessDoc.data();
-        const inboxRef = collection(db, 'businesses', distributorId, 'whatsappInbox');
-        const sentRef = collection(db, 'businesses', distributorId, 'whatsappMessages');
-        
-        const [inboxSnap, sentSnap] = await Promise.all([
-          getDocs(query(inboxRef, limit(100))),
-          getDocs(query(sentRef, limit(100)))
-        ]);
-        
-        // Get last inbox message for display
-        let lastInboxFrom = 'None';
-        let lastInboxText = '';
-        if (inboxSnap.docs.length > 0) {
-          const lastDoc = inboxSnap.docs[0].data();
-          lastInboxFrom = lastDoc.from || lastDoc.phoneNumber || 'Unknown';
-          lastInboxText = (lastDoc.text || lastDoc.message || '').substring(0, 30);
-        }
-        
         setDebugInfo({
           phoneNumberId: data.whatsappPhoneNumberId || 'NOT SET ❌',
           wabaId: data.whatsappBusinessAccountId || 'NOT SET ❌',
@@ -158,6 +246,8 @@ const WhatsAppInbox = () => {
           lastInboxText,
           webhookUrl: 'https://us-central1-stockpilotv1.cloudfunctions.net/whatsappWebhook',
           webhookRepaired: data.webhookSubscriptionStatus === 'repaired' ? 'Yes ✅' : 'No',
+          botEnabled: orderBotEnabled ? 'Yes ✅' : 'No ❌',
+          activeFlows: activeFlows.toString(),
         });
       }
     } catch (err) {
@@ -166,20 +256,16 @@ const WhatsAppInbox = () => {
     }
   };
 
-  // Manual refresh function
   const handleRefresh = async () => {
     setRefreshing(true);
     setMessages([]);
     setConversations([]);
     setLoading(true);
-    
-    // Re-trigger the effect by briefly clearing distributorId reference
     setTimeout(() => {
       setRefreshing(false);
     }, 1000);
   };
 
-  // Repair webhook subscription
   const handleRepairWebhook = async () => {
     if (repairing) return;
     setRepairing(true);
@@ -190,9 +276,6 @@ const WhatsAppInbox = () => {
       
       if (result.data?.success) {
         toast.success('Webhook subscription repaired! Please test by sending a message from a customer phone.');
-        console.log('🔧 Repair results:', result.data);
-        
-        // Refresh debug info
         await checkWhatsAppSetup();
       } else {
         toast.error(result.data?.message || 'Repair failed');
@@ -205,7 +288,7 @@ const WhatsAppInbox = () => {
     }
   };
 
-  // --- Message Filtering Logic ---
+  // Message filtering
   const activeMessages = selectedConversation 
     ? messages
         .filter(msg => {
@@ -229,7 +312,7 @@ const WhatsAppInbox = () => {
         })
     : [];
 
-  // --- Effects ---
+  // Fetch retailers
   useEffect(() => {
     if (!distributorId) return;
     
@@ -247,25 +330,10 @@ const WhatsAppInbox = () => {
       }
     };
     
-    const checkWhatsAppConfig = async () => {
-      try {
-        const businessDocRef = doc(db, 'businesses', distributorId);
-        const businessDoc = await getDoc(businessDocRef);
-        if (businessDoc.exists()) {
-          const data = businessDoc.data();
-          if (!data.whatsappPhoneNumberId) {
-            toast.warning('WhatsApp Phone Number ID not configured');
-          }
-        }
-      } catch (err) {
-        console.error('Error checking WhatsApp config:', err);
-      }
-    };
-    
     fetchRetailers();
-    checkWhatsAppConfig();
   }, [distributorId]);
 
+  // Real-time message listening
   useEffect(() => {
     if (!distributorId) return;
 
@@ -274,12 +342,16 @@ const WhatsAppInbox = () => {
     
     const mergeMessages = (newMsgs) => {
       setMessages(prev => {
-        const combined = [...prev];
-        newMsgs.forEach(m => {
-          if (!combined.find(x => x.id === m.id)) combined.push(m);
-        });
+        // Create a map of existing messages by ID for deduplication
+        const messageMap = new Map();
+        prev.forEach(m => messageMap.set(m.id, m));
+        newMsgs.forEach(m => messageMap.set(m.id, m));
+        const combined = Array.from(messageMap.values());
         
+        // Build conversations from all messages
         const convMap = new Map();
+        const unreadByConv = new Map(); // Track unread messages separately
+        
         combined.forEach(msg => {
           const rawPhone = msg.from || msg.to || '';
           if (!rawPhone) return;
@@ -303,26 +375,44 @@ const WhatsAppInbox = () => {
           else if (typeof msg.rawTime === 'number') msgTime = msg.rawTime;
           else if (msg.rawTime?.seconds) msgTime = msg.rawTime.seconds * 1000;
 
+          // Track unread messages for this conversation (only incoming and not read)
+          const isUnread = msg.direction === 'incoming' && msg.read !== true && !msg.read;
+          if (isUnread) {
+            unreadByConv.set(key, (unreadByConv.get(key) || 0) + 1);
+          }
+
           const existing = convMap.get(key);
+          
           if (!existing || msgTime > existing.lastMessageTime) {
             const msgText = msg.text || msg.message || '';
+            
             convMap.set(key, {
               id: key,
               phone: rawPhone,
               displayName,
               lastMessage: msgText || (msg.type === 'image' ? '📷 Image' : 'Message'),
               lastMessageTime: msgTime,
-              unreadCount: (existing?.unreadCount || 0) + (msg.read === false && msg.direction === 'incoming' ? 1 : 0),
+              lastMessageDirection: msg.direction,
               avatarChar: displayName.charAt(0).toUpperCase(),
-              // Generate consistent avatar color based on name
               avatarHue: (displayName.charCodeAt(0) * 137) % 360
             });
-          } else if (msg.read === false && msg.direction === 'incoming') {
-            existing.unreadCount = (existing.unreadCount || 0) + 1;
           }
         });
 
-        setConversations(Array.from(convMap.values()).sort((a, b) => b.lastMessageTime - a.lastMessageTime));
+        // Apply unread counts to conversations
+        // Use ref to get current selected conversation (avoids stale closure)
+        const currentSelectedConv = selectedConversationRef.current;
+        
+        const conversationsList = Array.from(convMap.values()).map(conv => {
+          // If this conversation is currently selected, show 0 unread
+          const isSelected = currentSelectedConv && conv.id === currentSelectedConv.id;
+          return {
+            ...conv,
+            unreadCount: isSelected ? 0 : (unreadByConv.get(conv.id) || 0)
+          };
+        });
+        
+        setConversations(conversationsList.sort((a, b) => b.lastMessageTime - a.lastMessageTime));
         setLoading(false);
         return combined;
       });
@@ -331,39 +421,31 @@ const WhatsAppInbox = () => {
     const unsubInbox = onSnapshot(
       query(inboxRef, limit(500)),
       (snap) => {
-        console.log(`📥 Inbox snapshot: ${snap.docs.length} documents`);
         const inboxMsgs = snap.docs.map(d => {
           const data = d.data();
-          // Log each incoming message for debugging
-          if (snap.docs.length <= 10) {
-            console.log(`📥 Incoming msg: from=${data.from || data.phoneNumber}, text="${(data.text || data.message || '').substring(0, 30)}..."`);
-          }
           return { 
             id: d.id, 
             ...data, 
             direction: 'incoming',
             from: data.from || data.phoneNumber || '',
             text: data.text || data.message || '',
-            rawTime: data.timestamp || data.receivedAt || data.createdAt
+            rawTime: data.timestamp || data.receivedAt || data.createdAt,
+            read: data.read === true || data.read === 'true', // Ensure boolean
+            // Check if this is an interactive response (button/list selection)
+            isInteractiveResponse: data.type === 'interactive' || data.context || false,
+            interactiveType: data.type === 'interactive' ? (data.media?.button_reply ? 'button' : 'list') : null
           };
         });
         mergeMessages(inboxMsgs);
       },
       (error) => {
         console.error('❌ Error listening to inbox:', error);
-        console.error('Error code:', error.code);
-        if (error.code === 'permission-denied') {
-          toast.error('Permission denied for whatsappInbox');
-        } else if (error.code === 'failed-precondition') {
-          console.warn('Index may be required for whatsappInbox query');
-        }
       }
     );
 
     const unsubSent = onSnapshot(
       query(sentRef, limit(500)),
       (snap) => {
-        console.log(`📤 Sent messages snapshot: ${snap.docs.length} documents`);
         const sentMsgs = snap.docs.map(d => {
           const data = d.data();
           return {
@@ -373,10 +455,12 @@ const WhatsAppInbox = () => {
             to: data.to || '',
             text: data.message || data.text || '',
             rawTime: data.createdAt || data.timestamp,
-            // Include status for read receipts
             read: data.read || data.status === 'read',
             delivered: data.delivered || data.status === 'delivered',
-            status: data.status || 'sent'
+            status: data.status || 'sent',
+            messageType: data.messageType || 'text',
+            // Preserve message type for interactive detection
+            isInteractiveMessage: ['flow_buttons', 'flow_catalog', 'order_bot_welcome'].includes(data.messageType)
           };
         });
         mergeMessages(sentMsgs);
@@ -387,13 +471,17 @@ const WhatsAppInbox = () => {
     );
 
     return () => { unsubInbox(); unsubSent(); };
-  }, [distributorId, retailers]);
+  }, [distributorId, retailers]); // Removed selectedConversation - using ref instead
 
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current && selectedConversation) {
+      const container = messagesContainerRef.current;
+      container.scrollTop = container.scrollHeight;
+    }
   }, [activeMessages.length, selectedConversation?.id]);
 
-  // --- Handlers ---
+  // Handlers
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedConversation) return;
     setSending(true);
@@ -452,478 +540,553 @@ const WhatsAppInbox = () => {
     c.phone.includes(searchQuery)
   );
 
-  // --- Animation Variants ---
-  const listItemVariants = {
-    hidden: { opacity: 0, x: -20 },
-    visible: (i) => ({
-      opacity: 1,
-      x: 0,
-      transition: { delay: i * 0.05, duration: 0.3, ease: [0.4, 0, 0.2, 1] }
-    })
+  // Mark messages as read when conversation is opened
+  const markMessagesAsRead = async (conversation) => {
+    if (!distributorId || !conversation) return;
+    
+    try {
+      const phoneDigits = (conversation.phone || '').replace(/\D/g, '');
+      if (!phoneDigits || phoneDigits.length < 10) return;
+      
+      const phoneLast10 = phoneDigits.slice(-10);
+      
+      // Get all inbox messages and filter by phone number
+      const inboxRef = collection(db, 'businesses', distributorId, 'whatsappInbox');
+      const inboxQuery = query(inboxRef, limit(1000)); // Get more messages to ensure we catch all
+      const inboxSnap = await getDocs(inboxQuery);
+      
+      const batch = writeBatch(db);
+      let updateCount = 0;
+      const maxBatchSize = 500; // Firestore batch limit
+      
+      inboxSnap.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        const msgPhone = (data.from || data.phoneNumber || '').replace(/\D/g, '');
+        const msgLast10 = msgPhone.slice(-10);
+        
+        // Match if last 10 digits match and message is unread
+        if (msgLast10 === phoneLast10 && !data.read && data.read !== true) {
+          if (updateCount < maxBatchSize) {
+            batch.update(docSnap.ref, { 
+              read: true,
+              readAt: new Date()
+            });
+            updateCount++;
+          }
+        }
+      });
+      
+      if (updateCount > 0) {
+        await batch.commit();
+        console.log(`✅ Marked ${updateCount} messages as read for ${conversation.displayName}`);
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      // Don't show error to user - it's not critical
+    }
   };
 
-  const messageVariants = {
-    hidden: { opacity: 0, y: 20, scale: 0.95 },
-    visible: { 
-      opacity: 1, 
-      y: 0, 
-      scale: 1,
-      transition: { duration: 0.25, ease: [0.4, 0, 0.2, 1] }
-    },
-    exit: { opacity: 0, scale: 0.9, transition: { duration: 0.15 } }
+  // Handle conversation selection - prevent any scroll
+  const handleConversationClick = async (conv) => {
+    // Update ref immediately for use in mergeMessages
+    selectedConversationRef.current = conv;
+    
+    // Lock parent scroll
+    const mainContainer = document.querySelector('main');
+    if (mainContainer) {
+      const scrollTop = mainContainer.scrollTop;
+      setSelectedConversation(conv);
+      // Keep scroll locked
+      requestAnimationFrame(() => {
+        if (mainContainer) mainContainer.scrollTop = scrollTop;
+      });
+      setTimeout(() => {
+        if (mainContainer) mainContainer.scrollTop = scrollTop;
+      }, 100);
+    } else {
+      setSelectedConversation(conv);
+    }
+    
+    // Immediately update local messages state to mark as read (for instant UI update)
+    const convPhoneLast10 = (conv.phone || '').replace(/\D/g, '').slice(-10);
+    setMessages(prev => prev.map(msg => {
+      const msgPhone = (msg.from || '').replace(/\D/g, '');
+      const msgLast10 = msgPhone.slice(-10);
+      if (msg.direction === 'incoming' && msgLast10 === convPhoneLast10) {
+        return { ...msg, read: true };
+      }
+      return msg;
+    }));
+    
+    // Also immediately update conversation list to show 0 unread for this chat
+    setConversations(prev => prev.map(c => 
+      c.id === conv.id ? { ...c, unreadCount: 0 } : c
+    ));
+    
+    // Mark messages as read in Firestore (background update)
+    markMessagesAsRead(conv);
   };
 
   return (
-    <div className="inbox-container flex h-[calc(100vh-100px)] overflow-hidden rounded-2xl relative">
+    <div className="wa-inbox-root">
       <style>{customStyles}</style>
       
-      {/* Background */}
-      <div className="absolute inset-0 mesh-gradient" />
-      <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-orange-500/5" />
-      
-      {/* Main Container */}
-      <div className="relative z-10 flex w-full h-full glass-panel rounded-2xl overflow-hidden amber-glow">
+      {/* LEFT PANEL - Chat List */}
+      <div className={`wa-chat-list ${selectedConversation ? 'hidden md:flex' : 'flex'} flex-col`}>
+        {/* Header */}
+        <div className="wa-header flex items-center justify-between px-4 border-b border-[#222d34]/50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00a884] to-[#075e54] flex items-center justify-center shadow-lg shadow-[#00a884]/20">
+              <FaComments className="text-white text-base" />
+            </div>
+            <div>
+              <h1 className="text-white font-medium text-[15px]">Chats</h1>
+              <p className="text-[#8696a0] text-[11px]">{conversations.length} conversations</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-[#aebac1] hover:bg-[#202c33] hover:text-white transition-all"
+              title="Refresh"
+            >
+              <FaSync size={14} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+            <button 
+              onClick={() => { setShowDebug(!showDebug); checkWhatsAppSetup(); }}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${showDebug ? 'text-[#00a884] bg-[#00a884]/10' : 'text-[#aebac1] hover:bg-[#202c33] hover:text-white'}`}
+              title="Debug Info"
+            >
+              <FaBug size={14} />
+            </button>
+          </div>
+        </div>
         
-        {/* === LEFT SIDEBAR === */}
-        <motion.div 
-          className={`flex flex-col border-r border-white/5 bg-black/20 transition-all duration-300 ${
-            selectedConversation ? 'hidden md:flex md:w-[340px] lg:w-[380px]' : 'w-full md:w-[340px] lg:w-[380px]'
-          }`}
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          {/* Header */}
-          <div className="h-[72px] flex items-center justify-between px-5 border-b border-white/5 flex-shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
-                  <FaComments className="text-white text-lg" />
-                </div>
-                <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-[#0f0f14]" />
-              </div>
-              <div>
-                <h1 className="text-white font-semibold text-lg tracking-tight">Messages</h1>
-                <p className="text-white/40 text-xs font-medium">{conversations.length} conversations</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="w-10 h-10 rounded-xl glass-panel-light flex items-center justify-center text-white/50 hover:text-amber-400 hover:bg-amber-400/10 transition-all"
-                title="Refresh messages"
-              >
-                <FaSync size={14} className={refreshing ? 'animate-spin' : ''} />
-              </button>
-              <button 
-                onClick={() => { setShowDebug(!showDebug); checkWhatsAppSetup(); }}
-                className={`w-10 h-10 rounded-xl glass-panel-light flex items-center justify-center transition-all ${showDebug ? 'text-amber-400 bg-amber-400/10' : 'text-white/50 hover:text-amber-400 hover:bg-amber-400/10'}`}
-                title="Debug Info"
-              >
-                <FaBug size={14} />
-              </button>
-            </div>
-          </div>
-          
-          {/* Debug Panel */}
-          <AnimatePresence>
-            {showDebug && debugInfo && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden border-b border-white/5"
-              >
-                <div className="p-4 bg-black/30 text-xs space-y-2">
-                  <h3 className="text-amber-400 font-semibold mb-2">🔍 WhatsApp Debug Info</h3>
-                  {debugInfo.error ? (
-                    <p className="text-red-400">Error: {debugInfo.error}</p>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="text-white/50">Phone Number ID:</div>
-                        <div className="text-white/80 font-mono text-[10px] break-all">{debugInfo.phoneNumberId}</div>
-                        
-                        <div className="text-white/50">WABA ID:</div>
-                        <div className="text-white/80 font-mono text-[10px] break-all">{debugInfo.wabaId}</div>
-                        
-                        <div className="text-white/50">Phone:</div>
-                        <div className="text-white/80">{debugInfo.phoneNumber}</div>
-                        
-                        <div className="text-white/50">Enabled:</div>
-                        <div className="text-white/80">{debugInfo.enabled}</div>
-                        
-                        <div className="text-white/50">Registered:</div>
-                        <div className="text-white/80">{debugInfo.phoneRegistered}</div>
-                        
-                        <div className="text-white/50">Review Status:</div>
-                        <div className="text-white/80">{debugInfo.accountReviewStatus}</div>
-                        
-                        <div className="text-white/50">Inbox Messages:</div>
-                        <div className={debugInfo.inboxCount > 0 ? 'text-emerald-400' : 'text-white/80'}>{debugInfo.inboxCount}</div>
-                        
-                        <div className="text-white/50">Sent Messages:</div>
-                        <div className="text-white/80">{debugInfo.sentCount}</div>
-                        
-                        {debugInfo.webhookRepaired && (
-                          <>
-                            <div className="text-white/50">Webhook Repaired:</div>
-                            <div className="text-emerald-400">{debugInfo.webhookRepaired}</div>
-                          </>
-                        )}
+        {/* Debug Panel */}
+        <AnimatePresence>
+          {showDebug && debugInfo && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden border-b border-[#222d34] flex-shrink-0"
+            >
+              <div className="p-3 bg-[#111b21] text-xs space-y-2">
+                <h3 className="text-[#00a884] font-medium mb-2">Debug Info</h3>
+                {debugInfo.error ? (
+                  <p className="text-red-400">Error: {debugInfo.error}</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-1 text-[#8696a0]">
+                      <span>Phone ID:</span>
+                      <span className="text-[#e9edef] font-mono text-[10px] truncate">{debugInfo.phoneNumberId}</span>
+                      <span>Inbox:</span>
+                      <span className={debugInfo.inboxCount > 0 ? 'text-[#00a884]' : 'text-[#e9edef]'}>{debugInfo.inboxCount}</span>
+                      <span>Bot Enabled:</span>
+                      <span className={debugInfo.botEnabled?.includes('Yes') ? 'text-[#00a884]' : 'text-[#ef4444]'}>
+                        {debugInfo.botEnabled || 'Unknown'}
+                      </span>
+                      <span>Active Flows:</span>
+                      <span className="text-[#e9edef]">{debugInfo.activeFlows || '0'}</span>
+                    </div>
+                    {debugInfo.botEnabled?.includes('No') && (
+                      <div className="mt-2 p-2 bg-[#f59e0b]/20 border border-[#f59e0b]/30 rounded text-[#f59e0b] text-[10px]">
+                        ⚠️ Bot is not enabled. Go to "Bot Setup" tab to enable it.
                       </div>
-                      
-                      {debugInfo.inboxCount > 0 && (
-                        <div className="mt-3 p-2 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300">
-                          <strong>✅ Working!</strong> Last received from: {debugInfo.lastInboxFrom}
-                          {debugInfo.lastInboxText && <span className="text-white/60"> - "{debugInfo.lastInboxText}..."</span>}
-                        </div>
-                      )}
-                      
-                      {debugInfo.phoneNumberId === 'NOT SET ❌' && (
-                        <div className="mt-3 p-2 rounded bg-red-500/20 border border-red-500/30 text-red-300">
-                          <strong>⚠️ Issue Found:</strong> Phone Number ID is not set! 
-                          Incoming messages cannot be routed to this business. 
-                          Please complete WhatsApp setup.
-                        </div>
-                      )}
-                      
-                      {debugInfo.inboxCount === 0 && debugInfo.sentCount > 0 && (
-                        <div className="mt-3 p-2 rounded bg-yellow-500/20 border border-yellow-500/30 text-yellow-300">
-                          <strong>📝 Note:</strong> No incoming messages found, but outgoing messages exist.
-                          <br />Click "Repair Webhook" to fix subscription.
-                        </div>
-                      )}
-                      
-                      <button
-                        onClick={handleRepairWebhook}
-                        disabled={repairing}
-                        className="mt-3 w-full py-2 px-3 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition-all flex items-center justify-center gap-2 text-sm font-medium"
-                      >
-                        <FaWrench className={repairing ? 'animate-spin' : ''} size={12} />
-                        {repairing ? 'Repairing...' : 'Repair Webhook Subscription'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Search */}
-          <div className="px-4 py-3 flex-shrink-0">
-            <div className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <FaSearch className="text-white/30 text-sm group-focus-within:text-amber-400 transition-colors" />
+                    )}
+                    <button
+                      onClick={handleRepairWebhook}
+                      disabled={repairing}
+                      className="mt-2 w-full py-1.5 px-3 rounded bg-[#00a884]/20 text-[#00a884] text-xs hover:bg-[#00a884]/30 transition-all flex items-center justify-center gap-2"
+                    >
+                      <FaWrench className={repairing ? 'animate-spin' : ''} size={10} />
+                      {repairing ? 'Repairing...' : 'Repair Webhook'}
+                    </button>
+                  </>
+                )}
               </div>
-              <input
-                type="text"
-                placeholder="Search conversations..."
-                className="w-full bg-white/5 text-white text-sm rounded-xl pl-11 pr-4 py-3 focus:outline-none placeholder-white/30 border border-transparent focus:border-amber-400/30 focus:bg-white/8 transition-all input-glow"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-white/30 hover:text-white/60"
-                >
-                  <FaTimes size={12} />
-                </button>
-              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bot Status Warning */}
+        {botEnabled === false && (
+          <div className="mx-3 mt-2 p-3 bg-[#f59e0b]/20 border border-[#f59e0b]/40 rounded-lg">
+            <div className="flex items-start gap-2">
+              <FaExclamationTriangle className="text-[#f59e0b] text-sm mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[#f59e0b] text-xs font-medium">Bot Not Enabled</p>
+                <p className="text-[#f59e0b]/80 text-[10px] mt-0.5">
+                  Customers sending "Hi" won't receive automated responses. Enable bot in <strong>Bot Setup</strong> tab.
+                </p>
+              </div>
             </div>
           </div>
+        )}
 
-          {/* Conversation List */}
-          <div className="flex-1 overflow-y-auto inbox-scrollbar px-2">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center pt-16 gap-3">
-                <div className="relative">
-                  <div className="w-10 h-10 border-2 border-amber-400/20 rounded-full" />
-                  <div className="absolute inset-0 w-10 h-10 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                </div>
-                <span className="text-white/40 text-sm">Loading chats...</span>
+        {/* Search */}
+        <div className="px-3 py-2.5 bg-[#111b21]">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+              <FaSearch className="text-[#8696a0] text-xs" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search or start new chat"
+              className="w-full bg-[#202c33] text-[#e9edef] text-[13px] rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a884]/30 placeholder-[#8696a0] transition-all"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-[#8696a0] hover:text-[#e9edef] transition-colors"
+              >
+                <FaTimes size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Conversation List - This is the scrollable area */}
+        <div className="flex-1 overflow-y-auto wa-scrollbar">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center pt-20 gap-4">
+              <div className="w-10 h-10 rounded-xl bg-[#00a884]/20 flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
               </div>
-            ) : filteredConvs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center pt-16 px-6 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
-                  <FaComments className="text-white/20 text-2xl" />
-                </div>
-                <p className="text-white/50 text-sm font-medium mb-1">No conversations yet</p>
-                <p className="text-white/30 text-xs">Messages will appear here</p>
+              <span className="text-[#8696a0] text-sm">Loading chats...</span>
+            </div>
+          ) : filteredConvs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center pt-20 px-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-[#202c33] flex items-center justify-center mb-4">
+                <FaComments className="text-[#8696a0] text-2xl" />
               </div>
-            ) : (
-              <div className="space-y-1 py-2">
-                {filteredConvs.map((conv, index) => (
-                  <motion.div 
+              <p className="text-[#e9edef] font-medium mb-1">No conversations yet</p>
+              <p className="text-[#8696a0] text-xs">Messages from customers will appear here</p>
+            </div>
+          ) : (
+            <div>
+              {filteredConvs.map((conv) => {
+                const hasUnread = conv.unreadCount > 0;
+                const isSelected = selectedConversation?.id === conv.id;
+                
+                return (
+                  <div 
                     key={conv.id}
-                    custom={index}
-                    variants={listItemVariants}
-                    initial="hidden"
-                    animate="visible"
-                    onClick={() => setSelectedConversation(conv)}
-                    className={`conversation-item flex items-center gap-3 px-3 py-3 rounded-xl cursor-pointer ${
-                      selectedConversation?.id === conv.id ? 'active' : ''
+                    onClick={() => handleConversationClick(conv)}
+                    className={`wa-conv-item flex items-center gap-3 px-3 py-3 cursor-pointer border-b border-[#222d34]/60 ${
+                      isSelected ? 'active' : ''
                     }`}
                   >
-                    {/* Avatar */}
-                    <div 
-                      className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-semibold text-lg flex-shrink-0 shadow-lg"
-                      style={{ 
-                        background: `linear-gradient(135deg, hsl(${conv.avatarHue}, 60%, 45%) 0%, hsl(${conv.avatarHue + 30}, 50%, 35%) 100%)`
-                      }}
-                    >
-                      {conv.avatarChar}
+                    {/* Avatar with online indicator */}
+                    <div className="relative flex-shrink-0">
+                      <div 
+                        className="w-12 h-12 rounded-full flex items-center justify-center text-white font-medium text-lg"
+                        style={{ background: `hsl(${conv.avatarHue}, 45%, 35%)` }}
+                      >
+                        {conv.avatarChar}
+                      </div>
+                      {/* Green add/plus icon on avatar */}
+                      <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#00a884] rounded-full flex items-center justify-center border-2 border-[#111b21]">
+                        <span className="text-white text-xs font-bold">+</span>
+                      </div>
                     </div>
                     
-                    {/* Content */}
+                    {/* Conversation Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-white font-medium text-[15px] truncate">
+                      {/* Name and Time Row */}
+                      <div className="flex justify-between items-center">
+                        <span className={`font-normal text-[15px] truncate ${
+                          hasUnread ? 'text-white' : 'text-[#e9edef]'
+                        }`}>
                           {conv.displayName}
                         </span>
-                        <span className="text-white/40 text-xs flex-shrink-0 ml-2 font-medium">
+                        <span className={`text-xs flex-shrink-0 ml-2 ${
+                          hasUnread ? 'text-[#00a884] font-medium' : 'text-[#8696a0]'
+                        }`}>
                           {formatTime(conv.lastMessageTime)}
                         </span>
                       </div>
-                      <div className="flex justify-between items-center gap-2">
-                        <span className="text-white/50 text-sm truncate">
-                          {conv.lastMessage}
-                        </span>
-                        {conv.unreadCount > 0 && (
-                          <span className="bg-amber-400 text-black text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center shadow-lg shadow-amber-400/30">
-                            {conv.unreadCount}
+                      
+                      {/* Message Preview and Badge Row */}
+                      <div className="flex justify-between items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-1 flex-1 min-w-0">
+                          {/* Double check for outgoing messages */}
+                          {conv.lastMessageDirection === 'outgoing' && (
+                            <FaCheckDouble size={14} className="text-[#53bdeb] flex-shrink-0" />
+                          )}
+                          <span className={`text-sm truncate ${
+                            hasUnread ? 'text-[#d1d7db]' : 'text-[#8696a0]'
+                          }`}>
+                            {conv.lastMessage}
+                          </span>
+                        </div>
+                        
+                        {/* Unread Badge */}
+                        {hasUnread && (
+                          <span className="bg-[#00a884] text-[#111b21] text-[11px] font-bold min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center flex-shrink-0">
+                            {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
                           </span>
                         )}
                       </div>
                     </div>
-                  </motion.div>
-                ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* RIGHT PANEL - Chat Area */}
+      {selectedConversation ? (
+        <div className="wa-chat-area">
+          {/* WhatsApp doodle background */}
+          <div className="wa-chat-bg" />
+          
+          {/* Chat Header - Fixed */}
+          <div className="wa-header flex items-center justify-between px-4 relative z-10 border-b border-[#222d34]">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <button 
+                onClick={() => setSelectedConversation(null)} 
+                className="md:hidden w-10 h-10 rounded-full flex items-center justify-center text-[#aebac1] hover:bg-[#202c33] flex-shrink-0"
+              >
+                <FaArrowLeft size={16} />
+              </button>
+              
+              <div 
+                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium flex-shrink-0"
+                style={{ background: `hsl(${selectedConversation.avatarHue}, 50%, 40%)` }}
+              >
+                {selectedConversation.avatarChar}
+              </div>
+              
+              <div className="flex-1 min-w-0">
+                <h2 className="text-[#e9edef] font-normal text-base truncate">
+                  {selectedConversation.displayName}
+                </h2>
+                <p className="text-[#8696a0] text-xs truncate">
+                  {selectedConversation.phone}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex gap-1 flex-shrink-0">
+              {[FaVideo, FaPhone, FaSearch, FaEllipsisV].map((Icon, i) => (
+                <button 
+                  key={i}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-[#aebac1] hover:bg-[#202c33] transition-all"
+                >
+                  <Icon size={i === 3 ? 16 : 18} />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Messages Area - Scrollable */}
+          <div 
+            ref={messagesContainerRef}
+            className="flex-1 overflow-y-auto wa-scrollbar px-4 md:px-[8%] py-2 relative z-10"
+          >
+            {activeMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                <div className="w-16 h-16 rounded-full bg-[#202c33] flex items-center justify-center mb-4">
+                  <HiSparkles className="text-[#00a884] text-2xl" />
+                </div>
+                <h3 className="text-[#e9edef] font-normal mb-1">Start the conversation</h3>
+                <p className="text-[#8696a0] text-sm">
+                  Send a message to {selectedConversation.displayName}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {activeMessages.map((msg, index) => {
+                  const isIncoming = msg.direction === 'incoming';
+                  const msgTime = getMessageTime(msg);
+                  
+                  // Detect message types for better display
+                  const msgText = msg.text || msg.message || '';
+                  const isInteractiveSent = (msg.messageType && ['flow_buttons', 'flow_catalog', 'order_bot_welcome'].includes(msg.messageType)) || msg.isInteractiveMessage;
+                  const isInteractiveSelection = isIncoming && (msg.isInteractiveResponse || msg.interactiveType);
+                  
+                  // Common button selections
+                  const buttonOptions = ['Browse Products', 'My Orders', 'Get Help', 'View Cart', 'Checkout', 'Add More', 'Clear Cart', 'Contact Support', 'Track Order', 'Continue Shopping', 'Main Menu', 'Confirm Order', 'Cancel'];
+                  const isButtonSelection = isIncoming && msgText && buttonOptions.some(btn => msgText.includes(btn));
+                  
+                  // Product selection: Usually longer product names, or matches pattern
+                  const isProductSelection = isIncoming && (
+                    msgText.length > 10 && 
+                    !buttonOptions.some(btn => msgText.includes(btn)) &&
+                    !['hi', 'hello', 'catalog', 'browse', 'products', 'orders', 'help', 'yes', 'no'].includes(msgText.toLowerCase().trim())
+                  );
+                  
+                  return (
+                    <div
+                      key={msg.id || index}
+                      className={`flex ${isIncoming ? 'justify-start' : 'justify-end'}`}
+                    >
+                      <div
+                        className={`relative max-w-[65%] px-3 py-1.5 shadow-sm ${
+                          isIncoming ? 'wa-msg-incoming' : 'wa-msg-outgoing'
+                        }`}
+                      >
+                        {/* Interactive element indicator for outgoing messages */}
+                        {!isIncoming && isInteractiveSent && (
+                          <div className="flex items-center gap-1.5 mb-1.5 pb-1.5 border-b border-white/10">
+                            {msg.messageType === 'flow_catalog' && (
+                              <>
+                                <FaList className="text-[#00a884] text-xs" />
+                                <span className="text-[#00a884] text-[10px] font-medium">Product List Sent</span>
+                              </>
+                            )}
+                            {msg.messageType === 'flow_buttons' && (
+                              <>
+                                <FaMousePointer className="text-[#00a884] text-xs" />
+                                <span className="text-[#00a884] text-[10px] font-medium">Interactive Buttons Sent</span>
+                              </>
+                            )}
+                            {msg.messageType === 'order_bot_welcome' && (
+                              <>
+                                <FaRobot className="text-[#00a884] text-xs" />
+                                <span className="text-[#00a884] text-[10px] font-medium">Welcome Menu Sent</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Selection indicator for incoming messages */}
+                        {isIncoming && (isInteractiveSelection || isButtonSelection || isProductSelection) && (
+                          <div className="flex items-center gap-1.5 mb-1.5 pb-1.5 border-b border-white/10">
+                            {isInteractiveSelection && msg.interactiveType === 'button' && (
+                              <>
+                                <FaMousePointer className="text-[#8696a0] text-xs" />
+                                <span className="text-[#8696a0] text-[10px]">Clicked button</span>
+                              </>
+                            )}
+                            {isInteractiveSelection && msg.interactiveType === 'list' && (
+                              <>
+                                <FaList className="text-[#00a884] text-xs" />
+                                <span className="text-[#00a884] text-[10px]">Selected from list</span>
+                              </>
+                            )}
+                            {!isInteractiveSelection && isButtonSelection && (
+                              <>
+                                <FaMousePointer className="text-[#8696a0] text-xs" />
+                                <span className="text-[#8696a0] text-[10px]">Selected option</span>
+                              </>
+                            )}
+                            {!isInteractiveSelection && isProductSelection && (
+                              <>
+                                <FaShoppingCart className="text-[#00a884] text-xs" />
+                                <span className="text-[#00a884] text-[10px]">Product selected</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        
+                        <p className="text-[#e9edef] text-sm leading-relaxed whitespace-pre-wrap">
+                          {msgText}
+                        </p>
+                        
+                        {/* System/automated message indicator */}
+                        {msg.messageType && msg.messageType !== 'text' && !isInteractiveSent && (
+                          <p className="text-[#8696a0] text-[10px] mt-1 italic">
+                            {msg.messageType === 'cart_update' && '🛒 Cart updated'}
+                            {msg.messageType === 'order_confirmed' && '✅ Order confirmed'}
+                            {msg.messageType === 'cart_view' && '📦 Cart viewed'}
+                            {msg.messageType === 'checkout' && '🛍️ Checkout initiated'}
+                          </p>
+                        )}
+                        
+                        <div className="flex items-center justify-end gap-1 mt-0.5">
+                          <span className="text-[11px] text-[#8696a0]">
+                            {formatTime(msgTime)}
+                          </span>
+                          {!isIncoming && (
+                            <span className={msg.read ? 'text-[#53bdeb]' : 'text-[#8696a0]'}>
+                              {msg.read ? <FaCheckDouble size={12} /> : <FaCheck size={12} />}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
               </div>
             )}
           </div>
-        </motion.div>
 
-        {/* === RIGHT SIDE (Chat Area) === */}
-        {selectedConversation ? (
-          <motion.div 
-            className="flex-1 flex flex-col h-full relative"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-          >
-            {/* Chat Pattern Background */}
-            <div className="absolute inset-0 chat-pattern opacity-50" />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60" />
+          {/* Input Area - Fixed at bottom */}
+          <div className="wa-input-area relative z-10 flex items-center gap-2">
+            <button className="w-10 h-10 rounded-full flex items-center justify-center text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33] transition-all flex-shrink-0">
+              <FaRegSmile size={22} />
+            </button>
+            <button className="w-10 h-10 rounded-full flex items-center justify-center text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33] transition-all flex-shrink-0">
+              <FaPaperclip size={20} />
+            </button>
             
-            {/* Chat Header */}
-            <div className="relative z-10 h-[72px] glass-panel flex items-center justify-between px-4 md:px-5 border-b border-white/5 flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <button 
-                  onClick={() => setSelectedConversation(null)} 
-                  className="md:hidden w-10 h-10 rounded-xl glass-panel-light flex items-center justify-center text-white/70 hover:text-amber-400 transition-colors"
-                >
-                  <FaArrowLeft size={14} />
-                </button>
-                
-                <div 
-                  className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-semibold shadow-lg"
-                  style={{ 
-                    background: `linear-gradient(135deg, hsl(${selectedConversation.avatarHue}, 60%, 45%) 0%, hsl(${selectedConversation.avatarHue + 30}, 50%, 35%) 100%)`
-                  }}
-                >
-                  {selectedConversation.avatarChar}
-                </div>
-                
-                <div>
-                  <h2 className="text-white font-semibold text-[15px] md:text-base">
-                    {selectedConversation.displayName}
-                  </h2>
-                  <p className="text-white/40 text-xs font-medium">
-                    {selectedConversation.phone}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex gap-1">
-                {[FaVideo, FaPhone, FaSearch, FaEllipsisV].map((Icon, i) => (
-                  <button 
-                    key={i}
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-400/10 transition-all"
-                  >
-                    <Icon size={i === 3 ? 14 : 16} />
-                  </button>
-                ))}
-              </div>
+            <div className="flex-1 wa-input-box">
+              <textarea
+                ref={inputRef}
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder="Type a message"
+                rows={1}
+                className="w-full bg-transparent text-[#e9edef] px-4 py-2.5 text-sm focus:outline-none placeholder-[#8696a0] resize-none"
+                style={{ minHeight: '42px', maxHeight: '100px' }}
+                onInput={(e) => {
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
+                }}
+              />
             </div>
 
-            {/* Messages Area */}
-            <div className="relative z-10 flex-1 overflow-y-auto inbox-scrollbar px-4 md:px-6 py-4">
-              <AnimatePresence initial={false}>
-                {activeMessages.length === 0 ? (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col items-center justify-center h-full text-center px-4"
-                  >
-                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-400/20 to-orange-500/10 flex items-center justify-center mb-4 border border-amber-400/20">
-                      <HiSparkles className="text-amber-400 text-3xl" />
-                    </div>
-                    <h3 className="text-white/70 font-medium mb-2">Start the conversation</h3>
-                    <p className="text-white/40 text-sm max-w-[280px]">
-                      Send a message to {selectedConversation.displayName}
-                    </p>
-                  </motion.div>
+            {newMessage.trim() ? (
+              <button
+                onClick={handleSendMessage}
+                disabled={sending}
+                className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center hover:bg-[#06cf9c] transition-all flex-shrink-0"
+              >
+                {sending ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
-                  <div className="space-y-3">
-                    {activeMessages.map((msg, index) => {
-                      const isIncoming = msg.direction === 'incoming';
-                      const msgTime = getMessageTime(msg);
-                      
-                      return (
-                        <motion.div
-                          key={msg.id || index}
-                          variants={messageVariants}
-                          initial="hidden"
-                          animate="visible"
-                          exit="exit"
-                          className={`flex ${isIncoming ? 'justify-start' : 'justify-end'}`}
-                        >
-                          <div
-                            className={`relative max-w-[75%] md:max-w-[65%] rounded-2xl px-4 py-2.5 shadow-lg ${
-                              isIncoming 
-                                ? 'message-incoming rounded-bl-md' 
-                                : 'message-outgoing rounded-br-md'
-                            }`}
-                          >
-                            <p className="text-white/90 text-[15px] leading-relaxed whitespace-pre-wrap">
-                              {msg.text || msg.message || ''}
-                            </p>
-                            
-                            <div className="flex items-center justify-end gap-1.5 mt-1.5">
-                              <span className="text-[11px] text-white/40 font-medium">
-                                {formatTime(msgTime)}
-                              </span>
-                              {!isIncoming && (
-                                <span className={msg.read ? 'text-amber-400' : 'text-white/40'}>
-                                  {msg.read ? <FaCheckDouble size={12} /> : <FaCheck size={12} />}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
+                  <FaPaperPlane className="text-white text-base" />
                 )}
-              </AnimatePresence>
-              <div ref={messagesEndRef} />
+              </button>
+            ) : (
+              <button className="w-10 h-10 rounded-full flex items-center justify-center text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33] transition-all flex-shrink-0">
+                <FaMicrophone size={20} />
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Empty state - No conversation selected */
+        <div className="wa-chat-area hidden md:flex flex-col items-center justify-center">
+          <div className="wa-chat-bg" />
+          <div className="relative z-10 text-center max-w-md px-6">
+            <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-[#00a884]/20 to-[#075e54]/10 flex items-center justify-center border border-[#00a884]/20">
+              <FaComments className="text-[#00a884] text-4xl" />
             </div>
-
-            {/* Input Area */}
-            <div className="relative z-10 glass-panel border-t border-white/5 px-4 py-3 flex-shrink-0">
-              <div className="flex items-end gap-3">
-                <button className="w-10 h-10 rounded-xl flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-400/10 transition-all flex-shrink-0 mb-0.5">
-                  <FaRegSmile size={20} />
-                </button>
-                <button className="w-10 h-10 rounded-xl flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-400/10 transition-all flex-shrink-0 mb-0.5">
-                  <FaPaperclip size={18} />
-                </button>
-                
-                <div className="flex-1 bg-white/5 rounded-2xl border border-white/5 focus-within:border-amber-400/30 transition-all input-glow">
-                  <textarea
-                    ref={inputRef}
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyDown={handleKeyPress}
-                    placeholder="Type a message..."
-                    rows={1}
-                    className="w-full bg-transparent text-white px-4 py-3 text-[15px] focus:outline-none placeholder-white/30 resize-none"
-                    style={{ minHeight: '48px', maxHeight: '120px' }}
-                    onInput={(e) => {
-                      e.target.style.height = 'auto';
-                      e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-                    }}
-                  />
-                </div>
-
-                {newMessage.trim() ? (
-                  <motion.button
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    onClick={handleSendMessage}
-                    disabled={sending}
-                    className="w-12 h-12 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 transition-all active:scale-95 flex-shrink-0"
-                  >
-                    {sending ? (
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <FaPaperPlane className="text-white text-base -translate-x-0.5" />
-                    )}
-                  </motion.button>
-                ) : (
-                  <button className="w-12 h-12 rounded-xl glass-panel-light flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-400/10 transition-all flex-shrink-0">
-                    <FaMicrophone size={18} />
-                  </button>
-                )}
-              </div>
+            <h1 className="text-[#e9edef] text-2xl font-medium mb-3">
+              WhatsApp Web
+            </h1>
+            <p className="text-[#8696a0] text-sm leading-relaxed mb-6">
+              Send and receive messages without keeping your phone online.
+              <br />
+              Use WhatsApp on up to 4 linked devices and 1 phone at the same time.
+            </p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#00a884]/10 border border-[#00a884]/20">
+              <span className="w-2 h-2 rounded-full bg-[#00a884] animate-pulse" />
+              <span className="text-[#00a884] text-xs font-medium">End-to-end encrypted</span>
             </div>
-          </motion.div>
-        ) : (
-          /* Empty State */
-          <motion.div 
-            className="hidden md:flex flex-1 flex-col items-center justify-center relative overflow-hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.4, delay: 0.2 }}
-          >
-            {/* Decorative elements */}
-            <div className="absolute inset-0 chat-pattern opacity-30" />
-            <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-amber-400/5 rounded-full blur-3xl" />
-            <div className="absolute bottom-1/4 right-1/4 w-48 h-48 bg-orange-400/5 rounded-full blur-3xl" />
-            
-            <div className="relative z-10 text-center max-w-md px-6">
-              <motion.div 
-                className="w-28 h-28 mx-auto mb-8 rounded-3xl bg-gradient-to-br from-amber-400/20 to-orange-500/10 flex items-center justify-center border border-amber-400/20 shadow-2xl"
-                initial={{ scale: 0.8, rotate: -10 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ duration: 0.5, delay: 0.3, type: "spring" }}
-              >
-                <FaComments className="text-amber-400 text-4xl" />
-              </motion.div>
-              
-              <motion.h1 
-                className="text-white text-2xl md:text-3xl font-semibold mb-3 tracking-tight"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-              >
-                Your Messages
-              </motion.h1>
-              
-              <motion.p 
-                className="text-white/50 text-base leading-relaxed mb-6"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-              >
-                Select a conversation from the list to view messages and start chatting with your retailers.
-              </motion.p>
-              
-              <motion.div 
-                className="flex items-center justify-center gap-2 text-white/30 text-sm"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.6 }}
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-400/60" />
-                <span>Connected & Secure</span>
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

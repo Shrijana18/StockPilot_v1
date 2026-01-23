@@ -1066,6 +1066,15 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // --- WHATSAPP TEMPLATES ---
+      // Path: businesses/{userId}/whatsappTemplates/{templateId}
+      match /whatsappTemplates/{templateId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
       // --- WhatsApp Messages (Outgoing Messages) ---
       match /whatsappMessages/{messageId} {
         allow read: if isAuthed() && (
@@ -1095,6 +1104,38 @@ service cloud.firestore {
 
       // --- WhatsApp Menus (Automated Response Menus) ---
       match /whatsappMenus/{menuId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- WhatsApp Flows (Flow Builder - Automated Conversation Flows) ---
+      match /whatsappFlows/{flowId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- WhatsApp Bot Configuration (Order Bot, etc.) ---
+      match /whatsappBot/{configId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- WhatsApp Catalog (Product Catalog Sync) ---
+      match /whatsappCatalog/{docId} {
+        allow read, write: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) || 
+          isDistributorEmployee(userId)
+        );
+      }
+
+      // --- WhatsApp Orders (Orders placed via WhatsApp) ---
+      match /whatsappOrders/{orderId} {
         allow read, write: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
@@ -1235,6 +1276,129 @@ service cloud.firestore {
       
       // Allow anyone to delete leads (for removing incorrect entries)
       allow delete: if true;
+    }
+
+    // ============================================================
+    // CUSTOMER MARKETPLACE (B2C)
+    // ============================================================
+    
+    // Customer profiles
+    match /customers/{customerId} {
+      // DEV MODE: Allow read/write for customers (no auth required for simple login)
+      // Customer ID format: customer_<phone>
+      allow read: if true;
+      allow create: if customerId.matches('customer_[0-9]+');
+      allow update: if customerId.matches('customer_[0-9]+');
+    }
+    
+    // Stores visible to customers (synced from businesses)
+    match /stores/{storeId} {
+      // DEV MODE: Anyone can read stores for marketplace browsing
+      allow read: if true;
+      
+      // DEV MODE: Allow authenticated users to write their own store
+      allow write: if isAuthed();
+      allow create: if isAuthed();
+      
+      // Allow updating store rating fields (for rating system)
+      // DEV MODE: Allow rating updates more permissively
+      allow update: if (
+        // DEV MODE: Allow anyone to update rating fields (for testing)
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'rating', 'totalReviews', 'reviews'
+        ])
+        ||
+        // Store owner can update everything
+        (isAuthed() && request.auth.uid == storeId)
+      );
+      
+      // Store products
+      match /products/{productId} {
+        // DEV MODE: Anyone can read products for marketplace browsing
+        allow read: if true;
+        
+        // DEV MODE: Allow authenticated users to manage products
+        allow write: if isAuthed();
+      }
+      
+      // Customer orders placed at this store (for retailer to receive)
+      match /customerOrders/{orderId} {
+        // DEV MODE: Allow read/write for store orders
+        allow read: if true;
+        allow create: if true;
+        allow update: if isAuthed() && request.auth.uid == storeId;
+      }
+      
+      // Store reviews (customer reviews for this store)
+      match /reviews/{reviewId} {
+        // Anyone can read reviews
+        allow read: if true;
+        
+        // DEV MODE: Allow anyone to create reviews (when rating an order)
+        // Allow creating reviews with orderId, customerId, rating, review, etc.
+        allow create: if request.resource.data.keys().hasAny([
+          'orderId', 'customerId', 'customerName', 'rating', 'review', 'createdAt', 'orderDate'
+        ]);
+        
+        // Only store owner can update/delete reviews (for moderation)
+        allow update, delete: if isAuthed() && request.auth.uid == storeId;
+      }
+    }
+    
+    // Global customer orders collection
+    match /customerOrders/{orderId} {
+      // DEV MODE: Customers can read orders where their customerId matches
+      allow read: if true;
+      
+      // DEV MODE: Allow creating orders (customerId format: customer_<phone>)
+      allow create: if request.resource.data.customerId.matches('customer_[0-9]+');
+      
+      // Customer can update their own orders (e.g., cancel, rate)
+      // DEV MODE: Allow rating updates more permissively
+      allow update: if (
+        // Allow rating-related fields (anyone can rate delivered orders in DEV MODE)
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'storeRating', 'storeReview', 'deliveryPersonRating', 'deliveryPersonReview',
+          'deliveryPersonName', 'deliveryPersonId', 'ratedAt'
+        ])
+        // Or customer updating their own order (by customerId pattern match)
+        || (resource.data.customerId.matches('customer_[0-9]+')
+          && (
+            // Allow rating-related fields
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'storeRating', 'storeReview', 'deliveryPersonRating', 'deliveryPersonReview',
+              'deliveryPersonName', 'deliveryPersonId', 'ratedAt'
+            ])
+            // Or allow other updates (cancel, etc.)
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancellationReason'])
+          ))
+        // Or authenticated customer updating rating fields
+        || (isAuthed() 
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'storeRating', 'storeReview', 'deliveryPersonRating', 'deliveryPersonReview',
+            'deliveryPersonName', 'deliveryPersonId', 'ratedAt'
+          ]))
+      );
+      
+      // Store owner can also read/update orders for their store
+      allow read, update: if isAuthed() && resource.data.storeId == request.auth.uid;
+    }
+
+    // ============================================================
+    // ORDER CHATS - Chat between customer and delivery agent
+    // ============================================================
+    match /orderChats/{orderId} {
+      // Allow read/write for order chat metadata
+      allow read, write: if true;
+      
+      // Messages subcollection
+      match /messages/{messageId} {
+        // DEV MODE: Allow anyone to read/write messages
+        // In production, verify sender is customer or delivery agent
+        allow read: if true;
+        allow create: if true;
+        allow update: if true;
+      }
     }
 
     // ============================================================

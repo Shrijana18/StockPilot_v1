@@ -1,0 +1,834 @@
+/**
+ * StoreDetail - Hero Section that shrinks on scroll
+ * Banner/Wallpaper + Logo + Details → Compact header on scroll
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  FaArrowLeft, FaStar, FaClock, FaSearch, 
+  FaMinus, FaPlus, FaShoppingCart, FaHeart, FaTimes, FaShare,
+  FaChevronRight, FaPhone, FaMapMarkerAlt, FaMotorcycle,
+  FaStore, FaInfoCircle, FaTruck, FaGift, FaRupeeSign, FaRoute
+} from 'react-icons/fa';
+import { HiBadgeCheck } from 'react-icons/hi';
+import { getStoreById, getStoreProducts, getStoreCategories } from '../services/storeService';
+import { useCart } from '../context/CartContext';
+
+// ============================================
+// CATEGORY ICONS
+// ============================================
+const getCategoryIcon = (category) => {
+  const icons = {
+    'All': '🏪', 'Food': '🍕', 'Grocery': '🛒', 'Vegetables': '🥬', 'Fruits': '🍎',
+    'Dairy': '🥛', 'Beverages': '🥤', 'Beverage': '🥤', 'Drink': '🍹', 'Snacks': '🍿',
+    'Personal Care': '🧴', 'Hair Care': '💇', 'Health': '💊', 'Household': '🏠',
+    'Electronics': '📱', 'Clothing': '👕', 'Liquor': '🍺', 'General': '📦'
+  };
+  return icons[category] || icons[category?.split(' ')[0]] || '📦';
+};
+
+// ============================================
+// PRODUCT CARD - Compact & Premium Design
+// ============================================
+const ProductCard = ({ product, cartQuantity, onAdd, onUpdate }) => {
+  const price = product.sellingPrice || product.price || 0;
+  const mrp = product.mrp || price;
+  const hasDiscount = mrp > price;
+  const discountPercent = hasDiscount ? Math.round((1 - price / mrp) * 100) : 0;
+  const isOutOfStock = product.stock !== undefined && product.stock <= 0;
+
+  return (
+    <div className={`group bg-[#151c2c] hover:bg-[#1a2235] rounded-xl overflow-hidden border border-white/[0.06] hover:border-emerald-500/30 transition-all duration-200 ${isOutOfStock ? 'opacity-60' : ''}`}>
+      {/* Image Container - Fixed small height */}
+      <div className="relative h-24 sm:h-28 bg-white rounded-t-xl overflow-hidden">
+        {product.imageUrl || product.image ? (
+          <img 
+            src={product.imageUrl || product.image} 
+            alt={product.name} 
+            className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300" 
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-50 text-2xl">📦</div>
+        )}
+        
+        {/* Discount Badge */}
+        {discountPercent > 0 && !isOutOfStock && (
+          <span className="absolute top-1 left-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded shadow-sm">
+            {discountPercent}% OFF
+          </span>
+        )}
+
+        {/* Out of Stock Overlay */}
+        {isOutOfStock && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center">
+            <span className="text-white text-[9px] font-semibold bg-red-500/80 px-2 py-0.5 rounded">Out of Stock</span>
+          </div>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="p-2">
+        {/* Product Name */}
+        <p className="text-[10px] sm:text-[11px] text-white/90 font-medium line-clamp-2 leading-tight min-h-[28px]">
+          {product.name}
+        </p>
+        
+        {/* Unit */}
+        <p className="text-[9px] text-white/40 mt-0.5 truncate">{product.unit || '1 unit'}</p>
+        
+        {/* Price & Add Button Row */}
+        <div className="flex items-center justify-between mt-1.5 gap-1">
+          {/* Price */}
+          <div className="flex flex-col">
+            <span className="text-white font-bold text-xs sm:text-sm">₹{price}</span>
+            {hasDiscount && (
+              <span className="text-white/40 text-[9px] line-through">₹{mrp}</span>
+            )}
+          </div>
+          
+          {/* Add/Quantity Button */}
+          {cartQuantity > 0 && !isOutOfStock ? (
+            <div className="flex items-center bg-emerald-500 rounded-md h-6">
+              <button 
+                onClick={(e) => { e.stopPropagation(); onUpdate(product.id, cartQuantity - 1); }} 
+                className="w-6 h-6 flex items-center justify-center text-white hover:bg-emerald-600 rounded-l-md transition-colors"
+              >
+                <FaMinus size={7} />
+              </button>
+              <span className="text-white font-bold text-[10px] min-w-[16px] text-center">{cartQuantity}</span>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onUpdate(product.id, cartQuantity + 1); }} 
+                className="w-6 h-6 flex items-center justify-center text-white hover:bg-emerald-600 rounded-r-md transition-colors"
+              >
+                <FaPlus size={7} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); !isOutOfStock && onAdd(product); }}
+              disabled={isOutOfStock}
+              className={`h-6 px-2.5 rounded-md text-[9px] font-bold transition-all ${
+                isOutOfStock 
+                  ? 'bg-white/10 text-white/30' 
+                  : 'bg-emerald-500 hover:bg-emerald-600 text-white active:scale-95'
+              }`}
+            >
+              ADD
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// STORE INFO SHEET
+// ============================================
+const StoreInfoSheet = ({ store, isOpen, onClose, customerDistance, isWithinDeliveryRange }) => {
+  const storeName = store?.businessName || store?.name || 'Store';
+  
+  if (!isOpen || !store) return null;
+
+  return (
+    <>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-black/60"
+      />
+      
+      <motion.div 
+        initial={{ y: '100%' }} 
+        animate={{ y: 0 }} 
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-[#111827] rounded-t-2xl max-h-[70vh] overflow-y-auto"
+      >
+        <div className="p-5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
+          <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
+          
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-white/[0.06] rounded-xl flex items-center justify-center overflow-hidden">
+              {store.logoUrl ? (
+                <img src={store.logoUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <FaStore className="text-emerald-400" />
+              )}
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-white">{storeName}</h3>
+              <p className="text-white/50 text-sm">{store.category || 'General Store'}</p>
+            </div>
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center">
+              <FaTimes className="text-white/60 text-sm" />
+            </button>
+          </div>
+          
+          {store.description && (
+            <p className="text-white/60 text-sm mb-4">{store.description}</p>
+          )}
+          
+          <div className="space-y-2">
+            {/* Out of Delivery Range Warning */}
+            {store.deliveryEnabled !== false && !isWithinDeliveryRange && customerDistance !== null && (
+              <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <FaMapMarkerAlt className="text-red-400 text-sm" />
+                  <span className="text-red-400 text-xs font-bold">Out of Delivery Range</span>
+                </div>
+                <p className="text-red-400/80 text-xs">
+                  You are <span className="font-bold">{customerDistance} km</span> away from this store. 
+                  They only deliver within <span className="font-bold">{store.deliveryRadius || 10} km</span>.
+                </p>
+                {store.pickupEnabled && (
+                  <p className="text-amber-400 text-xs mt-2 flex items-center gap-1">
+                    <FaStore className="text-xs" />
+                    Store pickup is still available!
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {/* Delivery Info Section */}
+            {store.deliveryEnabled !== false && (
+              <div className={`p-3 rounded-xl border ${
+                isWithinDeliveryRange 
+                  ? 'bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border-emerald-500/20' 
+                  : 'bg-white/[0.02] border-white/10'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <FaTruck className={isWithinDeliveryRange ? 'text-emerald-400 text-sm' : 'text-white/40 text-sm'} />
+                    <span className={isWithinDeliveryRange ? 'text-emerald-400 text-xs font-medium' : 'text-white/50 text-xs font-medium'}>
+                      Delivery Info
+                    </span>
+                  </div>
+                  {!isWithinDeliveryRange && (
+                    <span className="text-[9px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Not Available</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {parseFloat(store.minOrderValue) > 0 && (
+                    <div className="p-2 bg-white/[0.04] rounded-lg">
+                      <p className="text-white/40 text-[9px]">Min. Order</p>
+                      <p className="text-white text-sm font-bold">₹{store.minOrderValue}</p>
+                    </div>
+                  )}
+                  {parseFloat(store.freeDeliveryAbove) > 0 && (
+                    <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                      <p className="text-emerald-400 text-[9px]">Free Delivery</p>
+                      <p className="text-emerald-400 text-sm font-bold">Above ₹{store.freeDeliveryAbove}</p>
+                    </div>
+                  )}
+                  <div className="p-2 bg-white/[0.04] rounded-lg">
+                    <p className="text-white/40 text-[9px]">Delivery Fee</p>
+                    <p className="text-white text-sm font-bold">
+                      {store.distanceBasedFee 
+                        ? `₹${store.baseFee || 20}+` 
+                        : `₹${store.deliveryFee || 20}`}
+                    </p>
+                  </div>
+                  <div className="p-2 bg-white/[0.04] rounded-lg">
+                    <p className="text-white/40 text-[9px]">Delivers within</p>
+                    <p className="text-white text-sm font-bold">{store.deliveryRadius || 5} km</p>
+                  </div>
+                </div>
+                {store.distanceBasedFee && (
+                  <p className="text-white/40 text-[10px] mt-2">
+                    * Delivery fee: ₹{store.baseFee || 20} base + ₹{store.perKmFee || 5}/km after {store.baseDistance || 2}km
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {/* Pickup Available */}
+            {store.pickupEnabled && (
+              <div className="flex items-center gap-3 p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
+                <FaStore className="text-purple-400" />
+                <div className="flex-1">
+                  <p className="text-purple-400 text-[10px]">Store Pickup Available</p>
+                  <p className="text-white text-sm">Skip delivery fee - pick up at store</p>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex items-center gap-3 p-3 bg-white/[0.04] rounded-xl">
+              <FaMapMarkerAlt className="text-emerald-400" />
+              <div className="flex-1">
+                <p className="text-white/40 text-[10px]">Address</p>
+                <p className="text-white text-sm">{store.address || 'Not available'}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 p-3 bg-white/[0.04] rounded-xl">
+              <FaClock className="text-blue-400" />
+              <div className="flex-1">
+                <p className="text-white/40 text-[10px]">Hours</p>
+                <p className="text-white text-sm">{store.openTime || '9 AM'} - {store.closeTime || '9 PM'}</p>
+              </div>
+            </div>
+            
+            {store.phone && (
+              <a href={`tel:${store.phone}`} className="flex items-center gap-3 p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/30">
+                <FaPhone className="text-emerald-400" />
+                <div className="flex-1">
+                  <p className="text-emerald-400 text-[10px]">Call Store</p>
+                  <p className="text-white text-sm font-medium">{store.phone}</p>
+                </div>
+                <FaChevronRight className="text-emerald-400 text-sm" />
+              </a>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </>
+  );
+};
+
+// Haversine formula to calculate distance
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
+const StoreDetail = ({ storeId, onBack, onCartClick }) => {
+  const [store, setStore] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState(['All']);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [showStoreInfo, setShowStoreInfo] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  
+  // Customer location state
+  const [customerLocation, setCustomerLocation] = useState(null);
+  const [customerDistance, setCustomerDistance] = useState(null);
+  const [isWithinDeliveryRange, setIsWithinDeliveryRange] = useState(true);
+
+  const { addToCart, updateQuantity, getItemQuantity, getCartTotals, cartStore } = useCart();
+  const { itemCount, total } = getCartTotals();
+
+  const storeName = store?.businessName || store?.name || 'Store';
+  
+  // Get customer's current location
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCustomerLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.log('Location not available:', error.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+  }, []);
+  
+  // Calculate distance and check delivery range when store and customer location are available
+  useEffect(() => {
+    if (store && customerLocation) {
+      // Get store location
+      let storeLat, storeLng;
+      if (store.location) {
+        storeLat = store.location.latitude || store.location._lat;
+        storeLng = store.location.longitude || store.location._long;
+      }
+      
+      if (storeLat && storeLng) {
+        const distance = calculateDistance(
+          customerLocation.lat, 
+          customerLocation.lng, 
+          storeLat, 
+          storeLng
+        );
+        const roundedDistance = Math.round(distance * 10) / 10;
+        setCustomerDistance(roundedDistance);
+        
+        // Check if within delivery radius
+        const deliveryRadius = store.deliveryRadius || 10; // Default 10km
+        setIsWithinDeliveryRange(roundedDistance <= deliveryRadius);
+      }
+    }
+  }, [store, customerLocation]);
+
+  // Fetch data
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!storeId) return;
+      setLoading(true);
+      try {
+        const [storeData, productsData, categoriesData] = await Promise.all([
+          getStoreById(storeId),
+          getStoreProducts(storeId),
+          getStoreCategories(storeId)
+        ]);
+        setStore(storeData);
+        setProducts(productsData || []);
+        setCategories(['All', ...(categoriesData || [])]);
+      } catch (error) {
+        console.error('Error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [storeId]);
+
+  // Filter products
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchCategory = selectedCategory === 'All' || p.category === selectedCategory;
+      const matchSearch = !searchQuery || p.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCategory && matchSearch;
+    });
+  }, [products, selectedCategory, searchQuery]);
+
+  const getCategoryCount = (cat) => {
+    if (cat === 'All') return products.length;
+    return products.filter(p => p.category === cat).length;
+  };
+
+  const handleAddToCart = (product) => {
+    addToCart(product, store);
+  };
+
+  // Loading State
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1c] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-white/50 text-sm">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not Found State
+  if (!store) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1c] flex flex-col items-center justify-center p-6">
+        <FaStore className="text-white/20 text-4xl mb-3" />
+        <p className="text-white/50 mb-4">Store not found</p>
+        <button onClick={onBack} className="px-6 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium">
+          Go Back
+        </button>
+      </div>
+    );
+  }
+  
+  // Check if store is completely unavailable (out of delivery range AND no pickup)
+  const isDeliveryEnabled = store.deliveryEnabled !== false;
+  const isPickupEnabled = store.pickupEnabled === true;
+  const isStoreUnavailable = !isWithinDeliveryRange && customerDistance !== null && !isPickupEnabled && isDeliveryEnabled;
+  
+  // Store Unavailable State - Out of range with no pickup option
+  if (isStoreUnavailable) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1c] flex flex-col items-center justify-center p-6">
+        <div className="max-w-sm text-center">
+          {/* Store Logo */}
+          <div className="w-20 h-20 rounded-2xl overflow-hidden bg-white/[0.06] mx-auto mb-4">
+            {store.logoUrl ? (
+              <img src={store.logoUrl} alt={storeName} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-red-500/20 to-red-600/10 flex items-center justify-center">
+                <FaStore className="text-red-400 text-2xl" />
+              </div>
+            )}
+          </div>
+          
+          {/* Store Name */}
+          <h2 className="text-white font-bold text-xl mb-2">{storeName}</h2>
+          <p className="text-white/50 text-sm mb-6">{store.category || 'General Store'}</p>
+          
+          {/* Warning Icon */}
+          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <FaMapMarkerAlt className="text-red-400 text-2xl" />
+          </div>
+          
+          {/* Message */}
+          <h3 className="text-red-400 font-semibold text-lg mb-2">Store Not Available</h3>
+          <p className="text-white/60 text-sm mb-2">
+            You are <span className="text-red-400 font-semibold">{customerDistance} km</span> away from this store.
+          </p>
+          <p className="text-white/50 text-sm mb-6">
+            This store only delivers within <span className="text-white font-medium">{store.deliveryRadius || 10} km</span> and does not offer store pickup.
+          </p>
+          
+          {/* Info Box */}
+          <div className="bg-white/[0.04] border border-white/10 rounded-xl p-4 mb-6">
+            <div className="flex items-center justify-center gap-6 text-sm">
+              <div className="text-center">
+                <p className="text-white/40 text-xs">Delivery Range</p>
+                <p className="text-white font-semibold">{store.deliveryRadius || 10} km</p>
+              </div>
+              <div className="w-px h-8 bg-white/10" />
+              <div className="text-center">
+                <p className="text-white/40 text-xs">Your Distance</p>
+                <p className="text-red-400 font-semibold">{customerDistance} km</p>
+              </div>
+              <div className="w-px h-8 bg-white/10" />
+              <div className="text-center">
+                <p className="text-white/40 text-xs">Store Pickup</p>
+                <p className="text-red-400 font-semibold">Not Available</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Back Button */}
+          <button 
+            onClick={onBack} 
+            className="w-full py-3 bg-emerald-500 text-white rounded-xl font-semibold hover:bg-emerald-600 transition-colors"
+          >
+            Browse Other Stores
+          </button>
+          
+          <p className="text-white/30 text-xs mt-4">
+            Try stores closer to your location
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0a0f1c]">
+      
+      {/* ===== FIXED HEADER ===== */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-[#111827] border-b border-white/[0.06]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+          <div className="flex items-center gap-3 px-3 lg:px-4 py-3">
+            {/* Back Button */}
+            <button onClick={onBack} className="w-9 h-9 rounded-full bg-white/[0.06] flex items-center justify-center hover:bg-white/[0.1] transition-colors">
+              <FaArrowLeft className="text-white text-sm" />
+            </button>
+            
+            {/* Store Logo */}
+            <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/[0.06] flex-shrink-0">
+              {store.logoUrl ? (
+                <img src={store.logoUrl} alt={storeName} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 flex items-center justify-center">
+                  <FaStore className="text-emerald-400" />
+                </div>
+              )}
+            </div>
+            
+            {/* Store Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-white font-bold text-sm sm:text-base truncate">{storeName}</h1>
+                {store.isVerified && <HiBadgeCheck className="text-emerald-400 flex-shrink-0 text-sm" />}
+              </div>
+              <p className="text-white/50 text-xs truncate">{store.category || 'General Store'}</p>
+            </div>
+            
+            {/* Stats - Desktop */}
+            <div className="hidden md:flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <FaStar className="text-amber-400 text-xs" />
+                <span className="text-white text-sm font-medium">{store.rating?.toFixed(1) || '0.0'}</span>
+              </div>
+              <div className="w-px h-4 bg-white/[0.1]" />
+              <div className="flex items-center gap-1.5">
+                <FaClock className="text-emerald-400 text-xs" />
+                <span className="text-white text-sm">{store.baseDeliveryTime || store.avgDeliveryTime || 30} min</span>
+              </div>
+              <div className="w-px h-4 bg-white/[0.1]" />
+              <div className="flex items-center gap-1.5">
+                <FaMotorcycle className="text-blue-400 text-xs" />
+                <span className="text-white text-sm">₹{store.deliveryFee || 20}</span>
+              </div>
+              {parseFloat(store.freeDeliveryAbove) > 0 && (
+                <>
+                  <div className="w-px h-4 bg-white/[0.1]" />
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 rounded-full text-emerald-400 text-xs font-medium">
+                    <FaGift className="text-xs" />
+                    Free delivery above ₹{store.freeDeliveryAbove}
+                  </span>
+                </>
+              )}
+              {store.isActive && (
+                <>
+                  <div className="w-px h-4 bg-white/[0.1]" />
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/15 rounded-full text-emerald-400 text-xs font-medium border border-emerald-500/30">
+                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                    Open Now
+                  </span>
+                </>
+              )}
+            </div>
+            
+            {/* Actions */}
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setShowStoreInfo(true)}
+                className="w-9 h-9 rounded-full bg-white/[0.06] flex items-center justify-center hover:bg-white/[0.1] transition-colors"
+              >
+                <FaInfoCircle className="text-white/60 text-sm" />
+              </button>
+              <button 
+                onClick={() => setIsFavorite(!isFavorite)} 
+                className="w-9 h-9 rounded-full bg-white/[0.06] flex items-center justify-center hover:bg-white/[0.1] transition-colors"
+              >
+                <FaHeart className={isFavorite ? 'text-red-500 text-sm' : 'text-white/40 text-sm'} />
+              </button>
+              <button className="hidden sm:flex w-9 h-9 rounded-full bg-white/[0.06] items-center justify-center hover:bg-white/[0.1] transition-colors">
+                <FaShare className="text-white/60 text-sm" />
+              </button>
+            </div>
+          </div>
+          
+          {/* Mobile Stats Row */}
+          <div className="md:hidden flex items-center gap-3 px-3 pb-3 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <FaStar className="text-amber-400 text-[10px]" />
+              <span className="text-white text-xs font-medium">{store.rating?.toFixed(1) || '0.0'}</span>
+            </div>
+            <div className="w-px h-3 bg-white/[0.1]" />
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <FaClock className="text-emerald-400 text-[10px]" />
+              <span className="text-white text-xs">{store.baseDeliveryTime || store.avgDeliveryTime || 30} min</span>
+            </div>
+            <div className="w-px h-3 bg-white/[0.1]" />
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <FaMotorcycle className="text-blue-400 text-[10px]" />
+              <span className="text-white text-xs">₹{store.deliveryFee || 20}</span>
+            </div>
+            {parseFloat(store.freeDeliveryAbove) > 0 && (
+              <>
+                <div className="w-px h-3 bg-white/[0.1]" />
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 rounded-full text-emerald-400 text-[10px] font-medium flex-shrink-0">
+                  <FaGift className="text-[8px]" />
+                  Free &gt;₹{store.freeDeliveryAbove}
+                </span>
+              </>
+            )}
+            {store.isActive && (
+              <>
+                <div className="w-px h-3 bg-white/[0.1]" />
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/15 rounded-full text-emerald-400 text-[10px] font-medium border border-emerald-500/30 flex-shrink-0">
+                  <span className="w-1 h-1 bg-emerald-400 rounded-full animate-pulse" />
+                  Open Now
+                </span>
+              </>
+            )}
+            {/* Show distance if available */}
+            {customerDistance !== null && (
+              <>
+                <div className="w-px h-3 bg-white/[0.1]" />
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/15 rounded-full text-blue-400 text-[10px] font-medium flex-shrink-0">
+                  <FaMapMarkerAlt className="text-[8px]" />
+                  {customerDistance} km away
+                </span>
+              </>
+            )}
+          </div>
+          
+          {/* Out of Delivery Range Warning Banner */}
+          {store.deliveryEnabled !== false && !isWithinDeliveryRange && customerDistance !== null && (
+            <div className="mx-3 mb-2 p-2.5 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2">
+              <div className="w-8 h-8 bg-red-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <FaMapMarkerAlt className="text-red-400 text-sm" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-red-400 text-xs font-semibold">Out of Delivery Range</p>
+                <p className="text-red-400/70 text-[10px]">
+                  You are {customerDistance} km away. Store delivers within {store.deliveryRadius || 10} km.
+                  {store.pickupEnabled && ' Store pickup is still available.'}
+                </p>
+              </div>
+            </div>
+          )}
+          
+          {/* Search Bar - Integrated in Header */}
+          <div className="px-3 lg:px-4 pb-3 lg:ml-52 xl:ml-56">
+            <div className="relative">
+              <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-sm" />
+              <input
+                type="text"
+                placeholder={`Search in ${storeName}`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-9 pl-9 pr-9 bg-white/[0.06] rounded-lg text-white text-sm placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:bg-white/[0.08] transition-colors"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <FaTimes className="text-white/40 text-sm hover:text-white/60" />
+                </button>
+              )}
+            </div>
+          </div>
+      </header>
+
+      {/* ===== MAIN CONTENT (with top padding for fixed header) ===== */}
+      <main className="pt-[140px] md:pt-[110px]">
+        {/* ===== MOBILE: Horizontal Categories (visible on mobile/tablet) ===== */}
+        <div className="lg:hidden sticky top-[140px] md:top-[110px] z-20 bg-[#0a0f1c]/95 backdrop-blur-md border-b border-white/[0.06]">
+          <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-hide">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all ${
+                  selectedCategory === cat
+                    ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                    : 'bg-[#151c2c] text-white/60 border border-white/[0.08] hover:border-white/20'
+                }`}
+              >
+                <span className="mr-1">{getCategoryIcon(cat)}</span>
+                {cat}
+                <span className="ml-1 opacity-60">({getCategoryCount(cat)})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ===== DESKTOP: Sidebar + Products Layout ===== */}
+        <div className="flex-1 relative">
+          
+          {/* === LEFT SIDEBAR - FIXED Categories (Desktop Only) === */}
+          <aside className="hidden lg:flex flex-col fixed left-0 top-[110px] bottom-0 w-52 xl:w-56 border-r border-white/[0.06] bg-[#0a0f1c] z-30 overflow-y-auto">
+            <div className="p-3 flex-1">
+              <h3 className="text-white/50 text-[10px] font-semibold uppercase tracking-wider mb-3 px-2">Categories</h3>
+              <div className="space-y-1">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all ${
+                      selectedCategory === cat
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'text-white/70 hover:bg-white/[0.04] hover:text-white'
+                    }`}
+                  >
+                    <span className="text-base">{getCategoryIcon(cat)}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${selectedCategory === cat ? 'text-emerald-400' : ''}`}>
+                        {cat}
+                      </p>
+                      <p className="text-[10px] text-white/40">{getCategoryCount(cat)} items</p>
+                    </div>
+                    {selectedCategory === cat && (
+                      <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Sidebar bottom padding for cart bar */}
+            <div className="h-20 flex-shrink-0" />
+          </aside>
+
+          {/* === RIGHT CONTENT - Products Grid (with left margin on desktop) === */}
+          <div className="lg:ml-52 xl:ml-56">
+            {/* Products Header - Sticky */}
+            <div className="sticky top-0 z-20 bg-[#0a0f1c]/95 backdrop-blur-md px-3 lg:px-4 py-3 flex items-center justify-between border-b border-white/[0.06]">
+              <div>
+                <h2 className="text-white font-semibold text-sm">
+                  {selectedCategory === 'All' ? 'All Products' : selectedCategory}
+                </h2>
+                <p className="text-white/40 text-xs">{filteredProducts.length} products</p>
+              </div>
+            </div>
+
+            {/* Products Grid */}
+            <div className="p-3 lg:p-4">
+              {filteredProducts.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 sm:gap-3">
+                  {filteredProducts.map((product) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      cartQuantity={getItemQuantity(product.id)}
+                      onAdd={handleAddToCart}
+                      onUpdate={updateQuantity}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <FaSearch className="text-white/20 text-2xl mb-3" />
+                  <p className="text-white/50 text-sm">No products found</p>
+                </div>
+              )}
+              
+              {/* Bottom Padding */}
+              <div className="h-24" />
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* ===== CART BAR - Full Width ===== */}
+      <AnimatePresence>
+        {itemCount > 0 && cartStore?.id === storeId && (
+          <motion.div
+            initial={{ y: 100 }}
+            animate={{ y: 0 }}
+            exit={{ y: 100 }}
+            className="fixed bottom-0 left-0 right-0 z-40 bg-[#0a0f1c]/95 backdrop-blur-md border-t border-white/[0.06]"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <div className="p-3 lg:pl-56 xl:pl-60">
+              <button
+                onClick={onCartClick}
+                className="w-full bg-emerald-500 rounded-xl p-3 flex items-center justify-between shadow-xl shadow-emerald-500/30 hover:bg-emerald-600 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-white/20 rounded-lg flex items-center justify-center">
+                    <FaShoppingCart className="text-white" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-white font-semibold">{itemCount} item{itemCount > 1 ? 's' : ''}</p>
+                    <p className="text-white/70 text-xs">{storeName}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-white font-bold text-lg">₹{total}</span>
+                  <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+                    <FaChevronRight className="text-white" />
+                  </div>
+                </div>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Store Info Sheet */}
+      <AnimatePresence>
+        {showStoreInfo && (
+          <StoreInfoSheet 
+            store={store} 
+            isOpen={showStoreInfo} 
+            onClose={() => setShowStoreInfo(false)}
+            customerDistance={customerDistance}
+            isWithinDeliveryRange={isWithinDeliveryRange}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+export default StoreDetail;

@@ -4,11 +4,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc, getDoc, orderBy } from 'firebase/firestore';
 import { db, auth } from '../../../firebase/firebaseConfig';
-import { sendStockRefillReminder, sendBulkStockRefillReminder, getWhatsAppConfig, WHATSAPP_PROVIDERS } from '../../../services/whatsappService';
+import { sendStockRefillReminder, sendBulkStockRefillReminder, sendWhatsAppMessage, getWhatsAppConfig, WHATSAPP_PROVIDERS } from '../../../services/whatsappService';
 import { toast } from 'react-toastify';
 import { motion, AnimatePresence } from 'framer-motion';
+import { TEMPLATE_TYPES, generateMessage } from './MessageTemplates';
+import { FaImage, FaVideo, FaLink, FaMagic } from 'react-icons/fa';
 
 const StockRefillReminder = () => {
   const [lowStockProducts, setLowStockProducts] = useState([]);
@@ -18,6 +20,9 @@ const StockRefillReminder = () => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [threshold, setThreshold] = useState(10); // Default threshold
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [useTemplate, setUseTemplate] = useState(false);
 
   const distributorId = auth.currentUser?.uid;
 
@@ -86,6 +91,39 @@ const StockRefillReminder = () => {
     return () => unsubscribe();
   }, [distributorId, threshold]);
 
+  // Load templates
+  useEffect(() => {
+    if (!distributorId) return;
+
+    const templatesRef = collection(db, 'businesses', distributorId, 'whatsappTemplates');
+    const q = query(templatesRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const templatesList = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(t => t.type === TEMPLATE_TYPES.STOCK_REMINDER || t.type === TEMPLATE_TYPES.PRICE_CHANGE || t.type === TEMPLATE_TYPES.PRODUCT_UPDATE);
+        setTemplates(templatesList);
+        if (templatesList.length > 0 && !selectedTemplate) {
+          setSelectedTemplate(templatesList[0]);
+        }
+      },
+      (error) => {
+        console.error('Error loading templates:', error);
+        // If permission denied, show empty templates array (user can still use default messages)
+        if (error.code === 'permission-denied') {
+          console.warn('Template access denied - using default messages only');
+          setTemplates([]);
+        } else {
+          toast.error('Failed to load templates. Using default messages.');
+          setTemplates([]);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [distributorId]);
+
   const handleSendReminders = async () => {
     if (!distributorId) return;
 
@@ -148,13 +186,52 @@ const StockRefillReminder = () => {
         }
 
         try {
-          // Use bulk function to send all selected products in one message
-          const result = await sendBulkStockRefillReminder(
-            distributorId,
-            selectedProductsList,
-            retailer.phone,
-            retailer.businessName || retailer.retailerName
-          );
+          let result;
+          
+          // Use template if selected
+          if (useTemplate && selectedTemplate) {
+            // Build variables from products
+            const variables = {};
+            if (selectedProductsList.length === 1) {
+              const product = selectedProductsList[0];
+              variables.productName = product.name || product.productName || 'Product';
+              variables.price = `₹${product.sellingPrice || product.mrp || product.price || 0}`;
+              variables.stock = `${product.quantity || 0} ${product.unit || 'units'}`;
+            } else {
+              variables.productName = `${selectedProductsList.length} products`;
+              variables.productCount = selectedProductsList.length;
+            }
+
+            const message = generateMessage(selectedTemplate, variables);
+            
+            result = await sendWhatsAppMessage(
+              distributorId,
+              retailer.phone,
+              message,
+              {
+                messageType: selectedTemplate.type || 'stock_reminder',
+                metadata: {
+                  templateId: selectedTemplate.id,
+                  templateName: selectedTemplate.name,
+                  productIds: selectedProductsList.map(p => p.id),
+                  imageUrl: selectedTemplate.imageUrl,
+                  videoUrl: selectedTemplate.videoUrl,
+                  linkUrl: selectedTemplate.linkUrl,
+                  retailerId: retailer.id,
+                  retailerName: retailer.businessName,
+                },
+                logMessage: true,
+              }
+            );
+          } else {
+            // Use default bulk function
+            result = await sendBulkStockRefillReminder(
+              distributorId,
+              selectedProductsList,
+              retailer.phone,
+              retailer.businessName || retailer.retailerName
+            );
+          }
           
           // For Direct Link mode, open WhatsApp Web
           if (result.method === 'direct' || result.method === 'direct_fallback') {
@@ -243,29 +320,122 @@ const StockRefillReminder = () => {
 
   if (loading) {
     return (
-      <div className="p-6 text-white">
+      <div className="text-white">
         <div className="animate-pulse">Loading stock data...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 text-white space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-teal-400">
-            📦 Stock Refill Reminders
-          </h2>
-          <p className="text-gray-400">
-            Send bulk WhatsApp reminders to retailers about low stock items
-          </p>
+    <div className="space-y-6">
+      {/* Compact Header */}
+      <div className="flex items-center justify-between pb-4 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📦</span>
+          <div>
+            <h2 className="text-xl font-semibold text-white">
+              Stock Refill Reminders
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Send bulk reminders about low stock, price changes, or product updates
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-400">
-            {selectedProducts.size} products • {selectedRetailers.size} retailers
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-gray-400">
+            {selectedProducts.size} products
+          </span>
+          <span className="text-gray-500">•</span>
+          <span className="text-gray-400">
+            {selectedRetailers.size} retailers
           </span>
         </div>
+      </div>
+
+      {/* Template Selection */}
+      <div className="bg-slate-900/80 border border-white/10 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+                <FaMagic className="text-emerald-400" />
+                Use Template (Optional)
+              </h3>
+              <p className="text-sm text-gray-400">
+                Select a beautiful template with images, videos, or links for your messages
+              </p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useTemplate}
+                onChange={(e) => setUseTemplate(e.target.checked)}
+                className="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-300">Use Template</span>
+            </label>
+          </div>
+
+          {useTemplate && (
+            <div className="space-y-3">
+              {templates.length === 0 ? (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+                  <p className="text-sm text-amber-300 mb-2">
+                    <strong>No templates available yet.</strong>
+                  </p>
+                  <p className="text-xs text-amber-200/70 mb-3">
+                    Create beautiful templates with images, videos, and links in the <strong>Templates</strong> tab.
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    You can still send reminders using the default message format below.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <select
+                    value={selectedTemplate?.id || ''}
+                    onChange={(e) => {
+                      const template = templates.find(t => t.id === e.target.value);
+                      setSelectedTemplate(template || null);
+                    }}
+                    className="w-full bg-slate-800/60 border border-white/10 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">Select a template...</option>
+                    {templates.map(template => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} ({template.type?.replace('_', ' ')})
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedTemplate && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 mt-3">
+                      <div className="flex items-start gap-3">
+                        {selectedTemplate.imageUrl && (
+                          <img 
+                            src={selectedTemplate.imageUrl} 
+                            alt="Template" 
+                            className="w-20 h-20 rounded-lg object-cover"
+                          />
+                        )}
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-white mb-1">{selectedTemplate.name}</h4>
+                          {selectedTemplate.title && (
+                            <p className="text-sm text-gray-300 mb-2">*{selectedTemplate.title}*</p>
+                          )}
+                          <p className="text-xs text-gray-400 line-clamp-2 mb-2">{selectedTemplate.message}</p>
+                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                            {selectedTemplate.imageUrl && <span className="flex items-center gap-1"><FaImage /> Image</span>}
+                            {selectedTemplate.videoUrl && <span className="flex items-center gap-1"><FaVideo /> Video</span>}
+                            {selectedTemplate.linkUrl && <span className="flex items-center gap-1"><FaLink /> Link</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
       </div>
 
       {/* Threshold Setting */}

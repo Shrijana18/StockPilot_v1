@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FLYP Shop Colors - Dark Navy Theme -->
+    <color name="colorPrimary">#05E06C</color>
+    <color name="colorPrimaryDark">#060D2D</color>
+    <color name="colorAccent">#05E06C</color>
+    
+    <!-- Background Colors -->
+    <color name="splash_background">#060D2D</color>
+    <color name="app_background">#060D2D</color>
+    
+    <!-- Status Bar & Navigation -->
+    <color name="status_bar">#060D2D</color>
+    <color name="navigation_bar">#060D2D</color>
+    
+    <!-- FLYP Brand Colors -->
+    <color name="flyp_green">#05E06C</color>
+    <color name="flyp_green_light">#2EF58A</color>
+    <color name="flyp_navy">#060D2D</color>
+    <color name="flyp_navy_light">#0A1340</color>
+    <color name="flyp_navy_medium">#101B4A</color>
+</resources>

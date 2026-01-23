@@ -1223,7 +1223,7 @@ const DistributorDashboard = () => {
           </AnimatePresence>
 
           {/* Main Content */}
-          <main className="relative pt-2 sm:pt-3 px-2 sm:px-3 md:px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] mx-2 sm:mx-3 mt-1 mb-2 sm:mb-3 overflow-y-auto">
+          <main className={`relative ${activeTab === "whatsapp" ? 'p-0 m-0 overflow-hidden' : 'pt-2 sm:pt-3 px-2 sm:px-3 md:px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] mx-2 sm:mx-3 mt-1 mb-2 sm:mb-3 overflow-y-auto'}`}>
             <AnimatePresence mode="wait">
               {activeTab === "dashboard" && (
                 <motion.div
@@ -1345,14 +1345,14 @@ const DistributorDashboard = () => {
               {activeTab === "whatsapp" && auth?.currentUser && (
                 <motion.div
                   key="whatsapp"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="w-full overflow-hidden"
+                  style={{ height: 'calc(100vh - 145px)' }}
                 >
-                  <div className="w-full">
-                    <WhatsAppHub />
-                  </div>
+                  <WhatsAppHub />
                 </motion.div>
               )}
               {activeTab === "employees" && auth?.currentUser && (

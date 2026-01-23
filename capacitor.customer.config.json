@@ -1,0 +1,56 @@
+{
+  "appId": "com.flypnow.shop",
+  "appName": "FLYP Shop",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "iosScheme": "capacitor",
+    "androidScheme": "https",
+    "allowNavigation": [
+      "apis.google.com",
+      "accounts.google.com",
+      "www.google.com",
+      "www.gstatic.com",
+      "*.googleapis.com",
+      "*.firebaseio.com",
+      "firestore.googleapis.com",
+      "firebasestorage.googleapis.com",
+      "securetoken.googleapis.com",
+      "identitytoolkit.googleapis.com",
+      "maps.googleapis.com"
+    ],
+    "cleartext": true
+  },
+  "android": {
+    "backgroundColor": "#060D2D",
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "ios": {
+    "backgroundColor": "#060D2D",
+    "contentInset": "automatic",
+    "allowsLinkPreview": true,
+    "scrollEnabled": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "launchAutoHide": true,
+      "backgroundColor": "#060D2D",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#060D2D"
+    },
+    "Keyboard": {
+      "resize": "body",
+      "resizeOnFullScreen": true
+    }
+  }
+}

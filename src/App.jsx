@@ -25,6 +25,7 @@ const LandingPage = lazy(() => import('./pages/LandingPage.jsx'));
 const AppLanding = lazy(() => import('./pages/AppLanding.jsx'));
 const RetailerDashboard = lazy(() => import('./views/RetailerDashboard.jsx'));
 const DistributorDashboard = lazy(() => import('./components/DistributorDashboard.jsx'));
+const MobileDistributorDashboard = lazy(() => import('./app/views/MobileDistributorDashboard.jsx'));
 const ProductOwnerDashboard = lazy(() => import('./components/ProductOwnerDashboard.jsx'));
 const Inventory = lazy(() => import('./pages/Inventory.jsx'));
 const Billing = lazy(() => import('./pages/Billing.jsx'));
@@ -38,6 +39,9 @@ const DistributorEmployeeLogin = lazy(() => import('./pages/DistributorEmployeeL
 const DistributorEmployeeDashboard = lazy(() => import('./components/distributor/employees/DistributorEmployeeDashboard.jsx'));
 const WhatsAppConnectSuccess = lazy(() => import('./pages/WhatsAppConnectSuccess.jsx'));
 const WhatsAppConnectError = lazy(() => import('./pages/WhatsAppConnectError.jsx'));
+
+// Customer Marketplace App
+const CustomerApp = lazy(() => import('./customer/CustomerApp.jsx'));
 
 const PageFallback = () => <LoadingScreen />;
 
@@ -82,6 +86,9 @@ const App = () => {
         >
           <Suspense fallback={<PageFallback />}>
             <Routes>
+              {/* Customer Marketplace App - Separate app for end customers */}
+              <Route path="/shop/*" element={<CustomerApp />} />
+              
               {/* Public Routes */}
               <Route path="/" element={<AppLanding />} />
               <Route path="/auth/*" element={<AuthPage />} />
@@ -105,9 +112,9 @@ const App = () => {
               <Route element={<PrivateRoute />}>
                 <Route path="/dashboard" element={<RetailerDashboard />} />
               </Route>
-              {/* Distributor */}
+              {/* Distributor - Use Mobile Dashboard for Native App */}
               <Route element={<PrivateRoute requireRole="distributor" />}>
-                <Route path="/distributor-dashboard" element={<DistributorDashboard />} />
+                <Route path="/distributor-dashboard" element={<MobileDistributorDashboard />} />
               </Route>
               {/* Product Owner */}
               <Route element={<PrivateRoute requireRole="productowner" />}>
@@ -139,6 +146,9 @@ const App = () => {
         >
           <Suspense fallback={<PageFallback />}>
             <Routes>
+              {/* Customer Marketplace App - Separate app for end customers */}
+              <Route path="/shop/*" element={<CustomerApp />} />
+              
               {/* Public Routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/auth/*" element={<AuthPage />} />

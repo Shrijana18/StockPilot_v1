@@ -19,10 +19,14 @@ import SearchDistributor from "../components/distributor/SearchDistributor";
 import ViewSentRequests from "../components/distributor/ViewSentRequests";
 import ManageEmployee from "../components/employee/ManageEmployee";
 import RetailerAIForecast from "../components/retailer/aiForecast/RetailerAIForecast";
+import MarketplaceSetup from "../components/retailer/marketplace/MarketplaceSetup";
+import MarketplaceProducts from "../components/retailer/marketplace/MarketplaceProducts";
+import CustomerOrders from "../components/retailer/marketplace/CustomerOrders";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek } from 'date-fns';
 import { 
   FaUser, FaSignOutAlt, FaHome, FaBoxes, FaFileInvoice, FaChartLine, FaUsers, FaUserPlus, FaBuilding, FaBrain,
-  FaBell, FaCog, FaSearch, FaBolt, FaClock, FaKeyboard, FaTimes, FaRocket, FaBox, FaStore, FaIdCard, FaChevronDown, FaHistory
+  FaBell, FaCog, FaSearch, FaBolt, FaClock, FaKeyboard, FaTimes, FaRocket, FaBox, FaStore, FaIdCard, FaChevronDown, FaHistory,
+  FaShoppingCart
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import { signOut } from "firebase/auth";
@@ -43,6 +47,7 @@ const RetailerDashboardInner = () => {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [filterDates, setFilterDates] = useState({ start: null, end: null });
   const [distributorTab, setDistributorTab] = useState('search');
+  const [marketplaceTab, setMarketplaceTab] = useState('orders');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -333,9 +338,10 @@ const RetailerDashboardInner = () => {
 
   const sidebarItems = [
     { id: 'home', label: t('retailer.home'), icon: <FaHome /> },
+    { id: 'marketplace', label: 'Marketplace', icon: <FaShoppingCart />, badge: 'NEW' },
     { id: 'billing', label: t('retailer.billing'), icon: <FaFileInvoice /> },
     { id: 'inventory', label: t('retailer.inventory'), icon: <FaBoxes /> },
-    { id: 'aiForecast', label: 'AI Forecast', icon: <FaBrain />, badge: 'NEW' },
+    { id: 'aiForecast', label: 'AI Forecast', icon: <FaBrain /> },
     { id: 'analytics', label: t('retailer.analytics'), icon: <FaChartLine /> },
     { id: 'distributors', label: t('retailer.distributors'), icon: <FaBuilding /> },
     { id: 'orderHistory', label: t('retailer.orderHistory'), icon: <FaFileInvoice /> },
@@ -1175,6 +1181,55 @@ const RetailerDashboardInner = () => {
 
                 {activeTab === 'billing' && <Billing />}
                 {activeTab === 'orderHistory' && <RetailerOrderHistory />}
+
+                {activeTab === 'marketplace' && (
+                  <div>
+                    <div className="mb-6">
+                      <h2 className="text-xl font-bold text-white mb-2">Customer Marketplace</h2>
+                      <p className="text-white/60 text-sm">Manage your store on the FLYP customer app</p>
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6 border-b border-white/10 pb-2">
+                      <button
+                        onClick={() => setMarketplaceTab('orders')}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center gap-2 ${
+                          marketplaceTab === 'orders' 
+                            ? 'bg-emerald-500 text-slate-900' 
+                            : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'
+                        }`}
+                      >
+                        <FaShoppingCart />
+                        Customer Orders
+                      </button>
+                      <button
+                        onClick={() => setMarketplaceTab('products')}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center gap-2 ${
+                          marketplaceTab === 'products' 
+                            ? 'bg-emerald-500 text-slate-900' 
+                            : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'
+                        }`}
+                      >
+                        <FaBoxes />
+                        Products
+                      </button>
+                      <button
+                        onClick={() => setMarketplaceTab('setup')}
+                        className={`px-3 sm:px-4 py-3 sm:py-2 rounded transition text-sm sm:text-base min-h-[48px] touch-target flex items-center justify-center gap-2 ${
+                          marketplaceTab === 'setup' 
+                            ? 'bg-emerald-500 text-slate-900' 
+                            : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'
+                        }`}
+                      >
+                        <FaStore />
+                        Store Setup
+                      </button>
+                    </div>
+
+                    {marketplaceTab === 'orders' && <CustomerOrders />}
+                    {marketplaceTab === 'products' && <MarketplaceProducts />}
+                    {marketplaceTab === 'setup' && <MarketplaceSetup />}
+                  </div>
+                )}
 
                 {activeTab === 'inventory' && (
                   <div>

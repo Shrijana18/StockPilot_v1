@@ -12,6 +12,12 @@ import PricingModeFields from "./PricingModeFields";
 import { PRICING_MODES, buildPricingSave } from "../../utils/pricing";
 import ProductBarcode from "./ProductBarcode";
 import MagicScanDisplay from "../../components/inventory/MagicScanDisplay";
+import {
+  calculateSellingUnitPrice,
+  calculateSellingUnitStock,
+  initializeLooseProductFields,
+  validateLooseProductConfig,
+} from "../../utils/looseProductUtils";
 
 // --- NEW, UPGRADED MultiResultsTable ---
 // This entire component is replaced to make the table interactive.
@@ -131,6 +137,17 @@ const ManualEntryForm = () => {
     unit: "",
     description: "",
     image: null,
+  });
+
+  // Loose product state
+  const [isLooseProduct, setIsLooseProduct] = useState(false);
+  const [looseProductData, setLooseProductData] = useState({
+    baseUnit: "",
+    sellingUnit: "",
+    conversionFactor: "",
+    baseUnitCost: "",
+    baseUnitSellingPrice: "",
+    minSellingQuantity: "1",
   });
 
   // Pricing mode state (backward-compatible: default LEGACY keeps current behavior)
@@ -406,6 +423,62 @@ const ManualEntryForm = () => {
     }
   };
 
+  // Handle loose product field changes
+  const handleLooseProductChange = (field, value) => {
+    setLooseProductData((prev) => {
+      const updated = { ...prev, [field]: value };
+      
+      // Auto-calculate selling unit price when base unit price or conversion factor changes
+      if (field === "baseUnitSellingPrice" || field === "conversionFactor") {
+        const basePrice = field === "baseUnitSellingPrice" 
+          ? parseFloat(value) || 0 
+          : parseFloat(prev.baseUnitSellingPrice) || 0;
+        const factor = field === "conversionFactor"
+          ? parseFloat(value) || 1
+          : parseFloat(prev.conversionFactor) || 1;
+        
+        if (basePrice > 0 && factor > 0) {
+          // This will be calculated on submit, but we can show preview
+        }
+      }
+      
+      return updated;
+    });
+  };
+
+  // Auto-calculate conversion factor from units (if possible)
+  const handleAutoCalculateConversion = () => {
+    const baseUnit = looseProductData.baseUnit.toLowerCase();
+    const sellingUnit = looseProductData.sellingUnit.toLowerCase();
+    
+    // Common conversions
+    const conversions = {
+      '1 packet (100 pieces)': { '1 piece': 100, 'piece': 100 },
+      '1kg': { '100g': 10, '500g': 2, 'gram': 1000, 'g': 1000 },
+      '1 strip (10 tablets)': { '1 tablet': 10, 'tablet': 10 },
+      '1 packet': { '1 piece': 100, 'piece': 100 },
+    };
+
+    let found = false;
+    for (const [base, sellingMap] of Object.entries(conversions)) {
+      if (baseUnit.includes(base.split('(')[0].trim()) || baseUnit.includes(base)) {
+        for (const [sell, factor] of Object.entries(sellingMap)) {
+          if (sellingUnit.includes(sell)) {
+            setLooseProductData((prev) => ({ ...prev, conversionFactor: factor.toString() }));
+            found = true;
+            toast.success(`Auto-calculated: 1 ${looseProductData.baseUnit} = ${factor} ${looseProductData.sellingUnit}`);
+            break;
+          }
+        }
+        if (found) break;
+      }
+    }
+
+    if (!found) {
+      toast.info('Could not auto-calculate. Please enter conversion factor manually.');
+    }
+  };
+
   const handleAutoSuggest = async () => {
     try {
       // Do not overwrite a manually entered HSN
@@ -512,8 +585,39 @@ const ManualEntryForm = () => {
         imageUrl = await getDownloadURL(imageRef);
       }
 
+      // Validate loose product config if enabled
+      if (isLooseProduct) {
+        const validation = validateLooseProductConfig({
+          isLooseProduct: true,
+          baseUnit: looseProductData.baseUnit,
+          sellingUnit: looseProductData.sellingUnit,
+          conversionFactor: parseFloat(looseProductData.conversionFactor) || 0,
+        });
+        
+        if (!validation.valid) {
+          toast.error(validation.errors[0]);
+          setUploading(false);
+          return;
+        }
+      }
+
+      // Calculate loose product fields
+      const conversionFactor = isLooseProduct ? parseFloat(looseProductData.conversionFactor) || 1 : 1;
+      const baseUnitCost = isLooseProduct 
+        ? parseFloat(looseProductData.baseUnitCost) || parseFloat(formData.costPrice) || 0
+        : parseFloat(formData.costPrice) || 0;
+      const baseUnitSellingPrice = isLooseProduct
+        ? parseFloat(looseProductData.baseUnitSellingPrice) || pricingPayload.sellingPrice
+        : pricingPayload.sellingPrice;
+      const sellingUnitPrice = isLooseProduct
+        ? calculateSellingUnitPrice(baseUnitSellingPrice, conversionFactor)
+        : pricingPayload.sellingPrice;
+      const stockInSellingUnit = isLooseProduct
+        ? calculateSellingUnitStock(Number(formData.quantity), conversionFactor)
+        : Number(formData.quantity);
+
       const productRef = doc(collection(db, "businesses", userId, "products"));
-      await setDoc(productRef, {
+      const productData = {
         productName: formData.productName,
         sku: formData.sku,
         brand: formData.brand,
@@ -521,7 +625,7 @@ const ManualEntryForm = () => {
         quantity: Number(formData.quantity),
         costPrice: Number(formData.costPrice),
         // Pricing (final sellingPrice always present)
-        sellingPrice: pricingPayload.sellingPrice,
+        sellingPrice: isLooseProduct ? sellingUnitPrice : pricingPayload.sellingPrice,
         pricingMode: pricingPayload.pricingMode,
         ...(pricingPayload.mrp !== undefined ? { mrp: pricingPayload.mrp } : {}),
         ...(pricingPayload.basePrice !== undefined ? { basePrice: pricingPayload.basePrice } : {}),
@@ -530,38 +634,33 @@ const ManualEntryForm = () => {
         ...(pricingValues.taxSource ? { taxSource: pricingValues.taxSource } : {}),
         ...(pricingValues.taxConfidence ? { taxConfidence: Number(pricingValues.taxConfidence) } : {}),
         ...(barcode ? { barcode } : {}),
-        unit: formData.unit,
+        unit: isLooseProduct ? looseProductData.baseUnit : formData.unit,
         description: formData.description,
         imageUrl, // ✅ Only storing URL
         id: productRef.id,
         createdAt: serverTimestamp(),
         addedBy: userId,
-      });
+        // Loose product fields
+        isLooseProduct: isLooseProduct || false,
+        ...(isLooseProduct ? {
+          baseUnit: looseProductData.baseUnit,
+          sellingUnit: looseProductData.sellingUnit,
+          conversionFactor: conversionFactor,
+          stockInSellingUnit: stockInSellingUnit,
+          baseUnitCost: baseUnitCost,
+          baseUnitSellingPrice: baseUnitSellingPrice,
+          sellingUnitPrice: sellingUnitPrice,
+          minSellingQuantity: parseFloat(looseProductData.minSellingQuantity) || 1,
+        } : {}),
+      };
+
+      await setDoc(productRef, productData);
 
       await logInventoryChange({
         productId: productRef.id,
         sku: formData.sku,
         previousData: {}, // since it's a new product
-        updatedData: {
-          productName: formData.productName,
-          sku: formData.sku,
-          brand: formData.brand,
-          category: formData.category,
-          quantity: Number(formData.quantity),
-          costPrice: Number(formData.costPrice),
-          sellingPrice: pricingPayload.sellingPrice,
-          pricingMode: pricingPayload.pricingMode,
-          ...(pricingPayload.mrp !== undefined ? { mrp: pricingPayload.mrp } : {}),
-          ...(pricingPayload.basePrice !== undefined ? { basePrice: pricingPayload.basePrice } : {}),
-          ...(pricingPayload.taxRate !== undefined ? { taxRate: pricingPayload.taxRate } : {}),
-          ...(pricingValues.hsnCode ? { hsnCode: pricingValues.hsnCode } : {}),
-          ...(pricingValues.taxSource ? { taxSource: pricingValues.taxSource } : {}),
-          ...(pricingValues.taxConfidence ? { taxConfidence: Number(pricingValues.taxConfidence) } : {}),
-          ...(barcode ? { barcode } : {}),
-          unit: formData.unit,
-          description: formData.description,
-          imageUrl,
-        },
+        updatedData: productData,
         action: "created",
         source: "manual",
       });
@@ -589,6 +688,15 @@ const ManualEntryForm = () => {
         hsnCode: "",
         taxSource: "",
         taxConfidence: "",
+      });
+      setIsLooseProduct(false);
+      setLooseProductData({
+        baseUnit: "",
+        sellingUnit: "",
+        conversionFactor: "",
+        baseUnitCost: "",
+        baseUnitSellingPrice: "",
+        minSellingQuantity: "1",
       });
       setPreviewUrl(null);
       setBarcode("");
@@ -867,14 +975,174 @@ const ManualEntryForm = () => {
           </div>
         </div>
 
-        <input
-          type="text"
-          name="unit"
-          placeholder="Unit (e.g., box, piece)"
-          value={formData.unit}
-          onChange={handleChange}
-          className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-        />
+        {/* Loose Product Toggle */}
+        <div className="col-span-2 rounded-xl border border-white/15 bg-white/5 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <label className="text-sm font-medium text-white/90 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={isLooseProduct}
+                  onChange={(e) => {
+                    setIsLooseProduct(e.target.checked);
+                    if (!e.target.checked) {
+                      // Reset loose product data when disabled
+                      setLooseProductData({
+                        baseUnit: "",
+                        sellingUnit: "",
+                        conversionFactor: "",
+                        baseUnitCost: "",
+                        baseUnitSellingPrice: "",
+                        minSellingQuantity: "1",
+                      });
+                    } else {
+                      // Initialize with current unit as base unit
+                      setLooseProductData((prev) => ({
+                        ...prev,
+                        baseUnit: formData.unit || prev.baseUnit,
+                        baseUnitCost: formData.costPrice || prev.baseUnitCost,
+                        baseUnitSellingPrice: pricingValues.legacySellingPrice || formData.sellingPrice || prev.baseUnitSellingPrice,
+                      }));
+                    }
+                  }}
+                  className="w-4 h-4 accent-emerald-400"
+                />
+                <span>🛒 Sell as Loose Product</span>
+              </label>
+              <p className="text-xs text-white/60 mt-1">
+                Enable this for products sold in smaller quantities (e.g., individual chocolates, loose tablets, rice by weight)
+              </p>
+            </div>
+          </div>
+
+          {isLooseProduct && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 space-y-3">
+              {/* Base Unit */}
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Base Unit (What you buy)</label>
+                <input
+                  type="text"
+                  placeholder="e.g., 1 Packet (100 pieces)"
+                  value={looseProductData.baseUnit}
+                  onChange={(e) => handleLooseProductChange("baseUnit", e.target.value)}
+                  className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                />
+              </div>
+
+              {/* Selling Unit */}
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Selling Unit (What you sell)</label>
+                <input
+                  type="text"
+                  placeholder="e.g., 1 piece"
+                  value={looseProductData.sellingUnit}
+                  onChange={(e) => handleLooseProductChange("sellingUnit", e.target.value)}
+                  className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                />
+              </div>
+
+              {/* Conversion Factor */}
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Conversion Factor</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="e.g., 100 (1 base = 100 selling)"
+                    value={looseProductData.conversionFactor}
+                    onChange={(e) => handleLooseProductChange("conversionFactor", e.target.value)}
+                    className="flex-1 p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                    min="1"
+                    step="0.01"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAutoCalculateConversion}
+                    className="px-3 py-2 rounded-md border border-white/20 bg-white/5 hover:bg-white/10 text-white text-xs"
+                    title="Try to auto-calculate from unit names"
+                  >
+                    Auto
+                  </button>
+                </div>
+                <p className="text-xs text-white/50 mt-1">
+                  How many {looseProductData.sellingUnit || "selling units"} = 1 {looseProductData.baseUnit || "base unit"}?
+                </p>
+              </div>
+
+              {/* Min Selling Quantity */}
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Min. Selling Quantity</label>
+                <input
+                  type="number"
+                  placeholder="e.g., 1"
+                  value={looseProductData.minSellingQuantity}
+                  onChange={(e) => handleLooseProductChange("minSellingQuantity", e.target.value)}
+                  className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  min="0.01"
+                  step="0.01"
+                />
+              </div>
+
+              {/* Base Unit Cost */}
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Base Unit Cost (₹)</label>
+                <input
+                  type="number"
+                  placeholder="Cost per base unit"
+                  value={looseProductData.baseUnitCost || formData.costPrice}
+                  onChange={(e) => handleLooseProductChange("baseUnitCost", e.target.value)}
+                  className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  step="0.01"
+                />
+              </div>
+
+              {/* Base Unit Selling Price */}
+              <div>
+                <label className="text-xs text-white/60 mb-1 block">Base Unit Selling Price (₹)</label>
+                <input
+                  type="number"
+                  placeholder="Selling price per base unit"
+                  value={looseProductData.baseUnitSellingPrice || pricingValues.legacySellingPrice || formData.sellingPrice}
+                  onChange={(e) => handleLooseProductChange("baseUnitSellingPrice", e.target.value)}
+                  className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  step="0.01"
+                />
+              </div>
+
+              {/* Calculated Selling Unit Price (Read-only preview) */}
+              {looseProductData.baseUnitSellingPrice && looseProductData.conversionFactor && (
+                <div className="col-span-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="text-xs text-emerald-300 font-medium mb-1">Calculated Selling Price</div>
+                  <div className="text-sm text-white">
+                    ₹{calculateSellingUnitPrice(
+                      parseFloat(looseProductData.baseUnitSellingPrice) || 0,
+                      parseFloat(looseProductData.conversionFactor) || 1
+                    ).toFixed(2)} per {looseProductData.sellingUnit || "selling unit"}
+                  </div>
+                  {formData.quantity && (
+                    <div className="text-xs text-white/60 mt-1">
+                      Stock: {calculateSellingUnitStock(
+                        parseFloat(formData.quantity) || 0,
+                        parseFloat(looseProductData.conversionFactor) || 1
+                      )} {looseProductData.sellingUnit || "selling units"} available
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Regular Unit (only show if not loose product) */}
+        {!isLooseProduct && (
+          <input
+            type="text"
+            name="unit"
+            placeholder="Unit (e.g., box, piece)"
+            value={formData.unit}
+            onChange={handleChange}
+            className="p-2 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+          />
+        )}
         <textarea
           name="description"
           placeholder="Description"

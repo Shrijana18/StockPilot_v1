@@ -10,6 +10,7 @@ import { db, auth } from "../../firebase/firebaseConfig";
 import EditProductModal from "./EditProductModal";
 import AddColumnInventory from "./AddColumnInventory";
 import QRCodeGenerator from "./QRCodeGenerator";
+import { getStockDisplay, formatLooseProductStock, calculateSellingUnitPrice, calculateSellingUnitStock, validateLooseProductConfig } from "../../utils/looseProductUtils";
 
 // === Column Preferences: defaults + storage keys ===
 const COLUMN_DEFAULTS = [
@@ -26,6 +27,7 @@ const COLUMN_DEFAULTS = [
   // Newly supported optional columns:
   { id: "mrp", label: "MRP", minWidth: 110 },
   { id: "gstRate", label: "GST %", minWidth: 90 },
+  { id: "isLooseProduct", label: "Loose Product", minWidth: 120, align: "center" },
   { id: "status", label: "Status", minWidth: 100, align: "center" },
   { id: "source", label: "Source", minWidth: 120 },
   { id: "qr", label: "QR", minWidth: 80 },
@@ -141,6 +143,18 @@ const ViewInventory = ({ userId }) => {
   // Custom columns
   const [customColumns, setCustomColumns] = useState([]); // [{id,label,minWidth,type,key}]
   const [showCustomColumnsModal, setShowCustomColumnsModal] = useState(false);
+  
+  // Loose product quick setup modal
+  const [showLooseProductModal, setShowLooseProductModal] = useState(false);
+  const [looseProductTarget, setLooseProductTarget] = useState(null);
+  const [looseProductConfig, setLooseProductConfig] = useState({
+    baseUnit: "",
+    sellingUnit: "",
+    conversionFactor: "",
+    baseUnitCost: "",
+    baseUnitSellingPrice: "",
+    minSellingQuantity: "1",
+  });
 
   // For compatibility with handleSelectUnsplashImage
   // We'll store the selected Unsplash image URL in imagePreviewUrl, and imageUploadFile remains null
@@ -350,8 +364,18 @@ const ViewInventory = ({ userId }) => {
       const originalSnap = await getDoc(productRef);
       const originalData = originalSnap.exists() ? originalSnap.data() : {};
 
+      // Handle loose product quantity updates
+      if (field === "quantity" && originalData.isLooseProduct) {
+        const { calculateSellingUnitStock } = await import("../../utils/looseProductUtils");
+        const conversionFactor = originalData.conversionFactor || 1;
+        const stockInSellingUnit = calculateSellingUnitStock(Number(value) || 0, conversionFactor);
+        await updateDoc(productRef, {
+          quantity: Number(value),
+          stockInSellingUnit: stockInSellingUnit,
+        });
+      }
       // Normalize GST field across AI (gstRate) and Manual (taxRate) flows
-      if (field === "gstRate") {
+      else if (field === "gstRate") {
         const numeric = typeof value === "string" ? Number(value) : value;
         await updateDoc(productRef, { gstRate: numeric, taxRate: numeric });
       } else {
@@ -718,7 +742,14 @@ const ViewInventory = ({ userId }) => {
                                       autoFocus
                                     />
                                   ) : (
-                                    p.productName
+                                    <div className="flex items-center gap-2">
+                                      <span>{p.productName}</span>
+                                      {p.isLooseProduct && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30" title="Loose Product">
+                                          🛒
+                                        </span>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                               );
@@ -742,16 +773,34 @@ const ViewInventory = ({ userId }) => {
                                       autoFocus
                                     />
                                   ) : (
-                                    p[col.id] || ""
+                                    <div className="flex flex-col gap-1">
+                                      {p.isLooseProduct ? (
+                                        <>
+                                          <div className="flex items-center gap-1">
+                                            <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                              Loose
+                                            </span>
+                                          </div>
+                                          <div className="text-xs text-white/90">
+                                            <div>Base: {p.baseUnit || p.unit || ""}</div>
+                                            <div className="text-white/70">Sell: {p.sellingUnit || ""}</div>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <span>{p[col.id] || ""}</span>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                               );
                             case "quantity":
+                              const stockDisplay = getStockDisplay(p);
                               return (
                                 <td key={col.id} className="p-2" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
                                   {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
                                     <input
                                       type="number"
+                                      step={p.isLooseProduct ? "0.01" : "1"}
                                       className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                                       value={editedValue}
                                       onChange={(e) => setEditedValue(e.target.value)}
@@ -759,7 +808,12 @@ const ViewInventory = ({ userId }) => {
                                       autoFocus
                                     />
                                   ) : (
-                                    p.quantity
+                                    <div className="flex flex-col">
+                                      <div className="font-medium">{stockDisplay.primary}</div>
+                                      {p.isLooseProduct && stockDisplay.secondary && (
+                                        <div className="text-xs text-white/60">{stockDisplay.secondary}</div>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                               );
@@ -800,6 +854,52 @@ const ViewInventory = ({ userId }) => {
                                     />
                                   ) : (
                                     currentGst !== undefined && currentGst !== null ? <>{currentGst}%</> : ""
+                                  )}
+                                </td>
+                              );
+                            case "isLooseProduct":
+                              return (
+                                <td key={col.id} className="p-2 align-middle text-center">
+                                  {p.isLooseProduct ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setLooseProductTarget(p);
+                                        setLooseProductConfig({
+                                          baseUnit: p.baseUnit || p.unit || "",
+                                          sellingUnit: p.sellingUnit || "",
+                                          conversionFactor: p.conversionFactor?.toString() || "",
+                                          baseUnitCost: p.baseUnitCost?.toString() || p.costPrice?.toString() || "",
+                                          baseUnitSellingPrice: p.baseUnitSellingPrice?.toString() || p.sellingPrice?.toString() || "",
+                                          minSellingQuantity: p.minSellingQuantity?.toString() || "1",
+                                        });
+                                        setShowLooseProductModal(true);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition cursor-pointer active:scale-95"
+                                      title="Click to edit loose product settings"
+                                    >
+                                      🛒 Loose
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setLooseProductTarget(p);
+                                        setLooseProductConfig({
+                                          baseUnit: p.unit || "",
+                                          sellingUnit: "",
+                                          conversionFactor: "",
+                                          baseUnitCost: p.costPrice?.toString() || "",
+                                          baseUnitSellingPrice: p.sellingPrice?.toString() || "",
+                                          minSellingQuantity: "1",
+                                        });
+                                        setShowLooseProductModal(true);
+                                      }}
+                                      className="text-xs px-2 py-1 rounded border border-white/20 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition active:scale-95"
+                                      title="Click to enable loose product"
+                                    >
+                                      + Enable
+                                    </button>
                                   )}
                                 </td>
                               );
@@ -944,10 +1044,26 @@ const ViewInventory = ({ userId }) => {
                       />
                     </button>
                   </div>
-                  <h3 className="font-semibold mb-1">{item.productName}</h3>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-semibold">{item.productName}</h3>
+                    {item.isLooseProduct && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30" title="Loose Product">
+                        🛒 Loose
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-white/70 mb-1">{item.brand} | {item.category}</p>
                   <p className="text-sm mb-1">
-                    Qty: {item.quantity} {item.sellingPrice !== undefined && <>| ₹{item.sellingPrice}</>}
+                    {item.isLooseProduct ? (
+                      <>
+                        Stock: {formatLooseProductStock(item)}
+                        {item.sellingUnitPrice !== undefined && <> | ₹{item.sellingUnitPrice?.toFixed(2)}/{item.sellingUnit}</>}
+                      </>
+                    ) : (
+                      <>
+                        Qty: {item.quantity} {item.unit && item.unit} {item.sellingPrice !== undefined && <>| ₹{item.sellingPrice}</>}
+                      </>
+                    )}
                   </p>
                   { (item.mrp !== undefined || item.gstRate !== undefined || item.taxRate !== undefined) && (
                     <p className="text-sm mb-1">
@@ -957,7 +1073,11 @@ const ViewInventory = ({ userId }) => {
                     </p>
                   )}
                   <p className="text-xs text-white/60 mb-1">
-                    SKU: {item.sku || "N/A"} | Unit: {item.unit || "N/A"}
+                    SKU: {item.sku || "N/A"} | {item.isLooseProduct ? (
+                      <>Base: {item.baseUnit || "N/A"} | Sell: {item.sellingUnit || "N/A"}</>
+                    ) : (
+                      <>Unit: {item.unit || "N/A"}</>
+                    )}
                   </p>
                   { item.hsnCode && (
                     <p className="text-xs text-white/60 mb-1">
@@ -1113,6 +1233,288 @@ const ViewInventory = ({ userId }) => {
             setQrTargetProduct(null);
           }}
         />
+      )}
+
+      {/* Loose Product Quick Setup Modal */}
+      {showLooseProductModal && looseProductTarget && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-950 rounded-2xl shadow-2xl border border-white/10 p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  {looseProductTarget.isLooseProduct ? "Edit" : "Enable"} Loose Product
+                </h2>
+                <p className="text-sm text-white/60 mt-1">{looseProductTarget.productName}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowLooseProductModal(false);
+                  setLooseProductTarget(null);
+                }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Base Unit */}
+              <div>
+                <label className="block text-sm text-white/70 mb-1">
+                  Base Unit <span className="text-white/50">(What you buy)</span>
+                </label>
+                <input
+                  type="text"
+                  value={looseProductConfig.baseUnit}
+                  onChange={(e) => setLooseProductConfig((prev) => ({ ...prev, baseUnit: e.target.value }))}
+                  placeholder="e.g., 1 Packet (100 pieces)"
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+                />
+              </div>
+
+              {/* Selling Unit */}
+              <div>
+                <label className="block text-sm text-white/70 mb-1">
+                  Selling Unit <span className="text-white/50">(What you sell)</span>
+                </label>
+                <input
+                  type="text"
+                  value={looseProductConfig.sellingUnit}
+                  onChange={(e) => setLooseProductConfig((prev) => ({ ...prev, sellingUnit: e.target.value }))}
+                  placeholder="e.g., 1 piece"
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+                />
+              </div>
+
+              {/* Conversion Factor */}
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Conversion Factor</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={looseProductConfig.conversionFactor}
+                    onChange={(e) => setLooseProductConfig((prev) => ({ ...prev, conversionFactor: e.target.value }))}
+                    placeholder="e.g., 100"
+                    className="flex-1 px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const baseUnit = looseProductConfig.baseUnit.toLowerCase();
+                      const sellingUnit = looseProductConfig.sellingUnit.toLowerCase();
+                      
+                      // Common conversions
+                      const conversions = {
+                        '1 packet (100 pieces)': { '1 piece': 100, 'piece': 100 },
+                        '1kg': { '100g': 10, '500g': 2, 'gram': 1000, 'g': 1000 },
+                        '1 strip (10 tablets)': { '1 tablet': 10, 'tablet': 10 },
+                        '1 packet': { '1 piece': 100, 'piece': 100 },
+                      };
+
+                      let found = false;
+                      for (const [base, sellingMap] of Object.entries(conversions)) {
+                        if (baseUnit.includes(base.split('(')[0].trim()) || baseUnit.includes(base)) {
+                          for (const [sell, factor] of Object.entries(sellingMap)) {
+                            if (sellingUnit.includes(sell)) {
+                              setLooseProductConfig((prev) => ({ ...prev, conversionFactor: factor.toString() }));
+                              found = true;
+                              toast.success(`Auto-calculated: 1 ${looseProductConfig.baseUnit} = ${factor} ${looseProductConfig.sellingUnit}`);
+                              break;
+                            }
+                          }
+                          if (found) break;
+                        }
+                      }
+
+                      if (!found) {
+                        toast.info('Could not auto-calculate. Please enter manually.');
+                      }
+                    }}
+                    className="px-3 py-2 rounded-lg border border-white/20 bg-white/5 hover:bg-white/10 text-white text-sm"
+                  >
+                    Auto
+                  </button>
+                </div>
+                <p className="text-xs text-white/50 mt-1">
+                  How many {looseProductConfig.sellingUnit || "selling units"} = 1 {looseProductConfig.baseUnit || "base unit"}?
+                </p>
+              </div>
+
+              {/* Base Unit Cost */}
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Base Unit Cost (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={looseProductConfig.baseUnitCost}
+                  onChange={(e) => setLooseProductConfig((prev) => ({ ...prev, baseUnitCost: e.target.value }))}
+                  placeholder={looseProductTarget.costPrice?.toString() || "Cost per base unit"}
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+                />
+              </div>
+
+              {/* Base Unit Selling Price */}
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Base Unit Selling Price (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={looseProductConfig.baseUnitSellingPrice}
+                  onChange={(e) => setLooseProductConfig((prev) => ({ ...prev, baseUnitSellingPrice: e.target.value }))}
+                  placeholder={looseProductTarget.sellingPrice?.toString() || "Selling price per base unit"}
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+                />
+              </div>
+
+              {/* Min Selling Quantity */}
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Min. Selling Quantity</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={looseProductConfig.minSellingQuantity}
+                  onChange={(e) => setLooseProductConfig((prev) => ({ ...prev, minSellingQuantity: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+                />
+              </div>
+
+              {/* Calculated Preview */}
+              {looseProductConfig.baseUnitSellingPrice && looseProductConfig.conversionFactor && (
+                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="text-xs text-emerald-300 font-medium mb-1">Calculated Values</div>
+                  <div className="text-sm text-white">
+                    Selling Price: ₹{calculateSellingUnitPrice(
+                      parseFloat(looseProductConfig.baseUnitSellingPrice) || 0,
+                      parseFloat(looseProductConfig.conversionFactor) || 1
+                    ).toFixed(2)} per {looseProductConfig.sellingUnit || "selling unit"}
+                  </div>
+                  {looseProductTarget.quantity !== undefined && (
+                    <div className="text-xs text-white/70 mt-1">
+                      Available: {calculateSellingUnitStock(
+                        parseFloat(looseProductTarget.quantity) || 0,
+                        parseFloat(looseProductConfig.conversionFactor) || 1
+                      )} {looseProductConfig.sellingUnit || "selling units"}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Disable Loose Product Option */}
+              {looseProductTarget.isLooseProduct && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const productRef = doc(db, "businesses", userId, "products", looseProductTarget.id);
+                        await updateDoc(productRef, {
+                          isLooseProduct: false,
+                          unit: looseProductTarget.baseUnit || looseProductTarget.unit,
+                          sellingPrice: looseProductTarget.baseUnitSellingPrice || looseProductTarget.sellingPrice,
+                        });
+                        toast.success("Loose product disabled");
+                        setShowLooseProductModal(false);
+                        setLooseProductTarget(null);
+                      } catch (error) {
+                        console.error("Error disabling loose product:", error);
+                        toast.error("Failed to disable loose product");
+                      }
+                    }}
+                    className="text-sm text-red-300 hover:text-red-200 underline"
+                  >
+                    Disable Loose Product Mode
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-white/10">
+              <button
+                onClick={() => {
+                  setShowLooseProductModal(false);
+                  setLooseProductTarget(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  // Validate
+                  const validation = validateLooseProductConfig({
+                    isLooseProduct: true,
+                    baseUnit: looseProductConfig.baseUnit,
+                    sellingUnit: looseProductConfig.sellingUnit,
+                    conversionFactor: parseFloat(looseProductConfig.conversionFactor) || 0,
+                  });
+
+                  if (!validation.valid) {
+                    toast.error(validation.errors[0]);
+                    return;
+                  }
+
+                  try {
+                    const conversionFactor = parseFloat(looseProductConfig.conversionFactor) || 1;
+                    const baseUnitCost = parseFloat(looseProductConfig.baseUnitCost) || looseProductTarget.costPrice || 0;
+                    const baseUnitSellingPrice = parseFloat(looseProductConfig.baseUnitSellingPrice) || looseProductTarget.sellingPrice || 0;
+                    const sellingUnitPrice = calculateSellingUnitPrice(baseUnitSellingPrice, conversionFactor);
+                    const stockInSellingUnit = calculateSellingUnitStock(looseProductTarget.quantity || 0, conversionFactor);
+
+                    const productRef = doc(db, "businesses", userId, "products", looseProductTarget.id);
+                    await updateDoc(productRef, {
+                      isLooseProduct: true,
+                      baseUnit: looseProductConfig.baseUnit,
+                      sellingUnit: looseProductConfig.sellingUnit,
+                      conversionFactor: conversionFactor,
+                      stockInSellingUnit: stockInSellingUnit,
+                      baseUnitCost: baseUnitCost,
+                      baseUnitSellingPrice: baseUnitSellingPrice,
+                      sellingUnitPrice: sellingUnitPrice,
+                      minSellingQuantity: parseFloat(looseProductConfig.minSellingQuantity) || 1,
+                      // Update unit to base unit
+                      unit: looseProductConfig.baseUnit,
+                      // Update selling price to selling unit price
+                      sellingPrice: sellingUnitPrice,
+                    });
+
+                    await logInventoryChange({
+                      userId,
+                      productId: looseProductTarget.id,
+                      sku: looseProductTarget.sku,
+                      previousData: looseProductTarget,
+                      updatedData: {
+                        ...looseProductTarget,
+                        isLooseProduct: true,
+                        baseUnit: looseProductConfig.baseUnit,
+                        sellingUnit: looseProductConfig.sellingUnit,
+                        conversionFactor: conversionFactor,
+                        stockInSellingUnit: stockInSellingUnit,
+                        baseUnitCost: baseUnitCost,
+                        baseUnitSellingPrice: baseUnitSellingPrice,
+                        sellingUnitPrice: sellingUnitPrice,
+                        minSellingQuantity: parseFloat(looseProductConfig.minSellingQuantity) || 1,
+                      },
+                      action: "updated",
+                      source: "loose-product-quick-setup",
+                    });
+
+                    toast.success("✅ Loose product configured successfully!");
+                    setShowLooseProductModal(false);
+                    setLooseProductTarget(null);
+                  } catch (error) {
+                    console.error("Error configuring loose product:", error);
+                    toast.error("Failed to configure loose product");
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-pink-400 to-orange-400 text-white font-semibold hover:shadow-lg hover:shadow-purple-500/30 transition"
+              >
+                {looseProductTarget.isLooseProduct ? "Update" : "Enable"} Loose Product
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -2,10 +2,23 @@
 export default {
   content: [
     "./index.html",
+    "./index.customer.html",
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
   theme: {
     extend: {
+      colors: {
+        // FLYP Official Brand Colors
+        'flyp': {
+          'green': '#05E06C',        // Primary brand green
+          'green-light': '#2EF58A',  // Lighter variant
+          'green-dark': '#04B857',   // Darker variant
+          'navy': '#060D2D',         // Primary dark background
+          'navy-light': '#0A1340',   // Slightly lighter
+          'navy-medium': '#101B4A',  // Card backgrounds
+          'navy-accent': '#1A2556',  // Accent/borders
+        }
+      },
       screens: {
         'xs': '375px',
         'sm': '640px',

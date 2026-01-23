@@ -5,6 +5,7 @@
   "bundledWebRuntime": false,
   "server": {
     "iosScheme": "capacitor",
+    "androidScheme": "https",
     "allowNavigation": [
       "apis.google.com",
       "accounts.google.com",
@@ -15,8 +16,42 @@
       "firestore.googleapis.com",
       "firebasestorage.googleapis.com",
       "securetoken.googleapis.com",
-      "identitytoolkit.googleapis.com"
+      "identitytoolkit.googleapis.com",
+      "graph.facebook.com",
+      "*.whatsapp.com"
     ],
     "cleartext": true
+  },
+  "android": {
+    "backgroundColor": "#0B0F14",
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "backgroundColor": "#0B0F14",
+    "contentInset": "automatic",
+    "allowsLinkPreview": true,
+    "scrollEnabled": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": true,
+      "backgroundColor": "#0B0F14",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0B0F14"
+    },
+    "Keyboard": {
+      "resize": "body",
+      "resizeOnFullScreen": true
+    }
   }
 }
