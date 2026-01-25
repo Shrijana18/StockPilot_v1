@@ -34,7 +34,10 @@
     "android:customer": "node scripts/build-customer-android.js",
     "android:customer:apk": "node scripts/build-customer-android.js --apk",
     "android:customer:install": "node scripts/build-customer-android.js --install",
-    "android:customer:release": "npm run build:customer && cd android-customer && ./gradlew assembleRelease"
+    "android:customer:release": "npm run build:customer && cd android-customer && ./gradlew assembleRelease",
+    "setup:ios:customer": "node scripts/setup-customer-ios.js",
+    "ios:customer": "node scripts/build-customer-ios.js",
+    "ios:customer:open": "node scripts/build-customer-ios.js --open"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",

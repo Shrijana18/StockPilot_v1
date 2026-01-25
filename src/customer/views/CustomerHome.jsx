@@ -78,7 +78,7 @@ const QuickFeatures = () => (
 );
 
 // ============================================
-// STORE CARD - Enhanced with Pop Effect
+// STORE CARD - Clean, Clear, and Informative
 // ============================================
 const StoreCard = ({ store, onClick, isFavorite, onFavoriteToggle, index }) => {
   const storeName = store.businessName || store.name || 'Store';
@@ -89,117 +89,248 @@ const StoreCard = ({ store, onClick, isFavorite, onFavoriteToggle, index }) => {
   
   const handleClick = () => {
     if (!isStoreAvailable) {
-      // Don't navigate, maybe show a toast
       return;
     }
     onClick(store);
   };
+
+  // Calculate delivery fee display
+  const deliveryFee = store.deliveryFee || 0;
+  const freeDeliveryAbove = store.freeDeliveryAbove || 0;
+  const hasFreeDelivery = freeDeliveryAbove > 0;
   
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 30 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2 + index * 0.1, type: 'spring', stiffness: 200 }}
-      whileHover={isStoreAvailable ? { scale: 1.02, y: -4 } : {}}
+      transition={{ delay: 0.1 + index * 0.05, type: 'spring', stiffness: 200 }}
+      whileHover={isStoreAvailable ? { y: -2 } : {}}
       whileTap={isStoreAvailable ? { scale: 0.98 } : {}}
       onTapStart={() => isStoreAvailable && setIsPressed(true)}
       onTap={() => { setIsPressed(false); handleClick(); }}
       onTapCancel={() => setIsPressed(false)}
-      className={`bg-white/[0.06] backdrop-blur-xl rounded-2xl overflow-hidden border transition-all duration-300 ${
+      className={`bg-gradient-to-br from-white/10 via-white/5 to-white/5 rounded-2xl overflow-hidden border-2 transition-all duration-300 relative backdrop-blur-sm ${
         !isStoreAvailable 
-          ? 'cursor-not-allowed opacity-70 border-white/[0.06]' 
+          ? 'cursor-not-allowed opacity-60 border-white/20' 
           : isPressed 
-            ? 'cursor-pointer border-emerald-500/50 shadow-lg shadow-emerald-500/20' 
-            : 'cursor-pointer border-white/[0.08] hover:border-emerald-500/30'
+            ? 'cursor-pointer border-emerald-500 shadow-2xl shadow-emerald-500/30 scale-[0.98] ring-2 ring-emerald-500/50' 
+            : 'cursor-pointer border-white/20 hover:border-emerald-500/60 hover:shadow-2xl hover:shadow-emerald-500/20 hover:scale-[1.02] hover:bg-gradient-to-br hover:from-white/15 hover:via-white/10 hover:to-white/5 hover:ring-2 hover:ring-emerald-500/30 active:scale-[0.98]'
       }`}
     >
-      {/* Image */}
-      <div className="h-40 relative bg-gradient-to-br from-slate-800 to-slate-900">
-        {store.bannerUrl || store.logoUrl ? (
-          <img src={store.bannerUrl || store.logoUrl} alt="" className="w-full h-full object-cover" />
+      {/* Store Banner/Wallpaper - Prominent Visual Space */}
+      <div className="relative h-36 w-full overflow-hidden">
+        {store.bannerUrl ? (
+          <>
+            <img 
+              src={store.bannerUrl} 
+              alt={`${storeName} banner`} 
+              className="w-full h-full object-cover"
+            />
+            {/* Gradient overlay for better text readability */}
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-slate-900/50" />
+          </>
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-emerald-500/30 to-blue-500/20 flex items-center justify-center">
-            <FaStore className="text-white/20 text-5xl" />
+          /* Fallback gradient when no banner - still shows the space */
+          <div className="w-full h-full bg-gradient-to-br from-emerald-500/20 via-blue-500/15 to-purple-500/20 relative">
+            {/* Subtle pattern overlay */}
+            <div className="absolute inset-0 opacity-10" style={{
+              backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.05) 10px, rgba(255,255,255,0.05) 20px)'
+            }} />
+            {/* Store logo in center if available */}
+            {store.logoUrl && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <img 
+                  src={store.logoUrl} 
+                  alt={storeName} 
+                  className="w-20 h-20 rounded-xl object-cover border-2 border-white/20 shadow-lg"
+                />
+              </div>
+            )}
           </div>
         )}
         
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0f1c] via-[#0a0f1c]/30 to-transparent" />
-        
-        {/* Status Badge */}
-        <motion.div 
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.3 + index * 0.1, type: 'spring' }}
-          className="absolute top-3 left-3"
-        >
-          <span className={`px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md flex items-center gap-1.5 ${
+        {/* Status and Favorite on Banner - Always visible */}
+        <div className="absolute top-3 left-3 right-3 flex items-start justify-between z-10">
+          {/* Status Badge on Banner */}
+          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold backdrop-blur-md flex items-center gap-1.5 ${
             store.isActive 
-              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
-              : 'bg-white/10 text-white/50 border border-white/10'
+              ? 'bg-emerald-500 text-slate-900 border border-emerald-400/50' 
+              : 'bg-black/60 text-white/70 border border-white/20'
           }`}>
-            <span className={`w-2 h-2 rounded-full ${store.isActive ? 'bg-emerald-400 animate-pulse' : 'bg-white/40'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${store.isActive ? 'bg-white animate-pulse' : 'bg-white/60'}`} />
             {store.isActive ? 'Open Now' : 'Closed'}
           </span>
-        </motion.div>
 
-        {/* Favorite Button */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={(e) => { e.stopPropagation(); onFavoriteToggle?.(store.id); }}
-          className={`absolute top-3 right-3 w-10 h-10 rounded-full backdrop-blur-md flex items-center justify-center border transition-all ${
-            isFavorite ? 'bg-red-500/20 border-red-500/40' : 'bg-black/30 border-white/10 hover:border-white/30'
-          }`}
-        >
-          <FaHeart className={`text-sm ${isFavorite ? 'text-red-500' : 'text-white/50'}`} />
-        </motion.button>
+          {/* Favorite Button on Banner */}
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={(e) => { e.stopPropagation(); onFavoriteToggle?.(store.id); }}
+            className={`w-8 h-8 rounded-lg backdrop-blur-md flex items-center justify-center border transition-all shadow-lg ${
+              isFavorite 
+                ? 'bg-red-500/90 border-red-400/50' 
+                : 'bg-black/60 border-white/20 hover:border-white/40'
+            }`}
+          >
+            <FaHeart className={`text-xs ${isFavorite ? 'text-white' : 'text-white/70'}`} />
+          </motion.button>
+        </div>
 
-        {/* Store Info Overlay */}
-        <div className="absolute bottom-3 left-4 right-4">
+        {/* Store Name Overlay on Banner */}
+        <div className="absolute bottom-3 left-3 right-3 z-10">
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-white text-lg drop-shadow-lg">{storeName}</h3>
             {store.isVerified && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: 0.5, type: 'spring' }}
-              >
-                <HiBadgeCheck className="text-emerald-400 text-lg" />
-              </motion.div>
+              <HiBadgeCheck className="text-emerald-400 text-lg flex-shrink-0 drop-shadow-lg" />
             )}
           </div>
         </div>
+      </div>
 
-        {/* Delivery Badge */}
-        <div className="absolute bottom-3 right-4">
-          <span className="px-3 py-1.5 rounded-full bg-emerald-500/90 text-xs font-semibold text-white flex items-center gap-1.5 shadow-lg shadow-emerald-500/30">
-            <FaClock className="text-[10px]" />
-            {store.avgDeliveryTime || store.baseDeliveryTime || 30} min
-          </span>
-        </div>
-        
-        {/* Out of Delivery Range Badge */}
-        {store.deliveryEnabled !== false && !store.isWithinDeliveryRange && store.distance !== null && (
-          <motion.div 
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.4 + index * 0.1, type: 'spring' }}
-            className="absolute top-12 left-3"
-          >
-            <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1 ${
-              store.pickupEnabled 
-                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' 
-                : 'bg-red-500/20 text-red-400 border border-red-500/40'
-            }`}>
-              <FaMapMarkerAlt className="text-[8px]" />
-              {store.pickupEnabled ? 'Pickup only' : 'Out of range'}
-            </span>
-          </motion.div>
+      {/* Main Content - Clean Layout */}
+      <div className={`relative z-10 ${store.bannerUrl ? 'p-4' : 'p-4'}`}>
+        {/* Header Row - Store Name, Logo, Status (only if no banner) */}
+        {!store.bannerUrl && (
+          <div className="flex items-start justify-between gap-3 mb-3">
+            {/* Store Logo/Icon - Small and Clean */}
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {store.logoUrl ? (
+                <img src={store.logoUrl} alt={storeName} className="w-full h-full object-cover" />
+              ) : (
+                <FaStore className="text-emerald-400 text-xl" />
+              )}
+            </div>
+
+            {/* Store Info - Main Content */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="font-bold text-white text-lg leading-tight truncate">{storeName}</h3>
+                {store.isVerified && (
+                  <HiBadgeCheck className="text-emerald-400 text-lg flex-shrink-0" />
+                )}
+              </div>
+              <p className="text-white/60 text-sm mb-2">{store.category || 'General Store'}</p>
+              
+              {/* Status Badge - Inline */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 ${
+                  store.isActive 
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
+                    : 'bg-white/10 text-white/50 border border-white/10'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${store.isActive ? 'bg-emerald-400 animate-pulse' : 'bg-white/40'}`} />
+                  {store.isActive ? 'Open Now' : 'Closed'}
+                </span>
+                
+                {/* Rating */}
+                {store.rating > 0 && (
+                  <span className="flex items-center gap-1 px-2 py-1 bg-amber-500/15 rounded-lg border border-amber-500/25">
+                    <FaStar className="text-amber-400 text-[10px]" />
+                    <span className="text-xs font-semibold text-amber-400">{store.rating?.toFixed(1)}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Favorite Button - Top Right */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={(e) => { e.stopPropagation(); onFavoriteToggle?.(store.id); }}
+              className={`w-9 h-9 rounded-lg flex items-center justify-center border transition-all flex-shrink-0 ${
+                isFavorite 
+                  ? 'bg-red-500/20 border-red-500/40' 
+                  : 'bg-white/10 border-white/10 hover:border-white/30'
+              }`}
+            >
+              <FaHeart className={`text-sm ${isFavorite ? 'text-red-400' : 'text-white/40'}`} />
+            </motion.button>
+          </div>
         )}
-        
-        {/* Overlay for stores that are completely unavailable */}
+
+        {/* Store Info Row (simplified when banner exists) */}
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-white/60 text-sm">{store.category || 'General Store'}</p>
+          </div>
+          {/* Rating */}
+          {store.rating > 0 && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-500/15 rounded-lg border border-amber-500/25">
+              <FaStar className="text-amber-400 text-[10px]" />
+              <span className="text-xs font-semibold text-amber-400">{store.rating?.toFixed(1)}</span>
+            </span>
+          )}
+        </div>
+
+        {/* Key Info Row - Distance, Delivery Time, Delivery Type */}
+        <div className="flex items-center gap-3 mb-3 pb-3 border-b border-white/20">
+          {/* Distance */}
+          {store.distance !== null && (
+            <div className="flex items-center gap-1.5">
+              <FaMapMarkerAlt className="text-emerald-400 text-xs" />
+              <span className="text-xs text-white/70 font-medium">{store.distance} km</span>
+            </div>
+          )}
+
+          {/* Delivery Time */}
+          <div className="flex items-center gap-1.5">
+            <FaClock className="text-blue-400 text-xs" />
+            <span className="text-xs text-white/70 font-medium">{store.avgDeliveryTime || store.baseDeliveryTime || 30} min</span>
+          </div>
+
+          {/* Delivery Type Badge */}
+          {store.deliveryEnabled !== false && !store.isWithinDeliveryRange && store.distance !== null && (
+            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+              store.pickupEnabled 
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' 
+                : 'bg-red-500/20 text-red-400 border border-red-500/30'
+            }`}>
+              {store.pickupEnabled ? 'Pickup Only' : 'Out of Range'}
+            </span>
+          )}
+        </div>
+
+        {/* Bottom Row - Delivery Fee, Min Order, Offers */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Delivery Fee Info */}
+            {deliveryFee > 0 ? (
+              <span className="text-xs text-white/60">
+                Delivery: ₹{deliveryFee}
+                {hasFreeDelivery && (
+                  <span className="text-emerald-400 ml-1">• Free above ₹{freeDeliveryAbove}</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
+                <FaGift className="text-[10px]" />
+                Free Delivery
+              </span>
+            )}
+
+            {/* Min Order */}
+            {store.minOrderValue > 0 && (
+              <span className="text-xs text-white/50">
+                Min: ₹{store.minOrderValue}
+              </span>
+            )}
+          </div>
+
+          {/* View Store Arrow - Enhanced */}
+          {isStoreAvailable && (
+            <motion.div
+              whileHover={{ x: 4, scale: 1.05 }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-lg hover:bg-emerald-500/30 hover:border-emerald-500/60 transition-all"
+            >
+              <span className="text-xs font-semibold text-emerald-400">View Store</span>
+              <FaChevronRight className="text-[10px] text-emerald-400" />
+            </motion.div>
+          )}
+        </div>
+
+        {/* Unavailable Overlay */}
         {!store.isWithinDeliveryRange && !store.pickupEnabled && store.distance !== null && (
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center rounded-t-2xl">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm rounded-2xl flex items-center justify-center">
             <div className="text-center px-4">
               <FaMapMarkerAlt className="text-red-400 text-2xl mx-auto mb-2" />
               <p className="text-white font-semibold text-sm">Not Available</p>
@@ -207,31 +338,6 @@ const StoreCard = ({ store, onClick, isFavorite, onFavoriteToggle, index }) => {
             </div>
           </div>
         )}
-      </div>
-      
-      {/* Info */}
-      <div className="p-4">
-        <div className="flex items-center justify-between">
-          <p className="text-white/50 text-sm">{store.category || 'General Store'}</p>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/15 rounded-lg border border-amber-500/25">
-            <FaStar className="text-amber-400 text-xs" />
-            <span className="text-sm font-semibold text-amber-400">{store.rating?.toFixed(1) || '0.0'}</span>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-white/[0.06]">
-          {store.distance !== null && (
-            <span className="flex items-center gap-1.5 text-xs text-white/50">
-              <FaMapMarkerAlt className="text-emerald-400" />
-              {store.distance} km away
-            </span>
-          )}
-          {(store.deliveryFee === 0 || !store.deliveryFee) && (
-            <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
-              <FaGift className="text-[10px]" /> Free Delivery
-            </span>
-          )}
-        </div>
       </div>
     </motion.div>
   );
@@ -248,7 +354,7 @@ const ProductCard = ({ product, onAdd, index }) => {
       transition={{ delay: 0.3 + index * 0.05 }}
       whileHover={{ scale: 1.03, y: -4 }}
       whileTap={{ scale: 0.97 }}
-      className="bg-white/[0.06] backdrop-blur-xl rounded-2xl overflow-hidden w-44 flex-shrink-0 border border-white/[0.08] hover:border-emerald-500/30 transition-all"
+      className="bg-white/10 backdrop-blur-xl rounded-2xl overflow-hidden w-44 flex-shrink-0 border border-white/10 hover:border-emerald-500/30 transition-all"
     >
       <div className="h-32 bg-gradient-to-br from-white/[0.04] to-transparent relative p-4">
         {product.image || product.imageUrl ? (
@@ -266,7 +372,7 @@ const ProductCard = ({ product, onAdd, index }) => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => onAdd?.(product)}
-            className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-lg font-bold hover:bg-emerald-400 shadow-lg shadow-emerald-500/30 transition-colors"
+            className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center text-slate-900 text-lg font-bold hover:bg-emerald-400 transition-colors"
           >
             +
           </motion.button>
@@ -284,10 +390,10 @@ const CategoryPill = ({ name, emoji, isActive, onClick }) => (
     whileHover={{ scale: 1.05 }}
     whileTap={{ scale: 0.95 }}
     onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2.5 rounded-full whitespace-nowrap transition-all duration-200 ${
+    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg whitespace-nowrap transition-all duration-200 ${
       isActive 
-        ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/30 border border-emerald-400' 
-        : 'bg-white/[0.06] text-white/70 border border-white/[0.08] hover:border-emerald-500/30 hover:bg-white/[0.08]'
+        ? 'bg-emerald-500 text-slate-900 font-medium' 
+        : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'
     }`}
   >
     <span className="text-base">{emoji}</span>
@@ -334,10 +440,10 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-b from-[#111827] to-[#0f172a] rounded-t-[28px] border-t border-emerald-500/20 shadow-xl max-h-[85vh] overflow-y-auto"
+            className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl rounded-t-[28px] border-t border-white/10 shadow-xl max-h-[85vh] overflow-y-auto"
           >
             {/* Handle */}
-            <div className="flex justify-center py-4 sticky top-0 bg-gradient-to-b from-[#111827] to-transparent z-10">
+            <div className="flex justify-center py-4 sticky top-0 bg-gradient-to-b from-slate-800 to-transparent z-10">
               <div className="w-12 h-1.5 bg-white/20 rounded-full" />
             </div>
             
@@ -352,7 +458,7 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={onClose}
-                  className="w-10 h-10 rounded-full bg-white/[0.06] border border-white/10 flex items-center justify-center"
+                  className="w-10 h-10 rounded-full bg-white/10 border border-white/10 flex items-center justify-center"
                 >
                   <FaTimes className="text-white/60" />
                 </motion.button>
@@ -366,7 +472,7 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
                   placeholder="Search for area, street name..."
-                  className="w-full h-14 pl-12 pr-4 bg-white/[0.06] rounded-2xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 border border-white/[0.08] focus:border-emerald-500/40 transition-all text-sm"
+                  className="w-full h-14 pl-12 pr-4 bg-white/10 rounded-2xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 border border-white/10 focus:border-emerald-500/40 transition-all text-sm"
                 />
               </div>
               
@@ -400,7 +506,7 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
                   <motion.div 
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center gap-4 p-4 bg-white/[0.04] rounded-2xl border border-white/[0.08] hover:border-emerald-500/20 transition-all cursor-pointer"
+                    className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/10 hover:border-emerald-500/20 transition-all cursor-pointer"
                     onClick={() => {
                       onSelect(location);
                       onClose();
@@ -422,9 +528,9 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.1 }}
-                  className="w-full flex items-center gap-4 p-4 bg-white/[0.02] rounded-2xl border border-dashed border-white/10 hover:border-emerald-500/30 transition-all"
+                  className="w-full flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-dashed border-white/10 hover:border-emerald-500/30 transition-all"
                 >
-                  <div className="w-12 h-12 bg-white/[0.04] rounded-xl flex items-center justify-center">
+                  <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center">
                     <FaMapMarkerAlt className="text-white/30" />
                   </div>
                   <div className="flex-1 text-left">
@@ -531,7 +637,7 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
   // Loading
   if (locationLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#0a0f1c] to-[#0f172a] flex flex-col items-center justify-center px-6">
+      <div className="min-h-screen bg-transparent flex flex-col items-center justify-center px-6">
         <motion.div 
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
@@ -552,27 +658,27 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0a0f1c] to-[#0f172a]">
-      {/* Header with Green Accent */}
+    <div className="min-h-screen bg-transparent">
+      {/* Header - Retailer Dashboard theme */}
       <header 
-        className="sticky top-0 z-40 bg-[#0a0f1c]/90 backdrop-blur-xl border-b border-emerald-500/10"
+        className="sticky top-0 z-40 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
         <div className="px-5 py-4 flex items-center gap-4">
-          {/* Logo with Green Gradient */}
+          {/* FLYP Logo */}
           <motion.div 
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="w-12 h-12 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/30"
+            className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white/10 border border-white/10 flex-shrink-0"
           >
-            <span className="text-white font-bold text-xl">F</span>
+            <img src="/assets/flyp_logo.png" alt="FLYP" className="w-full h-full object-contain p-1" />
           </motion.div>
           
           {/* Location Selector */}
           <motion.button 
             whileTap={{ scale: 0.98 }}
             onClick={() => setShowLocationPicker(true)}
-            className="flex-1 flex items-center gap-2 min-w-0 bg-white/[0.04] hover:bg-white/[0.06] rounded-xl px-3 py-2.5 border border-white/[0.06] hover:border-emerald-500/20 transition-all"
+            className="flex-1 flex items-center gap-2 min-w-0 bg-white/5 hover:bg-white/10 rounded-xl px-3 py-2.5 border border-white/10 hover:border-emerald-500/30 transition-all"
           >
             <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center">
               <FaMapMarkerAlt className="text-emerald-400 text-sm" />
@@ -591,17 +697,17 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => onNavigate('search')}
-            className="w-11 h-11 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center hover:border-emerald-500/30 hover:bg-white/[0.08] transition-all"
+            className="w-11 h-11 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center hover:border-emerald-500/30 hover:bg-white/15 transition-all"
           >
             <FaSearch className="text-white/60" />
           </motion.button>
           <motion.button 
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="w-11 h-11 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center relative hover:border-emerald-500/30 hover:bg-white/[0.08] transition-all"
+            className="w-11 h-11 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center relative hover:border-emerald-500/30 hover:bg-white/15 transition-all"
           >
             <FaBell className="text-white/60" />
-            <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-[#0a0f1c] animate-pulse" />
+            <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse" />
           </motion.button>
         </div>
       </header>
@@ -620,19 +726,19 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
           <p className="text-white/50 mt-1">What would you like to order today?</p>
         </motion.div>
 
-        {/* Search Bar */}
+        {/* Search Bar - Retailer Dashboard style */}
         <motion.button
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           whileTap={{ scale: 0.99 }}
           onClick={() => onNavigate('search')}
-          className="w-full flex items-center gap-3 px-4 py-4 bg-white/[0.04] border border-white/[0.08] rounded-2xl hover:border-emerald-500/20 hover:bg-white/[0.06] transition-all"
+          className="w-full flex items-center gap-3 px-4 py-4 bg-white/5 border border-white/10 rounded-xl hover:border-emerald-500/30 hover:bg-white/10 transition-all"
         >
-          <FaSearch className="text-white/30" />
-          <span className="flex-1 text-left text-white/30">Search products, stores...</span>
-          <div className="w-9 h-9 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
-            <FaSearch className="text-white text-xs" />
+          <FaSearch className="text-white/40" />
+          <span className="flex-1 text-left text-white/50">Search products, stores...</span>
+          <div className="w-9 h-9 bg-emerald-500 rounded-lg flex items-center justify-center">
+            <FaSearch className="text-slate-900 text-xs" />
           </div>
         </motion.button>
 
@@ -652,16 +758,19 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
         {/* Stores Section */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-white">Stores Near You</h2>
-            <span className="text-sm text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-              {stores.length} stores
+            <div>
+              <h2 className="text-xl font-bold text-white mb-0.5">Stores Near You</h2>
+              <p className="text-xs text-white/50">Browse and order from nearby stores</p>
+            </div>
+            <span className="text-sm text-emerald-300 bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/30 font-semibold">
+              {stores.length}
             </span>
           </div>
           
           {loading ? (
             <div className="space-y-4">
               {[1, 2].map(i => (
-                <div key={i} className="h-56 bg-white/[0.04] rounded-2xl animate-pulse border border-white/[0.06]" />
+                <div key={i} className="h-56 bg-white/5 rounded-xl animate-pulse border border-white/10" />
               ))}
             </div>
           ) : stores.length > 0 ? (
@@ -681,9 +790,9 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-center py-16 bg-white/[0.04] rounded-2xl border border-white/[0.08]"
+              className="text-center py-16 bg-white/5 rounded-2xl border border-white/10"
             >
-              <div className="w-16 h-16 bg-white/[0.06] rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
                 <FaStore className="text-white/20 text-2xl" />
               </div>
               <p className="text-white/50">No stores nearby</p>

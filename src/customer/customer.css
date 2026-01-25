@@ -1,14 +1,14 @@
 /**
- * Customer App Styles - Premium Dark Theme with Green Branding
- * Navy/Blue gradient, Emerald green accents, Premium effects
+ * Customer App Styles - FLYP Retailer Dashboard Theme
+ * Slate-900/800 base, emerald accents, white/10 surfaces, pill tabs
  */
 
 /* ============================================
-   BASE STYLES
+   BASE STYLES (match Retailer Dashboard)
    ============================================ */
 
 html, body, #root {
-  background: linear-gradient(to bottom, #0a0f1c, #0f172a) !important;
+  background: linear-gradient(to bottom right, #0B0F14, #0D1117, #0B0F14) !important;
   min-height: 100vh;
   color: white;
 }
@@ -109,7 +109,7 @@ main > div {
 }
 
 .bg-dark-gradient {
-  background: linear-gradient(to bottom, #0a0f1c, #0f172a);
+  background: linear-gradient(to bottom right, #0B0F14, #0D1117, #0B0F14);
 }
 
 /* ============================================
@@ -320,11 +320,11 @@ button, a {
 }
 
 /* ============================================
-   HEADER BLUR
+   HEADER BLUR (match Retailer Dashboard)
    ============================================ */
 
 .header-blur {
-  background: rgba(10, 15, 28, 0.9);
+  background: rgba(15, 23, 42, 0.95);
   backdrop-filter: saturate(180%) blur(25px);
   -webkit-backdrop-filter: saturate(180%) blur(25px);
 }

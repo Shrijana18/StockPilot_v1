@@ -48,7 +48,7 @@ const CustomerLogin = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#060D2D] flex flex-col relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] flex flex-col relative overflow-hidden">
       {/* Background Decorations */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {/* Top gradient orb */}
@@ -117,7 +117,7 @@ const CustomerLogin = () => {
                       value={phone}
                       onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                       placeholder="Enter 10 digit number"
-                      className="w-full pl-28 pr-5 py-5 bg-[#101B4A]/80 backdrop-blur-xl rounded-2xl text-white font-semibold text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all border border-white/10 placeholder-slate-500"
+                      className="w-full pl-28 pr-5 py-5 bg-white rounded-2xl text-slate-900 font-semibold text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all border border-emerald-500/30 placeholder-slate-500"
                       autoFocus
                     />
                   </div>
@@ -129,8 +129,8 @@ const CustomerLogin = () => {
                   disabled={phone.length < 10}
                   className={`w-full py-5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all duration-300 ${
                     phone.length >= 10
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-xl shadow-emerald-500/30'
-                      : 'bg-[#101B4A] text-white/40 border border-white/10'
+                      ? 'bg-emerald-500 text-slate-900 hover:bg-emerald-400 transition'
+                      : 'bg-white/5 text-white/40 border border-white/10'
                   }`}
                 >
                   Continue
@@ -147,7 +147,7 @@ const CustomerLogin = () => {
                 className="space-y-6"
               >
                 {/* Phone Display */}
-                <div className="flex items-center justify-between bg-[#101B4A]/80 backdrop-blur-xl rounded-2xl px-5 py-4 border border-white/10">
+                <div className="flex items-center justify-between bg-white/5 backdrop-blur-xl rounded-2xl px-5 py-4 border border-white/10">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                       <FaPhone className="text-[#05E06C]400" />
@@ -180,7 +180,7 @@ const CustomerLogin = () => {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Enter your name"
-                      className="w-full pl-14 pr-5 py-5 bg-[#101B4A]/80 backdrop-blur-xl rounded-2xl text-white font-semibold text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all border border-white/10 placeholder-slate-500"
+                      className="w-full pl-14 pr-5 py-5 bg-white rounded-2xl text-slate-900 font-semibold text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all border border-emerald-500/30 placeholder-slate-500"
                       autoFocus
                     />
                   </div>
@@ -203,8 +203,8 @@ const CustomerLogin = () => {
                   disabled={!name.trim() || loading}
                   className={`w-full py-5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all duration-300 ${
                     name.trim()
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-xl shadow-emerald-500/30'
-                      : 'bg-[#101B4A] text-white/40 border border-white/10'
+                      ? 'bg-emerald-500 text-slate-900 hover:bg-emerald-400 transition'
+                      : 'bg-white/5 text-white/40 border border-white/10'
                   }`}
                 >
                   {loading ? (
@@ -238,7 +238,7 @@ const CustomerLogin = () => {
             { icon: '💰', label: 'Best Prices' }
           ].map((feature, i) => (
             <div key={i} className="text-center">
-              <div className="w-14 h-14 rounded-2xl bg-[#101B4A]/80 border border-white/10 flex items-center justify-center mx-auto mb-2 text-2xl">
+              <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-2 text-2xl">
                 {feature.icon}
               </div>
               <p className="text-xs font-medium text-white/40">{feature.label}</p>

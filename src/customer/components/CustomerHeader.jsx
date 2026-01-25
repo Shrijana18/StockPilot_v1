@@ -31,7 +31,7 @@ const CustomerHeader = ({
       className={`fixed top-0 left-0 right-0 z-20 ${
         transparent 
           ? 'bg-transparent' 
-          : 'bg-[#060D2D]/90 backdrop-blur-xl border-b border-white/5'
+          : 'bg-slate-900/95 backdrop-blur-xl border-b border-white/5'
       }`}
       style={{ 
         paddingTop: 'env(safe-area-inset-top)',

@@ -212,7 +212,10 @@ const ViewInventory = ({ userId }) => {
         const ordered = orderFromDb
           .map(id => COLUMN_DEFAULTS.find(c => c.id === id))
           .filter(Boolean);
-        const merged = [...ordered]; // drop unknowns safely
+        // Merge any missing default columns that weren't in saved order
+        const existingIds = new Set(ordered.map(c => c.id));
+        const missingDefaults = COLUMN_DEFAULTS.filter(c => !existingIds.has(c.id));
+        const merged = [...ordered, ...missingDefaults];
         setColumns(merged);
         setHiddenCols(hiddenFromDb);
         return;
@@ -226,7 +229,11 @@ const ViewInventory = ({ userId }) => {
         const order = Array.isArray(parsed.order) ? parsed.order : COLUMN_DEFAULTS.map(c => c.id);
         const hidden = new Set(Array.isArray(parsed.hidden) ? parsed.hidden : []);
         const ordered = order.map(id => COLUMN_DEFAULTS.find(c => c.id === id)).filter(Boolean);
-        setColumns(ordered);
+        // Merge any missing default columns that weren't in saved order
+        const existingIds = new Set(ordered.map(c => c.id));
+        const missingDefaults = COLUMN_DEFAULTS.filter(c => !existingIds.has(c.id));
+        const merged = [...ordered, ...missingDefaults];
+        setColumns(merged);
         setHiddenCols(hidden);
         return;
       } catch (_) { /* ignore */ }
@@ -1004,15 +1011,21 @@ const ViewInventory = ({ userId }) => {
                       ✕
                     </button>
                     <AddColumnInventory
-                      availableColumns={columns}
+                      availableColumns={[...COLUMN_DEFAULTS, ...customColumns]}
                       hiddenCols={hiddenCols}
                       onToggle={(id) => {
                         const next = new Set(hiddenCols);
                         if (next.has(id)) next.delete(id);
                         else next.add(id);
                         setHiddenCols(next);
+                        // Ensure all default columns are in the order
+                        const allDefaultIds = COLUMN_DEFAULTS.map(c => c.id);
+                        const currentOrder = columns.map(c => c.id);
+                        const missingDefaults = allDefaultIds.filter(id => !currentOrder.includes(id));
+                        const finalOrder = [...currentOrder, ...missingDefaults];
+                        setColumns([...columns, ...COLUMN_DEFAULTS.filter(c => missingDefaults.includes(c.id))]);
                         // Save immediately (order = current cols ids)
-                        saveColumnPrefs(userId, columns.map(c => c.id), Array.from(next));
+                        saveColumnPrefs(userId, finalOrder, Array.from(next));
                       }}
                       onReset={() => {
                         setColumns(COLUMN_DEFAULTS);

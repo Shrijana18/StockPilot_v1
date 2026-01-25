@@ -7,10 +7,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaArrowLeft, FaStore, FaChevronRight, FaShoppingBag,
   FaRedo, FaTruck, FaClock, FaCalendarAlt, FaMapMarkerAlt,
-  FaCheckCircle, FaBox, FaCreditCard, FaExclamationTriangle
+  FaCheckCircle, FaBox, FaCreditCard, FaExclamationTriangle,
+  FaQuestionCircle
 } from 'react-icons/fa';
 import { useCustomerAuth } from '../context/CustomerAuthContext';
 import { getCustomerOrders, getOrderStatusInfo } from '../services/orderService';
+import SupportFlow from '../components/SupportFlow';
 
 // Helper to get date label from ISO string
 const getDateLabelFromISO = (isoString) => {
@@ -63,7 +65,7 @@ const OrderCard = ({ order, onClick }) => {
     <motion.button
       whileTap={{ scale: 0.98 }}
       onClick={() => onClick(order)}
-      className={`w-full bg-[#111827] rounded-2xl border overflow-hidden text-left transition-all ${
+      className={`w-full bg-slate-800 rounded-2xl border overflow-hidden text-left transition-all ${
         isPayLater && dueInfo?.isOverdue
           ? 'border-red-500/30 shadow-lg shadow-red-500/5'
           : isActive 
@@ -217,12 +219,12 @@ const OrderCard = ({ order, onClick }) => {
         <div className="flex items-center gap-2 mb-3">
           <div className="flex -space-x-2">
             {(order.items || []).slice(0, 3).map((item, idx) => (
-              <div key={idx} className="w-8 h-8 rounded-lg bg-white/[0.08] border-2 border-[#111827] flex items-center justify-center">
+              <div key={idx} className="w-8 h-8 rounded-lg bg-white/[0.08] border-2 border-slate-800 flex items-center justify-center">
                 <FaBox className="text-white/30 text-xs" />
               </div>
             ))}
             {(order.items || []).length > 3 && (
-              <div className="w-8 h-8 rounded-lg bg-white/[0.08] border-2 border-[#111827] flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/[0.08] border-2 border-slate-800 flex items-center justify-center">
                 <span className="text-white/50 text-xs">+{order.items.length - 3}</span>
               </div>
             )}
@@ -266,6 +268,7 @@ const MyOrders = ({ onBack, onOrderClick }) => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [showSupportFlow, setShowSupportFlow] = useState(false);
 
   // Fetch orders
   useEffect(() => {
@@ -332,6 +335,14 @@ const MyOrders = ({ onBack, onOrderClick }) => {
               <p className="text-xs text-white/40">{activeCount} active • {completedCount} completed</p>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowSupportFlow(true)}
+            className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center hover:bg-amber-500/30 transition-colors"
+            title="Help & Support"
+          >
+            <FaQuestionCircle className="text-amber-400 text-lg" />
+          </button>
         </div>
 
         {/* Filter Tabs */}
@@ -346,7 +357,7 @@ const MyOrders = ({ onBack, onOrderClick }) => {
               onClick={() => setFilter(tab.id)}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
                 filter === tab.id
-                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                  ? 'bg-emerald-500 text-slate-900'
                   : 'bg-white/[0.06] text-white/50 border border-white/[0.08] hover:bg-white/[0.08]'
               }`}
             >
@@ -406,13 +417,19 @@ const MyOrders = ({ onBack, onOrderClick }) => {
             </p>
             <button 
               onClick={onBack}
-              className="mt-6 px-6 py-3 bg-emerald-500 text-white rounded-xl font-medium"
+              className="mt-6 px-6 py-3 bg-emerald-500 text-slate-900 rounded-xl font-medium hover:bg-emerald-400 transition"
             >
               Browse Stores
             </button>
           </div>
         )}
       </div>
+
+      <SupportFlow
+        isOpen={showSupportFlow}
+        onClose={() => setShowSupportFlow(false)}
+        preSelectedOrder={null}
+      />
     </div>
   );
 };

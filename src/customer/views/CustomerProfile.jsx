@@ -10,6 +10,7 @@ import {
   FaQuestionCircle, FaInfoCircle
 } from 'react-icons/fa';
 import { useCustomerAuth } from '../context/CustomerAuthContext';
+import SupportFlow from '../components/SupportFlow';
 
 // FLYP Logo - Uses actual logo
 const FlypLogo = () => (
@@ -37,7 +38,7 @@ const MenuItem = ({ icon: Icon, label, value, onClick, danger }) => (
 
 // Address Card - Dark Theme
 const AddressCard = ({ address, onEdit, onDelete, onSetDefault }) => (
-  <div className="bg-[#101B4A]/50 backdrop-blur-xl rounded-xl border border-white/10/50 p-4">
+  <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 p-4">
     <div className="flex items-start justify-between">
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
@@ -88,6 +89,7 @@ const CustomerProfile = ({ onBack }) => {
   const [showAddresses, setShowAddresses] = useState(false);
   const [addingAddress, setAddingAddress] = useState(false);
   const [newAddress, setNewAddress] = useState({ label: '', address: '' });
+  const [showSupportFlow, setShowSupportFlow] = useState(false);
 
   // Handle name update
   const handleNameUpdate = async () => {
@@ -114,7 +116,7 @@ const CustomerProfile = ({ onBack }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#060D2D]">
+    <div className="min-h-screen bg-transparent">
       {/* Profile Header */}
       <div 
         className="relative px-4 pt-6 pb-12 overflow-hidden"
@@ -126,7 +128,7 @@ const CustomerProfile = ({ onBack }) => {
         <div className="absolute -bottom-20 -left-20 w-60 h-60 rounded-full bg-teal-500/10 blur-3xl" />
 
         <div className="relative flex items-center gap-4">
-          <div className="w-20 h-20 rounded-full bg-[#101B4A] border-2 border-emerald-500/30 flex items-center justify-center">
+          <div className="w-20 h-20 rounded-full bg-white/5 border-2 border-emerald-500/30 flex items-center justify-center">
             <FaUser className="text-[#05E06C]400 text-3xl" />
           </div>
           <div className="flex-1">
@@ -136,12 +138,12 @@ const CustomerProfile = ({ onBack }) => {
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="flex-1 bg-[#101B4A] border border-white/10 rounded-lg px-3 py-2 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-emerald-500"
                   autoFocus
                 />
                 <button
                   onClick={handleNameUpdate}
-                  className="px-3 py-2 bg-emerald-500 rounded-lg text-white font-medium"
+                  className="px-3 py-2 bg-emerald-500 rounded-lg text-slate-900 font-medium hover:bg-emerald-400 transition"
                 >
                   Save
                 </button>
@@ -163,7 +165,7 @@ const CustomerProfile = ({ onBack }) => {
 
       {/* Stats */}
       <div className="px-4 -mt-6">
-        <div className="bg-[#101B4A]/50 backdrop-blur-xl rounded-xl border border-white/10/50 p-4 flex">
+        <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 p-4 flex">
           <div className="flex-1 text-center border-r border-white/10">
             <p className="text-2xl font-bold text-white">
               {customerData?.totalOrders || 0}
@@ -182,7 +184,7 @@ const CustomerProfile = ({ onBack }) => {
       {/* Menu */}
       <div className="mt-6 px-4 space-y-4">
         {/* Account Section */}
-        <div className="bg-[#101B4A]/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
+        <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
           <p className="px-4 py-3 text-sm font-medium text-white/40 border-b border-white/10">
             Account
           </p>
@@ -218,7 +220,7 @@ const CustomerProfile = ({ onBack }) => {
             ))}
             
             {addingAddress ? (
-              <div className="bg-[#101B4A]/50 backdrop-blur-xl rounded-xl border border-white/10/50 p-4 space-y-3">
+              <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 p-4 space-y-3">
                 <input
                   type="text"
                   placeholder="Label (Home, Office, etc.)"
@@ -242,7 +244,7 @@ const CustomerProfile = ({ onBack }) => {
                   </button>
                   <button
                     onClick={handleAddAddress}
-                    className="flex-1 py-2 bg-emerald-500 text-white rounded-lg"
+                    className="flex-1 py-2 bg-emerald-500 text-slate-900 rounded-lg hover:bg-emerald-400 transition"
                   >
                     Save
                   </button>
@@ -261,13 +263,14 @@ const CustomerProfile = ({ onBack }) => {
         )}
 
         {/* Support Section */}
-        <div className="bg-[#101B4A]/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
+        <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
           <p className="px-4 py-3 text-sm font-medium text-white/40 border-b border-white/10">
             Support
           </p>
           <MenuItem
             icon={FaQuestionCircle}
             label="Help & Support"
+            onClick={() => setShowSupportFlow(true)}
           />
           <MenuItem
             icon={FaShieldAlt}
@@ -280,7 +283,7 @@ const CustomerProfile = ({ onBack }) => {
         </div>
 
         {/* Logout */}
-        <div className="bg-[#101B4A]/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
+        <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
           <MenuItem
             icon={FaSignOutAlt}
             label="Logout"
@@ -300,6 +303,12 @@ const CustomerProfile = ({ onBack }) => {
 
       {/* Bottom spacing */}
       <div className="h-24" />
+
+      <SupportFlow
+        isOpen={showSupportFlow}
+        onClose={() => setShowSupportFlow(false)}
+        preSelectedOrder={null}
+      />
     </div>
   );
 };

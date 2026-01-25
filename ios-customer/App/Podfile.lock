@@ -1,0 +1,40 @@
+PODS:
+  - Capacitor (7.4.3):
+    - CapacitorCordova
+  - CapacitorApp (7.1.0):
+    - Capacitor
+  - CapacitorCordova (7.4.3)
+  - CapacitorHaptics (7.0.2):
+    - Capacitor
+  - CapacitorToast (7.0.2):
+    - Capacitor
+
+DEPENDENCIES:
+  - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
+  - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
+  - "CapacitorToast (from `../../node_modules/@capacitor/toast`)"
+
+EXTERNAL SOURCES:
+  Capacitor:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorApp:
+    :path: "../../node_modules/@capacitor/app"
+  CapacitorCordova:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorHaptics:
+    :path: "../../node_modules/@capacitor/haptics"
+  CapacitorToast:
+    :path: "../../node_modules/@capacitor/toast"
+
+SPEC CHECKSUMS:
+  Capacitor: 28d6c01026a9a3f7156529498ec1f389a2a28dbc
+  CapacitorApp: 26587c2ce485d88ddb39adb21cac64f8e481afe3
+  CapacitorCordova: 435121e81a2df4d0034f0fb11fcefab5104cfdb5
+  CapacitorHaptics: b3fb2869e72c4466e18ce9ccbeb60a3d8723b3d4
+  CapacitorToast: 166611aea815418fc08894b77a915773e3d059d5
+
+PODFILE CHECKSUM: ef45569dd5cf4df895996a37d7d3db44f9600367
+
+COCOAPODS: 1.16.2

@@ -197,57 +197,131 @@ export const getStoreCategories = async (storeId) => {
 };
 
 /**
- * Search products across multiple stores
+ * Normalize text for search (lowercase, trim)
  */
-export const searchProducts = async (searchTerm, userLat, userLng, radiusKm = 5) => {
-  try {
-    // First get nearby stores
-    const nearbyStores = await getNearbyStores(userLat, userLng, radiusKm, 50);
-    
-    const searchLower = searchTerm.toLowerCase();
-    const results = [];
+const toSearch = (s) => (s || '').toLowerCase().trim();
 
-    // Search products in each store
+/**
+ * Check if product matches search (word-level + full-string, name/brand/category/sku/description/keywords)
+ */
+const productMatchesSearch = (product, searchLower, searchWords) => {
+  const name = toSearch(product.name);
+  const brand = toSearch(product.brand);
+  const category = toSearch(product.category);
+  const sku = toSearch(product.sku);
+  const desc = toSearch(product.description);
+  const keywords = (product.searchKeywords || []).map((k) => toSearch(k));
+
+  const fields = [name, brand, category, sku, desc, ...keywords].filter(Boolean);
+  const fullMatch = fields.some((f) => f.includes(searchLower));
+  const wordMatch = searchWords.length > 0 && searchWords.some((w) => fields.some((f) => f.includes(w)));
+  return fullMatch || wordMatch;
+};
+
+/**
+ * Check if store matches search (name, category, description)
+ */
+const storeMatchesSearch = (store, searchLower, searchWords) => {
+  const name = toSearch(store.businessName || store.name);
+  const category = toSearch(store.category);
+  const desc = toSearch(store.description);
+  const fields = [name, category, desc].filter(Boolean);
+  const fullMatch = fields.some((f) => f.includes(searchLower));
+  const wordMatch = searchWords.length > 0 && searchWords.some((w) => fields.some((f) => f.includes(w)));
+  return fullMatch || wordMatch;
+};
+
+/**
+ * Advanced search: products + stores, brand/sku/word-level, wider radius
+ * Returns { products, stores } – products with store info, stores with matchedProductCount & sample products
+ */
+export const advancedSearch = async (searchTerm, userLat, userLng, options = {}) => {
+  const { radiusKm = 50, maxStores = 30, maxProductsPerStore = 150, maxProducts = 80, maxStoresInResult = 15 } = options;
+
+  try {
+    const nearbyStores = await getNearbyStores(userLat, userLng, radiusKm, maxStores);
+    const searchLower = searchTerm.toLowerCase().trim();
+    const searchWords = searchLower.split(/\s+/).filter(Boolean);
+
+    const productResults = [];
+    const storeMatches = new Map(); // storeId -> { store, matchedProducts[], matchedByName }
+
     for (const store of nearbyStores) {
       const productsRef = collection(db, 'stores', store.id, 'products');
-      const snapshot = await getDocs(query(productsRef, where('isAvailable', '==', true), limit(100)));
-      
-      snapshot.docs.forEach(doc => {
-        const product = doc.data();
-        const name = (product.name || '').toLowerCase();
-        const keywords = (product.searchKeywords || []).map(k => k.toLowerCase());
-        const category = (product.category || '').toLowerCase();
+      const snapshot = await getDocs(productsRef);
+      const marketplaceProducts = [];
+      snapshot.docs.forEach((d) => {
+        const p = d.data();
+        const onMarketplace = p.onMarketplace === true || p.isAvailable === true || p.syncedToMarketplace === true ||
+          p.marketplaceEnabled === true || (p.onMarketplace === undefined && p.isAvailable === undefined);
+        if (!onMarketplace) return;
+        marketplaceProducts.push({ id: d.id, ...p });
+      });
 
-        if (
-          name.includes(searchLower) || 
-          keywords.some(k => k.includes(searchLower)) ||
-          category.includes(searchLower)
-        ) {
-          results.push({
-            id: doc.id,
-            storeId: store.id,
-            storeName: store.businessName,
-            storeDistance: store.distance,
-            ...product
-          });
-        }
+      const matched = marketplaceProducts.filter((p) => productMatchesSearch(p, searchLower, searchWords));
+      const matchedByName = storeMatchesSearch(store, searchLower, searchWords);
+
+      if (matched.length > 0 || matchedByName) {
+        const sample = matched.slice(0, 3).map((p) => ({ id: p.id, name: p.name, price: p.sellingPrice || p.price }));
+        storeMatches.set(store.id, {
+          ...store,
+          matchedProductCount: matched.length,
+          matchedByName,
+          sampleProducts: sample,
+        });
+      }
+
+      matched.slice(0, maxProductsPerStore).forEach((p) => {
+        productResults.push({
+          id: p.id,
+          storeId: store.id,
+          storeName: store.businessName || store.name,
+          storeDistance: store.distance,
+          ...p,
+        });
       });
     }
 
-    // Sort by relevance (exact name match first) then by distance
-    results.sort((a, b) => {
-      const aExact = a.name.toLowerCase() === searchLower;
-      const bExact = b.name.toLowerCase() === searchLower;
+    // Build stores list: stores that matched by name OR have matching products
+    const storesList = Array.from(storeMatches.values())
+      .sort((a, b) => {
+        if (a.matchedByName && !b.matchedByName) return -1;
+        if (!a.matchedByName && b.matchedByName) return 1;
+        return (b.matchedProductCount || 0) - (a.matchedProductCount || 0);
+      })
+      .slice(0, maxStoresInResult);
+
+    // Sort products: exact name/brand match first, then word match, then distance
+    productResults.sort((a, b) => {
+      const aName = toSearch(a.name);
+      const bName = toSearch(b.name);
+      const aBrand = toSearch(a.brand);
+      const bBrand = toSearch(b.brand);
+      const aExact = aName === searchLower || aBrand === searchLower || aName.startsWith(searchLower) || aBrand.startsWith(searchLower);
+      const bExact = bName === searchLower || bBrand === searchLower || bName.startsWith(searchLower) || bBrand.startsWith(searchLower);
       if (aExact && !bExact) return -1;
       if (!aExact && bExact) return 1;
-      return a.storeDistance - b.storeDistance;
+      const aDist = a.storeDistance ?? 9999;
+      const bDist = b.storeDistance ?? 9999;
+      return aDist - bDist;
     });
 
-    return results;
+    return {
+      products: productResults.slice(0, maxProducts),
+      stores: storesList,
+    };
   } catch (error) {
-    console.error('Error searching products:', error);
+    console.error('Advanced search error:', error);
     throw error;
   }
+};
+
+/**
+ * Search products across multiple stores (legacy – prefers advancedSearch)
+ */
+export const searchProducts = async (searchTerm, userLat, userLng, radiusKm = 5) => {
+  const { products } = await advancedSearch(searchTerm, userLat, userLng, { radiusKm: radiusKm || 50, maxProducts: 100 });
+  return products;
 };
 
 /**

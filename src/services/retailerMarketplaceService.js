@@ -122,6 +122,26 @@ export const syncProductToMarketplace = async (retailerId, product, marketplaceD
   try {
     const productRef = doc(db, 'stores', retailerId, 'products', product.id);
     
+    const mrp = marketplaceData.mrp ?? product.mrp ?? product.price ?? 0;
+    const basePrice = product.sellingPrice ?? product.price ?? 0;
+    const offerPrice = marketplaceData.offerPrice;
+    const discountPercent = marketplaceData.discountPercent;
+    let sellingPrice = marketplaceData.sellingPrice ?? basePrice;
+    let offerLabel = marketplaceData.offerLabel;
+
+    if (offerPrice != null && offerPrice > 0) {
+      sellingPrice = offerPrice;
+      const effectiveMrp = mrp || sellingPrice;
+      if (effectiveMrp > sellingPrice) {
+        const pct = Math.round((1 - sellingPrice / effectiveMrp) * 100);
+        offerLabel = offerLabel || (pct ? `${pct}% OFF` : null);
+      }
+    } else if (discountPercent != null && discountPercent > 0 && (mrp || basePrice)) {
+      const effectiveMrp = mrp || basePrice;
+      sellingPrice = Math.round((effectiveMrp * (1 - discountPercent / 100)) * 100) / 100;
+      offerLabel = offerLabel || `${discountPercent}% OFF`;
+    }
+
     const marketplaceProduct = {
       // Core product info
       name: product.productName || product.name,
@@ -131,9 +151,15 @@ export const syncProductToMarketplace = async (retailerId, product, marketplaceD
       sku: product.sku || '',
       barcode: product.barcode || '',
       
-      // Pricing (use marketplace price if set, otherwise retail price)
-      mrp: marketplaceData.mrp || product.mrp || product.price || 0,
-      sellingPrice: marketplaceData.sellingPrice || product.sellingPrice || product.price || 0,
+      // Pricing
+      mrp: mrp,
+      sellingPrice,
+      offerPrice: offerPrice ?? null,
+      discountPercent: discountPercent ?? null,
+      offerLabel: offerLabel || null,
+      
+      // Return policy (inherit = use store default)
+      returnPolicy: marketplaceData.returnPolicy ?? 'inherit',
       
       // Stock
       inStock: (product.quantity || 0) > 0,
@@ -176,15 +202,21 @@ export const bulkSyncProducts = async (retailerId, products) => {
     
     for (const product of products) {
       const productRef = doc(db, 'stores', retailerId, 'products', product.id);
-      
+      const mrp = product.mrp || product.price || 0;
+      const sellingPrice = product.sellingPrice || product.price || 0;
+
       const marketplaceProduct = {
         name: product.productName || product.name,
         description: product.description || '',
         brand: product.brand || '',
         category: product.category || 'General',
         sku: product.sku || '',
-        mrp: product.mrp || product.price || 0,
-        sellingPrice: product.sellingPrice || product.price || 0,
+        mrp,
+        sellingPrice,
+        offerPrice: null,
+        discountPercent: null,
+        offerLabel: null,
+        returnPolicy: 'inherit',
         inStock: (product.quantity || 0) > 0,
         quantity: product.quantity || 0,
         imageUrl: product.imageUrl || product.image || '',
@@ -195,7 +227,7 @@ export const bulkSyncProducts = async (retailerId, products) => {
         syncedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
-      
+
       batch.set(productRef, marketplaceProduct);
     }
     
@@ -232,6 +264,111 @@ export const updateProductAvailability = async (retailerId, productId, updates) 
     return { success: true };
   } catch (error) {
     console.error('Error updating product availability:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Update marketplace-specific product data (offers, return policy).
+ * Use this from Marketplace Products UI – does not overwrite core inventory fields.
+ */
+export const updateProductMarketplaceData = async (retailerId, productId, updates) => {
+  try {
+    const productRef = doc(db, 'stores', retailerId, 'products', productId);
+    const snap = await getDoc(productRef);
+    if (!snap.exists()) return { success: false, error: 'Product not found' };
+
+    const current = snap.data();
+    const mrp = current.mrp || current.sellingPrice || 0;
+    const payload = { updatedAt: serverTimestamp() };
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'returnPolicy')) {
+      payload.returnPolicy = updates.returnPolicy;
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'isAvailable')) {
+      payload.isAvailable = updates.isAvailable;
+    }
+
+    const offerPrice = updates.offerPrice;
+    const discountPercent = updates.discountPercent;
+
+    if (offerPrice !== undefined) {
+      if (offerPrice === '' || offerPrice === null) {
+        payload.offerPrice = null;
+        payload.discountPercent = null;
+        payload.offerLabel = null;
+        payload.sellingPrice = current.mrp || current.sellingPrice || 0;
+      } else {
+        const op = parseFloat(offerPrice);
+        if (!isNaN(op) && op >= 0) {
+          payload.offerPrice = op;
+          payload.sellingPrice = op;
+          payload.discountPercent = null;
+          payload.offerLabel = mrp > op ? `${Math.round((1 - op / mrp) * 100)}% OFF` : null;
+        }
+      }
+    } else if (discountPercent !== undefined) {
+      if (discountPercent === '' || discountPercent === null) {
+        payload.offerPrice = null;
+        payload.discountPercent = null;
+        payload.offerLabel = null;
+        payload.sellingPrice = current.mrp || current.sellingPrice || 0;
+      } else {
+        const dp = parseFloat(discountPercent);
+        if (!isNaN(dp) && dp >= 0 && dp <= 100) {
+          const sp = Math.round((mrp * (1 - dp / 100)) * 100) / 100;
+          payload.discountPercent = dp;
+          payload.offerPrice = null;
+          payload.sellingPrice = sp;
+          payload.offerLabel = `${dp}% OFF`;
+        }
+      }
+    }
+
+    await updateDoc(productRef, payload);
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating product marketplace data:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Bulk-update offer or return policy for selected marketplace products.
+ */
+export const bulkUpdateProductMarketplaceData = async (retailerId, productIds, updates) => {
+  try {
+    const batch = writeBatch(db);
+    for (const productId of productIds) {
+      const productRef = doc(db, 'stores', retailerId, 'products', productId);
+      const snap = await getDoc(productRef);
+      if (!snap.exists()) continue;
+
+      const current = snap.data();
+      const mrp = current.mrp || current.sellingPrice || 0;
+      const payload = { updatedAt: serverTimestamp() };
+
+      if (updates.returnPolicy !== undefined) payload.returnPolicy = updates.returnPolicy;
+
+      if (updates.discountPercent !== undefined && updates.discountPercent !== '' && updates.discountPercent !== null) {
+        const dp = parseFloat(updates.discountPercent);
+        if (!isNaN(dp) && dp >= 0 && dp <= 100) {
+          const sp = Math.round((mrp * (1 - dp / 100)) * 100) / 100;
+          payload.discountPercent = dp;
+          payload.offerPrice = null;
+          payload.sellingPrice = sp;
+          payload.offerLabel = `${dp}% OFF`;
+        }
+      }
+
+      if (Object.keys(payload).length > 1) {
+        batch.update(productRef, payload);
+      }
+    }
+    await batch.commit();
+    return { success: true, count: productIds.length };
+  } catch (error) {
+    console.error('Error bulk updating product marketplace data:', error);
     return { success: false, error: error.message };
   }
 };
@@ -575,6 +712,8 @@ export default {
   bulkSyncProducts,
   removeProductFromMarketplace,
   updateProductAvailability,
+  updateProductMarketplaceData,
+  bulkUpdateProductMarketplaceData,
   getCustomerOrders,
   subscribeToCustomerOrders,
   updateOrderStatus,

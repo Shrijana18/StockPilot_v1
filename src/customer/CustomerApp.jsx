@@ -24,35 +24,35 @@ import OrderTracking from './views/OrderTracking';
 import MyOrders from './views/MyOrders';
 import CustomerProfile from './views/CustomerProfile';
 
-// Order Success Modal - Dark Theme
+// Order Success Modal - Retailer Dashboard theme
 const OrderSuccessModal = ({ orderNumber, onTrack, onHome }) => (
   <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
-    className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-6"
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-6"
   >
     <motion.div
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      className="bg-[#101B4A] rounded-2xl p-6 w-full max-w-sm text-center border border-white/10"
+      className="bg-slate-800/95 backdrop-blur-xl rounded-2xl p-6 w-full max-w-sm text-center border border-white/10"
     >
-      <div className="w-20 h-20 rounded-full bg-[#05E06C]/10 border border-[#05E06C]/20 flex items-center justify-center mx-auto mb-4">
+      <div className="w-20 h-20 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center mx-auto mb-4">
         <span className="text-4xl">🎉</span>
       </div>
       <h2 className="text-xl font-bold text-white mb-2">Order Placed!</h2>
       <p className="text-white/60 mb-2">Your order has been placed successfully</p>
-      <p className="text-sm text-[#05E06C] font-medium mb-6">Order #{orderNumber}</p>
+      <p className="text-sm text-emerald-400 font-medium mb-6">Order #{orderNumber}</p>
       
       <div className="space-y-3">
         <button
           onClick={onTrack}
-          className="w-full py-3 bg-[#05E06C] text-white rounded-xl font-semibold shadow-lg shadow-[#05E06C]/20"
+          className="w-full py-3 bg-emerald-500 text-slate-900 rounded-xl font-semibold hover:bg-emerald-400 transition"
         >
           Track Order
         </button>
         <button
           onClick={onHome}
-          className="w-full py-3 border border-white/10 text-white/70 rounded-xl font-semibold hover:bg-white/5 transition"
+          className="w-full py-3 bg-white/10 text-white rounded-xl font-semibold hover:bg-white/15 border border-white/10 transition"
         >
           Back to Home
         </button>
@@ -214,7 +214,7 @@ const CustomerAppContent = () => {
   // Show auth loading - FLYP Brand
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#060D2D] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] flex items-center justify-center">
         <div className="text-center">
           <motion.img 
             src="/assets/flyp_logo.png" 
@@ -223,7 +223,7 @@ const CustomerAppContent = () => {
             animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
             transition={{ duration: 2, repeat: Infinity }}
           />
-          <div className="w-10 h-10 border-3 border-[#05E06C]/20 border-t-[#05E06C] rounded-full animate-spin mx-auto" />
+          <div className="w-10 h-10 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto" />
         </div>
       </div>
     );
@@ -238,19 +238,24 @@ const CustomerAppContent = () => {
   const showBottomNav = ['home', 'search', 'cart', 'orders', 'profile'].includes(currentView);
 
   return (
-    <div className="min-h-screen bg-[#060D2D]">
+    <div className="min-h-screen bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] relative overflow-hidden">
+      {/* Aurora backdrop - Retailer Dashboard style */}
+      <div className="pointer-events-none absolute inset-0 opacity-40">
+        <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
+        <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
+      </div>
       {/* Header is now built into each view for mobile optimization */}
 
       {/* Main Content - Instant view switching */}
       <main 
-        className="bg-[#060D2D] min-h-screen"
+        className="bg-transparent min-h-screen relative z-10"
         style={{ 
           paddingBottom: showBottomNav ? 'calc(80px + env(safe-area-inset-bottom))' : '0'
         }}
       >
         {/* Home */}
         {currentView === 'home' && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <CustomerHome
               location={location}
               onNavigate={handleTabChange}
@@ -262,7 +267,7 @@ const CustomerAppContent = () => {
 
         {/* Store Detail */}
         {currentView === 'store' && selectedStore && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <StoreDetail
               storeId={selectedStore.id}
               onBack={goBack}
@@ -273,7 +278,7 @@ const CustomerAppContent = () => {
 
         {/* Search */}
         {currentView === 'search' && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <ProductSearch
               location={location}
               onBack={() => handleTabChange('home')}
@@ -286,7 +291,7 @@ const CustomerAppContent = () => {
 
         {/* Cart */}
         {currentView === 'cart' && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <Cart
               onBack={goBack}
               onCheckout={() => navigateTo('checkout')}
@@ -297,7 +302,7 @@ const CustomerAppContent = () => {
 
         {/* Checkout */}
         {currentView === 'checkout' && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <Checkout
               onBack={goBack}
               onOrderPlaced={handleOrderPlaced}
@@ -307,7 +312,7 @@ const CustomerAppContent = () => {
 
         {/* Order Tracking */}
         {currentView === 'tracking' && trackingOrderId && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <OrderTracking
               orderId={trackingOrderId}
               onBack={goBack}
@@ -317,7 +322,7 @@ const CustomerAppContent = () => {
 
         {/* My Orders */}
         {currentView === 'orders' && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <MyOrders
               onBack={() => handleTabChange('home')}
               onOrderClick={(orderId) => navigateTo('tracking', { orderId })}
@@ -327,7 +332,7 @@ const CustomerAppContent = () => {
 
         {/* Profile */}
         {currentView === 'profile' && (
-          <div className="bg-[#060D2D] min-h-screen">
+          <div className="bg-transparent min-h-screen">
             <CustomerProfile onBack={() => handleTabChange('home')} />
           </div>
         )}

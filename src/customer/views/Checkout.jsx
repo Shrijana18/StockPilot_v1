@@ -9,12 +9,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaArrowLeft, FaMapMarkerAlt, FaPlus, FaClock, FaCheck,
   FaMoneyBillWave, FaCreditCard, FaWallet, FaTruck, FaStore,
-  FaShoppingBag, FaInfoCircle, FaSearchLocation, FaCrosshairs, FaEdit
+  FaShoppingBag, FaInfoCircle, FaSearchLocation, FaCrosshairs, FaEdit, FaTag
 } from 'react-icons/fa';
 import { useCart } from '../context/CartContext';
 import { useCustomerAuth } from '../context/CustomerAuthContext';
 import { placeOrder } from '../services/orderService';
 import { getStoreById } from '../services/storeService';
+import { computeStoreOfferDiscount } from '../../constants/marketplaceOffers';
 import { GoogleMap, useJsApiLoader, Marker, Autocomplete } from '@react-google-maps/api';
 
 // Google Maps API Key
@@ -141,10 +142,10 @@ const DeliveryTypeOption = ({ type, icon: Icon, label, description, isSelected, 
     disabled={disabled}
     className={`flex-1 p-4 rounded-xl border-2 transition-all ${
       disabled 
-        ? 'border-white/10 bg-[#141c2e]/50 opacity-50 cursor-not-allowed'
+        ? 'border-white/10 bg-white/5/50 opacity-50 cursor-not-allowed'
         : isSelected 
           ? 'border-[#05E06C]500 bg-[#05E06C]/10' 
-          : 'border-white/10 bg-[#141c2e]/50 hover:border-white/10'
+          : 'border-white/10 bg-white/5/50 hover:border-white/10'
     }`}
   >
     <div className="flex flex-col items-center gap-2">
@@ -170,7 +171,7 @@ const TimeSlot = ({ slot, isSelected, onSelect }) => (
     className={`flex-1 p-3 rounded-xl border-2 transition-all ${
       isSelected 
         ? 'border-[#05E06C]500 bg-[#05E06C]/10' 
-        : 'border-white/10 bg-[#141c2e]/50'
+        : 'border-white/10 bg-white/5/50'
     }`}
   >
     <div className="flex items-center gap-2 mb-1">
@@ -190,7 +191,7 @@ const PickupSlot = ({ slot, isSelected, onSelect }) => (
     className={`w-full p-3 rounded-xl border-2 flex items-center justify-between transition-all ${
       isSelected 
         ? 'border-emerald-500 bg-emerald-500/10' 
-        : 'border-white/10 bg-[#141c2e]/50 hover:border-white/20'
+        : 'border-white/10 bg-white/5/50 hover:border-white/20'
     }`}
   >
     <div className="flex items-center gap-3">
@@ -217,7 +218,7 @@ const DateSelector = ({ days, selectedDate, onSelect }) => (
         className={`flex-shrink-0 w-16 py-2 px-1 rounded-xl border-2 transition-all ${
           selectedDate?.toDateString() === day.date.toDateString()
             ? 'border-emerald-500 bg-emerald-500/10'
-            : 'border-white/10 bg-[#141c2e]/50 hover:border-white/20'
+            : 'border-white/10 bg-white/5/50 hover:border-white/20'
         }`}
       >
         <div className="text-center">
@@ -265,7 +266,7 @@ const PaymentMethod = ({ method, isSelected, onSelect, badge }) => {
       className={`w-full p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${
         isSelected 
           ? `${colors.border} ${colors.bg}` 
-          : 'border-white/10 bg-[#141c2e]/50'
+          : 'border-white/10 bg-white/5/50'
       }`}
     >
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
@@ -298,7 +299,7 @@ const AddressCard = ({ address, isSelected, onSelect }) => (
     className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
       isSelected 
         ? 'border-emerald-500 bg-emerald-500/10' 
-        : 'border-white/10 bg-[#141c2e]/50'
+        : 'border-white/10 bg-white/5/50'
     }`}
   >
     <div className="flex items-start gap-3">
@@ -744,10 +745,15 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
     }
   };
 
-  // Calculate final amounts
+  // Calculate final amounts (apply store-wide offers)
   const getFinalAmounts = () => {
     let deliveryFee = deliveryType === 'pickup' ? 0 : totals.deliveryFee;
-    let finalTotal = totals.subtotal + deliveryFee + totals.platformFee;
+    const { discountAmount, appliedOffer } = computeStoreOfferDiscount(
+      totals.subtotal,
+      storeSettings?.storeOffers || []
+    );
+    const subtotalAfterDiscount = Math.max(0, totals.subtotal - discountAmount);
+    let finalTotal = subtotalAfterDiscount + deliveryFee + totals.platformFee;
     let payNow = finalTotal;
     let payLater = 0;
 
@@ -759,7 +765,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
       payLater = finalTotal - advanceAmount;
     }
 
-    return { deliveryFee, finalTotal, payNow, payLater };
+    return { deliveryFee, finalTotal, payNow, payLater, discountAmount, appliedOffer };
   };
 
   const amounts = getFinalAmounts();
@@ -836,6 +842,8 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
           total: item.price * item.quantity
         })),
         subtotal: totals.subtotal,
+        discountAmount: amounts.discountAmount || 0,
+        appliedOffer: amounts.appliedOffer || null,
         deliveryFee: amounts.deliveryFee,
         platformFee: totals.platformFee,
         total: amounts.finalTotal,
@@ -881,7 +889,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
 
   if (loadingSettings) {
     return (
-      <div className="min-h-screen bg-[#060D2D] flex items-center justify-center">
+      <div className="min-h-screen bg-transparent flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-[#05E06C]500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -890,13 +898,13 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
   const pickupEnabled = storeSettings?.pickupEnabled && storeSettings?.pickupTimeSlots?.some(s => s.enabled);
 
   return (
-    <div className="min-h-screen bg-[#060D2D]">
+    <div className="min-h-screen bg-transparent">
       {/* Header */}
-      <div className="bg-[#060D2D]/80 backdrop-blur-xl sticky top-0 z-10 border-b border-white/5">
+      <div className="bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl sticky top-0 z-10 border-b border-white/10">
         <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
           <button
             onClick={onBack}
-            className="w-10 h-10 rounded-full bg-[#141c2e] border border-white/10 flex items-center justify-center"
+            className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center"
           >
             <FaArrowLeft className="text-white/60" />
           </button>
@@ -949,7 +957,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
             
             {/* Show disabled delivery card to explain why it's not available */}
             {!storeDeliveryAvailable && (
-              <div className="flex-1 p-4 rounded-xl border-2 border-white/5 bg-[#141c2e]/30 opacity-50 cursor-not-allowed">
+              <div className="flex-1 p-4 rounded-xl border-2 border-white/5 bg-white/5/30 opacity-50 cursor-not-allowed">
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-12 h-12 rounded-full flex items-center justify-center bg-slate-700/50">
                     <FaTruck className="text-xl text-white/30" />
@@ -982,7 +990,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
               <h3 className="font-semibold text-white mb-3">Delivery Address</h3>
               
               {showAddAddress ? (
-                <div className="bg-[#141c2e]/50 backdrop-blur-xl rounded-2xl p-5 border border-white/10">
+                <div className="bg-white/5/50 backdrop-blur-xl rounded-2xl p-5 border border-white/10">
                   <h4 className="font-medium text-white mb-4 flex items-center gap-2">
                     <FaMapMarkerAlt className="text-emerald-400" />
                     Add Delivery Address
@@ -1090,7 +1098,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                           onClick={() => setNewAddress({ ...newAddress, label: type })}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                             newAddress.label === type
-                              ? 'bg-emerald-500 text-white'
+                              ? 'bg-emerald-500 text-slate-900'
                               : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                           }`}
                         >
@@ -1172,7 +1180,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                     <button
                       onClick={handleAddAddress}
                       disabled={!newAddress.address || !newAddress.city || !newAddress.pincode}
-                      className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-medium disabled:bg-slate-700 disabled:text-white/40"
+                      className="flex-1 py-3 bg-emerald-500 text-slate-900 rounded-xl font-medium hover:bg-emerald-400 transition disabled:bg-slate-700 disabled:text-white/40"
                     >
                       Save Address
                     </button>
@@ -1219,7 +1227,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                   className={`flex-1 p-3 rounded-xl border-2 transition-all ${
                     !isScheduledDelivery
                       ? 'border-emerald-500 bg-emerald-500/10'
-                      : 'border-white/10 bg-[#141c2e]/50'
+                      : 'border-white/10 bg-white/5/50'
                   }`}
                 >
                   <div className="flex items-center justify-center gap-2">
@@ -1237,7 +1245,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                   className={`flex-1 p-3 rounded-xl border-2 transition-all ${
                     isScheduledDelivery
                       ? 'border-emerald-500 bg-emerald-500/10'
-                      : 'border-white/10 bg-[#141c2e]/50'
+                      : 'border-white/10 bg-white/5/50'
                   }`}
                 >
                   <div className="flex items-center justify-center gap-2">
@@ -1265,7 +1273,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
 
               {/* Scheduled Delivery - Date & Time Selection */}
               {isScheduledDelivery && (
-                <div className="space-y-4 p-4 bg-[#141c2e]/50 rounded-xl border border-white/10">
+                <div className="space-y-4 p-4 bg-white/5/50 rounded-xl border border-white/10">
                   {/* Date Selector */}
                   <div>
                     <p className="text-xs text-white/50 mb-2">Select Delivery Date</p>
@@ -1309,7 +1317,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                             className={`w-full p-3 rounded-xl border-2 flex items-center justify-between transition-all ${
                               selectedDeliverySlot?.time === slot.time
                                 ? 'border-emerald-500 bg-emerald-500/10'
-                                : 'border-white/10 bg-[#141c2e]/50 hover:border-white/20'
+                                : 'border-white/10 bg-white/5/50 hover:border-white/20'
                             }`}
                           >
                             <div className="flex items-center gap-3">
@@ -1436,7 +1444,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                   const val = Math.max(min, Math.min(amounts.finalTotal, parseInt(e.target.value) || 0));
                   setAdvanceAmount(val);
                 }}
-                className="w-full px-4 py-3 bg-[#141c2e] border border-purple-500/30 rounded-xl text-lg font-bold text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-4 py-3 bg-white/5 border border-purple-500/30 rounded-xl text-lg font-bold text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <p className="text-xs text-purple-400 mt-2">
                 Remaining ₹{amounts.finalTotal - advanceAmount} to be paid on {deliveryType === 'delivery' ? 'delivery' : 'pickup'}
@@ -1466,23 +1474,56 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
             value={specialInstructions}
             onChange={(e) => setSpecialInstructions(e.target.value)}
             rows={2}
-            className="w-full px-4 py-3 bg-[#141c2e] border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
+        {/* Store offers banner */}
+        {storeSettings?.storeOffers?.length > 0 && storeSettings.storeOffers.some(o => o.enabled) && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <FaTag className="text-amber-400" />
+            </div>
+            <div>
+              <p className="font-medium text-amber-300 text-sm">Store offers applied at checkout</p>
+              <p className="text-white/50 text-xs mt-0.5">
+                {storeSettings.storeOffers.filter(o => o.enabled).map(o =>
+                  o.type === 'percent_all'
+                    ? `${o.value}% off on all orders`
+                    : o.type === 'percent_above'
+                      ? `${o.value}% off on orders above ₹${o.minOrderValue || 0}`
+                      : null
+                ).filter(Boolean).join(' • ')}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Order Summary */}
-        <div className="bg-[#141c2e]/50 backdrop-blur-xl rounded-2xl border border-white/10 p-5">
+        <div className="bg-white/5/50 backdrop-blur-xl rounded-2xl border border-white/10 p-5">
           <h3 className="font-semibold text-white mb-4">Order Summary</h3>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
               <span className="text-white/60">Items ({totals.itemCount})</span>
               <span className="font-medium text-white">₹{totals.subtotal.toFixed(2)}</span>
             </div>
+            {amounts.discountAmount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-amber-400">
+                  {amounts.appliedOffer?.type === 'percent_all'
+                    ? `${amounts.appliedOffer?.value}% off on all orders`
+                    : amounts.appliedOffer?.type === 'percent_above'
+                      ? `${amounts.appliedOffer?.value}% off (orders above ₹${amounts.appliedOffer?.minOrderValue || 0})`
+                      : 'Store offer'}
+                </span>
+                <span className="font-medium text-amber-400">-₹{amounts.discountAmount.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-white/60">
                 {deliveryType === 'delivery' ? 'Delivery Fee' : 'Pickup'}
               </span>
-              <span className={`font-medium ${amounts.deliveryFee === 0 ? 'text-[#05E06C]400' : 'text-white'}`}>
+              <span className={`font-medium ${amounts.deliveryFee === 0 ? 'text-emerald-400' : 'text-white'}`}>
                 {amounts.deliveryFee === 0 ? 'FREE' : `₹${amounts.deliveryFee}`}
               </span>
             </div>
@@ -1494,14 +1535,14 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
             <div className="border-t border-white/10 pt-3 mt-3">
               <div className="flex justify-between font-bold text-base">
                 <span className="text-white">Total</span>
-                <span className="text-[#05E06C]400">₹{amounts.finalTotal.toFixed(2)}</span>
+                <span className="text-emerald-400">₹{amounts.finalTotal.toFixed(2)}</span>
               </div>
               
               {(selectedPayment === 'PARTIAL' || selectedPayment === 'PAY_LATER') && (
                 <div className="mt-2 space-y-1">
                   <div className="flex justify-between text-sm">
                     <span className="text-white/60">Pay Now</span>
-                    <span className="font-semibold text-[#05E06C]400">₹{amounts.payNow.toFixed(2)}</span>
+                    <span className="font-semibold text-emerald-400">₹{amounts.payNow.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-white/60">Pay Later</span>
@@ -1527,8 +1568,8 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
             (deliveryType === 'delivery' && !selectedAddress) || 
             (deliveryType === 'delivery' && isScheduledDelivery && !selectedDeliverySlot) ||
             (deliveryType === 'pickup' && !selectedPickupSlot)
-              ? 'bg-[#141c2e] text-white/40 cursor-not-allowed'
-              : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/30'
+              ? 'bg-white/5 text-white/40 cursor-not-allowed'
+              : 'bg-emerald-500 text-slate-900 hover:bg-emerald-400 transition'
           }`}
         >
           {loading ? (

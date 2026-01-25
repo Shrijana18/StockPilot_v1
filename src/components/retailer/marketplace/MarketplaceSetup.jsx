@@ -10,8 +10,9 @@ import {
   FaSave, FaToggleOn, FaToggleOff, FaTruck, FaRupeeSign,
   FaCheckCircle, FaExclamationTriangle, FaWallet, FaShoppingBag,
   FaPlus, FaTrash, FaUpload, FaTimes, FaCamera, FaLock, FaUnlock,
-  FaSearchLocation, FaRoute, FaInfoCircle
+  FaSearchLocation, FaRoute, FaInfoCircle, FaTag, FaUndo
 } from 'react-icons/fa';
+import { RETURN_POLICY_OPTIONS } from '../../../constants/marketplaceOffers';
 import { auth, db, storage } from '../../../firebase/firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -118,7 +119,10 @@ const MarketplaceSetup = () => {
       { id: '4', time: '04:00 PM - 06:00 PM', enabled: true },
       { id: '5', time: '06:00 PM - 08:00 PM', enabled: true }
     ],
-    pickupInstructions: ''
+    pickupInstructions: '',
+    // Offers & Return Policy
+    returnPolicyDefault: 'replacement_available',
+    storeOffers: []
   });
   
   // Google Maps state
@@ -285,7 +289,9 @@ const MarketplaceSetup = () => {
           ...prev,
           ...store,
           latitude: store.location?.latitude || '',
-          longitude: store.location?.longitude || ''
+          longitude: store.location?.longitude || '',
+          returnPolicyDefault: store.returnPolicyDefault || 'replacement_available',
+          storeOffers: Array.isArray(store.storeOffers) ? store.storeOffers : []
         }));
         // Set image previews
         if (store.logoUrl) setLogoPreview(store.logoUrl);
@@ -355,6 +361,34 @@ const MarketplaceSetup = () => {
     setFormData(prev => ({
       ...prev,
       pickupTimeSlots: prev.pickupTimeSlots.filter(slot => slot.id !== slotId)
+    }));
+  };
+
+  // Store offers (e.g. 20% off all, 30% off above ₹500)
+  const addStoreOffer = (type) => {
+    const id = `offer_${Date.now()}`;
+    const offer = type === 'percent_all'
+      ? { id, type: 'percent_all', value: 10, minOrderValue: null, enabled: true }
+      : { id, type: 'percent_above', value: 15, minOrderValue: 500, enabled: true };
+    setFormData(prev => ({
+      ...prev,
+      storeOffers: [...(prev.storeOffers || []), offer]
+    }));
+  };
+
+  const removeStoreOffer = (offerId) => {
+    setFormData(prev => ({
+      ...prev,
+      storeOffers: (prev.storeOffers || []).filter(o => o.id !== offerId)
+    }));
+  };
+
+  const updateStoreOffer = (offerId, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      storeOffers: (prev.storeOffers || []).map(o =>
+        o.id === offerId ? { ...o, [field]: value } : o
+      )
     }));
   };
 
@@ -470,7 +504,10 @@ const MarketplaceSetup = () => {
         baseDistance: parseFloat(formData.baseDistance) || 2,
         // Estimated delivery time
         baseDeliveryTime: parseFloat(formData.baseDeliveryTime) || 30,
-        estimatedDeliveryPerKm: parseFloat(formData.estimatedDeliveryPerKm) || 5
+        estimatedDeliveryPerKm: parseFloat(formData.estimatedDeliveryPerKm) || 5,
+        // Offers & return policy
+        returnPolicyDefault: formData.returnPolicyDefault || 'replacement_available',
+        storeOffers: Array.isArray(formData.storeOffers) ? formData.storeOffers : []
       };
 
       // Remove individual lat/lng fields (stored in location object)
@@ -1673,6 +1710,106 @@ const MarketplaceSetup = () => {
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Offers & Return Policy */}
+      <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+        <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+          <FaTag className="text-amber-400" />
+          Offers &amp; Return Policy
+        </h3>
+        <p className="text-white/50 text-sm mb-4">
+          Attract customers with store-wide offers (like Blinkit/Instamart). Set your default return policy – per-product overrides can be set in Products.
+        </p>
+
+        {/* Default Return Policy */}
+        <div className="mb-5">
+          <label className="block text-sm text-white/60 mb-2 flex items-center gap-2">
+            <FaUndo className="text-white/40" />
+            Default return policy for all products
+          </label>
+          <select
+            value={formData.returnPolicyDefault || 'replacement_available'}
+            onChange={(e) => handleChange('returnPolicyDefault', e.target.value)}
+            className="w-full md:max-w-sm px-4 py-2.5 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-amber-500"
+          >
+            {RETURN_POLICY_OPTIONS.filter(o => o.value !== 'inherit').map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-slate-800">
+                {opt.label} – {opt.description}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Store-wide offers */}
+        <div>
+          <label className="block text-sm text-white/60 mb-2">Store-wide offers</label>
+          <p className="text-white/40 text-xs mb-3">e.g. &quot;20% off on all orders&quot; or &quot;30% off on orders above ₹500&quot;</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <button
+              type="button"
+              onClick={() => addStoreOffer('percent_all')}
+              className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/20 text-amber-300 rounded-lg text-sm hover:bg-amber-500/30 transition"
+            >
+              <FaPlus className="text-xs" />
+              % off on all orders
+            </button>
+            <button
+              type="button"
+              onClick={() => addStoreOffer('percent_above')}
+              className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/20 text-amber-300 rounded-lg text-sm hover:bg-amber-500/30 transition"
+            >
+              <FaPlus className="text-xs" />
+              % off on orders above ₹
+            </button>
+          </div>
+          <div className="space-y-2">
+            {(formData.storeOffers || []).map((offer) => (
+              <div
+                key={offer.id}
+                className="flex flex-wrap items-center gap-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5"
+              >
+                <input
+                  type="number"
+                  min="1"
+                  max="99"
+                  value={offer.value}
+                  onChange={(e) => updateStoreOffer(offer.id, 'value', parseInt(e.target.value, 10) || 0)}
+                  className="w-14 px-2 py-1.5 bg-white/10 border border-white/20 rounded text-white text-sm"
+                />
+                <span className="text-white/70 text-sm">% off</span>
+                {offer.type === 'percent_above' && (
+                  <>
+                    <span className="text-white/50 text-sm">on orders above</span>
+                    <span className="text-white/40">₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={offer.minOrderValue ?? ''}
+                      onChange={(e) => updateStoreOffer(offer.id, 'minOrderValue', e.target.value === '' ? null : parseFloat(e.target.value) || 0)}
+                      placeholder="500"
+                      className="w-24 px-2 py-1.5 bg-white/10 border border-white/20 rounded text-white text-sm"
+                    />
+                  </>
+                )}
+                {offer.type === 'percent_all' && (
+                  <span className="text-white/50 text-sm">on all orders</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeStoreOffer(offer.id)}
+                  className="ml-auto p-1.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition"
+                  title="Remove offer"
+                >
+                  <FaTimes className="text-xs" />
+                </button>
+              </div>
+            ))}
+          </div>
+          {(formData.storeOffers || []).length === 0 && (
+            <p className="text-white/30 text-sm italic">No store-wide offers. Add one above.</p>
+          )}
         </div>
       </div>
 

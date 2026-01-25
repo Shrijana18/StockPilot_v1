@@ -1,6 +1,6 @@
 {
-  "appId": "com.flypnow.business",
-  "appName": "FLYP",
+  "appId": "com.flypnow.shop",
+  "appName": "FLYP Shop",
   "webDir": "dist",
   "bundledWebRuntime": false,
   "server": {
@@ -17,19 +17,14 @@
       "firebasestorage.googleapis.com",
       "securetoken.googleapis.com",
       "identitytoolkit.googleapis.com",
+      "maps.googleapis.com",
       "graph.facebook.com",
       "*.whatsapp.com"
     ],
     "cleartext": true
   },
-  "android": {
-    "backgroundColor": "#0B0F14",
-    "allowMixedContent": true,
-    "captureInput": true,
-    "webContentsDebuggingEnabled": false
-  },
   "ios": {
-    "backgroundColor": "#0B0F14",
+    "backgroundColor": "#0a0f1c",
     "contentInset": "automatic",
     "allowsLinkPreview": true,
     "scrollEnabled": true
@@ -38,16 +33,14 @@
     "SplashScreen": {
       "launchShowDuration": 2000,
       "launchAutoHide": true,
-      "backgroundColor": "#0B0F14",
-      "androidSplashResourceName": "splash",
-      "androidScaleType": "CENTER_CROP",
+      "backgroundColor": "#0a0f1c",
       "showSpinner": false,
       "splashFullScreen": true,
       "splashImmersive": true
     },
     "StatusBar": {
       "style": "DARK",
-      "backgroundColor": "#0B0F14"
+      "backgroundColor": "#0a0f1c"
     },
     "Keyboard": {
       "resize": "body",

@@ -26,12 +26,22 @@ const CartItem = ({ item, onUpdate, onRemove }) => (
 
     {/* Item Details */}
     <div className="flex-1 min-w-0">
-      <h3 className="font-medium text-white text-sm leading-tight line-clamp-1">
-        {item.name}
-      </h3>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <h3 className="font-medium text-white text-sm leading-tight line-clamp-1">
+          {item.name}
+        </h3>
+        {item.offerLabel && (
+          <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] rounded flex-shrink-0">
+            {item.offerLabel}
+          </span>
+        )}
+      </div>
       <p className="text-xs text-white/40 mt-0.5">{item.unit || '1 unit'}</p>
       <div className="flex items-center gap-2 mt-1">
         <span className="text-white font-bold text-sm">₹{item.price * item.quantity}</span>
+        {(item.mrp != null && item.mrp > item.price) && (
+          <span className="text-[10px] text-white/40 line-through">₹{(item.mrp || item.price) * item.quantity}</span>
+        )}
         {item.quantity > 1 && (
           <span className="text-[10px] text-white/40">₹{item.price} × {item.quantity}</span>
         )}
@@ -89,9 +99,9 @@ const Cart = ({ onBack, onCheckout }) => {
   // Empty Cart State
   if (cartItems.length === 0) {
     return (
-      <div className="min-h-screen bg-[#0a0f1c] flex flex-col">
+      <div className="min-h-screen bg-transparent flex flex-col">
         {/* Header */}
-        <header className="fixed top-0 left-0 right-0 z-50 bg-[#111827] border-b border-white/[0.06]"
+        <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10"
                 style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <div className="flex items-center gap-3 px-4 py-3">
             <button onClick={onBack} className="w-9 h-9 rounded-full bg-white/[0.06] flex items-center justify-center">
@@ -103,7 +113,7 @@ const Cart = ({ onBack, onCheckout }) => {
 
         {/* Empty State */}
         <div className="flex-1 flex flex-col items-center justify-center px-6 pt-20">
-          <div className="w-24 h-24 rounded-2xl bg-[#151c2c] border border-white/[0.08] flex items-center justify-center mb-4">
+          <div className="w-24 h-24 rounded-2xl bg-white/5 border border-white/[0.08] flex items-center justify-center mb-4">
             <FaShoppingBag className="text-emerald-400 text-4xl" />
           </div>
           <h2 className="text-xl font-bold text-white mb-2">Your cart is empty</h2>
@@ -112,7 +122,7 @@ const Cart = ({ onBack, onCheckout }) => {
           </p>
           <button
             onClick={onBack}
-            className="px-6 py-3 bg-emerald-500 text-white font-semibold rounded-xl"
+            className="px-6 py-3 bg-emerald-500 text-slate-900 font-semibold rounded-xl hover:bg-emerald-400 transition"
           >
             Start Shopping
           </button>
@@ -122,9 +132,9 @@ const Cart = ({ onBack, onCheckout }) => {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0f1c]">
+    <div className="min-h-screen bg-transparent">
       {/* Fixed Header with Summary */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-[#111827] border-b border-white/[0.06]"
+      <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10"
               style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
@@ -169,7 +179,7 @@ const Cart = ({ onBack, onCheckout }) => {
       <main className="pt-[110px] pb-[220px]">
         {/* Cart Items - Compact List */}
         <div className="px-4">
-          <div className="bg-[#151c2c] rounded-xl border border-white/[0.06] overflow-hidden">
+          <div className="bg-white/5 rounded-xl border border-white/[0.06] overflow-hidden">
             {/* Items Header */}
             <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.02]">
               <span className="text-white font-medium text-sm">{cartItems.length} Items</span>
@@ -210,7 +220,7 @@ const Cart = ({ onBack, onCheckout }) => {
 
         {/* Coupon Section */}
         <div className="px-4 mt-4">
-          <button className="w-full bg-[#151c2c] rounded-xl p-3 flex items-center gap-3 border border-dashed border-emerald-500/30 hover:border-emerald-500/50 transition-colors">
+          <button className="w-full bg-white/5 rounded-xl p-3 flex items-center gap-3 border border-dashed border-emerald-500/30 hover:border-emerald-500/50 transition-colors">
             <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
               <FaTag className="text-emerald-400 text-sm" />
             </div>
@@ -224,7 +234,7 @@ const Cart = ({ onBack, onCheckout }) => {
 
         {/* Bill Details - Collapsible */}
         <div className="px-4 mt-4">
-          <div className="bg-[#151c2c] rounded-xl border border-white/[0.06] overflow-hidden">
+          <div className="bg-white/5 rounded-xl border border-white/[0.06] overflow-hidden">
             <button
               onClick={() => setExpandBill(!expandBill)}
               className="w-full px-4 py-3 flex items-center justify-between bg-white/[0.02]"
@@ -376,7 +386,7 @@ const Cart = ({ onBack, onCheckout }) => {
            style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}>
         {/* Show minimum order progress if not met */}
         {!canCheckout && minOrderValue > 0 && (
-          <div className="mb-2 bg-[#151c2c] rounded-xl p-2 border border-amber-500/30">
+          <div className="mb-2 bg-white/5 rounded-xl p-2 border border-amber-500/30">
             <div className="flex items-center justify-between text-xs mb-1">
               <span className="text-amber-400">₹{subtotal} / ₹{minOrderValue}</span>
               <span className="text-white/50">Add ₹{amountToAdd} more</span>
@@ -395,7 +405,7 @@ const Cart = ({ onBack, onCheckout }) => {
           disabled={!canCheckout}
           className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors ${
             canCheckout 
-              ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl shadow-emerald-500/40' 
+              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-900' 
               : 'bg-slate-700 text-white/40 cursor-not-allowed'
           }`}
         >

@@ -19,11 +19,11 @@
     <title>FLYP Shop - Quick Delivery from Local Stores</title>
     
     <style>
-      /* CRITICAL: FLYP Navy background to prevent white flash */
+      /* Premium dark gradient background */
       html, body, #root {
         margin: 0;
         padding: 0;
-        background-color: #060D2D !important;
+        background: linear-gradient(to bottom, #0a0f1c, #0f172a) !important;
         min-height: 100vh;
       }
       
@@ -32,11 +32,11 @@
         color: white;
       }
       
-      /* Splash screen */
+      /* Splash screen - Premium Dark */
       .splash-screen {
         position: fixed;
         inset: 0;
-        background: #060D2D;
+        background: linear-gradient(to bottom, #0a0f1c, #0f172a);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -46,30 +46,35 @@
       }
       
       .splash-logo {
-        width: 100px;
-        height: 100px;
-        margin-bottom: 20px;
+        width: 80px;
+        height: 80px;
+        margin-bottom: 24px;
+        background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 20px 40px rgba(16, 185, 129, 0.3);
         animation: pulse 2s ease-in-out infinite;
       }
       
-      .splash-logo img {
-        width: 100%;
-        height: 100%;
-        -o-object-fit: contain;
-           object-fit: contain;
+      .splash-logo span {
+        color: white;
+        font-size: 36px;
+        font-weight: 700;
       }
       
       .splash-brand {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
       }
       
       .splash-text {
         color: white;
-        font-size: 32px;
-        font-weight: 800;
-        letter-spacing: 2px;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
       }
       
       .splash-text span {
@@ -79,23 +84,22 @@
       .splash-tagline {
         color: rgba(255,255,255,0.5);
         font-size: 14px;
-        margin-top: 16px;
-        letter-spacing: 1px;
+        margin-top: 8px;
       }
       
       .splash-loader {
-        margin-top: 40px;
-        width: 40px;
-        height: 40px;
-        border: 3px solid rgba(5, 224, 108, 0.2);
-        border-top-color: #05E06C;
+        margin-top: 32px;
+        width: 32px;
+        height: 32px;
+        border: 2px solid rgba(16, 185, 129, 0.2);
+        border-top-color: #10B981;
         border-radius: 50%;
-        animation: spin 1s linear infinite;
+        animation: spin 0.8s linear infinite;
       }
       
       @keyframes pulse {
         0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.05); }
+        50% { transform: scale(1.03); }
       }
       
       @keyframes spin {
@@ -109,22 +113,22 @@
         pointer-events: none;
       }
     </style>
-    <script type="module" crossorigin src="/assets/main-CUTRVOV8.js"></script>
+    <script type="module" crossorigin src="/assets/main-NFVvpAOh.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-D3F3s8fL.js">
     <link rel="modulepreload" crossorigin href="/assets/motion-BPWU0vZm.js">
     <link rel="modulepreload" crossorigin href="/assets/firebase-DGwrLPSD.js">
-    <link rel="stylesheet" crossorigin href="/assets/main-BCnSf2rj.css">
+    <link rel="stylesheet" crossorigin href="/assets/main-TTtlRt9r.css">
   </head>
   <body>
-    <!-- Splash Screen with FLYP Logo -->
+    <!-- Splash Screen - Premium Dark -->
     <div class="splash-screen" id="splash">
       <div class="splash-logo">
-        <img src="/assets/flyp_logo.png" alt="FLYP" />
+        <span>F</span>
       </div>
       <div class="splash-brand">
         <span class="splash-text">FL<span>Y</span>P</span>
       </div>
-      <div class="splash-tagline">SHOP</div>
+      <div class="splash-tagline">Quick delivery from local stores</div>
       <div class="splash-loader"></div>
     </div>
     

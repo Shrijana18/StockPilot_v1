@@ -125,7 +125,7 @@ const DeliveryChat = ({ order, onClose }) => {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: '100%' }}
       transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-      className="fixed inset-0 bg-[#060D2D] z-50 flex flex-col"
+      className="fixed inset-0 bg-slate-900 z-50 flex flex-col"
     >
       {/* Header */}
       <div 
@@ -235,7 +235,7 @@ const DeliveryChat = ({ order, onClose }) => {
       </div>
 
       {/* Quick Messages */}
-      <div className="px-4 py-2 bg-[#060D2D] border-t border-white/5">
+      <div className="px-4 py-2 bg-slate-900 border-t border-white/5">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {quickMessages.map((msg, idx) => (
             <button
@@ -251,7 +251,7 @@ const DeliveryChat = ({ order, onClose }) => {
 
       {/* Input Area */}
       <div 
-        className="bg-[#060D2D] border-t border-white/5 px-4 py-3"
+        className="bg-slate-900 border-t border-white/5 px-4 py-3"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
       >
         <div className="flex items-center gap-3">

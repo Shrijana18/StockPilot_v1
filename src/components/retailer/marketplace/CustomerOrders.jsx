@@ -12,6 +12,7 @@ import {
 } from 'react-icons/fa';
 import { auth } from '../../../firebase/firebaseConfig';
 import {
+  getMarketplaceStore,
   subscribeToCustomerOrders,
   acceptOrder,
   startPreparingOrder,
@@ -45,7 +46,25 @@ const CustomerOrders = () => {
   
   // Chat modal
   const [chatOrder, setChatOrder] = useState(null);
-  
+
+  // Store settings for smart delivery suggestion (baseDeliveryTime, estimatedDeliveryPerKm)
+  const [storeSettings, setStoreSettings] = useState(null);
+
+  /** Smart delivery suggestion: base + (distance × perKm) mins. Returns null only for pickup orders. */
+  const getSuggestedDeliveryMinutes = (order) => {
+    if (order.orderType === 'pickup') return null;
+    const base = Number(storeSettings?.baseDeliveryTime) || 30;
+    const perKm = Number(storeSettings?.estimatedDeliveryPerKm) || 5;
+    const dist = order.customerDistance;
+    // If distance is available, calculate: base + (distance × perKm)
+    // If distance is missing, show base time as fallback
+    if (dist != null && dist >= 0) {
+      return Math.round(base + dist * perKm);
+    }
+    // Fallback: show base time if distance is missing
+    return base;
+  };
+
   // Check stock for pending orders
   const checkStockForOrder = async (order) => {
     if (!order.items || order.items.length === 0) return;
@@ -73,6 +92,15 @@ const CustomerOrders = () => {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // Fetch store settings for smart delivery suggestion
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+    getMarketplaceStore(userId).then((store) => {
+      if (store) setStoreSettings(store);
+    }).catch(() => {});
   }, []);
 
   // Filter orders
@@ -114,9 +142,13 @@ const CustomerOrders = () => {
   };
 
   // Handle order actions
-  const handleAcceptOrder = async (orderId) => {
+  const handleAcceptOrder = async (order) => {
+    const orderId = order?.id;
+    if (!orderId) return;
     setActionLoading(orderId);
-    await acceptOrder(auth.currentUser?.uid, orderId, 30);
+    const suggested = getSuggestedDeliveryMinutes(order);
+    const estimatedMins = suggested != null ? suggested : 30;
+    await acceptOrder(auth.currentUser?.uid, orderId, estimatedMins);
     setActionLoading(null);
   };
 
@@ -175,7 +207,7 @@ const CustomerOrders = () => {
     
     switch (order.status) {
       case 'pending':
-        return { label: 'Accept Order', action: () => handleAcceptOrder(order.id), color: 'emerald' };
+        return { label: 'Accept Order', action: () => handleAcceptOrder(order), color: 'emerald' };
       case 'confirmed':
         return { label: 'Start Preparing', action: () => handleStartPreparing(order.id), color: 'orange' };
       case 'preparing':
@@ -208,6 +240,116 @@ const CustomerOrders = () => {
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return date.toLocaleDateString();
+  };
+
+  // Calculate time remaining for delivery (based on estimated delivery time)
+  const getTimeRemaining = (order) => {
+    if (order.orderType === 'pickup') return null;
+    if (!order.estimatedDeliveryMinutes && !order.estimatedMins) return null;
+    
+    const estimatedMins = order.estimatedDeliveryMinutes || order.estimatedMins || 0;
+    const createdAt = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+    const now = new Date();
+    const elapsedMins = Math.floor((now - createdAt) / (1000 * 60));
+    const remainingMins = Math.max(0, estimatedMins - elapsedMins);
+    
+    return remainingMins;
+  };
+
+  // Get color coding for time remaining
+  const getTimeRemainingColor = (remainingMins) => {
+    if (remainingMins === null) return 'gray';
+    if (remainingMins <= 5) return 'red'; // Urgent - less than 5 mins
+    if (remainingMins <= 15) return 'orange'; // Warning - less than 15 mins
+    if (remainingMins <= 30) return 'yellow'; // Caution - less than 30 mins
+    return 'green'; // Good - more than 30 mins
+  };
+
+  // Calculate distance between two coordinates (Haversine formula)
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Find batch delivery suggestions (orders that can be combined)
+  const getBatchDeliverySuggestions = () => {
+    // Get all active delivery orders (not just filtered ones)
+    const activeDeliveryOrders = orders.filter(order => 
+      order.orderType === 'delivery' && 
+      ['confirmed', 'preparing', 'ready'].includes(order.status)
+    );
+
+    if (activeDeliveryOrders.length < 2) return [];
+
+    const batches = [];
+    const processed = new Set();
+
+    for (let i = 0; i < activeDeliveryOrders.length; i++) {
+      if (processed.has(activeDeliveryOrders[i].id)) continue;
+      
+      const order1 = activeDeliveryOrders[i];
+      const batch = [order1];
+      processed.add(order1.id);
+
+      // Get order1 location (prefer lat/lng, fallback to address matching)
+      const order1Lat = order1.deliveryAddress?.lat;
+      const order1Lng = order1.deliveryAddress?.lng;
+      const order1Pincode = order1.deliveryAddress?.pincode;
+      const order1City = order1.deliveryAddress?.city;
+
+      for (let j = i + 1; j < activeDeliveryOrders.length; j++) {
+        if (processed.has(activeDeliveryOrders[j].id)) continue;
+        
+        const order2 = activeDeliveryOrders[j];
+        let canBatch = false;
+
+        // Method 1: Use lat/lng if available
+        if (order1Lat && order1Lng && order2.deliveryAddress?.lat && order2.deliveryAddress?.lng) {
+          const distance = calculateDistance(
+            order1Lat,
+            order1Lng,
+            order2.deliveryAddress.lat,
+            order2.deliveryAddress.lng
+          );
+          // If orders are within 2km of each other, suggest batch delivery
+          if (distance <= 2) {
+            canBatch = true;
+          }
+        }
+        // Method 2: If same pincode and city, likely nearby
+        else if (order1Pincode && order2.deliveryAddress?.pincode && 
+                 order1Pincode === order2.deliveryAddress.pincode &&
+                 order1City && order2.deliveryAddress?.city &&
+                 order1City === order2.deliveryAddress.city) {
+          canBatch = true;
+        }
+        // Method 3: If customerDistance is similar (within 1km difference), likely same direction
+        else if (order1.customerDistance != null && order2.customerDistance != null) {
+          const distDiff = Math.abs(order1.customerDistance - order2.customerDistance);
+          if (distDiff <= 1) {
+            canBatch = true;
+          }
+        }
+
+        if (canBatch) {
+          batch.push(order2);
+          processed.add(order2.id);
+        }
+      }
+
+      // Only suggest batches with 2-3 orders
+      if (batch.length >= 2 && batch.length <= 3) {
+        batches.push(batch);
+      }
+    }
+
+    return batches;
   };
 
   if (loading) {
@@ -294,6 +436,74 @@ const CustomerOrders = () => {
         ))}
       </div>
 
+      {/* Batch Delivery Suggestions - Show on Active or All filters */}
+      {(() => {
+        const batchSuggestions = getBatchDeliverySuggestions();
+        if (batchSuggestions.length === 0 || (filter !== 'active' && filter !== 'all')) return null;
+        
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-r from-emerald-500/20 via-blue-500/20 to-cyan-500/20 border-2 border-emerald-500/40 rounded-xl p-5 shadow-lg shadow-emerald-500/10"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/30 flex items-center justify-center">
+                <FaTruck className="text-emerald-400 text-lg" />
+              </div>
+              <div>
+                <h3 className="text-white font-bold text-lg">🚚 Batch Delivery Suggestions</h3>
+                <p className="text-white/60 text-xs">Deliver multiple orders together to save time & fuel</p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {batchSuggestions.map((batch, idx) => (
+                <motion.div 
+                  key={idx} 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  className="bg-white/10 rounded-lg p-4 border border-emerald-500/30 hover:border-emerald-500/50 transition-all"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <p className="text-white font-semibold text-sm mb-1">
+                        Combine {batch.length} orders for efficient delivery:
+                      </p>
+                      <p className="text-emerald-300 text-xs">
+                        Customers are located nearby - can be delivered in one trip
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 bg-emerald-500/30 text-emerald-300 rounded-lg text-xs font-bold">
+                      {batch.length} orders
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {batch.map((order) => (
+                      <div
+                        key={order.id}
+                        className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-lg text-emerald-300 text-xs font-mono font-semibold hover:bg-emerald-500/30 transition cursor-pointer"
+                        onClick={() => setSelectedOrder(order)}
+                      >
+                        #{order.id?.slice(-6).toUpperCase()}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-white/60">
+                    {batch[0].deliveryAddress?.pincode && (
+                      <span>📍 Pincode: {batch[0].deliveryAddress.pincode}</span>
+                    )}
+                    {batch[0].customerDistance != null && (
+                      <span>📏 ~{batch[0].customerDistance.toFixed(1)}km from store</span>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        );
+      })()}
+
       {/* Orders List */}
       {filteredOrders.length === 0 ? (
         <div className="text-center py-12">
@@ -335,9 +545,30 @@ const CustomerOrders = () => {
                         {statusInfo.label}
                       </span>
                     </div>
-                    <span className="text-white/50 text-sm">
-                      {formatTimeAgo(order.createdAt)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/50 text-sm">
+                        {formatTimeAgo(order.createdAt)}
+                      </span>
+                      {/* Time Remaining with Color Coding */}
+                      {(() => {
+                        const remainingMins = getTimeRemaining(order);
+                        if (remainingMins === null) return null;
+                        const color = getTimeRemainingColor(remainingMins);
+                        const colorClasses = {
+                          red: 'bg-red-500/20 text-red-300 border-red-500/40',
+                          orange: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+                          yellow: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40',
+                          green: 'bg-green-500/20 text-green-300 border-green-500/40',
+                          gray: 'bg-gray-500/20 text-gray-300 border-gray-500/40'
+                        };
+                        return (
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold border flex items-center gap-1 ${colorClasses[color]}`}>
+                            <FaClock className="text-xs" />
+                            {remainingMins > 0 ? `${remainingMins}m left` : 'Overdue'}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </div>
 
                   {/* Customer Info */}
@@ -425,6 +656,15 @@ const CustomerOrders = () => {
                       <div className="flex items-center gap-2 mt-2 text-sm">
                         <FaClock className="text-cyan-400" />
                         <span className="text-white/60">Delivery: {order.deliverySlot}</span>
+                      </div>
+                    )}
+                    {/* Smart Delivery Suggestion - Always show for delivery orders */}
+                    {order.orderType !== 'pickup' && (
+                      <div className="flex items-center gap-2 mt-2 text-sm">
+                        <FaClock className="text-amber-400" />
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 text-xs font-semibold border border-amber-500/30">
+                          Suggested: ~{getSuggestedDeliveryMinutes(order)} min
+                        </span>
                       </div>
                     )}
                   </div>
@@ -618,6 +858,15 @@ const CustomerOrders = () => {
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10">
                         <FaClock className="text-white/40" />
                         <span className="text-white/60 text-sm">Delivery: {selectedOrder.deliverySlot}</span>
+                      </div>
+                    )}
+                    {/* Smart Delivery Suggestion - Always show for delivery orders */}
+                    {selectedOrder.orderType !== 'pickup' && (
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10">
+                        <FaClock className="text-amber-400" />
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 text-sm font-semibold border border-amber-500/30">
+                          Suggested delivery: ~{getSuggestedDeliveryMinutes(selectedOrder)} min
+                        </span>
                       </div>
                     )}
                   </div>

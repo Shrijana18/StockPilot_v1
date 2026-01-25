@@ -75,6 +75,8 @@ export const CartProvider = ({ children }) => {
     const itemMrp = product.mrp || itemPrice;
     const itemImage = product.imageUrl || product.image || '';
     const itemUnit = product.unit || product.packSize || '';
+    const offerLabel = product.offerLabel || null;
+    const returnPolicy = product.returnPolicy || 'inherit';
 
     setCartItems(prev => {
       const existingIndex = prev.findIndex(item => item.productId === product.id);
@@ -93,7 +95,9 @@ export const CartProvider = ({ children }) => {
           mrp: itemMrp,
           image: itemImage,
           unit: itemUnit,
-          quantity: quantity
+          quantity: quantity,
+          offerLabel,
+          returnPolicy
         }];
       }
     });

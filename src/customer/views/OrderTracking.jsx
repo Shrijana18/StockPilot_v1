@@ -8,10 +8,11 @@ import {
   FaArrowLeft, FaPhone, FaStore, FaMapMarkerAlt, FaCheck,
   FaClock, FaMotorcycle, FaBox, FaComments, FaTruck, FaCalendarAlt,
   FaDirections, FaCheckCircle, FaCreditCard, FaExclamationTriangle,
-  FaStar, FaUser
+  FaStar, FaUser, FaQuestionCircle, FaChevronRight
 } from 'react-icons/fa';
 import { subscribeToOrder, getOrderStatusInfo, rateOrder } from '../services/orderService';
 import DeliveryChat from '../components/DeliveryChat';
+import SupportFlow from '../components/SupportFlow';
 
 // Helper to get date label from ISO string
 const getDateLabelFromISO = (isoString) => {
@@ -86,6 +87,7 @@ const OrderTracking = ({ orderId, onBack }) => {
   const [loading, setLoading] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
+  const [showSupportFlow, setShowSupportFlow] = useState(false);
 
   // Subscribe to order updates
   useEffect(() => {
@@ -255,7 +257,7 @@ const OrderTracking = ({ orderId, onBack }) => {
 
       {/* Order Progress */}
       {order.status !== 'cancelled' && (
-        <div className="mx-4 mt-4 bg-[#111827] rounded-2xl border border-white/[0.06] p-4">
+        <div className="mx-4 mt-4 bg-slate-800 rounded-2xl border border-white/[0.06] p-4">
           <h3 className="font-semibold text-white mb-4">Order Progress</h3>
           <div>
             {statusSteps.map((s, index) => (
@@ -277,7 +279,7 @@ const OrderTracking = ({ orderId, onBack }) => {
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mx-4 mt-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl p-4 text-white shadow-xl shadow-emerald-500/20"
+          className="mx-4 mt-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4"
         >
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Delivery Partner</h3>
@@ -358,7 +360,7 @@ const OrderTracking = ({ orderId, onBack }) => {
       )}
 
       {/* Store Info */}
-      <div className="mx-4 mt-4 bg-[#111827] rounded-2xl border border-white/[0.06] p-4">
+      <div className="mx-4 mt-4 bg-slate-800 rounded-2xl border border-white/[0.06] p-4">
         <h3 className="font-semibold text-white mb-3">Store Details</h3>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -385,9 +387,33 @@ const OrderTracking = ({ orderId, onBack }) => {
         </div>
       </div>
 
+      {/* Need Help? - Status-aware: return/refund only after delivery */}
+      <div className="mx-4 mt-4">
+        <button
+          type="button"
+          onClick={() => setShowSupportFlow(true)}
+          className="w-full flex items-center justify-between gap-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 hover:border-amber-500/30 transition-all text-left"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center">
+              <FaQuestionCircle className="text-amber-400 text-lg" />
+            </div>
+            <div>
+              <p className="font-semibold text-white">Need help with this order?</p>
+              <p className="text-xs text-white/50">
+                {order.status === 'delivered'
+                  ? 'Query, return, refund, or other support'
+                  : 'Query, cancel, delivery issue, or other support'}
+              </p>
+            </div>
+          </div>
+          <FaChevronRight className="text-white/40 flex-shrink-0" />
+        </button>
+      </div>
+
       {/* Delivery Address / Pickup Info */}
       {isPickup ? (
-        <div className="mx-4 mt-4 bg-[#111827] rounded-2xl border border-white/[0.06] p-4">
+        <div className="mx-4 mt-4 bg-slate-800 rounded-2xl border border-white/[0.06] p-4">
           <h3 className="font-semibold text-white mb-3">Pickup Details</h3>
           <div className="space-y-3">
             <div className="flex items-center gap-3 p-3 bg-purple-500/5 rounded-xl">
@@ -413,7 +439,7 @@ const OrderTracking = ({ orderId, onBack }) => {
           </div>
         </div>
       ) : order.deliveryAddress && (
-        <div className="mx-4 mt-4 bg-[#111827] rounded-2xl border border-white/[0.06] p-4">
+        <div className="mx-4 mt-4 bg-slate-800 rounded-2xl border border-white/[0.06] p-4">
           <div className="flex items-center gap-2 mb-3">
             <h3 className="font-semibold text-white">
               {order.isScheduledDelivery ? 'Scheduled Delivery' : 'Delivery Address'}
@@ -474,7 +500,7 @@ const OrderTracking = ({ orderId, onBack }) => {
       )}
 
       {/* Order Items */}
-      <div className="mx-4 mt-4 bg-[#111827] rounded-2xl border border-white/[0.06] p-4">
+      <div className="mx-4 mt-4 bg-slate-800 rounded-2xl border border-white/[0.06] p-4">
         <h3 className="font-semibold text-white mb-3">Order Items ({order.items?.length || 0})</h3>
         <div className="space-y-3">
           {order.items?.map((item, index) => (
@@ -546,7 +572,7 @@ const OrderTracking = ({ orderId, onBack }) => {
               ? dueInfo?.isOverdue 
                 ? 'bg-red-500/10 border-red-500/20' 
                 : 'bg-amber-500/10 border-amber-500/20'
-              : 'bg-[#111827] border-white/[0.06]'
+              : 'bg-slate-800 border-white/[0.06]'
           }`}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-white flex items-center gap-2">
@@ -641,7 +667,7 @@ const OrderTracking = ({ orderId, onBack }) => {
         <div className="mx-4 mt-4 space-y-3">
           {/* Store Rating */}
           {order.storeRating && (
-            <div className="p-4 bg-[#111827] rounded-2xl border border-white/[0.06]">
+            <div className="p-4 bg-slate-800 rounded-2xl border border-white/[0.06]">
               <div className="flex items-center gap-3 mb-2">
                 <FaStore className="text-blue-400" />
                 <div className="flex-1">
@@ -669,7 +695,7 @@ const OrderTracking = ({ orderId, onBack }) => {
 
           {/* Delivery Person Rating */}
           {order.deliveryPersonRating && (
-            <div className="p-4 bg-[#111827] rounded-2xl border border-white/[0.06]">
+            <div className="p-4 bg-slate-800 rounded-2xl border border-white/[0.06]">
               <div className="flex items-center gap-3 mb-2">
                 <FaMotorcycle className="text-emerald-400" />
                 <div className="flex-1">
@@ -731,6 +757,13 @@ const OrderTracking = ({ orderId, onBack }) => {
           />
         )}
       </AnimatePresence>
+
+      {/* Help / Support Flow */}
+      <SupportFlow
+        isOpen={showSupportFlow}
+        onClose={() => setShowSupportFlow(false)}
+        preSelectedOrder={order}
+      />
     </div>
   );
 };
@@ -811,7 +844,7 @@ const RatingModal = ({ order, onClose, onSubmit }) => {
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-[#111827] rounded-2xl p-6 w-full max-w-md border border-white/10"
+        className="bg-slate-800 rounded-2xl p-6 w-full max-w-md border border-white/10"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -891,7 +924,7 @@ const RatingModal = ({ order, onClose, onSubmit }) => {
             <button
               onClick={handleSubmit}
               disabled={submitting || storeRating === 0 || (isDelivery && deliveryPersonRating === 0)}
-              className="flex-1 px-4 py-3 bg-emerald-500 text-white rounded-xl font-medium hover:bg-emerald-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-3 bg-emerald-500 text-slate-900 rounded-xl font-medium hover:bg-emerald-400 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {submitting ? (
                 <>
