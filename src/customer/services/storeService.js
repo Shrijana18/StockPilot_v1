@@ -35,9 +35,21 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
  */
 export const getNearbyStores = async (userLat, userLng, radiusKm = 50, maxStores = 20) => {
   try {
+    console.log('[StoreService] Fetching nearby stores...', { userLat, userLng, radiusKm });
+    
+    // Check if db is initialized
+    if (!db) {
+      console.error('[StoreService] Database not initialized!');
+      throw new Error('Database not initialized. Please check your connection.');
+    }
+    
+    console.log('[StoreService] Database initialized, querying stores collection...');
+    
     // Query all active stores from the stores collection
     const storesRef = collection(db, 'stores');
     const snapshot = await getDocs(storesRef);
+    
+    console.log('[StoreService] Fetched stores:', snapshot.size);
     const stores = [];
 
     snapshot.docs.forEach(docSnap => {
@@ -88,6 +100,12 @@ export const getNearbyStores = async (userLat, userLng, radiusKm = 50, maxStores
     return stores.slice(0, maxStores);
   } catch (error) {
     console.error('Error fetching nearby stores:', error);
+    // Return empty array instead of throwing to prevent blank page
+    // The component will handle the empty state gracefully
+    if (error.code === 'permission-denied' || error.code === 'unavailable') {
+      console.warn('Firebase permission or availability issue. Returning empty stores list.');
+      return [];
+    }
     throw error;
   }
 };
@@ -356,6 +374,11 @@ export const getFeaturedProducts = async (userLat, userLng, radiusKm = 3, limitC
     return products.sort(() => Math.random() - 0.5).slice(0, limitCount);
   } catch (error) {
     console.error('Error fetching featured products:', error);
+    // Return empty array instead of throwing to prevent blank page
+    if (error.code === 'permission-denied' || error.code === 'unavailable') {
+      console.warn('Firebase permission or availability issue. Returning empty products list.');
+      return [];
+    }
     throw error;
   }
 };
