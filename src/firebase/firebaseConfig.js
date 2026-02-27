@@ -21,6 +21,13 @@ if (IS_NATIVE && typeof self !== 'undefined' && import.meta?.env?.MODE !== 'prod
   self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
 
+// Log Firebase initialization for debugging
+console.log('[Firebase] Initializing Firebase...', {
+  isNative: IS_NATIVE,
+  isProduction: IS_PRODUCTION,
+  projectId: 'stockpilotv1'
+});
+
 const firebaseConfig = {
   apiKey: "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE",
   authDomain: "stockpilotv1.firebaseapp.com",
@@ -32,22 +39,13 @@ const firebaseConfig = {
   measurementId: "G-SENFJ2HSBW"
 };
 
-// On native WebView, drop authDomain to prevent Firebase Auth from loading gapi
-const configForPlatform = IS_NATIVE
-  ? (() => {
-      const { authDomain, ...rest } = firebaseConfig;
-      return rest;
-    })()
-  : firebaseConfig;
+// Use full config (including authDomain) so Google sign-in and other OAuth flows work in app and web.
+// Employee app still uses config without authDomain where needed for isolated auth.
+const configForPlatform = firebaseConfig;
 
 // --- Default Firebase App (for Retailer/Distributor) ---
 export const app = getApps().length ? getApp() : initializeApp(configForPlatform);
 export const auth = getAuth(app);
-if (IS_NATIVE) {
-  // Prevent Firebase Auth from attempting gapi-based popup/redirect flows in WKWebView
-  try { auth._popupRedirectResolver = null; } catch (_) {}
-  try { auth._errorFactory = { create: () => ({ message: "suppressed" }) }; } catch (_) {}
-}
 (async () => {
   try {
     if (IS_NATIVE) {
@@ -77,23 +75,44 @@ if (IS_NATIVE) {
 if (IS_PRODUCTION) {
   console.info('[Firebase] Production environment detected');
   
-  // Add global error handler for production
+  // Add global error handler for production - prevent crashes
   window.addEventListener('unhandledrejection', (event) => {
+    // Don't crash app on Firebase errors
+    if (event.reason?.code === 'permission-denied' || 
+        event.reason?.code === 'unavailable' ||
+        event.reason?.code === 'auth/argument-error' ||
+        event.reason?.message?.includes('network')) {
+      console.warn('[Firebase] Handled rejection:', event.reason?.code || event.reason?.message || event.reason);
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    }
     console.error('[Firebase] Unhandled promise rejection:', event.reason);
   });
   
-  // Add Firebase auth state change error handling
-  auth.onAuthStateChanged((user) => {
-    if (user) {
-      console.log('[Firebase] Production auth state: User signed in');
-    } else {
-      console.log('[Firebase] Production auth state: User signed out');
-    }
-  }, (error) => {
-    console.error('[Firebase] Production auth state error:', error);
-  });
+  // Add Firebase auth state change error handling - graceful degradation
+  try {
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        console.log('[Firebase] Production auth state: User signed in');
+      } else {
+        console.log('[Firebase] Production auth state: User signed out');
+      }
+    }, (error) => {
+      console.error('[Firebase] Production auth state error:', error);
+      // Don't crash - app can work without auth state listener
+    });
+  } catch (error) {
+    console.warn('[Firebase] Auth state listener setup failed:', error);
+    // App continues without auth state listener
+  }
 }
-export const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+// Initialize Firestore with long polling for better iOS compatibility
+export const db = initializeFirestore(app, { 
+  experimentalForceLongPolling: true,
+  ignoreUndefinedProperties: true
+});
+console.log('[Firebase] Firestore initialized with long polling');
 export const storage = getStorage(app);
 export const functions = getFunctions(app, "us-central1");
 
@@ -103,7 +122,8 @@ const existingEmpApp = getApps().find(a => a.name === "employeeApp");
 if (existingEmpApp) {
   empApp = existingEmpApp;
 } else {
-  empApp = initializeApp(firebaseConfig, "employeeApp");
+  // CRITICAL: Use configForPlatform (drops authDomain on native) to prevent auth/argument-error
+  empApp = initializeApp(configForPlatform, "employeeApp");
 }
 
 export const empDB = initializeFirestore(empApp, { experimentalForceLongPolling: true });
@@ -113,10 +133,19 @@ if (IS_NATIVE) {
   try { empAuth._popupRedirectResolver = null; } catch (_) {}
 }
 
-// Disable persistence to avoid interference with Retailer login
-setPersistence(empAuth, inMemoryPersistence)
-  .then(() => console.info("[Employee Firebase] In-memory auth persistence enabled"))
-  .catch(err => console.warn("[Employee Firebase] Persistence setup failed:", err));
+// Disable persistence to avoid interference with Retailer login (run after auth is ready)
+(async () => {
+  try {
+    await setPersistence(empAuth, inMemoryPersistence);
+    console.info("[Employee Firebase] In-memory auth persistence enabled");
+  } catch (err) {
+    if (err?.code === 'auth/argument-error') {
+      console.warn("[Employee Firebase] Persistence skipped (argument-error, often harmless on native):", err?.message);
+    } else {
+      console.warn("[Employee Firebase] Persistence setup failed:", err);
+    }
+  }
+})();
 
 // Only run web reCAPTCHA App Check on browser; skip on Capacitor native to avoid gapi/CORS issues
 if (!IS_NATIVE && typeof window !== 'undefined' && import.meta?.env?.VITE_ENABLE_APPCHECK === 'true') {

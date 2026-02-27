@@ -212,12 +212,16 @@ service cloud.firestore {
       match /employees/{employeeId} {
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
 
+        // Allow employee to read their own document
+        // The custom token UID = employee document ID, so request.auth.uid == employeeId
         allow get: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) ||
           request.auth.uid == employeeId ||
-          (request.auth.token.businessId == userId && request.auth.token.employeeId == employeeId)
+          (request.auth.token.businessId == userId && request.auth.token.employeeId == employeeId) ||
+          (request.auth.token.retailerId == userId && request.auth.token.employeeId == employeeId && request.auth.token.isRetailerEmployee == true)
         );
 
+        // Allow employee to update their presence fields
         allow update: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || (
             (request.auth.uid == employeeId || request.auth.token.employeeId == employeeId) &&
@@ -230,7 +234,19 @@ service cloud.firestore {
 
       // ==================== DISTRIBUTOR EMPLOYEES (distributor-scoped) ====================
       match /distributorEmployees/{employeeId} {
+        // Allow distributor owner to read/write all employee documents
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+
+        // Allow employees to read their own document (for getDoc, onSnapshot, queries)
+        // This is needed because onSnapshot requires 'read' permission, not just 'get'
+        allow read: if isAuthed() && request.auth.uid == employeeId;
+
+        // Also allow via custom claims (for employees authenticated with custom tokens)
+        allow read: if isAuthed() && (
+          request.auth.token.isDistributorEmployee == true &&
+          request.auth.token.distributorId == userId &&
+          request.auth.token.employeeId == employeeId
+        );
 
         allow get: if isAuthed() && request.auth.uid == employeeId;
 
@@ -1168,6 +1184,99 @@ service cloud.firestore {
           isDistributorEmployee(userId)
         );
       }
+
+      // ======================== CUSTOMER ORDERS (Marketplace Orders for Retailers) ========================
+      // Path: businesses/{retailerId}/customerOrders/{orderId}
+      match /customerOrders/{orderId} {
+        // READ: Retailer can read their customer orders, employees with delivery access can read
+        allow read: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified()) ||
+          // Employee with delivery access can read orders
+          (exists(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.uid)).data.accessSections.delivery == true) ||
+          // Employee via custom token
+          (request.auth.token.businessId == userId && 
+           request.auth.token.employeeId is string &&
+           exists(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.token.employeeId)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.token.employeeId)).data.accessSections.delivery == true)
+        );
+
+        // CREATE: Orders are created by customers via marketplace (handled by Cloud Functions)
+        // Retailers don't create orders, but allow for testing
+        allow create: if isAuthed() && isSelf(userId) && isEmailVerified();
+
+        // UPDATE: Retailer can update order status, assign employees, mark delivered
+        // Employees with delivery access can update status when delivering
+        allow update: if isAuthed() && (
+          // Retailer can update all fields
+          (isSelf(userId) && isEmailVerified()) ||
+          // Employee can update status-related fields when delivering
+          (exists(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.uid)).data.accessSections.delivery == true &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'deliveredAt', 'deliveredBy', 'outForDeliveryAt'
+           ])) ||
+          // Employee via custom token
+          (request.auth.token.businessId == userId && 
+           request.auth.token.employeeId is string &&
+           exists(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.token.employeeId)) &&
+           get(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.token.employeeId)).data.accessSections.delivery == true &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'deliveredAt', 'deliveredBy', 'outForDeliveryAt'
+           ]))
+        );
+
+        // DELETE: Only retailer can delete (for order cancellation)
+        allow delete: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
+      // ======================== EMPLOYEE DELIVERIES (Delivery Assignments) ========================
+      // Path: businesses/{retailerId}/employeeDeliveries/{assignmentId}
+      match /employeeDeliveries/{assignmentId} {
+        // READ: Retailer can read all assignments, employee can read their own assignments
+        allow read: if isAuthed() && (
+          // Retailer can read all
+          (isSelf(userId) && isEmailVerified()) ||
+          // Employee can read their own assignments
+          (exists(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.uid)) &&
+           resource.data.employeeId == request.auth.uid) ||
+          // Employee via custom token
+          (request.auth.token.businessId == userId && 
+           request.auth.token.employeeId is string &&
+           resource.data.employeeId == request.auth.token.employeeId)
+        );
+
+        // CREATE: Retailer can create assignments when assigning orders to employees
+        allow create: if isAuthed() && (
+          (isSelf(userId) && isEmailVerified() &&
+           request.resource.data.retailerId == userId &&
+           request.resource.data.employeeId is string &&
+           request.resource.data.orderId is string)
+        );
+
+        // UPDATE: Retailer can update assignments, employee can update their own assignment status
+        allow update: if isAuthed() && (
+          // Retailer can update all fields
+          (isSelf(userId) && isEmailVerified() &&
+           resource.data.retailerId == userId) ||
+          // Employee can update status and delivery proof fields
+          (exists(/databases/$(database)/documents/businesses/$(userId)/employees/$(request.auth.uid)) &&
+           resource.data.employeeId == request.auth.uid &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'pickedUpAt', 'deliveredAt', 'deliveryProof', 'updatedAt'
+           ])) ||
+          // Employee via custom token
+          (request.auth.token.businessId == userId && 
+           request.auth.token.employeeId is string &&
+           resource.data.employeeId == request.auth.token.employeeId &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'pickedUpAt', 'deliveredAt', 'deliveryProof', 'updatedAt'
+           ]))
+        );
+
+        // DELETE: Only retailer can delete assignments
+        allow delete: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
     }
 
     // ============================================================
@@ -1286,9 +1395,12 @@ service cloud.firestore {
     match /customers/{customerId} {
       // DEV MODE: Allow read/write for customers (no auth required for simple login)
       // Customer ID format: customer_<phone>
+      // IMPORTANT: This is permissive for development - allows both authenticated and unauthenticated access
       allow read: if true;
-      allow create: if customerId.matches('customer_[0-9]+');
-      allow update: if customerId.matches('customer_[0-9]+');
+      allow create: if true; // Allow any client to create customer documents
+      allow update: if true; // Allow any client to update customer documents
+      // Apple Guideline 5.1.1(v): Allow account deletion (customer deletes own doc by ID)
+      allow delete: if true; // Allow any client to delete customer documents
     }
     
     // Stores visible to customers (synced from businesses)
@@ -1326,7 +1438,26 @@ service cloud.firestore {
         // DEV MODE: Allow read/write for store orders
         allow read: if true;
         allow create: if true;
-        allow update: if isAuthed() && request.auth.uid == storeId;
+        
+        // UPDATE: Store owner can update all fields, employees with delivery access can update status
+        allow update: if isAuthed() && (
+          // Store owner can update everything
+          request.auth.uid == storeId ||
+          // Employee with delivery access can update status fields
+          (exists(/databases/$(database)/documents/businesses/$(storeId)/employees/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/businesses/$(storeId)/employees/$(request.auth.uid)).data.accessSections.delivery == true &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'deliveredAt', 'deliveredBy', 'outForDeliveryAt', 'assignedEmployeeId', 'assignedEmployee', 'assignedAt'
+           ])) ||
+          // Employee via custom token
+          (request.auth.token.businessId == storeId && 
+           request.auth.token.employeeId is string &&
+           exists(/databases/$(database)/documents/businesses/$(storeId)/employees/$(request.auth.token.employeeId)) &&
+           get(/databases/$(database)/documents/businesses/$(storeId)/employees/$(request.auth.token.employeeId)).data.accessSections.delivery == true &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'deliveredAt', 'deliveredBy', 'outForDeliveryAt', 'assignedEmployeeId', 'assignedEmployee', 'assignedAt'
+           ]))
+        );
       }
       
       // Store reviews (customer reviews for this store)

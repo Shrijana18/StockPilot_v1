@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>FLYP Shop</string>
+	<string>FLYP</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -71,5 +71,18 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FLYP Shop needs your location to show nearby stores and calculate delivery distances.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>FLYP Shop needs your location to show nearby stores and calculate delivery distances.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

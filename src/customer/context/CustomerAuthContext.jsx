@@ -5,7 +5,10 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { db } from '../../firebase/firebaseConfig';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
+
+const IS_NATIVE_APP = Capacitor?.isNativePlatform?.() === true;
 
 const CustomerAuthContext = createContext();
 
@@ -21,6 +24,8 @@ export const CustomerAuthProvider = ({ children }) => {
   const [customer, setCustomer] = useState(null);
   const [customerData, setCustomerData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Check for saved customer session on mount
   useEffect(() => {
@@ -55,46 +60,85 @@ export const CustomerAuthProvider = ({ children }) => {
 
   // Simple login with phone + name (no OTP for dev)
   const simpleLogin = async (phone, name) => {
-    try {
-      // Create a simple customer ID from phone number
-      const formattedPhone = phone.replace(/\D/g, '');
-      const customerId = `customer_${formattedPhone}`;
-      
-      const customerRef = doc(db, 'customers', customerId);
-      const customerDoc = await getDoc(customerRef);
+    setLoginLoading(true);
+    setError(null);
+    const formattedPhone = phone.replace(/\D/g, '');
+    const customerId = `customer_${formattedPhone}`;
 
-      let data;
-      if (customerDoc.exists()) {
-        // Existing customer - update name if provided
-        data = customerDoc.data();
-        if (name && name !== data.name) {
-          await updateDoc(customerRef, { name, updatedAt: serverTimestamp() });
-          data.name = name;
+    console.log('[CustomerAuth] Starting login:', { customerId, isNative: IS_NATIVE_APP });
+
+    const doFirestoreLogin = async () => {
+      try {
+        console.log('[CustomerAuth] Fetching customer document...');
+        const customerRef = doc(db, 'customers', customerId);
+        const customerDoc = await getDoc(customerRef);
+
+        let data;
+        if (customerDoc.exists()) {
+          console.log('[CustomerAuth] Existing customer found');
+          data = customerDoc.data();
+          if (name && name !== data.name) {
+            console.log('[CustomerAuth] Updating customer name...');
+            await updateDoc(customerRef, { name, updatedAt: serverTimestamp() });
+            data.name = name;
+          }
+        } else {
+          console.log('[CustomerAuth] Creating new customer...');
+          data = {
+            name: name || 'Customer',
+            phone: `+91${formattedPhone}`,
+            email: '',
+            addresses: [],
+            paymentMethods: [],
+            settings: {
+              pushNotifications: true,
+              emailNotifications: false,
+              smsNotifications: false,
+              orderUpdates: true,
+              offers: true,
+            },
+            totalOrders: 0,
+            totalSavings: 0,
+            loyaltyPoints: 0,
+            referralCode: `FLYP${customerId.slice(-6).toUpperCase()}`,
+            createdAt: serverTimestamp(),
+            isActive: true
+          };
+          await setDoc(customerRef, data);
+          console.log('[CustomerAuth] New customer created successfully');
         }
-      } else {
-        // New customer - create profile
-        data = {
-          name: name || 'Customer',
-          phone: `+91${formattedPhone}`,
-          email: '',
-          addresses: [],
-          createdAt: serverTimestamp(),
-          totalOrders: 0,
-          isActive: true
-        };
-        await setDoc(customerRef, data);
+        return { data, isNewUser: !customerDoc.exists() };
+      } catch (error) {
+        console.error('[CustomerAuth] Firestore operation failed:', error);
+        throw error;
       }
+    };
 
-      // Save session
+    // Timeout for app - Firestore can hang in WebView
+    const timeoutMs = IS_NATIVE_APP ? 20000 : 30000;
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        console.error('[CustomerAuth] Login timeout after', timeoutMs, 'ms');
+        reject(new Error('Connection timed out. Please check your network and try again.'));
+      }, timeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([doFirestoreLogin(), timeoutPromise]);
+
+      console.log('[CustomerAuth] Login successful, saving to localStorage');
       localStorage.setItem('flyp_customer_id', customerId);
-      
       setCustomer({ uid: customerId, phoneNumber: `+91${formattedPhone}` });
-      setCustomerData(data);
-      
-      return { success: true, isNewUser: !customerDoc.exists() };
-    } catch (error) {
-      console.error('Error logging in:', error);
-      return { success: false, error: error.message };
+      setCustomerData(result.data);
+
+      return { success: true, isNewUser: result.isNewUser };
+    } catch (err) {
+      console.error('[CustomerAuth] Login error:', err);
+      const msg = err?.message || 'Login failed. Please try again.';
+      setError(msg);
+      return { success: false, error: msg };
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -173,16 +217,36 @@ export const CustomerAuthProvider = ({ children }) => {
     }
   };
 
+  // Delete account and all associated data (Apple Guideline 5.1.1(v))
+  const deleteAccount = async () => {
+    try {
+      if (!customer?.uid) return { success: false, error: 'Not logged in' };
+      const customerRef = doc(db, 'customers', customer.uid);
+      await deleteDoc(customerRef);
+      localStorage.removeItem('flyp_customer_id');
+      setCustomer(null);
+      setCustomerData(null);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
   return (
     <CustomerAuthContext.Provider value={{
       customer,
       customerData,
       loading,
+      loginLoading,
+      error,
+      setError,
       simpleLogin,
       updateProfile,
       addAddress,
       setDefaultAddress,
       logout,
+      deleteAccount,
       isLoggedIn: !!customer
     }}>
       {children}

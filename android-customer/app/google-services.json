@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "30934537475",
+    "firebase_url": "https://stockpilotv1-default-rtdb.firebaseio.com",
+    "project_id": "stockpilotv1",
+    "storage_bucket": "stockpilotv1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:30934537475:android:0651fb8838b6a105290536",
+        "android_client_info": {
+          "package_name": "com.flypnow.shop"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "30934537475-9qe3j0sj6q7ttbgg1qrftj9is159hufo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDFPtLfuUiWRSHVzJLScxIoKAPs1M9A0Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "30934537475-9qe3j0sj6q7ttbgg1qrftj9is159hufo.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "30934537475-m75ng3vfacqviuokpdlg55cka1bhn472.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.flypnow.shop"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
