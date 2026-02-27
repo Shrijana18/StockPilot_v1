@@ -3,6 +3,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { calculatePlatformFee } from '../../utils/platformFeeCalculator';
 
 const CartContext = createContext();
 
@@ -155,7 +156,9 @@ export const CartProvider = ({ children }) => {
     // Amount needed for free delivery
     const amountForFreeDelivery = freeDeliveryAbove > 0 ? Math.max(0, freeDeliveryAbove - subtotal) : 0;
     
-    const platformFee = 10; // Fixed platform fee
+    // Platform fee - using tiered structure for better equity
+    // Can be changed to 'fixed', 'tiered', 'percentage', or 'hybrid'
+    const platformFee = calculatePlatformFee(subtotal + deliveryFee, 'tiered');
     const total = subtotal + deliveryFee + platformFee;
     const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
     const savings = cartItems.reduce((sum, item) => {

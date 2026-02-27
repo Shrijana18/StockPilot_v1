@@ -31,6 +31,7 @@ const ViewEmployees = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [tempPins, setTempPins] = useState({}); // { [empKey]: { pin, expiresAt } }
+  const [visiblePins, setVisiblePins] = useState({}); // Track which PINs are visible
   const [tick, setTick] = useState(0);
   const [confirmReset, setConfirmReset] = useState({ open: false, id: null, name: "" });
 
@@ -179,6 +180,35 @@ const ViewEmployees = () => {
     setConfirmReset({ open: true, id: employeeId, name: employeeName });
   };
 
+  // Check if PIN is expired
+  const isPinExpired = (emp) => {
+    if (!emp.pinExpiresAt) {
+      // If no expiration, check if old format (hashed) - consider as valid if hashed PIN exists
+      return !emp.pinHash;
+    }
+    const expiresAt = emp.pinExpiresAt?.toDate ? emp.pinExpiresAt.toDate() : new Date(emp.pinExpiresAt);
+    return new Date() > expiresAt;
+  };
+
+  // Get PIN status
+  const getPinStatus = (emp) => {
+    if (isPinExpired(emp)) return 'expired';
+    if (emp.pinCreatedAt) {
+      const created = emp.pinCreatedAt?.toDate ? emp.pinCreatedAt.toDate() : new Date(emp.pinCreatedAt);
+      const daysSinceCreation = Math.floor((new Date() - created) / (1000 * 60 * 60 * 24));
+      if (daysSinceCreation >= 25) return 'expiring'; // Show warning 5 days before expiry
+    }
+    return 'valid';
+  };
+
+  // Toggle PIN visibility
+  const togglePinVisibility = (employeeId) => {
+    setVisiblePins(prev => ({
+      ...prev,
+      [employeeId]: !prev[employeeId]
+    }));
+  };
+
   return (
     <div className="p-4 text-white">
       <h2 className="text-2xl font-semibold mb-4">View Employees</h2>
@@ -214,6 +244,7 @@ const ViewEmployees = () => {
                 <th className="py-3 px-4 border-b border-white/10">Access</th>
                 <th className="py-3 px-4 border-b border-white/10">Status</th>
                 <th className="py-3 px-4 border-b border-white/10">Presence</th>
+                <th className="py-3 px-4 border-b border-white/10">PIN</th>
                 <th className="py-3 px-4 border-b border-white/10">Created At</th>
                 <th className="py-3 px-4 border-b border-white/10">Login Link</th>
                 <th className="py-3 px-4 border-b border-white/10">Actions</th>
@@ -247,7 +278,7 @@ const ViewEmployees = () => {
                   </td>
                   <td className="py-3 px-4 border-b border-white/10">
                     <div className="flex flex-col gap-1 text-xs sm:text-sm">
-                      {['inventory', 'billing', 'analytics'].map((section) => (
+                      {['inventory', 'billing', 'analytics', 'delivery'].map((section) => (
                         <label key={section} className="inline-flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -256,7 +287,8 @@ const ViewEmployees = () => {
                               const updated = { ...(emp.accessSections || {}), [section]: e.target.checked };
                               try {
                                 await updateDoc(doc(db, 'businesses', currentUser.uid, 'employees', emp.id), { accessSections: updated });
-                                toast.success(`${section.charAt(0).toUpperCase() + section.slice(1)} ${e.target.checked ? 'granted' : 'revoked'} for ${emp.name || (emp.flypEmployeeId || emp.id)}`);
+                                const sectionLabel = section === 'delivery' ? 'Delivery' : section.charAt(0).toUpperCase() + section.slice(1);
+                                toast.success(`${sectionLabel} ${e.target.checked ? 'granted' : 'revoked'} for ${emp.name || (emp.flypEmployeeId || emp.id)}`);
                               } catch (err) {
                                 console.error('Access update error:', err);
                                 toast.error('Failed to update access. Please try again.');
@@ -264,7 +296,7 @@ const ViewEmployees = () => {
                             }}
                             className="accent-emerald-500 h-3.5 w-3.5"
                           />
-                          <span className="capitalize text-gray-200">{section}</span>
+                          <span className="capitalize text-gray-200">{section === 'delivery' ? 'Delivery' : section}</span>
                         </label>
                       ))}
                     </div>
@@ -288,6 +320,61 @@ const ViewEmployees = () => {
                       <span className="text-gray-400 text-xs italic">Last seen: {formatLastSeen(emp.lastSeen)}</span>
                     )}
                   </td>
+                  {/* PIN Column */}
+                  <td className="py-3 px-4 border-b border-white/10">
+                    {(() => {
+                      const empKey = emp.flypEmployeeId || emp.id;
+                      const temp = tempPins[empKey];
+                      const pinStatus = getPinStatus(emp);
+                      const isVisible = visiblePins[empKey];
+                      
+                      return (
+                        <div className="space-y-2">
+                          {temp && temp.expiresAt > Date.now() ? (
+                            <div className="space-y-1">
+                              <div className="text-xs text-amber-200">New PIN:</div>
+                              <div className="font-mono text-sm font-bold text-amber-300">{temp.pin}</div>
+                              <div className="text-xs text-amber-400">
+                                Expires in {formatCountdown(temp.expiresAt - Date.now())}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                                  pinStatus === 'expired'
+                                    ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                                    : pinStatus === 'expiring'
+                                      ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                      : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                }`}>
+                                  {pinStatus}
+                                </span>
+                                <button
+                                  onClick={() => confirmAndReset(empKey, emp.name)}
+                                  className="text-xs text-amber-300 hover:text-amber-200 underline"
+                                >
+                                  Reset
+                                </button>
+                              </div>
+                              <button
+                                onClick={() => togglePinVisibility(empKey)}
+                                className={`w-full px-2 py-1.5 rounded-md border text-xs font-mono transition-all ${
+                                  pinStatus === 'expired'
+                                    ? 'border-red-400/30 bg-red-500/10 text-red-200'
+                                    : pinStatus === 'expiring'
+                                      ? 'border-yellow-400/30 bg-yellow-500/10 text-yellow-200'
+                                      : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                                }`}
+                              >
+                                {isVisible ? (emp.pin || 'No PIN') : '••••••'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td className="py-3 px-4 border-b border-white/10 text-gray-300">
                     {emp.createdAt?.toDate?.().toLocaleDateString() || '-'}
                   </td>
@@ -295,7 +382,7 @@ const ViewEmployees = () => {
                     {(emp.flypEmployeeId || emp.id) ? (
                       <div className="flex items-center gap-3">
                         <a
-                          href={`${(typeof window !== 'undefined' && window.location ? window.location.origin : 'https://flypnow.com')}/employee-login?retailerId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`}
+                          href={`${(typeof window !== 'undefined' && window.location ? window.location.origin : 'https://flypnow.com')}/employee-login?empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}${currentUser?.uid ? `&retailerId=${encodeURIComponent(currentUser.uid)}` : ''}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-300 hover:text-blue-200 underline-offset-2 hover:underline text-sm"
@@ -305,7 +392,7 @@ const ViewEmployees = () => {
                         <button
                           onClick={() => {
                             const base = (typeof window !== 'undefined' && window.location) ? window.location.origin : 'https://flypnow.com';
-                            const loginLink = `${base}/employee-login?retailerId=${encodeURIComponent(currentUser?.uid)}&empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}`;
+                            const loginLink = `${base}/employee-login?empId=${encodeURIComponent(emp.flypEmployeeId || emp.id)}${currentUser?.uid ? `&retailerId=${encodeURIComponent(currentUser.uid)}` : ''}`;
                             navigator.clipboard.writeText(loginLink);
                             toast.success('Login link copied!');
                           }}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider, signOut } from "firebase/auth";
-import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { getAuth, updatePassword, deleteUser, reauthenticateWithCredential, reauthenticateWithPopup, EmailAuthProvider, GoogleAuthProvider, OAuthProvider, signOut } from "firebase/auth";
+import { doc, getDoc, updateDoc, setDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 import { db, storage, functions, auth } from "../../firebase/firebaseConfig";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { toast } from "react-toastify";
@@ -22,7 +22,7 @@ import {
   FaPlug, FaChartBar, FaKey, FaFilePdf, FaCertificate, FaHistory,
   FaDesktop, FaMobile, FaTrash, FaEye, FaEyeSlash, FaVideo,
   FaFacebook, FaArrowRight, FaSpinner, FaExclamationTriangle,
-  FaRocket, FaUsers, FaBullhorn, FaShieldVirus
+  FaRocket, FaUsers, FaBullhorn, FaShieldVirus, FaUserTimes
 } from "react-icons/fa";
 
 const DistributorProfileSettings = () => {
@@ -96,6 +96,10 @@ const DistributorProfileSettings = () => {
   });
   const [documentPreviews, setDocumentPreviews] = useState({});
   const [uploadingDoc, setUploadingDoc] = useState(null);
+  
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   
   // Profile history state
   const [profileHistory, setProfileHistory] = useState([]);
@@ -192,6 +196,7 @@ const DistributorProfileSettings = () => {
     { id: "security", label: "Security", icon: FaLock, color: "from-red-500 to-pink-500" },
     { id: "integrations", label: "Integrations", icon: FaPlug, color: "from-indigo-500 to-blue-500" },
     { id: "preferences", label: t("profile.preferences") || "Preferences", icon: FaCog, color: "from-gray-500 to-slate-500" },
+    { id: "account", label: "Delete account", icon: FaUserTimes, color: "from-red-500 to-rose-500" },
   ];
 
   useEffect(() => {
@@ -442,6 +447,40 @@ const DistributorProfileSettings = () => {
       }
     } finally {
       setChangingPassword(false);
+    }
+  };
+
+  // Apple Guideline 5.1.1(v): Account deletion
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== "DELETE" || !user) return;
+    setDeleteAccountLoading(true);
+    try {
+      const providerId = user.providerData?.[0]?.providerId;
+      if (providerId === "google.com") {
+        await reauthenticateWithPopup(user, new GoogleAuthProvider());
+      } else if (providerId === "apple.com") {
+        await reauthenticateWithPopup(user, new OAuthProvider("apple.com"));
+      } else {
+        const password = window.prompt("Enter your password to confirm account deletion:");
+        if (!password) {
+          setDeleteAccountLoading(false);
+          return;
+        }
+        const credential = EmailAuthProvider.credential(user.email, password);
+        await reauthenticateWithCredential(user, credential);
+      }
+      await deleteDoc(doc(db, "businesses", user.uid));
+      await deleteUser(user);
+      toast.success("Account deleted.");
+      navigate("/", { replace: true });
+      window.location.reload();
+    } catch (err) {
+      console.error("Delete account error:", err);
+      toast.error(err?.message || "Could not delete account. Try again.");
+    } finally {
+      setDeleteAccountLoading(false);
+      setShowDeleteAccountModal(false);
+      setDeleteConfirmText("");
     }
   };
 
@@ -720,6 +759,30 @@ const DistributorProfileSettings = () => {
               exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.3 }}
           >
+              {/* Account / Delete account - Apple Guideline 5.1.1(v), easily discoverable */}
+            {activeSection === "account" && (
+              <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                    <div className="p-2 bg-red-500/20 rounded-lg">
+                      <FaUserTimes className="w-5 h-5 text-red-400" />
+                    </div>
+                    Delete account
+                  </h2>
+                </div>
+                <p className="text-sm text-gray-400 mb-4">
+                  Permanently delete your FLYP distributor account and all associated data. This cannot be undone.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteAccountModal(true)}
+                  className="px-4 py-2 rounded-lg border border-red-500/50 text-red-300 hover:bg-red-500/20 transition"
+                >
+                  Delete my account
+                </button>
+              </div>
+            )}
+
               {/* Owner Information Section */}
             {activeSection === "owner" && (
                 <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
@@ -1992,10 +2055,61 @@ const DistributorProfileSettings = () => {
                       <LanguageSwitcher />
                   </div>
                 </div>
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6">
+                    <h4 className="font-semibold mb-2 flex items-center gap-2 text-red-300">
+                      <FaUserTimes className="w-5 h-5" />
+                      Delete Account
+                    </h4>
+                    <p className="text-sm text-gray-400 mb-4">
+                      Permanently delete your FLYP distributor account and all associated data. This cannot be undone.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteAccountModal(true)}
+                      className="px-4 py-2 rounded-lg border border-red-500/50 text-red-300 hover:bg-red-500/20 transition"
+                    >
+                      Delete my account
+                    </button>
+                  </div>
               </div>
             )}
           </motion.div>
         </AnimatePresence>
+
+        {showDeleteAccountModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-xl">
+              <h3 className="text-lg font-bold text-white mb-2">Delete Account</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                This will permanently delete your account and data. Type <strong className="text-red-400">DELETE</strong> to confirm.
+              </p>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-white/10 text-white placeholder-gray-500 mb-4"
+              />
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteAccountModal(false); setDeleteConfirmText(""); }}
+                  className="flex-1 py-3 rounded-lg border border-white/20 text-white hover:bg-white/10 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteAccount}
+                  disabled={deleteConfirmText !== "DELETE" || deleteAccountLoading}
+                  className="flex-1 py-3 rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {deleteAccountLoading ? "Deleting…" : "Delete Account"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       </div>
     </div>

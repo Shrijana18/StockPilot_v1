@@ -11,11 +11,11 @@ const GEMINI_API_KEY_SECRET = defineSecret("GEMINI_API_KEY");
  * Enhanced Gemini API call for multiple product identification
  */
 async function callGeminiMultipleDirect(imageBase64, contextPrompt = "") {
-  const geminiApiKey = process.env.GEMINI_API_KEY || GEMINI_API_KEY_SECRET.value();
-  const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
-  
-  if (!geminiApiKey) {
-    throw new Error("GEMINI_API_KEY not configured");
+  // Gemini only: use ONLY the GEMINI_API_KEY secret (no other key)
+  const geminiApiKey = GEMINI_API_KEY_SECRET.value();
+  const geminiModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  if (!geminiApiKey || typeof geminiApiKey !== "string" || !geminiApiKey.trim()) {
+    throw new Error("GEMINI_API_KEY secret not configured");
   }
 
   const baseUrl = "https://generativelanguage.googleapis.com/v1beta";
@@ -241,7 +241,7 @@ module.exports = onRequest(
           total,
           count: total,
           aiUsed: "gemini",
-          aiSource: "gemini-2.0-flash-exp"
+          aiSource: "gemini-2.5-flash"
         });
       } catch (geminiError) {
         console.warn("⚠️ Gemini direct failed, trying HybridAI fallback:", geminiError.message);

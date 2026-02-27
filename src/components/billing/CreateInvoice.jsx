@@ -124,6 +124,8 @@ const CreateInvoice = () => {
     igstRate: 18,
     invoiceType: "",
     paymentMode: "",
+    // Order-level billing basis: null = use product's own; MRP_INCLUSIVE | BASE_PLUS_GST | SELLING_SIMPLE
+    orderPricingMode: "",
     // legacy charges (kept for backward compatibility)
     deliveryCharge: 0,
     packingCharge: 0,
@@ -143,6 +145,7 @@ const CreateInvoice = () => {
       tracking: "",
     },
   });
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [showPreview, setShowPreview] = useState({ visible: false, issuedAt: null });
   const [userInfo, setUserInfo] = useState(null);
@@ -842,7 +845,8 @@ const CreateInvoice = () => {
           })()
         ) : (
           <>
-            {/* Customer Info */}
+            <div className="space-y-4 sm:space-y-6">
+            {/* Customer Information */}
             <div className="p-3 sm:p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
               <h2 className="text-base sm:text-lg font-semibold mb-2 text-white">Customer Information</h2>
               {userInfo && (
@@ -885,27 +889,39 @@ const CreateInvoice = () => {
               />
             </div>
 
-            {/* Invoice Settings */}
-            <div className="p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
-              <InvoiceSettings
-                settings={settings}
-                onChange={setSettings}
-                grandTotal={cartTotals.grandTotal || cartTotals.finalTotal || 0}
-              />
-              {settings.paymentMode === "Credit" && (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-white/80 mb-1">Credit Due Date (Default: 7 days from today)</label>
-                  <input
-                    type="date"
-                    className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                    value={settings.creditDueDate || ""}
-                    onChange={(e) => setSettings(prev => ({ ...prev, creditDueDate: e.target.value }))}
+            {/* Invoice Settings & Delivery – collapsible (minimize/show only) */}
+            <div className="rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setSettingsPanelOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-4 py-3 text-left text-white hover:bg-white/5 transition"
+              >
+                <span className="font-semibold">Invoice Settings & Delivery</span>
+                <span className="text-sm text-white/70">{settingsPanelOpen ? "▼ Hide" : "▶ Show"}</span>
+              </button>
+              {settingsPanelOpen && (
+                <div className="border-t border-white/10 px-4 pb-4">
+                  <InvoiceSettings
+                    settings={settings}
+                    onChange={setSettings}
+                    grandTotal={cartTotals.grandTotal || cartTotals.finalTotal || 0}
                   />
+                  {settings.paymentMode === "Credit" && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-white/80 mb-1">Credit Due Date (Default: 7 days from today)</label>
+                      <input
+                        type="date"
+                        className="w-full rounded px-3 py-2 bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                        value={settings.creditDueDate || ""}
+                        onChange={(e) => setSettings(prev => ({ ...prev, creditDueDate: e.target.value }))}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Cart */}
+            {/* Product Cart – at bottom */}
             <div className="p-3 sm:p-4 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)]">
               <h2 className="text-base sm:text-lg font-semibold mb-2 text-white">Product Cart</h2>
               <BillingCart
@@ -916,14 +932,14 @@ const CreateInvoice = () => {
               />
             </div>
 
-            {/* Submit Button */}
-            <div className="hidden md:flex justify-end">
+            <div className="flex justify-end">
               <button
                 onClick={handleSubmitInvoice}
-                className="px-6 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
+                className="px-6 py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition"
               >
                 Create Bill
               </button>
+            </div>
             </div>
             {/* Mobile Floating Button */}
             <div className="fixed bottom-3 sm:bottom-4 inset-x-3 sm:inset-x-4 z-50 md:hidden">

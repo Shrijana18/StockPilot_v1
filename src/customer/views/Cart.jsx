@@ -99,9 +99,9 @@ const Cart = ({ onBack, onCheckout }) => {
   // Empty Cart State
   if (cartItems.length === 0) {
     return (
-      <div className="min-h-screen bg-transparent flex flex-col">
+      <div className="bg-transparent w-full h-full flex flex-col">
         {/* Header */}
-        <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10"
+        <header className="sticky top-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0"
                 style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <div className="flex items-center gap-3 px-4 py-3">
             <button onClick={onBack} className="w-9 h-9 rounded-full bg-white/[0.06] flex items-center justify-center">
@@ -132,9 +132,9 @@ const Cart = ({ onBack, onCheckout }) => {
   }
 
   return (
-    <div className="min-h-screen bg-transparent">
+    <div className="bg-transparent w-full h-full flex flex-col">
       {/* Fixed Header with Summary */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10"
+      <header className="sticky top-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0"
               style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
@@ -175,8 +175,9 @@ const Cart = ({ onBack, onCheckout }) => {
         )}
       </header>
 
-      {/* Main Content - Scrollable (padding for header + checkout bar + bottom nav) */}
-      <main className="pt-[110px] pb-[220px]">
+      {/* Main Content - Scrollable */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="pb-[180px]">
         {/* Cart Items - Compact List */}
         <div className="px-4">
           <div className="bg-white/5 rounded-xl border border-white/[0.06] overflow-hidden">
@@ -379,11 +380,12 @@ const Cart = ({ onBack, onCheckout }) => {
             </div>
           </div>
         )}
-      </main>
+        </div>
+      </div>
 
       {/* Fixed Checkout Bar - positioned above bottom nav (80px nav + safe area) */}
-      <div className="fixed left-0 right-0 z-40 px-4 pb-3"
-           style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}>
+      <div className="sticky bottom-0 z-40 px-4 pb-3 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-t border-white/10 flex-shrink-0"
+           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
         {/* Show minimum order progress if not met */}
         {!canCheckout && minOrderValue > 0 && (
           <div className="mb-2 bg-white/5 rounded-xl p-2 border border-amber-500/30">

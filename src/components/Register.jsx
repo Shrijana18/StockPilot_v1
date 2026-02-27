@@ -27,7 +27,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   getAuth,
   GoogleAuthProvider,
+  OAuthProvider,
   signInWithPopup,
+  signInWithCredential,
   updateProfile,
   fetchSignInMethodsForEmail,
   onAuthStateChanged
@@ -45,6 +47,7 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from "../firebase/firebaseConfig";
 import OTPVerification from './OTPVerification';
+import { usePlatform } from '../hooks/usePlatform.js';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -89,6 +92,7 @@ const toCanonicalRole = (key = '') => {
 
 const Register = ({ role = 'retailer' }) => {
   const phoneInputRef = useRef(null);
+  const { platform } = usePlatform();
 
   // URL role and derived labels
   const [form, setForm] = useState({
@@ -570,8 +574,9 @@ const Register = ({ role = 'retailer' }) => {
   };
 
   const handleGoogle = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
+      // Open popup immediately so the browser doesn't block it
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
@@ -611,7 +616,6 @@ const Register = ({ role = 'retailer' }) => {
         }, { merge: false });
       }
 
-      // Ensure Firestore document exists before redirect
       let tries = 0;
       let docSnap = null;
       while (tries < 10) {
@@ -623,17 +627,102 @@ const Register = ({ role = 'retailer' }) => {
 
       const normalizedRole = selectedRole.toLowerCase();
       sessionStorage.setItem('postSignupRole', normalizedRole);
-      
-      // Show "Creating account..." message and navigate directly
       setMsg({ success: 'Creating account...', error: '' });
-      
-      // Clear postSignupRole after a short delay to allow navigation
-      setTimeout(() => {
-        sessionStorage.removeItem('postSignupRole');
-      }, 3000);
-      
+      setTimeout(() => sessionStorage.removeItem('postSignupRole'), 3000);
+
       if (docSnap && docSnap.exists()) {
-        // Navigate immediately without setTimeout to avoid landing page flash
+        if (normalizedRole === 'retailer') navigate('/dashboard', { replace: true });
+        else if (normalizedRole === 'distributor') navigate('/distributor-dashboard', { replace: true });
+        else navigate('/product-owner-dashboard', { replace: true });
+      } else {
+        setMsg({ error: 'Account setup incomplete. Please try again.', success: '' });
+        sessionStorage.removeItem('postSignupRole');
+        setLoading(false);
+      }
+    } catch (error) {
+      setMsg({ error: error.message || 'Google sign-in failed.', success: '' });
+      setLoading(false);
+    }
+  };
+
+  // Apple Guideline 4.8: Sign in with Apple on registration (equivalent to Google)
+  // On iOS use native Sign in with Apple (Capacitor); on web/Android use popup
+  const handleApple = async () => {
+    try {
+      setMsg({ error: '', success: '' });
+      setLoading(true);
+      let user;
+      if (platform === 'ios') {
+        const { SignInWithApple } = await import('@capacitor-community/apple-sign-in');
+        const appleResponse = await SignInWithApple.authorize({ scopes: 'email name' });
+        if (!appleResponse?.identityToken) {
+          throw new Error('Apple Sign In did not return an identity token.');
+        }
+        const provider = new OAuthProvider('apple.com');
+        const credentialOptions = { idToken: appleResponse.identityToken };
+        if (appleResponse.nonce) credentialOptions.rawNonce = appleResponse.nonce;
+        const credential = provider.credential(credentialOptions);
+        const result = await signInWithCredential(auth, credential);
+        user = result.user;
+      } else {
+        const provider = new OAuthProvider('apple.com');
+        provider.addScope('email');
+        provider.addScope('name');
+        const result = await signInWithPopup(auth, provider);
+        user = result.user;
+      }
+
+      const dbRef = doc(db, 'businesses', user.uid);
+      const snap = await getDoc(dbRef);
+      const selectedRole = toCanonicalRole(form.role || role);
+
+      await ensureFreshToken(user);
+      if (!snap.exists()) {
+        const now = new Date().toISOString();
+        const displayName = user.displayName || user.email?.split('@')[0] || 'User';
+        const phoneApple = (user.phoneNumber && user.phoneNumber.startsWith('+'))
+          ? user.phoneNumber
+          : toE164IN(sanitize10Digits(user.phoneNumber || ''));
+        await setDoc(dbRef, {
+          ownerId: user.uid,
+          ownerName: displayName,
+          name: displayName,
+          email: (user.email || '').trim(),
+          phone: phoneApple,
+          gstNumber: '',
+          role: selectedRole,
+          businessType: selectedRole,
+          flypId: genFlypId(),
+          createdAt: now,
+          lastUpdated: now,
+          profileVersion: 1,
+          whatsappAlerts: false,
+          businessMode: 'Online',
+          invoicePreference: 'Minimal',
+          logoUrl: user.photoURL || '',
+          address: '',
+          city: '',
+          state: '',
+          country: 'India',
+          zipcode: ''
+        }, { merge: false });
+      }
+
+      let tries = 0;
+      let docSnap = null;
+      while (tries < 10) {
+        docSnap = await getDoc(doc(db, 'businesses', user.uid));
+        if (docSnap?.exists()) break;
+        await new Promise((r) => setTimeout(r, 500));
+        tries++;
+      }
+
+      const normalizedRole = selectedRole.toLowerCase();
+      sessionStorage.setItem('postSignupRole', normalizedRole);
+      setMsg({ success: 'Creating account...', error: '' });
+      setTimeout(() => sessionStorage.removeItem('postSignupRole'), 3000);
+
+      if (docSnap && docSnap.exists()) {
         if (normalizedRole === 'retailer') {
           navigate('/dashboard', { replace: true });
         } else if (normalizedRole === 'distributor') {
@@ -647,7 +736,12 @@ const Register = ({ role = 'retailer' }) => {
         setLoading(false);
       }
     } catch (error) {
-      setMsg({ error: error.message || 'Google sign-in failed.', success: '' });
+      console.error('[Register] Apple Sign-In Error:', error?.code, error?.message);
+      if (error?.code === 'auth/operation-not-allowed') {
+        setMsg({ error: 'Sign in with Apple is not enabled. Please enable it in Firebase Console (Authentication → Apple) and add your Apple credentials.', success: '' });
+      } else {
+        setMsg({ error: error?.message || 'Sign in with Apple failed. Try again or use email.', success: '' });
+      }
       setLoading(false);
     }
   };
@@ -976,16 +1070,29 @@ const Register = ({ role = 'retailer' }) => {
                 </div>
               </div>
 
-              {/* Enhanced Google Sign-in with animation */}
+              {/* Enhanced Google + Apple Sign-in with animation (Google hidden on iOS app for now) */}
               <div className="px-5 sm:px-6 mt-1 relative z-10 animate-fadeInUp" style={{ animationDelay: '0.6s' }}>
+                {platform !== 'ios' && (
+                  <button
+                    type="button"
+                    onClick={handleGoogle}
+                    disabled={loading}
+                    className="w-full mb-3 flex items-center justify-center gap-2.5 py-3 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-50 hover:shadow-lg hover:shadow-white/20 active:scale-[0.98] transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed min-h-[44px] touch-target border border-white/10 text-sm hover:scale-[1.02]"
+                  >
+                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-4 h-4" />
+                    Continue with Google
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleGoogle}
+                  onClick={handleApple}
                   disabled={loading}
-                  className="w-full mb-4 flex items-center justify-center gap-2.5 py-3 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-50 hover:shadow-lg hover:shadow-white/20 active:scale-[0.98] transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed min-h-[44px] touch-target border border-white/10 text-sm hover:scale-[1.02]"
+                  className="w-full mb-4 flex items-center justify-center gap-2.5 py-3 rounded-lg bg-black text-white font-semibold hover:bg-gray-900 hover:shadow-lg hover:shadow-white/10 active:scale-[0.98] transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed min-h-[44px] touch-target border border-white/20 text-sm hover:scale-[1.02]"
                 >
-                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-4 h-4" />
-                  Continue with Google
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+                  </svg>
+                  Continue with Apple
                 </button>
                 <div className="flex items-center pb-3">
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-white/10"></div>

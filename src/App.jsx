@@ -26,6 +26,7 @@ const AppLanding = lazy(() => import('./pages/AppLanding.jsx'));
 const RetailerDashboard = lazy(() => import('./views/RetailerDashboard.jsx'));
 const DistributorDashboard = lazy(() => import('./components/DistributorDashboard.jsx'));
 const MobileDistributorDashboard = lazy(() => import('./app/views/MobileDistributorDashboard.jsx'));
+const MobileRetailerDashboard = lazy(() => import('./app/views/MobileRetailerDashboard.jsx'));
 const ProductOwnerDashboard = lazy(() => import('./components/ProductOwnerDashboard.jsx'));
 const Inventory = lazy(() => import('./pages/Inventory.jsx'));
 const Billing = lazy(() => import('./pages/Billing.jsx'));
@@ -108,9 +109,9 @@ const App = () => {
               </Route>
 
               {/* Protected Routes */}
-              {/* Retailer (no explicit role required) */}
+              {/* Retailer - Use Mobile Dashboard for Native App */}
               <Route element={<PrivateRoute />}>
-                <Route path="/dashboard" element={<RetailerDashboard />} />
+                <Route path="/dashboard" element={<MobileRetailerDashboard />} />
               </Route>
               {/* Distributor - Use Mobile Dashboard for Native App */}
               <Route element={<PrivateRoute requireRole="distributor" />}>

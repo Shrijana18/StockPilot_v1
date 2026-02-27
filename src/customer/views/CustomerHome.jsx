@@ -1,86 +1,25 @@
 /**
- * CustomerHome - Premium Dark Theme with Green Branding
- * Enhanced animations, better UX, more visual appeal
+ * CustomerHome - Professional marketplace home
+ * Clean layout, refined spacing, premium app feel
  */
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaMapMarkerAlt, FaStore, FaStar, FaClock, FaChevronRight,
-  FaSearch, FaHeart, FaBell, FaChevronDown, FaTimes, FaGift,
-  FaArrowRight, FaShippingFast
+  FaSearch, FaHeart, FaBell, FaChevronDown, FaTimes, FaGift
 } from 'react-icons/fa';
-import { HiBadgeCheck, HiLocationMarker, HiSparkles } from 'react-icons/hi';
+import { HiBadgeCheck, HiLocationMarker } from 'react-icons/hi';
 import { 
   getNearbyStores, 
   getFeaturedProducts 
 } from '../services/storeService';
-
-// ============================================
-// PROMO BANNER - Green Branding
-// ============================================
-const PromoBanner = () => (
-  <motion.div 
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay: 0.3 }}
-    className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 p-5"
-  >
-    {/* Decorative circles */}
-    <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full" />
-    <div className="absolute -right-4 bottom-0 w-20 h-20 bg-white/10 rounded-full" />
-    
-    <div className="relative z-10">
-      <div className="flex items-center gap-2 mb-2">
-        <HiSparkles className="text-yellow-300" />
-        <span className="text-white/90 text-xs font-semibold tracking-wider uppercase">Special Offer</span>
-      </div>
-      <h3 className="text-white font-bold text-xl mb-1">Free Delivery Today!</h3>
-      <p className="text-white/80 text-sm mb-4">On your first order from any store</p>
-      <button className="inline-flex items-center gap-2 bg-white text-emerald-600 px-4 py-2 rounded-full text-sm font-semibold hover:bg-white/90 transition-colors">
-        Shop Now <FaArrowRight className="text-xs" />
-      </button>
-    </div>
-  </motion.div>
-);
-
-// ============================================
-// QUICK FEATURE CARDS
-// ============================================
-const QuickFeatures = () => (
-  <div className="grid grid-cols-3 gap-3">
-    {[
-      { icon: FaShippingFast, label: 'Fast Delivery', color: 'emerald' },
-      { icon: FaGift, label: 'Daily Offers', color: 'amber' },
-      { icon: HiBadgeCheck, label: 'Verified Stores', color: 'blue' },
-    ].map((item, i) => (
-      <motion.div
-        key={i}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 + i * 0.1 }}
-        className={`bg-${item.color}-500/10 border border-${item.color}-500/20 rounded-xl p-3 text-center`}
-        style={{
-          background: item.color === 'emerald' ? 'rgba(16, 185, 129, 0.1)' : 
-                      item.color === 'amber' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(59, 130, 246, 0.1)',
-          borderColor: item.color === 'emerald' ? 'rgba(16, 185, 129, 0.2)' : 
-                       item.color === 'amber' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.2)'
-        }}
-      >
-        <item.icon className={`text-lg mx-auto mb-1.5 ${
-          item.color === 'emerald' ? 'text-emerald-400' : 
-          item.color === 'amber' ? 'text-amber-400' : 'text-blue-400'
-        }`} />
-        <p className="text-white/70 text-[10px] font-medium">{item.label}</p>
-      </motion.div>
-    ))}
-  </div>
-);
+import { usePlatform } from '../../hooks/usePlatform';
 
 // ============================================
 // STORE CARD - Clean, Clear, and Informative
 // ============================================
-const StoreCard = ({ store, onClick, isFavorite, onFavoriteToggle, index }) => {
+const StoreCard = ({ store, onClick, isFavorite, onFavoriteToggle, index, isMobile = false }) => {
   const storeName = store.businessName || store.name || 'Store';
   const [isPressed, setIsPressed] = useState(false);
   
@@ -101,20 +40,18 @@ const StoreCard = ({ store, onClick, isFavorite, onFavoriteToggle, index }) => {
   
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.1 + index * 0.05, type: 'spring', stiffness: 200 }}
-      whileHover={isStoreAvailable ? { y: -2 } : {}}
-      whileTap={isStoreAvailable ? { scale: 0.98 } : {}}
+      transition={{ duration: 0.25, delay: index * 0.04 }}
       onTapStart={() => isStoreAvailable && setIsPressed(true)}
       onTap={() => { setIsPressed(false); handleClick(); }}
       onTapCancel={() => setIsPressed(false)}
-      className={`bg-gradient-to-br from-white/10 via-white/5 to-white/5 rounded-2xl overflow-hidden border-2 transition-all duration-300 relative backdrop-blur-sm ${
+      className={`rounded-2xl overflow-hidden border transition-all duration-200 relative ${
         !isStoreAvailable 
-          ? 'cursor-not-allowed opacity-60 border-white/20' 
+          ? 'cursor-not-allowed opacity-60 border-white/[0.08] bg-white/[0.02]' 
           : isPressed 
-            ? 'cursor-pointer border-emerald-500 shadow-2xl shadow-emerald-500/30 scale-[0.98] ring-2 ring-emerald-500/50' 
-            : 'cursor-pointer border-white/20 hover:border-emerald-500/60 hover:shadow-2xl hover:shadow-emerald-500/20 hover:scale-[1.02] hover:bg-gradient-to-br hover:from-white/15 hover:via-white/10 hover:to-white/5 hover:ring-2 hover:ring-emerald-500/30 active:scale-[0.98]'
+            ? 'cursor-pointer border-emerald-500/50 bg-white/[0.04] scale-[0.99]' 
+            : 'cursor-pointer border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12] hover:bg-white/[0.04] active:scale-[0.995]'
       }`}
     >
       {/* Store Banner/Wallpaper - Prominent Visual Space */}
@@ -349,12 +286,10 @@ const StoreCard = ({ store, onClick, isFavorite, onFavoriteToggle, index }) => {
 const ProductCard = ({ product, onAdd, index }) => {
   return (
     <motion.div 
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay: 0.3 + index * 0.05 }}
-      whileHover={{ scale: 1.03, y: -4 }}
-      whileTap={{ scale: 0.97 }}
-      className="bg-white/10 backdrop-blur-xl rounded-2xl overflow-hidden w-44 flex-shrink-0 border border-white/10 hover:border-emerald-500/30 transition-all"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2, delay: index * 0.03 }}
+      className="rounded-xl overflow-hidden w-40 flex-shrink-0 border border-white/[0.06] bg-white/[0.03] hover:border-white/[0.1] active:scale-[0.98] transition-all duration-200"
     >
       <div className="h-32 bg-gradient-to-br from-white/[0.04] to-transparent relative p-4">
         {product.image || product.imageUrl ? (
@@ -383,22 +318,20 @@ const ProductCard = ({ product, onAdd, index }) => {
 };
 
 // ============================================
-// CATEGORY PILL - Enhanced
+// CATEGORY PILL - Mobile Optimized
 // ============================================
 const CategoryPill = ({ name, emoji, isActive, onClick }) => (
-  <motion.button
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
+  <button
     onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg whitespace-nowrap transition-all duration-200 ${
+    className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl whitespace-nowrap transition-all duration-200 flex-shrink-0 ${
       isActive 
-        ? 'bg-emerald-500 text-slate-900 font-medium' 
-        : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'
+        ? 'bg-emerald-500 text-white font-semibold' 
+        : 'bg-white/[0.06] text-white/80 border border-white/[0.06] hover:bg-white/[0.08] active:scale-[0.98]'
     }`}
   >
-    <span className="text-base">{emoji}</span>
-    <span className="font-medium text-sm">{name}</span>
-  </motion.button>
+    <span className="text-sm">{emoji}</span>
+    <span className="text-[13px] font-medium">{name}</span>
+  </button>
 );
 
 // ============================================
@@ -416,8 +349,25 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
         setDetecting(false);
         onClose();
       },
-      () => setDetecting(false),
-      { enableHighAccuracy: true }
+      (error) => {
+        console.error('Location detection error:', error);
+        setDetecting(false);
+        // Show user-friendly error message
+        if (error.code === error.PERMISSION_DENIED) {
+          alert('Location permission denied. Please enable location access in Settings to use your current location.');
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          alert('Location unavailable. Please try again or select a location manually.');
+        } else if (error.code === error.TIMEOUT) {
+          alert('Location request timed out. Please try again or select a location manually.');
+        } else {
+          alert('Unable to detect location. Please select a location manually.');
+        }
+      },
+      { 
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0 // Don't use cached location
+      }
     );
   };
 
@@ -440,7 +390,11 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl rounded-t-[28px] border-t border-white/10 shadow-xl max-h-[85vh] overflow-y-auto"
+            className="fixed bottom-0 left-0 right-0 z-[60] bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl rounded-t-[28px] border-t border-white/10 shadow-xl overflow-y-auto"
+            style={{ 
+              maxHeight: 'calc(85vh - env(safe-area-inset-bottom))',
+              paddingBottom: 'calc(100px + env(safe-area-inset-bottom))'
+            }}
           >
             {/* Handle */}
             <div className="flex justify-center py-4 sticky top-0 bg-gradient-to-b from-slate-800 to-transparent z-10">
@@ -551,13 +505,17 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
 // ============================================
 // MAIN COMPONENT
 // ============================================
-const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
-  const [location, setLocation] = useState(null);
-  const [locationLoading, setLocationLoading] = useState(true);
+const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onProductAdd }) => {
+  const { isNativeApp, isMobileViewport } = usePlatform();
+  const isMobile = isNativeApp || isMobileViewport;
+  
+  const [location, setLocation] = useState(propLocation || null);
+  const [locationLoading, setLocationLoading] = useState(!propLocation);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [stores, setStores] = useState([]);
   const [featuredProducts, setFeaturedProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!propLocation);
+  const [error, setError] = useState(null);
   const [favoriteStores, setFavoriteStores] = useState([]);
   const [activeCategory, setActiveCategory] = useState('All');
 
@@ -588,8 +546,14 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
     );
   };
 
-  // Get location
+  // Get location - Use prop if provided, otherwise fetch
   useEffect(() => {
+    if (propLocation) {
+      setLocation(propLocation);
+      setLocationLoading(false);
+      return;
+    }
+    
     setLocationLoading(true);
     
     if (!navigator.geolocation) {
@@ -607,37 +571,52 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
         setLocation({ lat: 19.0760, lng: 72.8777, label: 'Select Location' });
         setLocationLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 300000 }
     );
-  }, []);
+  }, [propLocation]);
 
   // Fetch data
   useEffect(() => {
-    if (!location) return;
+    // Use default location if propLocation is not provided
+    const currentLocation = location || propLocation || { lat: 19.0760, lng: 72.8777, label: 'Mumbai' };
+    
+    if (!currentLocation || !currentLocation.lat || !currentLocation.lng) {
+      console.warn('Location not available, using default Mumbai location');
+      setLocation({ lat: 19.0760, lng: 72.8777, label: 'Mumbai' });
+      return;
+    }
 
     const fetchData = async () => {
       setLoading(true);
+      setError(null);
       try {
         const [storesData, productsData] = await Promise.all([
-          getNearbyStores(location.lat, location.lng, 50, 10),
-          getFeaturedProducts(location.lat, location.lng, 50, 10)
+          getNearbyStores(currentLocation.lat, currentLocation.lng, 50, 10),
+          getFeaturedProducts(currentLocation.lat, currentLocation.lng, 50, 10)
         ]);
-        setStores(storesData);
-        setFeaturedProducts(productsData);
+        setStores(storesData || []);
+        setFeaturedProducts(productsData || []);
       } catch (error) {
-        console.error('Error:', error);
+        console.error('Error fetching data:', error);
+        setError({
+          message: error.message || 'Failed to load stores. Please check your connection and try again.',
+          type: 'fetch_error'
+        });
+        // Set empty arrays as fallback
+        setStores([]);
+        setFeaturedProducts([]);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [location]);
+  }, [location, propLocation]);
 
   // Loading
   if (locationLoading) {
     return (
-      <div className="min-h-screen bg-transparent flex flex-col items-center justify-center px-6">
+      <div className="bg-transparent flex flex-col items-center justify-center px-6 py-20">
         <motion.div 
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
@@ -657,120 +636,226 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-transparent">
-      {/* Header - Retailer Dashboard theme */}
-      <header 
-        className="sticky top-0 z-40 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10"
-        style={{ paddingTop: 'env(safe-area-inset-top)' }}
-      >
-        <div className="px-5 py-4 flex items-center gap-4">
-          {/* FLYP Logo */}
-          <motion.div 
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white/10 border border-white/10 flex-shrink-0"
-          >
-            <img src="/assets/flyp_logo.png" alt="FLYP" className="w-full h-full object-contain p-1" />
-          </motion.div>
-          
-          {/* Location Selector */}
-          <motion.button 
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowLocationPicker(true)}
-            className="flex-1 flex items-center gap-2 min-w-0 bg-white/5 hover:bg-white/10 rounded-xl px-3 py-2.5 border border-white/10 hover:border-emerald-500/30 transition-all"
-          >
-            <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center">
-              <FaMapMarkerAlt className="text-emerald-400 text-sm" />
+  // Error state
+  if (error && !loading) {
+    return (
+      <div className="bg-transparent w-full">
+        {/* Header */}
+        <header 
+          className="sticky top-0 z-40 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10"
+          style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        >
+          <div className={`px-5 ${isMobile ? 'py-2.5' : 'py-4'} flex items-center ${isMobile ? 'gap-2.5' : 'gap-4'}`}>
+            <motion.div 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`${isMobile ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl flex items-center justify-center overflow-hidden bg-white/10 border border-white/10 flex-shrink-0`}
+            >
+              <img src="/assets/flyp_logo.png" alt="FLYP" className="w-full h-full object-contain p-1" />
+            </motion.div>
+            <div className="flex-1">
+              <h1 className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-white`}>FLYP</h1>
             </div>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">Deliver to</p>
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-medium text-white truncate">{location?.label}</p>
-                <FaChevronDown className="text-white/40 text-[10px] flex-shrink-0" />
-              </div>
-            </div>
-          </motion.button>
+          </div>
+        </header>
 
-          {/* Actions */}
-          <motion.button 
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => onNavigate('search')}
-            className="w-11 h-11 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center hover:border-emerald-500/30 hover:bg-white/15 transition-all"
+        {/* Error Content */}
+        <main className="px-5 py-12">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center"
           >
-            <FaSearch className="text-white/60" />
-          </motion.button>
-          <motion.button 
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="w-11 h-11 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center relative hover:border-emerald-500/30 hover:bg-white/15 transition-all"
+            <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-4xl">⚠️</span>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Unable to Load Stores</h2>
+            <p className="text-white/60 mb-6 max-w-md mx-auto">
+              {error.message}
+            </p>
+            <div className="space-y-3 max-w-sm mx-auto">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  setError(null);
+                  setLoading(true);
+                  // Retry fetch
+                  if (location) {
+                    const fetchData = async () => {
+                      try {
+                        const [storesData, productsData] = await Promise.all([
+                          getNearbyStores(location.lat, location.lng, 50, 10),
+                          getFeaturedProducts(location.lat, location.lng, 50, 10)
+                        ]);
+                        setStores(storesData || []);
+                        setFeaturedProducts(productsData || []);
+                        setError(null);
+                      } catch (err) {
+                        setError({
+                          message: err.message || 'Failed to load stores. Please check your connection and try again.',
+                          type: 'fetch_error'
+                        });
+                      } finally {
+                        setLoading(false);
+                      }
+                    };
+                    fetchData();
+                  }
+                }}
+                className="w-full px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-semibold rounded-xl transition-colors"
+              >
+                Try Again
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setShowLocationPicker(true)}
+                className="w-full px-6 py-3 bg-white/10 hover:bg-white/15 text-white font-semibold rounded-xl border border-white/10 transition-colors"
+              >
+                Change Location
+              </motion.button>
+            </div>
+          </motion.div>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-transparent w-full h-full flex flex-col min-h-0">
+      {/* Header - Refined for native app */}
+      <header 
+        className="sticky top-0 z-40 flex-shrink-0 border-b border-white/[0.06]"
+        style={{ 
+          paddingTop: 'max(env(safe-area-inset-top), 12px)',
+          paddingBottom: 12,
+          paddingLeft: 'max(env(safe-area-inset-left), 20px)',
+          paddingRight: 'max(env(safe-area-inset-right), 20px)',
+          background: 'rgba(11, 15, 20, 0.92)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)'
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden bg-white/[0.06] flex-shrink-0">
+            <img src="/assets/flyp_logo.png" alt="FLYP" className="w-full h-full object-contain p-1.5" />
+          </div>
+          
+          <button 
+            onClick={() => setShowLocationPicker(true)}
+            className="flex-1 flex items-center gap-2.5 min-w-0 py-2 pl-3 pr-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] active:scale-[0.99] transition-all duration-200"
           >
-            <FaBell className="text-white/60" />
-            <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse" />
-          </motion.button>
+            <FaMapMarkerAlt className="text-emerald-400 text-sm flex-shrink-0" />
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-[11px] text-white/40 font-medium uppercase tracking-widest">Deliver to</p>
+              <p className="text-sm font-semibold text-white truncate">{location?.label || 'Current Location'}</p>
+            </div>
+            <FaChevronDown className="text-white/30 text-[10px] flex-shrink-0" />
+          </button>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button 
+              onClick={() => onNavigate('search')}
+              className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center hover:bg-white/[0.08] active:scale-95 transition-all duration-200"
+            >
+              <FaSearch className="text-white/50 text-sm" />
+            </button>
+            <button className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center relative hover:bg-white/[0.08] active:scale-95 transition-all duration-200">
+              <FaBell className="text-white/50 text-sm" />
+              <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Content */}
-      <main className="px-5 py-6 space-y-7">
-        
-        {/* Greeting */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+      {/* Content - Consistent spacing, professional rhythm */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-behavior-y-contain">
+        <div 
+          className="w-full"
+          style={{ 
+            paddingLeft: 'max(env(safe-area-inset-left), 20px)',
+            paddingRight: 'max(env(safe-area-inset-right), 20px)',
+            paddingTop: 20,
+            paddingBottom: 24
+          }}
         >
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            {greeting.text} <span className="text-2xl">{greeting.emoji}</span>
-          </h1>
-          <p className="text-white/50 mt-1">What would you like to order today?</p>
-        </motion.div>
-
-        {/* Search Bar - Retailer Dashboard style */}
-        <motion.button
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          whileTap={{ scale: 0.99 }}
-          onClick={() => onNavigate('search')}
-          className="w-full flex items-center gap-3 px-4 py-4 bg-white/5 border border-white/10 rounded-xl hover:border-emerald-500/30 hover:bg-white/10 transition-all"
-        >
-          <FaSearch className="text-white/40" />
-          <span className="flex-1 text-left text-white/50">Search products, stores...</span>
-          <div className="w-9 h-9 bg-emerald-500 rounded-lg flex items-center justify-center">
-            <FaSearch className="text-slate-900 text-xs" />
+          {/* Greeting */}
+          <div className="mb-5">
+            <h1 className="text-xl font-semibold text-white tracking-tight flex items-center gap-2">
+              {greeting.text}
+              <span className="text-lg opacity-80">{greeting.emoji}</span>
+            </h1>
+            <p className="text-white/45 text-sm mt-0.5">What would you like to order today?</p>
           </div>
-        </motion.button>
 
-        {/* Categories */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-5 px-5">
-          {categories.map((cat, i) => (
-            <CategoryPill 
-              key={cat.name}
-              name={cat.name}
-              emoji={cat.emoji}
-              isActive={activeCategory === cat.name}
-              onClick={() => setActiveCategory(cat.name)}
-            />
-          ))}
-        </div>
+          {/* Search */}
+          <button
+            onClick={() => onNavigate('search')}
+            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.1] active:scale-[0.995] transition-all duration-200 mb-5"
+          >
+            <FaSearch className="text-white/35 text-base flex-shrink-0" />
+            <span className="flex-1 text-left text-white/40 text-[15px]">Search products, stores...</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center flex-shrink-0">
+              <FaSearch className="text-white text-xs" />
+            </div>
+          </button>
 
-        {/* Stores Section */}
-        <section>
+          {/* Categories */}
+          <div 
+            className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1 mb-6"
+            style={{
+              marginLeft: -20,
+              marginRight: -20,
+              paddingLeft: 'max(env(safe-area-inset-left), 20px)',
+              paddingRight: 20,
+              scrollBehavior: 'smooth',
+              WebkitOverflowScrolling: 'touch',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none'
+            }}
+          >
+            {categories.map((cat) => (
+              <CategoryPill 
+                key={cat.name}
+                name={cat.name}
+                emoji={cat.emoji}
+                isActive={activeCategory === cat.name}
+                onClick={() => setActiveCategory(cat.name)}
+              />
+            ))}
+          </div>
+
+          {/* Stores Section */}
+          <section>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-bold text-white mb-0.5">Stores Near You</h2>
-              <p className="text-xs text-white/50">Browse and order from nearby stores</p>
+              <h2 className="text-[17px] font-semibold text-white tracking-tight">
+                Stores Near You
+              </h2>
+              <p className="text-xs text-white/40 mt-0.5">Browse and order from nearby stores</p>
             </div>
-            <span className="text-sm text-emerald-300 bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/30 font-semibold">
+            <span className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
               {stores.length}
             </span>
           </div>
           
           {loading ? (
             <div className="space-y-4">
-              {[1, 2].map(i => (
-                <div key={i} className="h-56 bg-white/5 rounded-xl animate-pulse border border-white/10" />
+              {[1, 2, 3].map(i => (
+                <div
+                  key={i}
+                  className="h-48 rounded-2xl overflow-hidden border border-white/[0.06] bg-white/[0.02]"
+                >
+                  <div className="h-36 bg-white/[0.04] animate-pulse" />
+                  <div className="p-4 space-y-3">
+                    <div className="h-4 bg-white/[0.06] rounded w-3/4 animate-pulse" />
+                    <div className="flex gap-2">
+                      <div className="h-3 bg-white/[0.04] rounded w-14 animate-pulse" />
+                      <div className="h-3 bg-white/[0.04] rounded w-16 animate-pulse" />
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           ) : stores.length > 0 ? (
@@ -780,6 +865,7 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
                   key={store.id} 
                   store={store}
                   index={index}
+                  isMobile={isMobile}
                   onClick={() => onStoreSelect?.(store)}
                   isFavorite={favoriteStores.includes(store.id)}
                   onFavoriteToggle={toggleFavorite}
@@ -787,45 +873,95 @@ const CustomerHome = ({ onNavigate, onStoreSelect, onProductAdd }) => {
               ))}
             </div>
           ) : (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center py-16 bg-white/5 rounded-2xl border border-white/10"
-            >
-              <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <FaStore className="text-white/20 text-2xl" />
+            <div className="py-14 px-6 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+              <div className="flex flex-col items-center text-center max-w-sm mx-auto">
+                <div className="w-14 h-14 rounded-xl bg-white/[0.06] flex items-center justify-center mx-auto mb-4">
+                  <FaStore className="text-white/25 text-xl" />
+                </div>
+                <h3 className="font-semibold text-white text-base mb-1">No stores nearby</h3>
+                <p className="text-white/45 text-sm mb-6 leading-relaxed">Stores are being added in your area. Try a different location or explore products.</p>
+                <div className="flex flex-wrap gap-3 justify-center">
+                  <button
+                    onClick={() => onNavigate?.('search')}
+                    className="px-5 py-2.5 bg-emerald-500 text-white font-medium rounded-xl text-sm hover:bg-emerald-400 active:scale-[0.98] transition-all duration-200"
+                  >
+                    Explore Products
+                  </button>
+                  <button
+                    onClick={() => setShowLocationPicker(true)}
+                    className="px-5 py-2.5 bg-white/[0.06] text-white font-medium rounded-xl text-sm border border-white/[0.08] hover:bg-white/[0.08] active:scale-[0.98] transition-all duration-200"
+                  >
+                    Change Location
+                  </button>
+                </div>
               </div>
-              <p className="text-white/50">No stores nearby</p>
-              <p className="text-white/30 text-sm mt-1">Try changing your location</p>
-            </motion.div>
+            </div>
           )}
         </section>
 
         {/* Featured Products */}
-        {featuredProducts.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                Trending Now <span className="text-orange-400">🔥</span>
-              </h2>
-              <motion.button 
-                whileHover={{ x: 4 }}
-                className="text-sm text-emerald-400 font-medium flex items-center gap-1"
-              >
-                See all <FaChevronRight className="text-xs" />
-              </motion.button>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-5 px-5">
+        <section className="mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-[17px] font-semibold text-white tracking-tight">
+              Trending Now
+            </h2>
+            <button 
+              onClick={() => onNavigate?.('search')}
+              className="text-sm text-emerald-400 font-medium flex items-center gap-1 hover:text-emerald-300 active:opacity-80 transition-opacity"
+            >
+              See all <FaChevronRight className="text-[10px]" />
+            </button>
+          </div>
+          {featuredProducts.length > 0 ? (
+            <div 
+              className="flex gap-4 overflow-x-auto scrollbar-hide pb-2"
+              style={{
+                marginLeft: -20,
+                marginRight: -20,
+                paddingLeft: 'max(env(safe-area-inset-left), 20px)',
+                paddingRight: 20,
+                WebkitOverflowScrolling: 'touch'
+              }}
+            >
               {featuredProducts.map((product, i) => (
                 <ProductCard key={i} product={product} onAdd={onProductAdd} index={i} />
               ))}
             </div>
-          </section>
-        )}
-      </main>
-
-      {/* Bottom spacing */}
-      <div className="h-28" />
+          ) : (
+            <div 
+              className="flex gap-4 overflow-x-auto scrollbar-hide pb-2"
+              style={{
+                marginLeft: -20,
+                marginRight: -20,
+                paddingLeft: 'max(env(safe-area-inset-left), 20px)',
+                paddingRight: 20,
+                WebkitOverflowScrolling: 'touch'
+              }}
+            >
+              {[1, 2, 3].map(i => (
+                <div
+                  key={i}
+                  className="flex-shrink-0 w-40 h-44 rounded-xl bg-white/[0.03] border border-white/[0.06] overflow-hidden"
+                >
+                  <div className="h-28 bg-white/[0.04] animate-pulse" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-3 bg-white/[0.06] rounded w-2/3 animate-pulse" />
+                    <div className="h-4 bg-white/[0.06] rounded w-1/2 animate-pulse" />
+                  </div>
+                </div>
+              ))}
+              <button
+                onClick={() => onNavigate?.('search')}
+                className="flex-shrink-0 w-40 h-44 rounded-xl border border-dashed border-white/[0.12] flex flex-col items-center justify-center gap-2 hover:border-emerald-500/30 hover:bg-emerald-500/[0.03] active:scale-[0.98] transition-all duration-200"
+              >
+                <FaSearch className="text-white/25 text-xl" />
+                <span className="text-white/40 text-sm font-medium">Explore</span>
+              </button>
+            </div>
+          )}
+        </section>
+        </div>
+      </div>
 
       {/* Location Sheet */}
       <LocationSheet

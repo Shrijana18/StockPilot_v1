@@ -77,6 +77,20 @@ const AILoaderOverlay = ({ message = "Creating inventory…", step = 0, classNam
 );
 
 
+// Column config for AI-generated table (user can hide any except Action)
+const AI_TABLE_COLUMNS = [
+  { id: "itemDetails", label: "Item Details" },
+  { id: "hsnCode", label: "HSN" },
+  { id: "gstRate", label: "GST %" },
+  { id: "pricingMode", label: "Pricing Mode" },
+  { id: "basePrice", label: "Base" },
+  { id: "mrp", label: "MRP" },
+  { id: "quantity", label: "Qty" },
+  { id: "costPrice", label: "Cost" },
+  { id: "sellingPrice", label: "Price" },
+  { id: "action", label: "Action" },
+];
+
 const AddInventoryAI = ({ userId }) => {
   // --- STATE MANAGEMENT ---
   const [businessDescription, setBusinessDescription] = useState("");
@@ -85,8 +99,13 @@ const AddInventoryAI = ({ userId }) => {
   const [isShowingLoader, setIsShowingLoader] = useState(false);
   const [progressStep, setProgressStep] = useState(0);
   const [showBurst, setShowBurst] = useState(false);
+  // Column visibility: Set of column ids to HIDE (empty = show all)
+  const [hiddenCols, setHiddenCols] = useState(new Set());
+  const [showColumnsDropdown, setShowColumnsDropdown] = useState(false);
 
   const db = getFirestore(app);
+
+  const visibleColumns = AI_TABLE_COLUMNS.filter((c) => !hiddenCols.has(c.id));
 
   // --- LIFECYCLE & ANIMATION HOOKS ---
 
@@ -269,19 +288,78 @@ const AddInventoryAI = ({ userId }) => {
         {inventoryList.length > 0 && (
           <div className="animate-fade-in-up" style={{animationDuration: '0.5s'}}>
             <div className="overflow-x-auto p-4 sm:p-6 rounded-2xl bg-slate-900/50 border border-white/10 shadow-xl shadow-black/20 backdrop-blur-lg">
+              {/* Column visibility control */}
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <span className="text-white/80 text-sm">
+                  <span className="font-semibold text-cyan-300">{inventoryList.length}</span> items · Customize columns below
+                </span>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowColumnsDropdown((p) => !p)}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/20 bg-white/5 text-white/90 hover:bg-white/10 text-sm font-medium transition"
+                    aria-expanded={showColumnsDropdown}
+                  >
+                    <span>⚙️</span>
+                    Show / Hide Columns
+                    <span className="text-white/60">{showColumnsDropdown ? "▲" : "▼"}</span>
+                  </button>
+                  {showColumnsDropdown && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        aria-hidden="true"
+                        onClick={() => setShowColumnsDropdown(false)}
+                      />
+                      <div className="absolute right-0 mt-2 w-56 rounded-xl border border-white/10 bg-slate-900 shadow-2xl z-20 overflow-hidden py-2">
+                        <div className="px-3 py-2 border-b border-white/10 text-xs font-semibold text-white/70 uppercase tracking-wider">
+                          Toggle columns
+                        </div>
+                        {AI_TABLE_COLUMNS.map((col) => (
+                          <label
+                            key={col.id}
+                            className="flex items-center gap-2 px-3 py-2 hover:bg-white/5 cursor-pointer text-sm text-white/90"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!hiddenCols.has(col.id)}
+                              onChange={() => {
+                                setHiddenCols((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(col.id)) next.delete(col.id);
+                                  else next.add(col.id);
+                                  return next;
+                                });
+                              }}
+                              className="rounded border-white/30 text-cyan-400 focus:ring-cyan-400/50"
+                            />
+                            {col.label}
+                          </label>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setHiddenCols(new Set()); setShowColumnsDropdown(false); }}
+                          className="w-full px-3 py-2 text-left text-sm text-cyan-300 hover:bg-white/5 border-t border-white/10"
+                        >
+                          Show all columns
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
               <table className="min-w-full text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-white/20 text-white/80 select-none">
-                    <th className="px-3 py-3 text-left w-[36%]">Item Details</th>
-                    <th className="px-3 py-3 text-left">HSN</th>
-                    <th className="px-3 py-3 text-left">GST %</th>
-                    <th className="px-3 py-3 text-left">Pricing Mode</th>
-                    <th className="px-3 py-3 text-left">Base</th>
-                    <th className="px-3 py-3 text-left">MRP</th>
-                    <th className="px-3 py-3 text-left">Qty</th>
-                    <th className="px-3 py-3 text-left">Cost</th>
-                    <th className="px-3 py-3 text-left">Price</th>
-                    <th className="px-3 py-3 text-center">Action</th>
+                    {visibleColumns.map((col) => (
+                      <th
+                        key={col.id}
+                        className={`px-3 py-3 ${col.id === "action" ? "text-center" : "text-left"} ${col.id === "itemDetails" ? "w-[36%]" : ""}`}
+                      >
+                        {col.label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -291,56 +369,106 @@ const AddInventoryAI = ({ userId }) => {
                       className="align-top border-t border-white/10 transition-colors duration-300 hover:bg-cyan-500/10 animate-slide-in-up"
                       style={{ animationDelay: `${idx * 60}ms` }}
                     >
-                      {/* Item Details Cell */}
-                      <td className="px-3 py-3">
-                        <div className="space-y-1.5">
-                          <input
-                            value={item.productName ?? ""}
-                            onChange={(e) => handleFieldChange(idx, "productName", e.target.value)}
-                            className="editable-input font-semibold text-base text-white"
-                            placeholder="Product name"
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <input value={item.brand ?? ""} onChange={(e) => handleFieldChange(idx, "brand", e.target.value)} className="editable-input" placeholder="Brand" />
-                            <input value={item.category ?? ""} onChange={(e) => handleFieldChange(idx, "category", e.target.value)} className="editable-input" placeholder="Category" />
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <input value={item.sku ?? ""} onChange={(e) => handleFieldChange(idx, "sku", e.target.value)} className="editable-input" placeholder="SKU" />
-                            <input value={item.unit ?? ""} onChange={(e) => handleFieldChange(idx, "unit", e.target.value)} className="editable-input" placeholder="Unit" />
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Other Editable Cells */}
-                      <td className="px-2 py-3"><input value={item.hsnCode ?? ""} onChange={(e) => handleFieldChange(idx, "hsnCode", e.target.value)} className="editable-input w-20" placeholder="HSN" /></td>
-                      <td className="px-2 py-3">
-                        <select value={item.gstRate ?? ""} onChange={(e) => handleFieldChange(idx, "gstRate", Number(e.target.value))} className="editable-input w-20">
-                          <option value="" className="bg-slate-900">—</option>
-                          {GST_OPTIONS.map((g) => (<option key={g} value={g} className="bg-slate-900">{g}</option>))}
-                        </select>
-                      </td>
-                      <td className="px-2 py-3">
-                        <select value={item.pricingMode ?? ""} onChange={(e) => handleFieldChange(idx, "pricingMode", e.target.value)} className="editable-input w-36">
-                          <option value="" className="bg-slate-900">—</option>
-                          {PRICING_OPTIONS.map((p) => (<option key={p} value={p} className="bg-slate-900">{p}</option>))}
-                        </select>
-                      </td>
-                      <td className="px-2 py-3"><input type="number" value={item.basePrice ?? ""} onChange={(e) => handleFieldChange(idx, "basePrice", e.target.value)} className="editable-input w-20" placeholder="Base" /></td>
-                      <td className="px-2 py-3"><input type="number" value={item.mrp ?? ""} onChange={(e) => handleFieldChange(idx, "mrp", e.target.value)} className="editable-input w-20" placeholder="MRP" /></td>
-                      <td className="px-2 py-3"><input type="number" value={item.quantity ?? ""} onChange={(e) => handleFieldChange(idx, "quantity", e.target.value)} className="editable-input w-20" placeholder="Qty" /></td>
-                      <td className="px-2 py-3"><input type="number" value={item.costPrice ?? ""} onChange={(e) => handleFieldChange(idx, "costPrice", e.target.value)} className="editable-input w-20" placeholder="Cost" /></td>
-                      <td className="px-2 py-3"><input type="number" value={item.sellingPrice ?? ""} onChange={(e) => handleFieldChange(idx, "sellingPrice", e.target.value)} className="editable-input w-20" placeholder="Price" /></td>
-                      
-                      {/* Action Cell */}
-                      <td className="px-2 py-3 text-center">
-                        <button
-                          className="w-8 h-8 flex items-center justify-center text-rose-400 hover:text-rose-200 hover:bg-rose-500/20 rounded-full transition-all duration-300"
-                          onClick={() => handleRemoveItem(idx)}
-                          aria-label="Remove item"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                        </button>
-                      </td>
+                      {visibleColumns.map((col) => {
+                        if (col.id === "itemDetails") {
+                          return (
+                            <td key={col.id} className="px-3 py-3">
+                              <div className="space-y-1.5">
+                                <input
+                                  value={item.productName ?? ""}
+                                  onChange={(e) => handleFieldChange(idx, "productName", e.target.value)}
+                                  className="editable-input font-semibold text-base text-white"
+                                  placeholder="Product name"
+                                />
+                                <div className="grid grid-cols-2 gap-2">
+                                  <input value={item.brand ?? ""} onChange={(e) => handleFieldChange(idx, "brand", e.target.value)} className="editable-input" placeholder="Brand" />
+                                  <input value={item.category ?? ""} onChange={(e) => handleFieldChange(idx, "category", e.target.value)} className="editable-input" placeholder="Category" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <input value={item.sku ?? ""} onChange={(e) => handleFieldChange(idx, "sku", e.target.value)} className="editable-input" placeholder="SKU" />
+                                  <input value={item.unit ?? ""} onChange={(e) => handleFieldChange(idx, "unit", e.target.value)} className="editable-input" placeholder="Unit" />
+                                </div>
+                              </div>
+                            </td>
+                          );
+                        }
+                        if (col.id === "hsnCode") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <input value={item.hsnCode ?? ""} onChange={(e) => handleFieldChange(idx, "hsnCode", e.target.value)} className="editable-input w-20" placeholder="HSN" />
+                            </td>
+                          );
+                        }
+                        if (col.id === "gstRate") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <select value={item.gstRate ?? ""} onChange={(e) => handleFieldChange(idx, "gstRate", Number(e.target.value))} className="editable-input w-20">
+                                <option value="" className="bg-slate-900">—</option>
+                                {GST_OPTIONS.map((g) => (<option key={g} value={g} className="bg-slate-900">{g}</option>))}
+                              </select>
+                            </td>
+                          );
+                        }
+                        if (col.id === "pricingMode") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <select value={item.pricingMode ?? ""} onChange={(e) => handleFieldChange(idx, "pricingMode", e.target.value)} className="editable-input w-36">
+                                <option value="" className="bg-slate-900">—</option>
+                                {PRICING_OPTIONS.map((p) => (<option key={p} value={p} className="bg-slate-900">{p}</option>))}
+                              </select>
+                            </td>
+                          );
+                        }
+                        if (col.id === "basePrice") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <input type="number" value={item.basePrice ?? ""} onChange={(e) => handleFieldChange(idx, "basePrice", e.target.value)} className="editable-input w-20" placeholder="Base" />
+                            </td>
+                          );
+                        }
+                        if (col.id === "mrp") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <input type="number" value={item.mrp ?? ""} onChange={(e) => handleFieldChange(idx, "mrp", e.target.value)} className="editable-input w-20" placeholder="MRP" />
+                            </td>
+                          );
+                        }
+                        if (col.id === "quantity") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <input type="number" value={item.quantity ?? ""} onChange={(e) => handleFieldChange(idx, "quantity", e.target.value)} className="editable-input w-20" placeholder="Qty" />
+                            </td>
+                          );
+                        }
+                        if (col.id === "costPrice") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <input type="number" value={item.costPrice ?? ""} onChange={(e) => handleFieldChange(idx, "costPrice", e.target.value)} className="editable-input w-20" placeholder="Cost" />
+                            </td>
+                          );
+                        }
+                        if (col.id === "sellingPrice") {
+                          return (
+                            <td key={col.id} className="px-2 py-3">
+                              <input type="number" value={item.sellingPrice ?? ""} onChange={(e) => handleFieldChange(idx, "sellingPrice", e.target.value)} className="editable-input w-20" placeholder="Price" />
+                            </td>
+                          );
+                        }
+                        if (col.id === "action") {
+                          return (
+                            <td key={col.id} className="px-2 py-3 text-center">
+                              <button
+                                className="w-8 h-8 flex items-center justify-center text-rose-400 hover:text-rose-200 hover:bg-rose-500/20 rounded-full transition-all duration-300"
+                                onClick={() => handleRemoveItem(idx)}
+                                aria-label="Remove item"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                              </button>
+                            </td>
+                          );
+                        }
+                        return null;
+                      })}
                     </tr>
                   ))}
                 </tbody>

@@ -898,7 +898,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
   const pickupEnabled = storeSettings?.pickupEnabled && storeSettings?.pickupTimeSlots?.some(s => s.enabled);
 
   return (
-    <div className="min-h-screen bg-transparent">
+    <div className="bg-transparent">
       {/* Header */}
       <div className="bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl sticky top-0 z-10 border-b border-white/10">
         <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>

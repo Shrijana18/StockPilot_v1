@@ -1,6 +1,11 @@
 const fetchGoogleImages = async (query) => {
-  const apiKey = "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE";
-  const cseId = "82ccaaa87aa2e40a6";
+  // Other Google API key (Custom Search, Maps, etc.) – not Gemini
+  const apiKey = typeof import.meta !== "undefined" && import.meta.env?.VITE_GOOGLE_API_KEY
+    ? import.meta.env.VITE_GOOGLE_API_KEY
+    : "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE";
+  const cseId = typeof import.meta !== "undefined" && import.meta.env?.VITE_GOOGLE_CSE_CX
+    ? import.meta.env.VITE_GOOGLE_CSE_CX
+    : "82ccaaa87aa2e40a6";
 
   const generateQueries = (query) => {
     let terms = [];

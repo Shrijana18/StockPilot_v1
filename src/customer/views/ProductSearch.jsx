@@ -198,9 +198,9 @@ const ProductSearch = ({ location, onBack, onStoreSelect }) => {
   };
 
   return (
-    <div className="min-h-screen bg-transparent">
+    <div className="bg-transparent w-full h-full flex flex-col">
       {/* Search Header - Retailer Dashboard theme */}
-      <div className="bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl sticky top-0 z-10 border-b border-white/10" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl sticky top-0 z-10 border-b border-white/10 flex-shrink-0" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="flex items-center gap-3 px-4 py-3">
           <button
             onClick={onBack}
@@ -244,7 +244,8 @@ const ProductSearch = ({ location, onBack, onStoreSelect }) => {
         </div>
       </div>
 
-      <div className="px-4 py-4">
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-4 py-4">
         {/* Before Search - Show categories and recent */}
         {!searched && (
           <>
@@ -274,7 +275,7 @@ const ProductSearch = ({ location, onBack, onStoreSelect }) => {
             {categories.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold text-white mb-3">Browse by Category</h3>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2" style={{ scrollBehavior: 'smooth' }}>
                   {categories.map((category, index) => (
                     <CategoryChip
                       key={index}
@@ -386,10 +387,8 @@ const ProductSearch = ({ location, onBack, onStoreSelect }) => {
             )}
           </>
         )}
+        </div>
       </div>
-
-      {/* Bottom spacing */}
-      <div className="h-24" />
     </div>
   );
 };

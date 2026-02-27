@@ -35,9 +35,11 @@ import { db, auth } from "../firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { usePlatform } from "../hooks/usePlatform.js";
 
 const RetailerDashboardInner = () => {
   const { t } = useTranslation();
+  const { isNativeApp } = usePlatform();
   const [activeTab, setActiveTab] = useState('home');
   const { mode } = useMode();
   const [selectedDistributor, setSelectedDistributor] = useState(null);
@@ -454,7 +456,9 @@ const RetailerDashboardInner = () => {
               onClick={(e) => e.stopPropagation()}
             >
                   <div className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
-              <div className="mb-3 sm:mb-4"><ModeToggle /></div>
+              {!isNativeApp && (
+                <div className="mb-3 sm:mb-4"><ModeToggle /></div>
+              )}
               {sidebarItems.map((item) => (
                 <button
                   key={item.id}
@@ -548,6 +552,11 @@ const RetailerDashboardInner = () => {
                   <div className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-emerald-400 to-cyan-300 mb-4 pl-1 relative z-10">
                     FLYP
                   </div>
+                  {!isNativeApp && (
+                    <motion.div className="mb-3 pl-1">
+                      <ModeToggle />
+                    </motion.div>
+                  )}
                   <motion.div
                     className="absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-emerald-400 via-cyan-400 to-transparent"
                     initial={{ width: 0 }}
@@ -640,7 +649,7 @@ const RetailerDashboardInner = () => {
           exit="exit"
           className="flex-1 overflow-y-auto transition-all duration-300 ease-in-out flex flex-col relative z-10"
         >
-          {mode === "pos" ? (
+          {mode === "pos" && !isNativeApp ? (
             <POSView onLogout={handleSignOut} />
           ) : (
             <>
@@ -1165,16 +1174,18 @@ const RetailerDashboardInner = () => {
                         );
                         return <HomeSnapshot filterDates={filterDates} headerRight={filterControl} />;
                       })()}
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                        className="mt-8 flex justify-center"
-                      >
-                        <div className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-white/10 border border-white/15 backdrop-blur-md shadow-[0_0_15px_rgba(0,0,0,0.25)] hover:shadow-[0_0_25px_rgba(0,255,200,0.2)] hover:scale-105 transition-all">
-                          <ModeToggle />
-                        </div>
-                      </motion.div>
+                      {!isNativeApp && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                          className="mt-8 flex justify-center"
+                        >
+                          <div className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-white/10 border border-white/15 backdrop-blur-md shadow-[0_0_15px_rgba(0,0,0,0.25)] hover:shadow-[0_0_25px_rgba(0,255,200,0.2)] hover:scale-105 transition-all">
+                            <ModeToggle />
+                          </div>
+                        </motion.div>
+                      )}
                     </div>
                   </div>
                 )}

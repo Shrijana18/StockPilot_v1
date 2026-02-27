@@ -60,14 +60,10 @@ export default function AppShell({ children, headerContent = null, showFab = fal
   return (
     <div 
       className="min-h-[100dvh] h-[100dvh] w-full overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] text-white flex flex-col"
-      style={{
-        // Ensure proper handling of notch/status bar
-        paddingTop: 'env(safe-area-inset-top)',
-      }}
     >
-      {/* Main content area - children handle their own bottom nav */}
+      {/* Main content area - dashboards use fixed inset-0 and lock body scroll; other pages can scroll here */}
       <main 
-        className="flex-1 overflow-y-auto overflow-x-hidden"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
         style={{
           paddingLeft: 'env(safe-area-inset-left)',
           paddingRight: 'env(safe-area-inset-right)',

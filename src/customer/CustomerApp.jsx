@@ -12,6 +12,7 @@ import { CustomerAuthProvider, useCustomerAuth } from './context/CustomerAuthCon
 
 // Components
 import CustomerBottomNav from './components/CustomerBottomNav';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Views
 import CustomerLogin from './views/CustomerLogin';
@@ -79,16 +80,19 @@ const CustomerAppContent = () => {
   const [showOrderSuccess, setShowOrderSuccess] = useState(false);
   const [successOrderNumber, setSuccessOrderNumber] = useState('');
   const [successOrderId, setSuccessOrderId] = useState('');
+  const [pendingCheckout, setPendingCheckout] = useState(false);
 
-  // Get user location on mount using browser's native Geolocation API
+  // Get user location on mount (for both guest and logged-in — required for store browsing)
   useEffect(() => {
+    if (!location) {
+      setLocation({ lat: 19.0760, lng: 72.8777, label: 'Mumbai' });
+    }
+
     const getLocation = () => {
       if (!navigator.geolocation) {
-        console.log('Geolocation not supported');
         setLocation({ lat: 19.0760, lng: 72.8777, label: 'Mumbai' });
         return;
       }
-
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setLocation({
@@ -98,22 +102,23 @@ const CustomerAppContent = () => {
           });
         },
         (error) => {
-          console.error('Location error:', error);
-          // Default to Mumbai
           setLocation({ lat: 19.0760, lng: 72.8777, label: 'Mumbai' });
         },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 300000 // Cache for 5 minutes
-        }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
       );
     };
+    getLocation();
+  }, []);
 
-    if (isLoggedIn) {
-      getLocation();
-    }
-  }, [isLoggedIn]);
+  // Apple Guideline 5.1.1: Guests must be able to browse without signing in. Never show login as first screen.
+  const hasInitializedGuestView = React.useRef(false);
+  useEffect(() => {
+    if (authLoading || isLoggedIn) return;
+    if (hasInitializedGuestView.current) return;
+    hasInitializedGuestView.current = true;
+    setCurrentView('home');
+    setActiveTab('home');
+  }, [authLoading, isLoggedIn]);
 
   // Navigate to a view
   const navigateTo = (view, data = {}) => {
@@ -173,11 +178,14 @@ const CustomerAppContent = () => {
     }
   };
 
-  // Handle tab change
+  // Handle tab change (guest: orders/profile show login screen per Apple Guideline 5.1.1)
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setViewHistory([]);
-    
+    if (!isLoggedIn && (tab === 'orders' || tab === 'profile')) {
+      setCurrentView('login');
+      return;
+    }
     switch (tab) {
       case 'home':
         setCurrentView('home');
@@ -197,6 +205,33 @@ const CustomerAppContent = () => {
       default:
         setCurrentView('home');
     }
+  };
+
+  // Require login for checkout; if guest, show login then proceed to checkout after success
+  const handleCheckout = () => {
+    if (isLoggedIn) {
+      navigateTo('checkout');
+    } else {
+      setPendingCheckout(true);
+      setCurrentView('login');
+      setActiveTab('profile');
+    }
+  };
+
+  const handleLoginSuccess = () => {
+    if (pendingCheckout) {
+      setPendingCheckout(false);
+      navigateTo('checkout');
+    } else {
+      setCurrentView('home');
+      setActiveTab('home');
+    }
+  };
+
+  const handleContinueAsGuest = () => {
+    setPendingCheckout(false);
+    setCurrentView(pendingCheckout ? 'cart' : 'home');
+    setActiveTab(pendingCheckout ? 'cart' : 'home');
   };
 
   // Handle store select
@@ -229,33 +264,46 @@ const CustomerAppContent = () => {
     );
   }
 
-  // Show login if not logged in
-  if (!isLoggedIn) {
-    return <CustomerLogin onLoginSuccess={() => {}} />;
-  }
+  // Apple Guideline 5.1.1: Allow browsing without login. Show login only for account-based flows (orders, profile, checkout).
+  const showLoginView = !isLoggedIn && ['login', 'orders', 'profile', 'checkout'].includes(currentView);
 
   // Determine if bottom nav should be shown
   const showBottomNav = ['home', 'search', 'cart', 'orders', 'profile'].includes(currentView);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] relative overflow-hidden">
-      {/* Aurora backdrop - Retailer Dashboard style */}
-      <div className="pointer-events-none absolute inset-0 opacity-40">
-        <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
-        <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-2xl will-change-transform bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
-      </div>
-      {/* Header is now built into each view for mobile optimization */}
+    <div className="bg-[#0B0F14] relative w-full h-screen overflow-hidden flex flex-col">
+      {/* Aurora backdrop - only on main app, not login */}
+      {!showLoginView && (
+        <div className="pointer-events-none fixed inset-0 opacity-30 z-0">
+          <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/30 via-teal-400/20 to-transparent" />
+          <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-teal-500/20 via-emerald-400/15 to-transparent" />
+        </div>
+      )}
 
-      {/* Main Content - Instant view switching */}
+      {/* Main Content */}
       <main 
-        className="bg-transparent min-h-screen relative z-10"
+        className={`relative z-10 w-full flex-1 min-h-0 flex flex-col ${showLoginView ? 'overflow-hidden' : 'overflow-y-auto'}`}
         style={{ 
           paddingBottom: showBottomNav ? 'calc(80px + env(safe-area-inset-bottom))' : '0'
         }}
       >
+        {/* Login (guest: orders, profile, or checkout require login per Apple 5.1.1) */}
+        {showLoginView && (
+          <div 
+            className="w-full flex-1 min-h-0 overflow-hidden"
+            style={{ position: 'fixed', inset: 0, zIndex: 20 }}
+          >
+            <CustomerLogin
+              onLoginSuccess={handleLoginSuccess}
+              onContinueAsGuest={handleContinueAsGuest}
+              isCheckoutFlow={pendingCheckout}
+            />
+          </div>
+        )}
+
         {/* Home */}
-        {currentView === 'home' && (
-          <div className="bg-transparent min-h-screen">
+        {!showLoginView && currentView === 'home' && (
+          <div className="bg-transparent w-full h-full">
             <CustomerHome
               location={location}
               onNavigate={handleTabChange}
@@ -266,8 +314,8 @@ const CustomerAppContent = () => {
         )}
 
         {/* Store Detail */}
-        {currentView === 'store' && selectedStore && (
-          <div className="bg-transparent min-h-screen">
+        {!showLoginView && currentView === 'store' && selectedStore && (
+          <div className="bg-transparent">
             <StoreDetail
               storeId={selectedStore.id}
               onBack={goBack}
@@ -277,8 +325,8 @@ const CustomerAppContent = () => {
         )}
 
         {/* Search */}
-        {currentView === 'search' && (
-          <div className="bg-transparent min-h-screen">
+        {!showLoginView && currentView === 'search' && (
+          <div className="bg-transparent">
             <ProductSearch
               location={location}
               onBack={() => handleTabChange('home')}
@@ -290,19 +338,19 @@ const CustomerAppContent = () => {
         )}
 
         {/* Cart */}
-        {currentView === 'cart' && (
-          <div className="bg-transparent min-h-screen">
+        {!showLoginView && currentView === 'cart' && (
+          <div className="bg-transparent">
             <Cart
               onBack={goBack}
-              onCheckout={() => navigateTo('checkout')}
+              onCheckout={handleCheckout}
               onStoreClick={(storeId) => navigateTo('store', { store: { id: storeId } })}
             />
           </div>
         )}
 
-        {/* Checkout */}
-        {currentView === 'checkout' && (
-          <div className="bg-transparent min-h-screen">
+        {/* Checkout (only when logged in) */}
+        {!showLoginView && currentView === 'checkout' && (
+          <div className="bg-transparent">
             <Checkout
               onBack={goBack}
               onOrderPlaced={handleOrderPlaced}
@@ -311,8 +359,8 @@ const CustomerAppContent = () => {
         )}
 
         {/* Order Tracking */}
-        {currentView === 'tracking' && trackingOrderId && (
-          <div className="bg-transparent min-h-screen">
+        {!showLoginView && currentView === 'tracking' && trackingOrderId && (
+          <div className="bg-transparent">
             <OrderTracking
               orderId={trackingOrderId}
               onBack={goBack}
@@ -321,8 +369,8 @@ const CustomerAppContent = () => {
         )}
 
         {/* My Orders */}
-        {currentView === 'orders' && (
-          <div className="bg-transparent min-h-screen">
+        {!showLoginView && currentView === 'orders' && (
+          <div className="bg-transparent">
             <MyOrders
               onBack={() => handleTabChange('home')}
               onOrderClick={(orderId) => navigateTo('tracking', { orderId })}
@@ -331,8 +379,8 @@ const CustomerAppContent = () => {
         )}
 
         {/* Profile */}
-        {currentView === 'profile' && (
-          <div className="bg-transparent min-h-screen">
+        {!showLoginView && currentView === 'profile' && (
+          <div className="bg-transparent">
             <CustomerProfile onBack={() => handleTabChange('home')} />
           </div>
         )}
@@ -367,11 +415,13 @@ const CustomerAppContent = () => {
 // Main Customer App with Providers
 const CustomerApp = () => {
   return (
-    <CustomerAuthProvider>
-      <CartProvider>
-        <CustomerAppContent />
-      </CartProvider>
-    </CustomerAuthProvider>
+    <ErrorBoundary>
+      <CustomerAuthProvider>
+        <CartProvider>
+          <CustomerAppContent />
+        </CartProvider>
+      </CustomerAuthProvider>
+    </ErrorBoundary>
   );
 };
 

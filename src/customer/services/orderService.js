@@ -11,6 +11,7 @@ import {
   getDocs, 
   setDoc,
   updateDoc,
+  increment,
   query, 
   where, 
   orderBy, 
@@ -136,6 +137,27 @@ export const placeOrder = async (orderData) => {
       ...order,
       orderId: orderRef.id
     });
+
+    // Update customer's totalOrders count using Firestore increment
+    try {
+      const customerRef = doc(db, 'customers', customerId);
+      const customerDoc = await getDoc(customerRef);
+      if (customerDoc.exists()) {
+        await updateDoc(customerRef, {
+          totalOrders: increment(1),
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // If customer doesn't exist, create with totalOrders = 1
+        await setDoc(customerRef, {
+          totalOrders: 1,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+    } catch (error) {
+      console.error('Error updating customer order count:', error);
+      // Don't fail the order if this update fails
+    }
 
     return { 
       success: true, 

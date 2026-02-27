@@ -472,7 +472,11 @@ const StoreInfoSheet = ({ store, isOpen, onClose, customerDistance, isWithinDeli
         animate={{ y: 0 }} 
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-slate-800 rounded-t-2xl max-h-[70vh] overflow-y-auto"
+        className="fixed bottom-0 left-0 right-0 z-[60] bg-slate-800 rounded-t-2xl overflow-y-auto"
+        style={{ 
+          maxHeight: 'calc(70vh - env(safe-area-inset-bottom))',
+          paddingBottom: 'calc(100px + env(safe-area-inset-bottom))'
+        }}
       >
         <div className="p-5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
           <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
@@ -845,10 +849,10 @@ const StoreDetail = ({ storeId, onBack, onCartClick }) => {
   }
 
   return (
-    <div className="min-h-screen bg-transparent">
+    <div className="bg-transparent w-full h-full flex flex-col">
       
       {/* ===== FIXED HEADER ===== */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <header className="sticky top-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <div className="flex items-center gap-3 px-3 lg:px-4 py-3">
             {/* Back Button */}
             <button onClick={onBack} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/15 transition-colors">
@@ -1013,24 +1017,25 @@ const StoreDetail = ({ storeId, onBack, onCartClick }) => {
           </div>
       </header>
 
-      {/* ===== MAIN CONTENT (with top padding for fixed header) ===== */}
-      <main className="pt-[140px] md:pt-[110px]">
+      {/* ===== MAIN CONTENT - Scrollable ===== */}
+      <div className="flex-1 overflow-y-auto">
         {/* ===== MOBILE: Horizontal Categories (visible on mobile/tablet) ===== */}
-        <div className="lg:hidden sticky top-[140px] md:top-[110px] z-20 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-md border-b border-white/10">
-          <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-hide">
+        <div className="lg:hidden sticky top-0 z-20 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-md border-b border-white/10">
+          <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-hide" style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
             {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                className={`flex-shrink-0 px-3 py-2 rounded-xl text-[11px] font-medium transition-all flex items-center gap-1.5 ${
                   selectedCategory === cat
-                    ? 'bg-emerald-500 text-slate-900'
-                    : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'
+                    ? 'bg-emerald-500 text-slate-900 shadow-lg shadow-emerald-500/30'
+                    : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20 border border-white/10'
                 }`}
+                style={{ minHeight: '36px' }}
               >
-                <span className="mr-1">{getCategoryIcon(cat)}</span>
+                <span>{getCategoryIcon(cat)}</span>
                 {cat}
-                <span className="ml-1 opacity-60">({getCategoryCount(cat)})</span>
+                <span className="opacity-60">({getCategoryCount(cat)})</span>
               </button>
             ))}
           </div>
@@ -1112,7 +1117,7 @@ const StoreDetail = ({ storeId, onBack, onCartClick }) => {
             </div>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* ===== CART BAR - Full Width ===== */}
       <AnimatePresence>

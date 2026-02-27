@@ -171,24 +171,27 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
 
   const finalTotal = subtotal + gstAmount + extras.total;
 
+  // Order-level billing mode: when set, overrides product's own pricing mode for this invoice
+  const orderMode = settings?.orderPricingMode && settings.orderPricingMode.trim()
+    ? settings.orderPricingMode.trim()
+    : null;
+
   useEffect(() => {
     if (!selectedProducts || selectedProducts.length === 0) return;
-    // When using controlled mode, dedupe against the controlled list; otherwise use local state
     const base = items;
     const newItems = selectedProducts
       .filter((product) => !base.some((it) => (it.id && product.id && it.id === product.id) || (it.sku === (product.sku || ""))))
       .map((product) => {
-        // Treat LEGACY as a Selling Price (net) flow unless MRP exists
-        const mode = (!product.pricingMode || product.pricingMode === "LEGACY")
+        const productMode = (!product.pricingMode || product.pricingMode === "LEGACY")
           ? (product.mrp ? "MRP_INCLUSIVE" : "SELLING_SIMPLE")
           : product.pricingMode;
+        const mode = orderMode || productMode;
 
         const unitNorm = normalizeUnit({
           pricingMode: mode,
           gstRate: (product.gstRate ?? product.taxRate ?? settings?.gstRate ?? 0),
           hsnCode: product.hsnCode,
           sellingPrice: product.sellingPrice ?? product.price ?? product.mrp ?? 0,
-          // For Selling Price and Base+GST, price is net (exclusive). Only MRP is inclusive.
           sellingIncludesGst: (mode === "SELLING_SIMPLE" || mode === "BASE_PLUS_GST") ? false : true,
           mrp: product.mrp,
           basePrice: product.basePrice,
@@ -202,7 +205,6 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
           category: product.category || "",
           unit: product.unit || "",
           quantity: 1,
-          // Final selling price shown in cart (gross)
           price: Number(unitNorm.unitPriceGross) || 0,
           discount: 0,
           pricingMode: mode,
@@ -215,6 +217,7 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
             sellingIncludesGst: product.sellingIncludesGst ?? true,
             mrp: product.mrp ?? null,
             basePrice: product.basePrice ?? null,
+            productPricingMode: productMode,
           },
         };
       });
@@ -222,7 +225,34 @@ const BillingCart = ({ selectedProducts = [], cartItems: cartItemsProp, onUpdate
       pushUpdate([...base, ...newItems]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProducts]);
+  }, [selectedProducts, orderMode]);
+
+  // When order pricing mode changes, re-normalize existing cart lines (from products) so prices update
+  useEffect(() => {
+    if (items.length === 0 || !onUpdateCart) return;
+    const effectiveMode = orderMode || undefined; // when cleared, use product default per line
+    const gst = settings?.gstRate ?? 0;
+    const next = items.map((it) => {
+      if (!it.sourceFields) return it; // manual lines: keep as-is
+      const mode = effectiveMode ?? it.sourceFields?.productPricingMode ?? it.pricingMode ?? "SELLING_SIMPLE";
+      const unitNorm = normalizeUnit({
+        pricingMode: mode,
+        gstRate: it.gstRate ?? it.inlineGstRate ?? gst,
+        sellingPrice: it.sourceFields?.sellingPrice ?? it.price ?? 0,
+        sellingIncludesGst: (mode === "SELLING_SIMPLE" || mode === "BASE_PLUS_GST") ? false : true,
+        mrp: it.sourceFields?.mrp ?? null,
+        basePrice: it.sourceFields?.basePrice ?? null,
+      });
+      return {
+        ...it,
+        pricingMode: mode,
+        price: Number(unitNorm.unitPriceGross) || 0,
+        normalized: unitNorm,
+      };
+    });
+    pushUpdate(next);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderMode]);
 
   useEffect(() => {
     // Keep console log for debugging current rendered items

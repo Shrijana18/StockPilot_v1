@@ -1,10 +1,8 @@
 /**
- * CustomerBottomNav - Premium Dark Theme with Green Branding
- * Enhanced animations and visual appeal
+ * CustomerBottomNav - Professional tab bar for native app
  */
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import { 
   HiHome, HiSearch, HiShoppingCart, HiClipboardList, HiUser
 } from 'react-icons/hi';
@@ -17,7 +15,7 @@ const CustomerBottomNav = ({ activeTab, onTabChange }) => {
   const tabs = [
     { id: 'home', icon: HiHome, label: 'Home' },
     { id: 'search', icon: HiSearch, label: 'Search' },
-    { id: 'cart', icon: HiShoppingCart, label: 'Cart', badge: cartCount },
+    { id: 'cart', icon: HiShoppingCart, label: 'Cart' },
     { id: 'orders', icon: HiClipboardList, label: 'Orders' },
     { id: 'profile', icon: HiUser, label: 'Profile' },
   ];
@@ -25,55 +23,47 @@ const CustomerBottomNav = ({ activeTab, onTabChange }) => {
   return (
     <div 
       className="fixed bottom-0 left-0 right-0 z-50"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      style={{ 
+        paddingBottom: 'max(env(safe-area-inset-bottom), 8px)',
+        paddingLeft: 'max(env(safe-area-inset-left), 16px)',
+        paddingRight: 'max(env(safe-area-inset-right), 16px)',
+        paddingTop: 8,
+        background: 'rgba(11, 15, 20, 0.94)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderTop: '1px solid rgba(255,255,255,0.06)'
+      }}
     >
-      {/* Gradient fade */}
-      <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-slate-900 via-slate-900/90 to-transparent pointer-events-none" />
-      
-      {/* Navigation - Retailer Dashboard pill style */}
-      <div className="relative px-4 pb-3">
-        <div className="bg-slate-800/95 backdrop-blur-xl rounded-2xl border border-white/10 px-2 py-2 shadow-xl">
-          <div className="flex items-center justify-around">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              const isCart = tab.id === 'cart';
+      <div className="flex items-center justify-around">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          const isCart = tab.id === 'cart';
 
-              return (
-                <motion.button
-                  key={tab.id}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => onTabChange(tab.id)}
-                  className={`relative flex flex-col items-center justify-center py-2.5 px-4 rounded-lg transition-all duration-200 ${
-                    isActive ? 'bg-emerald-500 text-slate-900' : 'bg-white/10 text-white hover:bg-white/15 active:bg-white/20'
-                  }`}
-                >
-                  {/* Icon */}
-                  <div className="relative">
-                    <Icon className="text-xl" />
-
-                    {/* Cart Badge */}
-                    {isCart && cartCount > 0 && (
-                      <motion.span 
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className="absolute -top-1.5 -right-2.5 min-w-[20px] h-5 px-1 bg-amber-500 text-slate-900 rounded-full flex items-center justify-center border-2 border-slate-800 text-[10px] font-bold"
-                      >
-                        {cartCount > 99 ? '99+' : cartCount}
-                      </motion.span>
-                    )}
-                  </div>
-
-                  {/* Label */}
-                  <span className="text-[10px] font-semibold mt-1.5">
-                    {tab.label}
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onTabChange(tab.id)}
+              className={`relative flex flex-col items-center justify-center py-2 px-4 rounded-xl transition-all duration-200 min-w-[56px] ${
+                isActive 
+                  ? 'text-emerald-400' 
+                  : 'text-white/45 hover:text-white/70 active:scale-95'
+              }`}
+            >
+              <div className="relative">
+                <Icon className={`text-[22px] ${isActive ? 'opacity-100' : 'opacity-80'}`} />
+                {isCart && cartCount > 0 && (
+                  <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 bg-emerald-500 text-white rounded-full flex items-center justify-center text-[10px] font-semibold">
+                    {cartCount > 99 ? '99+' : cartCount}
                   </span>
-                </motion.button>
-              );
-            })}
-          </div>
-        </div>
+                )}
+              </div>
+              <span className={`text-[11px] font-medium mt-1.5 ${isActive ? 'text-emerald-400' : 'text-white/50'}`}>
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

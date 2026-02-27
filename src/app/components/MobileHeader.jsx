@@ -61,39 +61,40 @@ const MobileHeader = ({
         className={`fixed top-0 left-0 right-0 z-20 ${
           transparent 
             ? 'bg-transparent' 
-            : 'bg-gradient-to-b from-[#0f172a] via-[#0f172a]/95 to-transparent'
+            : 'bg-[#0B0F14] border-b border-white/5'
         }`}
         style={{ 
-          paddingTop: 'env(safe-area-inset-top)',
+          paddingTop: 'max(calc(env(safe-area-inset-top) - 12px), 2px)',
         }}
       >
-        <div className="flex items-center justify-between px-4 py-3">
-          {/* Left Section */}
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between px-3 py-1.5">
+          {/* Left: logo only (enlarged) + "Retailer" or title — no "FLYP" text */}
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             {showBack ? (
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={handleBack}
-                className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
-              >
-                <FaChevronLeft className="text-white text-sm" />
-              </motion.button>
-            ) : (
-              <div className="flex items-center gap-2">
-                {/* FLYP Logo */}
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/30">
-                  <span className="text-white font-bold text-sm">F</span>
+              <>
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={handleBack}
+                  className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0"
+                >
+                  <FaChevronLeft className="text-white text-base" />
+                </motion.button>
+                <div className="min-w-0">
+                  <h1 className="text-base font-bold text-white truncate">{title}</h1>
+                  {subtitle && <p className="text-[11px] text-gray-400 truncate">{subtitle}</p>}
                 </div>
-              </div>
+              </>
+            ) : (
+              <>
+                <img src="/assets/flyp_logo.png" alt="" className="h-14 w-14 flex-shrink-0 object-contain" aria-hidden />
+                <span className="text-base font-bold text-white truncate">
+                  {title === 'FLYP' ? (subtitle || 'Retailer') : title}
+                </span>
+                {title !== 'FLYP' && subtitle && (
+                  <span className="text-[11px] text-gray-400 truncate hidden sm:inline"> · {subtitle}</span>
+                )}
+              </>
             )}
-            
-            {/* Title */}
-            <div>
-              <h1 className="text-lg font-bold text-white">{title}</h1>
-              {subtitle && (
-                <p className="text-xs text-gray-400">{subtitle}</p>
-              )}
-            </div>
           </div>
 
           {/* Right Section */}
@@ -107,9 +108,9 @@ const MobileHeader = ({
                   await triggerHaptic();
                   onSearchPress?.();
                 }}
-                className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+                className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center"
               >
-                <FaSearch className="text-white text-sm" />
+                <FaSearch className="text-white text-lg" />
               </motion.button>
             )}
             
@@ -117,9 +118,9 @@ const MobileHeader = ({
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={triggerHaptic}
-                className="relative w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+                className="relative w-11 h-11 rounded-full bg-white/10 flex items-center justify-center"
               >
-                <FaBell className="text-white text-sm" />
+                <FaBell className="text-white text-lg" />
                 {notificationCount > 0 && (
                   <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full flex items-center justify-center">
                     {notificationCount > 9 ? '9+' : notificationCount}
@@ -135,9 +136,9 @@ const MobileHeader = ({
                 await triggerHaptic();
                 setShowMenu(!showMenu);
               }}
-              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+              className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center"
             >
-              <FaEllipsisV className="text-white text-sm" />
+              <FaEllipsisV className="text-white text-lg" />
             </motion.button>
           </div>
         </div>

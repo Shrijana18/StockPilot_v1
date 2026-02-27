@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
-import { db, empAuth, functions } from '../../../firebase/firebaseConfig';
+import { empDB, empAuth, empFunctions } from '../../../firebase/firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
-import { onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { onAuthStateChanged, signInWithCustomToken, signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { getDistributorEmployeeSession, clearDistributorEmployeeSession, isDistributorEmployeeRedirect, clearDistributorEmployeeRedirect } from '../../../utils/distributorEmployeeSession';
 import { logoutUser } from '../../../utils/authUtils';
-import { FiUser, FiClock, FiActivity, FiLogOut, FiCheckCircle, FiRadio, FiShield, FiFolder, FiCalendar } from 'react-icons/fi';
+import { FiUser, FiClock, FiActivity, FiLogOut, FiCheckCircle, FiRadio, FiShield, FiFolder, FiCalendar, FiHome, FiArrowLeft } from 'react-icons/fi';
 
 // Import distributor components
 import AddRetailerModal from '../AddRetailerModal';
@@ -49,10 +49,11 @@ const DistributorEmployeeDashboard = () => {
 
   useEffect(() => {
     // Longer delay for mobile/slow networks - wait for auth state to initialize after page reload
-    const timer = setTimeout(() => {
+      const timer = setTimeout(() => {
       const s = getDistributorEmployeeSession();
-      const did = s?.distributorId || '';
-      const eid = s?.employeeId || '';
+      // CRITICAL: Ensure IDs are strings, not objects
+      const did = String(s?.distributorId || '').trim();
+      const eid = String(s?.employeeId || '').trim();
 
       if (!s || !did || !eid) {
         // Only redirect if we've waited long enough (prevents loops)
@@ -72,16 +73,45 @@ const DistributorEmployeeDashboard = () => {
         if (loaded) return; // Prevent double loading
         loaded = true;
         
+        // CRITICAL: Ensure IDs are strings
+        const distributorIdStr = String(distId || '').trim();
+        const employeeIdStr = String(empId || '').trim();
+        
+        if (!distributorIdStr || !employeeIdStr) {
+          console.error('[DistributorEmployeeDashboard] ❌ Invalid parameters:', {
+            distId: distributorIdStr,
+            empId: employeeIdStr
+          });
+          if (!hasNavigated) {
+            setHasNavigated(true);
+            navigate('/distributor-employee-login', { replace: true });
+          }
+          return;
+        }
+        
+        // CRITICAL: Verify auth before attempting Firestore read (required for security rules)
+        if (!empAuth || !empAuth.currentUser) {
+          console.error('[DistributorEmployeeDashboard] ❌ Cannot load data: No auth available', {
+            hasEmpAuth: !!empAuth,
+            hasCurrentUser: !!empAuth?.currentUser
+          });
+          // Don't redirect immediately - let restoreAuthIfNeeded handle it
+          return;
+        }
+        
         try {
           // CRITICAL FIX: Use employeeId from session directly as document ID
           // The custom token uses employeeDoc.id as UID, which equals employeeId from session
-          // This works even if empAuth.currentUser is null after page reload (in-memory persistence)
-          const employeeDocId = empAuth.currentUser?.uid || empId;
+          const employeeDocId = String(empAuth.currentUser?.uid || employeeIdStr).trim();
           
-          const empRef = doc(db, 'businesses', distId, 'distributorEmployees', employeeDocId);
+          const empRef = doc(empDB, 'businesses', distributorIdStr, 'distributorEmployees', employeeDocId);
           const empSnap = await getDoc(empRef);
           if (!empSnap.exists()) {
-            console.warn('[DistributorEmployeeDashboard] Employee document not found:', { distId, empId, employeeDocId });
+            console.warn('[DistributorEmployeeDashboard] Employee document not found:', { 
+              distId: distributorIdStr, 
+              empId: employeeIdStr, 
+              employeeDocId 
+            });
             if (!hasNavigated) {
               setHasNavigated(true);
               navigate('/distributor-employee-login', { replace: true });
@@ -89,7 +119,7 @@ const DistributorEmployeeDashboard = () => {
             return;
           }
           const data = empSnap.data();
-          setEmployee({ id: empId, ...data });
+          setEmployee({ id: employeeIdStr, ...data });
           try {
             await setDoc(empRef, { lastSeen: serverTimestamp(), online: true }, { merge: true });
           } catch (e) {
@@ -106,41 +136,141 @@ const DistributorEmployeeDashboard = () => {
 
       // CRITICAL: Restore Firebase authentication automatically if we have a session but no auth
       // This is essential for Firestore security rules to work (request.auth.uid)
+      let restoringAuth = false;
       const restoreAuthIfNeeded = async () => {
-        if (!empAuth.currentUser && s && eid && did) {
-          console.log('[DistributorEmployeeDashboard] 🔄 Attempting to restore Firebase authentication...');
-          try {
-            // Call Cloud Function to get a new custom token based on session
-            const restoreAuth = httpsCallable(functions, 'restoreDistributorEmployeeAuth');
-            const result = await restoreAuth({
-              distributorId: did,
-              employeeId: eid,
-            });
+        // Prevent concurrent restoration attempts
+        if (restoringAuth) {
+          console.warn('[DistributorEmployeeDashboard] ⚠️ Auth restoration already in progress');
+          return false;
+        }
+        
+        if (empAuth.currentUser) {
+          console.log('[DistributorEmployeeDashboard] ✅ Auth already exists:', empAuth.currentUser.uid);
+          return true;
+        }
+        
+        if (!s || !eid || !did) {
+          console.warn('[DistributorEmployeeDashboard] ⚠️ Cannot restore auth: missing session data');
+          return false;
+        }
+        
+        restoringAuth = true;
+        console.log('[DistributorEmployeeDashboard] 🔄 Attempting to restore Firebase authentication...');
+        try {
+          // CRITICAL: Ensure we're passing strings
+          const distributorIdStr = String(did).trim();
+          const employeeIdStr = String(eid).trim();
+          
+          // Call Cloud Function to get a new custom token based on session
+          const restoreAuth = httpsCallable(empFunctions, 'restoreDistributorEmployeeAuth');
+          const result = await restoreAuth({
+            distributorId: distributorIdStr,
+            employeeId: employeeIdStr,
+          });
 
-            if (result.data.success && result.data.customToken) {
-              // Sign in with the custom token to restore authentication
-              await signInWithCustomToken(empAuth, result.data.customToken);
-              console.log('[DistributorEmployeeDashboard] ✅ Firebase authentication restored successfully');
-            } else {
-              console.warn('[DistributorEmployeeDashboard] ⚠️ Failed to restore auth:', result.data.message);
+          if (result.data.success && result.data.customToken) {
+            const customToken = result.data.customToken;
+            // Validate token
+            if (typeof customToken !== 'string' || customToken.trim().length === 0) {
+              console.error('[DistributorEmployeeDashboard] ❌ Invalid custom token received');
+              restoringAuth = false;
+              return false;
             }
-          } catch (err) {
-            console.error('[DistributorEmployeeDashboard] ❌ Error restoring auth:', err);
-            // Non-fatal: dashboard can still load, but order creation will fail
+            
+            // Sign in with the custom token to restore authentication
+            if (!empAuth) {
+              console.error('[DistributorEmployeeDashboard] ❌ empAuth instance is null/undefined');
+              restoringAuth = false;
+              return false;
+            }
+            
+            // Check if already signed in - sign out first to avoid conflicts
+            if (empAuth.currentUser) {
+              try {
+                await signOut(empAuth);
+                await new Promise(resolve => setTimeout(resolve, 200));
+              } catch (signOutError) {
+                console.warn('[DistributorEmployeeDashboard] Sign out failed (non-fatal):', signOutError);
+              }
+            }
+            
+            await signInWithCustomToken(empAuth, customToken);
+            
+            // Verify auth was set
+            if (!empAuth.currentUser) {
+              console.error('[DistributorEmployeeDashboard] ❌ Auth not set after signInWithCustomToken');
+              restoringAuth = false;
+              return false;
+            }
+            
+            console.log('[DistributorEmployeeDashboard] ✅ Firebase authentication restored successfully:', empAuth.currentUser.uid);
+            restoringAuth = false;
+            return true;
+          } else {
+            console.warn('[DistributorEmployeeDashboard] ⚠️ Failed to restore auth:', result.data.message);
+            restoringAuth = false;
+            return false;
           }
+        } catch (err) {
+          console.error('[DistributorEmployeeDashboard] ❌ Error restoring auth:', err);
+          restoringAuth = false;
+          return false;
         }
       };
 
-      // PRODUCTION FIX: Load employee data immediately using session (works even if auth is lost)
-      // The session has employeeId which is the same as the document ID
-      // This ensures the dashboard loads even after page reload with in-memory persistence
-      if (!loaded && eid && did) {
-        // Load immediately using session data (most reliable for production)
-        loadEmployeeData(did, eid);
-        
-        // Restore Firebase authentication automatically (non-blocking)
-        restoreAuthIfNeeded();
-      }
+      // CRITICAL FIX: In app (Capacitor), auth is in-memory and lost after navigation
+      // We MUST restore auth BEFORE attempting Firestore reads, otherwise we get permission-denied
+      const isCapacitor = typeof window !== 'undefined' && window.Capacitor;
+      const hasAuth = Boolean(empAuth?.currentUser);
+      
+      // Load sequence: restore auth first (if needed), then load data
+      (async () => {
+        try {
+          // Restore auth if missing (especially important in app)
+          if (!hasAuth) {
+            console.log('[DistributorEmployeeDashboard] 🔐 No auth found, restoring...');
+            const authRestored = await restoreAuthIfNeeded();
+            if (!authRestored) {
+              console.error('[DistributorEmployeeDashboard] ❌ Auth restoration failed, redirecting');
+              clearDistributorEmployeeSession();
+              if (!hasNavigated) {
+                setHasNavigated(true);
+                navigate('/distributor-employee-login', { replace: true });
+              }
+              return;
+            }
+            // Wait for auth to propagate to Firestore rules
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Verify auth is still set
+            if (!empAuth.currentUser) {
+              console.error('[DistributorEmployeeDashboard] ❌ Auth lost after restore, redirecting');
+              clearDistributorEmployeeSession();
+              if (!hasNavigated) {
+                setHasNavigated(true);
+                navigate('/distributor-employee-login', { replace: true });
+              }
+              return;
+            }
+          } else {
+            console.log('[DistributorEmployeeDashboard] ✅ Auth already present:', empAuth.currentUser.uid);
+            // Still wait a bit to ensure Firestore rules recognize the auth
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+          
+          // Now load employee data (with auth in place)
+          if (!loaded && eid && did) {
+            await loadEmployeeData(did, eid);
+          }
+        } catch (loadError) {
+          console.error('[DistributorEmployeeDashboard] ❌ Load sequence failed:', loadError);
+          clearDistributorEmployeeSession();
+          if (!hasNavigated) {
+            setHasNavigated(true);
+            navigate('/distributor-employee-login', { replace: true });
+          }
+        }
+      })();
 
       // Set up auth state listener to monitor auth restoration
       authUnsubscribe = onAuthStateChanged(empAuth, (user) => {
@@ -161,7 +291,7 @@ const DistributorEmployeeDashboard = () => {
 
   useEffect(() => {
     if (!employee?.id || !distributorId) return;
-    const empRef = doc(db, 'businesses', distributorId, 'distributorEmployees', employee.id);
+    const empRef = doc(empDB, 'businesses', distributorId, 'distributorEmployees', employee.id);
     const unsub = onSnapshot(empRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -242,7 +372,7 @@ const DistributorEmployeeDashboard = () => {
   // Live activity feed (latest 20)
   useEffect(() => {
     if (!distributorId) return;
-    const col = collection(db, 'businesses', distributorId, 'employeeActivity');
+    const col = collection(empDB, 'businesses', distributorId, 'employeeActivity');
     const q = query(col, orderBy('createdAt', 'desc'), limit(20));
     const unsub = onSnapshot(q, (snap) => {
       setActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -275,7 +405,7 @@ const DistributorEmployeeDashboard = () => {
       if (distributorId && employeeDocId) {
         try {
           await setDoc(
-            doc(db, 'businesses', distributorId, 'distributorEmployees', employeeDocId),
+            doc(empDB, 'businesses', distributorId, 'distributorEmployees', employeeDocId),
             { online: false, lastSeen: serverTimestamp() },
             { merge: true }
           );
@@ -287,13 +417,25 @@ const DistributorEmployeeDashboard = () => {
       // Sign out from Firebase and clear all sessions
       await logoutUser('distributor-employee');
       
-      // Navigate to login page
-      navigate('/distributor-employee-login', { replace: true });
+      // Navigate to role selection (main menu)
+      navigate('/', { replace: true });
     } catch (error) {
       console.error('Logout error:', error);
       // Even if there's an error, clear session and redirect
       clearDistributorEmployeeSession();
-      navigate('/distributor-employee-login', { replace: true });
+      navigate('/', { replace: true });
+    }
+  };
+
+  const handleGoHome = () => {
+    navigate('/', { replace: true });
+  };
+
+  const handleGoBack = () => {
+    if (activeTab) {
+      setActiveTab('');
+    } else {
+      navigate('/', { replace: true });
     }
   };
 
@@ -641,7 +783,7 @@ const DistributorEmployeeDashboard = () => {
       // Check if session is active
       const checkSession = async () => {
         try {
-          const empRef = doc(db, 'businesses', distributorId, 'distributorEmployees', employee.id);
+          const empRef = doc(empDB, 'businesses', distributorId, 'distributorEmployees', employee.id);
           const empSnap = await getDoc(empRef);
           if (empSnap.exists()) {
             const data = empSnap.data();
@@ -715,7 +857,25 @@ const DistributorEmployeeDashboard = () => {
                 </div>
               </div>
             </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+              {/* Back Button - Show when in a section */}
+              {activeTab && (
+                <button
+                  onClick={handleGoBack}
+                  className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-all hover:scale-105"
+                  title="Go Back"
+                >
+                  <FiArrowLeft className="text-slate-300 text-sm" />
+                </button>
+              )}
+              {/* Home Button */}
+              <button
+                onClick={handleGoHome}
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-all hover:scale-105"
+                title="Home / Main Menu"
+              >
+                <FiHome className="text-slate-300 text-sm" />
+              </button>
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
                 <FiCalendar className="w-4 h-4 text-slate-400" />
                 <span className="text-xs md:text-sm text-slate-300 font-mono">{now.toLocaleTimeString()}</span>

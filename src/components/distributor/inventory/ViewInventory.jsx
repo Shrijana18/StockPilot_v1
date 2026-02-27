@@ -1,7 +1,7 @@
 import { getStorage, ref, getDownloadURL, uploadBytes, getBlob } from "firebase/storage";
 import React from "react";
 import { useState, useEffect } from "react";
-import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, writeBatch } from "firebase/firestore";
 import fetchGoogleImages from "../../../utils/fetchGoogleImages";
 import { logInventoryChange } from "../../../utils/logInventoryChange";
 import { collection as fsCollection, query, orderBy, onSnapshot as fsOnSnapshot } from "firebase/firestore";
@@ -48,6 +48,34 @@ const toSafeKey = (name = "") =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+
+// Inline edit input: keeps value in local state so the table doesn't re-render on every keystroke (smoother UX)
+const InlineEditInput = ({
+  initialValue,
+  onSave,
+  type = "text",
+  step,
+  className = "w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition-shadow",
+  parseSave = (v) => v,
+}) => {
+  const [value, setValue] = React.useState(initialValue ?? "");
+  const handleBlur = () => {
+    const out = type === "number" ? (parseFloat(value) || 0) : value;
+    onSave(parseSave(out));
+  };
+  return (
+    <input
+      type={type}
+      step={step}
+      className={className}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={handleBlur}
+      onClick={(e) => e.stopPropagation()}
+      autoFocus
+    />
+  );
+};
 
 const DeleteConfirmationModal = ({
   product,
@@ -109,6 +137,10 @@ const ViewInventory = ({ userId }) => {
   const [sortOrder, setSortOrder] = useState('asc');
   const [editingCell, setEditingCell] = useState({ rowId: null, field: null });
   const [editedValue, setEditedValue] = useState("");
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkField, setBulkField] = useState("quantity");
+  const [bulkValue, setBulkValue] = useState("");
+  const [bulkApplying, setBulkApplying] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [brandFilter, setBrandFilter] = useState([]);
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
@@ -374,11 +406,142 @@ const ViewInventory = ({ userId }) => {
         action: "updated",
         source: "inline-edit",
       });
+      // Optimistic UI: update local list so the new value shows immediately
+      const normalized = field === "quantity" || field === "gstRate" || field === "costPrice" || field === "sellingPrice" || field === "mrp" ? Number(value) : value;
+      setProducts((prev) => prev.map((p) => (p.id === rowId ? { ...p, [field]: normalized, ...(field === "gstRate" ? { taxRate: normalized } : {}) } : p)));
+      setFiltered((prev) => prev.map((p) => (p.id === rowId ? { ...p, [field]: normalized, ...(field === "gstRate" ? { taxRate: normalized } : {}) } : p)));
     } catch (err) {
       console.error("Error updating inventory field:", err);
     } finally {
       setEditingCell({ rowId: null, field: null });
       setEditedValue("");
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size >= filtered.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filtered.map((p) => p.id)));
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+  const bulkFields = [
+    { id: "quantity", label: "Qty", type: "number" },
+    { id: "hsnCode", label: "HSN Code", type: "text" },
+    { id: "unit", label: "Unit", type: "text" },
+    { id: "brand", label: "Brand", type: "text" },
+    { id: "category", label: "Category", type: "text" },
+  ];
+  const applyBulkUpdate = async () => {
+    if (selectedIds.size === 0 || (bulkValue === "" && bulkField !== "quantity")) return;
+    setBulkApplying(true);
+    try {
+      const field = bulkField;
+      const value = bulkField === "quantity" ? (parseFloat(bulkValue) || 0) : String(bulkValue).trim();
+      const ids = Array.from(selectedIds);
+      const refs = ids.map((id) => doc(db, "businesses", userId, "products", id));
+      const productsFromState = ids.map((id) => filtered.find((x) => x.id === id));
+      const batch = writeBatch(db);
+      for (let i = 0; i < ids.length; i++) {
+        batch.update(refs[i], { [field]: value });
+      }
+      await batch.commit();
+      const normalized = field === "quantity" ? Number(value) : value;
+      setProducts((prev) => prev.map((p) => (selectedIds.has(p.id) ? { ...p, [field]: normalized } : p)));
+      setFiltered((prev) => prev.map((p) => (selectedIds.has(p.id) ? { ...p, [field]: normalized } : p)));
+      setSelectedIds(new Set());
+      setBulkValue("");
+      toast.success(`Updated ${ids.length} product(s).`);
+      productsFromState.forEach((originalData, i) => {
+        const data = originalData || {};
+        const updatedData = { ...data, [field]: value };
+        logInventoryChange({ userId, productId: ids[i], sku: data.sku || "N/A", productName: data.productName || "N/A", brand: data.brand || "N/A", category: data.category || "N/A", previousData: data, updatedData, action: "updated", source: "bulk-edit" }).catch(() => {});
+      });
+    } catch (err) {
+      console.error("Bulk update error:", err);
+      toast.error("Bulk update failed. Please try again.");
+    } finally {
+      setBulkApplying(false);
+    }
+  };
+
+  const applyBulkSyncSellFromMrp = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkApplying(true);
+    try {
+      const toUpdate = Array.from(selectedIds)
+        .map((id) => ({ id, p: filtered.find((x) => x.id === id) }))
+        .filter(({ p }) => p && Number.isFinite(Number(p.mrp)));
+      if (toUpdate.length === 0) {
+        toast.success("No products had MRP to sync.");
+        setBulkApplying(false);
+        return;
+      }
+      const refs = toUpdate.map(({ id }) => doc(db, "businesses", userId, "products", id));
+      const batch = writeBatch(db);
+      toUpdate.forEach(({ p }, i) => {
+        batch.update(refs[i], { sellingPrice: Number(p.mrp) });
+      });
+      await batch.commit();
+      const count = toUpdate.length;
+      const byId = new Set(toUpdate.map(({ id }) => id));
+      setProducts((prev) => prev.map((x) => (byId.has(x.id) ? { ...x, sellingPrice: Number(filtered.find((f) => f.id === x.id)?.mrp) } : x)));
+      setFiltered((prev) => prev.map((x) => (byId.has(x.id) ? { ...x, sellingPrice: Number(filtered.find((f) => f.id === x.id)?.mrp) } : x)));
+      setSelectedIds(new Set());
+      toast.success(`Synced Sell ← MRP for ${count} product(s).`);
+      toUpdate.forEach(({ id, p }) => {
+        const originalData = { ...p };
+        const updatedData = { ...p, sellingPrice: Number(p.mrp) };
+        logInventoryChange({ userId, productId: id, sku: p.sku || "N/A", productName: p.productName || "N/A", brand: p.brand || "N/A", category: p.category || "N/A", previousData: originalData, updatedData, action: "updated", source: "bulk-sync-sell-from-mrp" }).catch(() => {});
+      });
+    } catch (err) {
+      console.error("Bulk sync error:", err);
+      toast.error("Sync failed. Please try again.");
+    } finally {
+      setBulkApplying(false);
+    }
+  };
+
+  const applyBulkSyncMrpFromSell = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkApplying(true);
+    try {
+      const toUpdate = Array.from(selectedIds)
+        .map((id) => ({ id, p: filtered.find((x) => x.id === id), sellVal: Number(filtered.find((x) => x.id === id)?.sellingPrice) }))
+        .filter(({ p, sellVal }) => p && Number.isFinite(sellVal));
+      if (toUpdate.length === 0) {
+        toast.success("No products had Sell price to sync.");
+        setBulkApplying(false);
+        return;
+      }
+      const refs = toUpdate.map(({ id }) => doc(db, "businesses", userId, "products", id));
+      const batch = writeBatch(db);
+      toUpdate.forEach(({ sellVal }, i) => {
+        batch.update(refs[i], { mrp: sellVal });
+      });
+      await batch.commit();
+      const count = toUpdate.length;
+      const byId = new Map(toUpdate.map(({ id, sellVal }) => [id, sellVal]));
+      setProducts((prev) => prev.map((x) => (byId.has(x.id) ? { ...x, mrp: byId.get(x.id) } : x)));
+      setFiltered((prev) => prev.map((x) => (byId.has(x.id) ? { ...x, mrp: byId.get(x.id) } : x)));
+      setSelectedIds(new Set());
+      toast.success(`Synced MRP ← Sell for ${count} product(s).`);
+      toUpdate.forEach(({ id, p, sellVal }) => {
+        const originalData = { ...p };
+        const updatedData = { ...p, mrp: sellVal };
+        logInventoryChange({ userId, productId: id, sku: p.sku || "N/A", productName: p.productName || "N/A", brand: p.brand || "N/A", category: p.category || "N/A", previousData: originalData, updatedData, action: "updated", source: "bulk-sync-mrp-from-sell" }).catch(() => {});
+      });
+    } catch (err) {
+      console.error("Bulk sync error:", err);
+      toast.error("Sync failed. Please try again.");
+    } finally {
+      setBulkApplying(false);
     }
   };
 
@@ -927,6 +1090,60 @@ return (
               )}
             </div>
           </div>
+
+          {selectedIds.size > 0 && (
+            <div className="mb-3 px-4 py-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 flex flex-wrap items-center gap-3">
+              <span className="text-sm font-medium text-emerald-300">{selectedIds.size} selected</span>
+              <select
+                value={bulkField}
+                onChange={(e) => setBulkField(e.target.value)}
+                className="px-2 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+              >
+                {bulkFields.map((f) => (
+                  <option key={f.id} value={f.id} className="bg-slate-800 text-white">{f.label}</option>
+                ))}
+              </select>
+              <span className="text-white/70 text-sm">to</span>
+              <input
+                type={bulkField === "quantity" ? "number" : "text"}
+                value={bulkValue}
+                onChange={(e) => setBulkValue(e.target.value)}
+                placeholder={bulkField === "quantity" ? "e.g. 10" : "value"}
+                className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 w-28 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+              />
+              <button
+                onClick={applyBulkUpdate}
+                disabled={bulkApplying || (bulkField === "quantity" ? bulkValue === "" : !bulkValue.trim())}
+                className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {bulkApplying ? "Updating…" : "Apply"}
+              </button>
+              <span className="text-white/40 text-sm">|</span>
+              <button
+                onClick={applyBulkSyncSellFromMrp}
+                disabled={bulkApplying}
+                className="px-3 py-1.5 rounded-lg border border-amber-400/40 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 text-sm transition"
+                title="Set Sell price = MRP for selected"
+              >
+                Sync Sell ← MRP
+              </button>
+              <button
+                onClick={applyBulkSyncMrpFromSell}
+                disabled={bulkApplying}
+                className="px-3 py-1.5 rounded-lg border border-white/20 text-white/80 hover:bg-white/10 text-sm transition"
+                title="Set MRP = Sell price for selected"
+              >
+                Sync MRP ← Sell
+              </button>
+              <button
+                onClick={clearSelection}
+                className="px-3 py-1.5 rounded-lg border border-white/20 text-white/80 hover:bg-white/10 text-sm transition"
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
+
               {/* Responsive Table Container */}
               <div className="w-full overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-white/5 via-white/3 to-white/5 backdrop-blur-xl shadow-2xl">
                 {/* Desktop/Tablet View - Horizontal Scroll */}
@@ -935,6 +1152,15 @@ return (
                     <table className="w-full text-xs sm:text-sm md:text-base">
                       <thead className="bg-gradient-to-r from-white/15 via-white/10 to-white/15 text-left sticky top-0 z-10 backdrop-blur-md border-b-2 border-white/20">
                         <tr>
+                          <th className="px-2 py-3 w-10 border-r border-white/10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                              onChange={toggleSelectAll}
+                              className="rounded border-white/30 bg-white/10 text-emerald-500 focus:ring-emerald-400/50"
+                              title="Select all on page"
+                            />
+                          </th>
                           {columns.filter(c => !hiddenCols.has(c.id)).map(col => (
                             <th
                               key={col.id}
@@ -959,11 +1185,20 @@ return (
                         {filtered.map((p, idx) => (
                           <tr 
                             key={p.id} 
-                            className="border-b border-white/5 hover:bg-white/10 transition-all duration-200 group/row bg-white/0 hover:bg-gradient-to-r hover:from-white/5 hover:to-white/0"
+                            className={`border-b border-white/5 hover:bg-white/10 transition-all duration-200 group/row ${selectedIds.has(p.id) ? "bg-emerald-500/10" : "bg-white/0"} hover:bg-gradient-to-r hover:from-white/5 hover:to-white/0`}
                             style={{
                               animation: `fadeIn 0.3s ease-out ${idx * 0.02}s both`
                             }}
                           >
+                        <td className="px-2 py-3 border-r border-white/5 text-center align-middle">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(p.id)}
+                            onChange={() => toggleSelect(p.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded border-white/30 bg-white/10 text-emerald-500 focus:ring-emerald-400/50"
+                          />
+                        </td>
                         {columns.filter(c => !hiddenCols.has(c.id)).map(col => {
                           switch (col.id) {
                             case "qr":
@@ -998,16 +1233,13 @@ return (
                               return (
                   <td
                                   key={col.id}
-                                  className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[220px] sm:max-w-[250px]"
+                                  className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[220px] sm:max-w-[250px] min-h-[2.5rem]"
                                   onClick={() => startEdit(p.id, "productName", p.productName)}
                   >
                     {editingCell.rowId === p.id && editingCell.field === "productName" ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "productName", editedValue)}
-                        autoFocus
+                      <InlineEditInput
+                        initialValue={p.productName ?? ""}
+                        onSave={(v) => saveEdit(p.id, "productName", v)}
                       />
                     ) : (
                       <span className="text-sm sm:text-base font-medium text-white group-hover/row:text-emerald-300 transition-colors">{p.productName}</span>
@@ -1022,16 +1254,13 @@ return (
                               return (
                   <td
                                   key={col.id}
-                    className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[150px] sm:max-w-[180px] break-words whitespace-normal"
+                    className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[150px] sm:max-w-[180px] break-words whitespace-normal min-h-[2.5rem]"
                                   onClick={() => startEdit(p.id, col.id, p[col.id])}
                   >
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
-                      <input
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                                      onBlur={() => saveEdit(p.id, col.id, editedValue)}
-                        autoFocus
+                      <InlineEditInput
+                        initialValue={p[col.id] ?? ""}
+                        onSave={(v) => saveEdit(p.id, col.id, v)}
                       />
                     ) : (
                                     <span className="text-xs sm:text-sm text-white/80">{p[col.id] || "-"}</span>
@@ -1040,15 +1269,12 @@ return (
                               );
                             case "quantity":
                               return (
-                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center min-h-[2.5rem]" onClick={() => startEdit(p.id, "quantity", p.quantity)}>
                     {editingCell.rowId === p.id && editingCell.field === "quantity" ? (
-                      <input
+                      <InlineEditInput
                         type="number"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onBlur={() => saveEdit(p.id, "quantity", Number(editedValue))}
-                        autoFocus
+                        initialValue={p.quantity ?? ""}
+                        onSave={(v) => saveEdit(p.id, "quantity", Number(v))}
                       />
                     ) : (
                       <span className="text-sm sm:text-base font-semibold text-white">{p.quantity || 0}</span>
@@ -1059,16 +1285,13 @@ return (
                             case "sellingPrice":
                             case "mrp":
                               return (
-                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0" onClick={() => startEdit(p.id, col.id, p[col.id])}>
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 min-h-[2.5rem]" onClick={() => startEdit(p.id, col.id, p[col.id])}>
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
-                      <input
+                      <InlineEditInput
                         type="number"
                         step="0.01"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                                      onBlur={() => saveEdit(p.id, col.id, Number(editedValue))}
-                        autoFocus
+                        initialValue={p[col.id] ?? ""}
+                        onSave={(v) => saveEdit(p.id, col.id, Number(v))}
                       />
                     ) : (
                                     p[col.id] !== undefined ? <span className="text-sm sm:text-base font-medium text-white/90">₹{Number(p[col.id]).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-white/40">-</span>
@@ -1079,16 +1302,13 @@ return (
                               // Display gstRate from either field; prefer explicit gstRate, fallback to taxRate
                               const currentGst = p.gstRate !== undefined && p.gstRate !== null ? p.gstRate : p.taxRate;
                               return (
-                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center" onClick={() => startEdit(p.id, "gstRate", currentGst)}>
+                                <td key={col.id} className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 text-center min-h-[2.5rem]" onClick={() => startEdit(p.id, "gstRate", currentGst)}>
                                   {editingCell.rowId === p.id && editingCell.field === "gstRate" ? (
-                      <input
+                      <InlineEditInput
                         type="number"
                         step="0.01"
-                        className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                                      onBlur={() => saveEdit(p.id, "gstRate", Number(editedValue))}
-                        autoFocus
+                        initialValue={currentGst ?? ""}
+                        onSave={(v) => saveEdit(p.id, "gstRate", Number(v))}
                       />
                                     ) : (
                                     <span className="text-sm sm:text-base font-medium text-white/80">{currentGst !== undefined && currentGst !== null ? `${currentGst}%` : "-"}</span>
@@ -1210,16 +1430,13 @@ return (
                               return (
                                 <td
                                   key={col.id}
-                                  className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[180px] break-words whitespace-normal"
+                                  className="px-3 py-3 sm:px-4 sm:py-4 align-middle border-r border-white/5 last:border-r-0 max-w-[180px] break-words whitespace-normal min-h-[2.5rem]"
                                   onClick={() => startEdit(p.id, col.id, p[col.id])}
                                 >
                                   {editingCell.rowId === p.id && editingCell.field === col.id ? (
-                                    <input
-                                      className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                                      value={editedValue}
-                                      onChange={(e) => setEditedValue(e.target.value)}
-                                      onBlur={() => saveEdit(p.id, col.id, editedValue)}
-                                      autoFocus
+                                    <InlineEditInput
+                                      initialValue={p[col.id] ?? ""}
+                                      onSave={(v) => saveEdit(p.id, col.id, v)}
                                     />
                                   ) : (
                                     <span className="text-xs sm:text-sm text-white/80">{p[col.id] || "-"}</span>
@@ -1232,7 +1449,7 @@ return (
               ))}
               {filtered.length === 0 ? (
                 <tr>
-                        <td colSpan={columns.filter(c => !hiddenCols.has(c.id)).length} className="text-center px-3 py-8 sm:py-12 text-white/70">
+                        <td colSpan={columns.filter(c => !hiddenCols.has(c.id)).length + 1} className="text-center px-3 py-8 sm:py-12 text-white/70">
                           <div className="flex flex-col items-center gap-2">
                             <span className="text-4xl">📦</span>
                             <p className="text-base sm:text-lg font-medium">{products.length === 0 ? "No products found" : "Loading inventory..."}</p>

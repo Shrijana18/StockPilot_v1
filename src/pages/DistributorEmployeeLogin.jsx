@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
-import { signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { functions, empAuth } from '../firebase/firebaseConfig';
+import { signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { empFunctions, empAuth } from '../firebase/firebaseConfig';
 import { setDistributorEmployeeSession, clearDistributorEmployeeSession, setDistributorEmployeeRedirect } from '../utils/distributorEmployeeSession';
 import { toast } from 'react-toastify';
 
@@ -45,7 +45,8 @@ const DistributorEmployeeLogin = () => {
 
       // Use Cloud Function for authentication
       // distributorId is optional - if not in URL, function will search across all distributors
-      const distributorEmployeeLogin = httpsCallable(functions, 'distributorEmployeeLogin');
+      // Use empFunctions (employee app's functions) for consistency
+      const distributorEmployeeLogin = httpsCallable(empFunctions, 'distributorEmployeeLogin');
       const result = await distributorEmployeeLogin({
         ...(distributorId && { distributorId }), // Only include if present
         employeeId: form.employeeId.toUpperCase(),
@@ -60,16 +61,59 @@ const DistributorEmployeeLogin = () => {
 
       const { employeeData, customToken } = result.data;
 
+      // Validate token before using it
+      if (!customToken || typeof customToken !== 'string' || customToken.trim().length === 0) {
+        console.error('[DistributorEmployeeLogin] ❌ Invalid custom token received');
+        setError('Login failed: Invalid authentication token. Please try again.');
+        setLoading(false);
+        return;
+      }
+
       // Sign in with custom token using employee auth instance
-      await signInWithCustomToken(empAuth, customToken);
+      try {
+        // Validate empAuth instance
+        if (!empAuth) {
+          console.error('[DistributorEmployeeLogin] ❌ empAuth instance is null/undefined');
+          setError('Login failed: Authentication service unavailable. Please try again.');
+          setLoading(false);
+          return;
+        }
+        
+        // Check if already signed in - sign out first to avoid conflicts
+        if (empAuth.currentUser) {
+          try {
+            await signOut(empAuth);
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } catch (signOutError) {
+            console.warn('[DistributorEmployeeLogin] Sign out failed (non-fatal):', signOutError);
+          }
+        }
+        
+        await signInWithCustomToken(empAuth, customToken);
+        
+        // Verify auth was set
+        if (!empAuth.currentUser) {
+          console.error('[DistributorEmployeeLogin] ❌ Auth not set after signInWithCustomToken');
+          setError('Login failed: Authentication not set. Please try again.');
+          setLoading(false);
+          return;
+        }
+        console.log('[DistributorEmployeeLogin] ✅ Signed in successfully:', empAuth.currentUser.uid);
+      } catch (signInError) {
+        console.error('[DistributorEmployeeLogin] ❌ signInWithCustomToken failed:', signInError);
+        setError(signInError?.message || 'Login failed: Authentication error. Please try again.');
+        setLoading(false);
+        return;
+      }
 
       // Store session IMMEDIATELY and ensure it's committed
+      // CRITICAL: Ensure all IDs are strings, not objects
       setDistributorEmployeeSession({
-        employeeId: employeeData.id,
-        distributorId: employeeData.distributorId || distributorId,
-        name: employeeData.name,
-        role: employeeData.role,
-        flypEmployeeId: employeeData.flypEmployeeId || employeeData.id, // Include flypEmployeeId
+        employeeId: String(employeeData.id || '').trim(),
+        distributorId: String(employeeData.distributorId || distributorId || '').trim(),
+        name: employeeData.name || '',
+        role: employeeData.role || 'Employee',
+        flypEmployeeId: String(employeeData.flypEmployeeId || employeeData.id || '').trim(), // Include flypEmployeeId
         accessSections: employeeData.accessSections || {}
       });
 
@@ -87,12 +131,13 @@ const DistributorEmployeeLogin = () => {
         if (!verifySession) {
           console.warn('[Login] Session storage verification failed, retrying...');
           // Retry storing session
+          // CRITICAL: Ensure all IDs are strings, not objects
           setDistributorEmployeeSession({
-            employeeId: employeeData.id,
-            distributorId: employeeData.distributorId || distributorId,
-            name: employeeData.name,
-            role: employeeData.role,
-            flypEmployeeId: employeeData.flypEmployeeId || employeeData.id, // Include flypEmployeeId
+            employeeId: String(employeeData.id || '').trim(),
+            distributorId: String(employeeData.distributorId || distributorId || '').trim(),
+            name: employeeData.name || '',
+            role: employeeData.role || 'Employee',
+            flypEmployeeId: String(employeeData.flypEmployeeId || employeeData.id || '').trim(), // Include flypEmployeeId
             accessSections: employeeData.accessSections || {}
           });
         }
@@ -102,14 +147,25 @@ const DistributorEmployeeLogin = () => {
 
       toast.success('Login successful! Redirecting...');
 
-      // SIMPLE REDIRECT - Use window.location.href for ALL devices (most reliable)
-      // Increased timeout in production to ensure localStorage is committed (CDN/network delays)
+      // For Android/iOS apps, use React Router navigate (works better than window.location.href)
+      // window.location.href causes full page reload which can break routing in Capacitor apps
+      // Check for Capacitor environment
+      const isCapacitor = typeof window !== 'undefined' && window.Capacitor;
       const isProduction = window.location.hostname !== 'localhost';
-      const redirectDelay = isProduction ? 1000 : 500; // Longer delay in production
       
-      setTimeout(() => {
-        window.location.href = '/distributor-employee-dashboard';
-      }, redirectDelay);
+      if (isCapacitor) {
+        // In Android/iOS apps, use React Router navigate for better compatibility
+        // Small delay to ensure session is committed to localStorage
+        setTimeout(() => {
+          navigate('/distributor-employee-dashboard', { replace: true });
+        }, 300);
+      } else {
+        // For web, use window.location.href for full reload (ensures clean state)
+        const redirectDelay = isProduction ? 1000 : 500;
+        setTimeout(() => {
+          window.location.href = '/distributor-employee-dashboard';
+        }, redirectDelay);
+      }
 
     } catch (err) {
       console.error('Login error:', err);

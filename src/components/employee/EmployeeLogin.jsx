@@ -1,233 +1,355 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { httpsCallable } from 'firebase/functions';
+import { signInWithCustomToken, signOut } from 'firebase/auth';
+import { empFunctions, empAuth } from '../../firebase/firebaseConfig';
+import { setEmployeeSession, setEmployeeRedirect, setPendingEmployeeSession } from '../../utils/employeeSession';
 import { toast } from 'react-toastify';
-import { useNavigate } from 'react-router-dom';
-import { setEmployeeSession, markEmployeeRedirect } from '../../utils/employeeSession';
-import { empDB as db, empAuth } from '../../firebase/firebaseConfig';
 
-/**
- * Employee Login
- * - Supports deep-link: /employee-login?empId=EMP-123456
- * - Validates numeric phone/PIN
- * - Shows/hides PIN
- * - Stores a lightweight session on success and redirects to /employee-dashboard
- */
 const EmployeeLogin = () => {
-  // --- UI state ---
-  const [employeeId, setEmployeeId] = useState('');
-  const [phone, setPhone] = useState('');
-  const [pin, setPin] = useState('');
-  const [showPin, setShowPin] = useState(false);
+  const [form, setForm] = useState({
+    employeeId: '',
+    pin: ''
+  });
   const [loading, setLoading] = useState(false);
-  const [retailerId, setRetailerId] = useState('');
+  const [error, setError] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const signingInRef = React.useRef(false); // Prevent concurrent sign-in attempts
 
-  // --- helpers ---
-  const normalizeEmpId = useCallback((raw = '') => {
-    const v = String(raw).trim().toUpperCase();
-    if (!v) return '';
-    // ensure EMP- prefix (do not force exact length so we work with older IDs too)
-    return v.startsWith('EMP-') ? v : `EMP-${v.replace(/^EMP-?/i, '')}`;
-  }, []);
-
-  const cleanPhone = useMemo(() => phone.replace(/\D+/g, ''), [phone]);
-  const cleanPin = useMemo(() => pin.replace(/\D+/g, ''), [pin]);
-
-  // Prefill from URL (?empId=EMP-123456) – supports legacy `empld` and optional prefill of phone/pin and retailerId
   useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const empIdParam = params.get('empId') || params.get('empld') || '';
-      const phoneParam = params.get('phone') || '';
-      const pinParam = params.get('pin') || '';
-      const retailerParam = params.get('retailerId') || '';
-
-      if (empIdParam) setEmployeeId(normalizeEmpId(empIdParam));
-      if (phoneParam) setPhone(String(phoneParam));
-      if (pinParam) setPin(String(pinParam));
-      if (retailerParam) setRetailerId(retailerParam);
-    } catch {}
-  }, [normalizeEmpId]);
-
-  // Submit on Enter
-  const onKeyDown = (e) => {
-    if (e.key === 'Enter' && !loading) handleLogin();
-  };
-
-  const handleLogin = async () => {
-    if (loading) return;
-
-    if (!retailerId) {
-      toast.error('Missing business ID. Please open the login link sent by your manager.');
-      return;
+    // ALWAYS clear form on mount - no prefilling
+    setForm({ employeeId: '', pin: '' });
+    
+    // Clear any URL parameters to ensure clean state
+    // This makes it a unique gateway - no prefilled data
+    if (searchParams.toString()) {
+      // Remove all query parameters from URL
+      setSearchParams({}, { replace: true });
     }
-    const emp = normalizeEmpId(employeeId);
-    const ph = cleanPhone;
-    const pw = cleanPin;
-    // Validate canonical EMP ID like EMP-123 or longer
-    const isValidEmp = /^EMP-\d{3,}$/.test(emp);
-    if (!isValidEmp) {
-      toast.error('Invalid Employee ID. Use the link from your manager or enter a valid EMP-XXXX.');
-      return;
-    }
-    // Normalize Indian phone inputs to 10 digits – accept forms like +91XXXXXXXXXX, 91XXXXXXXXXX, 0XXXXXXXXXX, spaces, dashes
-    let normalizedPhone = ph.replace(/\D+/g, '');
-    if (normalizedPhone.startsWith('91') && normalizedPhone.length === 12) normalizedPhone = normalizedPhone.slice(2);
-    if (normalizedPhone.startsWith('0') && normalizedPhone.length === 11) normalizedPhone = normalizedPhone.slice(1);
-    if (!/^[6-9]\d{9}$/.test(normalizedPhone)) {
-      toast.error('Enter a valid 10-digit phone number');
-      return;
-    }
-    if (!/^\d{4,6}$/.test(pw)) {
-      toast.error('PIN must be 4–6 digits');
-      return;
-    }
+  }, []); // Empty dependency array - only run once on mount
 
-    if (!emp || !ph || !pw) {
-      toast.error('Please fill Employee ID, Phone, and PIN');
-      return;
-    }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
     try {
-      setLoading(true);
-      const endpoint = import.meta.env.VITE_EMP_LOGIN_URL || "https://us-central1-stockpilotv1.cloudfunctions.net/employeeLogin";
-      const resp = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ retailerId, flypId: emp, phone: normalizedPhone, password: pw }),
+      if (!form.employeeId.trim() || !form.pin.trim()) {
+        setError('Please enter both Employee ID and PIN');
+        setLoading(false);
+        return;
+      }
+
+      // Use Cloud Function for authentication
+      // No retailerId needed - function will search across all retailers
+      // Use empFunctions (employee app's functions) for consistency
+      const retailerEmployeeLogin = httpsCallable(empFunctions, 'retailerEmployeeLogin');
+      const result = await retailerEmployeeLogin({
+        employeeId: form.employeeId.toUpperCase(),
+        pin: form.pin
       });
-      let data;
+
+      if (!result.data.success) {
+        setError(result.data.message || 'Login failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      const { employeeData, customToken } = result.data;
+
+      // Validate token before using it
+      if (!customToken || typeof customToken !== 'string' || customToken.trim().length === 0) {
+        console.error('[EmployeeLogin] ❌ Invalid custom token received:', { 
+          hasToken: !!customToken, 
+          type: typeof customToken,
+          length: customToken?.length 
+        });
+        setError('Login failed: Invalid authentication token. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // Sign in with custom token using employee auth instance
       try {
-        data = await resp.json();
-      } catch {
-        data = { success: false, message: "Unexpected server response" };
-      }
-      if (!resp.ok) {
-        throw new Error(data?.message || `HTTP ${resp.status}`);
-      }
-
-      if (!data.success) {
-        throw new Error(data.message || 'Invalid credentials');
-      }
-
-      // Note: Employee uses separate auth instance (empAuth) so no need to sign out main user
-
-      // 🔐 Secure Firebase session for employee using custom token (if provided)
-      if (data.token) {
-        const { signInWithCustomToken } = await import('firebase/auth');
-        try {
-          await signInWithCustomToken(empAuth, data.token);
-        } catch (e) {
-          console.error('Custom token sign-in failed:', e);
-          toast.error('Secure sign-in failed. Please try again.');
+        // Prevent concurrent sign-in attempts
+        if (signingInRef.current) {
+          console.warn('[EmployeeLogin] ⚠️ Sign-in already in progress, skipping duplicate call');
           return;
         }
+        signingInRef.current = true;
+        
+        // Validate empAuth instance before using it
+        if (!empAuth) {
+          signingInRef.current = false;
+          console.error('[EmployeeLogin] ❌ empAuth instance is null/undefined');
+          setError('Login failed: Authentication service unavailable. Please try again.');
+          setLoading(false);
+          return;
+        }
+        
+        // Validate empAuth is a proper Firebase Auth instance
+        if (typeof empAuth !== 'object' || !empAuth.app) {
+          console.error('[EmployeeLogin] ❌ empAuth is not a valid Firebase Auth instance:', {
+            type: typeof empAuth,
+            hasApp: !!empAuth?.app,
+            empAuthKeys: empAuth ? Object.keys(empAuth) : []
+          });
+          setError('Login failed: Authentication service unavailable. Please try again.');
+          setLoading(false);
+          return;
+        }
+        
+        // Validate token one more time right before use
+        if (!customToken || typeof customToken !== 'string' || customToken.trim().length === 0) {
+          console.error('[EmployeeLogin] ❌ Token invalid right before signIn:', {
+            hasToken: !!customToken,
+            type: typeof customToken,
+            length: customToken?.length,
+            isEmpty: customToken?.trim().length === 0
+          });
+          setError('Login failed: Invalid authentication token. Please try again.');
+          setLoading(false);
+          return;
+        }
+        
+        // Check if already signed in - if so, sign out first to avoid conflicts
+        if (empAuth.currentUser) {
+          console.log('[EmployeeLogin] ⚠️ Already signed in, signing out first:', empAuth.currentUser.uid);
+          try {
+            await signOut(empAuth);
+            // Wait a bit for sign out to complete
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } catch (signOutError) {
+            console.warn('[EmployeeLogin] Sign out failed (non-fatal):', signOutError);
+          }
+        }
+        
+        console.log('[EmployeeLogin] 🔑 Signing in with custom token...', { 
+          tokenLength: customToken.length,
+          tokenPrefix: customToken.substring(0, 20) + '...',
+          authAppName: empAuth.app?.name,
+          authAppId: empAuth.app?.options?.appId
+        });
+        
+        // Double-check auth and token right before the call
+        if (!empAuth || !customToken) {
+          console.error('[EmployeeLogin] ❌ CRITICAL: Auth or token became invalid right before signIn!', {
+            hasAuth: !!empAuth,
+            hasToken: !!customToken
+          });
+          setError('Login failed: Authentication error. Please try again.');
+          setLoading(false);
+          return;
+        }
+        
+        await signInWithCustomToken(empAuth, customToken);
+        
+        // Verify auth was set
+        if (!empAuth.currentUser) {
+          console.error('[EmployeeLogin] ❌ Auth not set after signInWithCustomToken');
+          signingInRef.current = false;
+          setError('Login failed: Authentication not set. Please try again.');
+          setLoading(false);
+          return;
+        }
+        console.log('[EmployeeLogin] ✅ Signed in successfully:', empAuth.currentUser.uid);
+        signingInRef.current = false;
+      } catch (signInError) {
+        signingInRef.current = false;
+        console.error('[EmployeeLogin] ❌ signInWithCustomToken failed:', signInError);
+        console.error('[EmployeeLogin] SignIn error details:', {
+          code: signInError?.code,
+          message: signInError?.message,
+          name: signInError?.name,
+          stack: signInError?.stack
+        });
+        
+        // Provide more specific error messages
+        if (signInError?.code === 'auth/argument-error') {
+          console.error('[EmployeeLogin] ❌ auth/argument-error - This means invalid auth instance or token!', {
+            hasAuth: !!empAuth,
+            authType: typeof empAuth,
+            hasToken: !!customToken,
+            tokenType: typeof customToken,
+            tokenLength: customToken?.length
+          });
+          setError('Login failed: Authentication configuration error. Please restart the app.');
+        } else {
+          setError(signInError?.message || 'Login failed: Authentication error. Please try again.');
+        }
+        setLoading(false);
+        return;
       }
 
-      // Persist a compact session for the employee dashboard using helper
-      const session = setEmployeeSession({
-        retailerId: data.retailerId || '',
-        employeeId: data.employeeId || emp,
-        role: data.role || 'Employee',
-        permissions: data.permissions || { inventory: false, billing: false, analytics: false },
-        phone: normalizedPhone,
+      // Store session IMMEDIATELY and ensure it's committed
+      // CRITICAL: Ensure all IDs are strings, not objects
+      setEmployeeSession({
+        employeeId: String(employeeData.id || '').trim(),
+        retailerId: String(employeeData.retailerId || '').trim(), // Always use from response, never from URL
+        name: employeeData.name || '',
+        role: employeeData.role || 'Employee',
+        flypEmployeeId: String(employeeData.flypEmployeeId || employeeData.id || '').trim(), // Include flypEmployeeId
+        accessSections: employeeData.accessSections || {}
       });
 
-      toast.success(`Welcome ${session.role}`);
-      markEmployeeRedirect();
-      navigate('/employee-dashboard', { replace: true });
+      // Set redirect flag
+      setEmployeeRedirect();
+
+      // CRITICAL: Force localStorage to flush synchronously (especially important in production)
+      // This ensures the session is committed before page reload
+      try {
+        // Trigger a dummy localStorage write to force flush
+        localStorage.setItem('__flyp_commit_check', Date.now().toString());
+        localStorage.removeItem('__flyp_commit_check');
+        // Also verify the session was stored
+        const verifySession = localStorage.getItem('employeeSession');
+        if (!verifySession) {
+          console.warn('[Login] Session storage verification failed, retrying...');
+          // Retry storing session
+          // CRITICAL: Ensure all IDs are strings, not objects
+          setEmployeeSession({
+            employeeId: String(employeeData.id || '').trim(),
+            retailerId: String(employeeData.retailerId || '').trim(), // Always use from response
+            name: employeeData.name || '',
+            role: employeeData.role || 'Employee',
+            flypEmployeeId: String(employeeData.flypEmployeeId || employeeData.id || '').trim(), // Include flypEmployeeId
+            accessSections: employeeData.accessSections || {}
+          });
+        }
+      } catch (e) {
+        console.error('[Login] Failed to verify localStorage commit:', e);
+      }
+
+      toast.success('Login successful! Redirecting...');
+
+      // CRITICAL: Pass session in navigation state so Android WebView doesn't rely on
+      // localStorage timing. EmployeeRoute and EmployeeDashboard will use this.
+      const sessionPayload = {
+        retailerId: employeeData.retailerId,
+        employeeId: employeeData.id,
+        name: employeeData.name,
+        role: employeeData.role,
+        flypEmployeeId: employeeData.flypEmployeeId || employeeData.id,
+        accessSections: employeeData.accessSections || {}
+      };
+
+      const isCapacitor = typeof window !== 'undefined' && window.Capacitor;
+      const isProduction = window.location.hostname !== 'localhost';
+
+      if (isCapacitor) {
+        // Set in-memory pending session so route/dashboard see it even if state or localStorage lags
+        setPendingEmployeeSession(sessionPayload);
+        setTimeout(() => {
+          navigate('/employee-dashboard', {
+            replace: true,
+            state: { fromLogin: true, session: sessionPayload }
+          });
+        }, 400);
+      } else {
+        const redirectDelay = isProduction ? 1000 : 500;
+        setTimeout(() => {
+          window.location.href = '/employee-dashboard';
+        }, redirectDelay);
+      }
+
     } catch (err) {
-      // Standardize common backend failures
-      console.error("Employee login failed full error:", err);
-      const raw = (err?.message || '').toLowerCase();
-      const msg =
-        raw.includes('not-found') || raw.includes('employee record') ? 'Employee not found' :
-        raw.includes('permission-denied') || raw.includes('incorrect') || raw.includes('invalid pin') ? 'Incorrect phone or PIN' :
-        raw.includes('failed_precondition') ? 'Temporary issue while updating login status. Please try again.' :
-        err.message || 'Login failed';
-      console.error('Employee login error:', err);
-      try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(_) {}
-      toast.error(msg);
-    } finally {
+      console.error('Login error:', err);
+      setError(err.message || 'Login failed. Please try again.');
       setLoading(false);
     }
   };
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setForm(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
   return (
-    <div className="max-w-md mx-auto px-5 py-8">
-      <div className="rounded-xl shadow-lg border border-white/10 bg-gradient-to-b from-white/5 to-black/20 backdrop-blur p-6">
-        <h2 className="text-2xl font-semibold mb-6">Employee Login</h2>
-
-        {retailerId ? (
-          <div className="mb-4 text-xs text-emerald-300/90 bg-emerald-900/20 border border-emerald-400/20 rounded px-3 py-2">
-            <strong>Business ID:</strong> {retailerId}
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-md"
+      >
+        <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 shadow-2xl p-8">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500/20 rounded-full mb-4">
+              <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold text-white mb-2">Retailer Employee Login</h1>
+            <p className="text-white/70 text-sm">Enter your credentials to access the system</p>
           </div>
-        ) : (
-          <div className="mb-4 text-xs text-amber-200/90 bg-amber-900/20 border border-amber-400/20 rounded px-3 py-2">
-            Open this page using the link your manager shared so we can identify your business automatically.
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+
+            <div>
+              <label className="block text-sm font-medium text-white/90 mb-2">
+                Employee ID
+              </label>
+              <input
+                type="text"
+                name="employeeId"
+                value={form.employeeId}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                placeholder="FLYP-RETAIL-XXXXXX"
+                required
+                autoComplete="off"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/90 mb-2">
+                PIN
+              </label>
+              <input
+                type="password"
+                name="pin"
+                value={form.pin}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                placeholder="Enter your PIN"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-white font-semibold rounded-lg transition-colors duration-200 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Signing In...
+                </div>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <p className="text-white/50 text-xs">
+              Need help? Contact your manager for assistance.
+            </p>
           </div>
-        )}
-
-        {/* Employee ID */}
-        <label className="block text-sm mb-1">Employee ID</label>
-        <input
-          className="border border-white/15 bg-black/20 rounded px-3 py-2 w-full mb-3 outline-none focus:ring-2 focus:ring-emerald-500/40"
-          placeholder="EMP-123456 (or paste link)"
-          value={employeeId}
-          onChange={(e) => setEmployeeId(normalizeEmpId(e.target.value))}
-          onKeyDown={onKeyDown}
-          disabled={loading}
-        />
-
-        {/* Phone */}
-        <label className="block text-sm mb-1">Phone</label>
-        <input
-          className="border border-white/15 bg-black/20 rounded px-3 py-2 w-full mb-3 outline-none focus:ring-2 focus:ring-emerald-500/40"
-          placeholder="10-digit phone"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={cleanPhone}
-          onChange={(e) => setPhone(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={loading}
-        />
-
-        {/* PIN */}
-        <label className="block text-sm mb-1">PIN</label>
-        <div className="relative mb-5">
-          <input
-            type={showPin ? 'text' : 'password'}
-            className="border border-white/15 bg-black/20 rounded px-3 py-2 w-full pr-16 outline-none focus:ring-2 focus:ring-emerald-500/40"
-            placeholder="4–6 digit PIN"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={cleanPin}
-            onChange={(e) => setPin(e.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={loading}
-          />
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-            onClick={() => setShowPin((s) => !s)}
-            disabled={loading}
-          >
-            {showPin ? 'Hide' : 'Show'}
-          </button>
         </div>
-
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          className={`w-full bg-emerald-600 hover:bg-emerald-500 transition text-white px-4 py-2.5 rounded ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
-        >
-          {loading ? 'Signing in…' : 'Login'}
-        </button>
-
-        <p className="text-xs text-white/60 mt-4">
-          Tip: if you received a link from your manager, your Employee ID should be pre‑filled.
-          If you forgot your PIN, ask your manager to reset it.
-        </p>
-      </div>
+      </motion.div>
     </div>
   );
 };

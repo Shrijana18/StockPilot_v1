@@ -25,20 +25,13 @@ module.exports = onCall(async (request) => {
     // Helper: Generate unique employee ID
     function makeEmpId() {
       const n = Math.floor(100000 + Math.random() * 900000); // 6 digits
-      return `EMP-${n}`;
+      return `FLYP-RETAIL-${n}`;
     }
 
-    // Helper: Hash PIN with salt
-    function hashPin(pin) {
-      const salt = crypto.randomBytes(12).toString("hex");
-      const hash = crypto.createHash("sha256").update(String(pin) + ":" + salt).digest("hex");
-      return { salt, hash };
-    }
-
-    // Validate or generate PIN
+    // Validate or generate PIN (6 digits, like distributor)
     let pin = String(providedPin || Math.floor(100000 + Math.random() * 900000));
-    if (!/^\d{4,6}$/.test(pin)) {
-      throw new Error("PIN must be 4–6 digits.");
+    if (!/^\d{6}$/.test(pin)) {
+      throw new Error("PIN must be exactly 6 digits.");
     }
 
     // Prevent duplicate email/phone under the same business
@@ -82,10 +75,15 @@ module.exports = onCall(async (request) => {
       flypEmployeeId = makeEmpId();
     }
 
-    const { salt: pinSalt, hash: pinHash } = hashPin(pin);
-
     const empRef = db.collection("businesses").doc(retailerId)
       .collection("employees").doc(flypEmployeeId);
+
+    // Set PIN expiration to 30 days from now (like distributor)
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Keep old format for backward compatibility during transition
+    const pinSalt = crypto.randomBytes(12).toString("hex");
+    const pinHash = crypto.createHash("sha256").update(`${pin}:${pinSalt}`).digest("hex");
 
     const payload = {
       flypEmployeeId,
@@ -100,10 +98,17 @@ module.exports = onCall(async (request) => {
         ...permissions,
       },
       status: "active",
+      online: false,
+      // New format: plain PIN with expiration (like distributor)
+      pin: pin,
+      pinCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      pinExpiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+      // Keep old format for backward compatibility during transition
+      pinSalt: pinSalt,
+      pinHash: pinHash,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       createdBy: retailerId,
-      pinSalt,
-      pinHash,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
     await empRef.set(payload, { merge: false });

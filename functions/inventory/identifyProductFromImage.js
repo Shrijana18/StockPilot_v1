@@ -8,6 +8,7 @@ const HybridAI = require("../shared/hybridAI");
 
 // Define secrets for Firebase Functions v2
 const GEMINI_API_KEY_SECRET = defineSecret("GEMINI_API_KEY");
+const GOOGLE_API_KEY_SECRET = defineSecret("GOOGLE_API_KEY");
 
 // Safe firebase-admin initialization
 if (!admin.apps || admin.apps.length === 0) {
@@ -76,8 +77,8 @@ try {
   };
 }
 
-// Optional: Google CSE (whitelisted web hints)
-const CSE_KEY = process.env.CSE_KEY || process.env.GOOGLE_CSE_KEY || "";
+// Optional: Google CSE (use GOOGLE_API_KEY = other Google APIs key, not Gemini)
+const CSE_KEY = process.env.GOOGLE_API_KEY || process.env.CSE_KEY || process.env.GOOGLE_CSE_KEY || "";
 const CSE_CX  = process.env.CSE_CX  || process.env.GOOGLE_CSE_CX  || "";
 const biasQuery = (s = "") => (utils && utils.biasQuery ? utils.biasQuery(s) : String(s).slice(0,180));
 
@@ -99,11 +100,11 @@ async function fetchCSE(query, num = 2) {
  * Uses Firebase secrets for API key access
  */
 async function callGeminiDirect(imageBase64, textContext) {
-  const geminiApiKey = process.env.GEMINI_API_KEY || GEMINI_API_KEY_SECRET.value();
-  const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
-  
-  if (!geminiApiKey) {
-    throw new Error("GEMINI_API_KEY not configured");
+  // Gemini only: use ONLY the GEMINI_API_KEY secret (no other key)
+  const geminiApiKey = GEMINI_API_KEY_SECRET.value();
+  const geminiModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  if (!geminiApiKey || typeof geminiApiKey !== "string" || !geminiApiKey.trim()) {
+    throw new Error("GEMINI_API_KEY secret not configured");
   }
 
   const baseUrl = "https://generativelanguage.googleapis.com/v1beta";
@@ -323,7 +324,7 @@ module.exports = onRequest(
     region: "us-central1",
     memory: "1GiB",
     timeoutSeconds: 120,
-    secrets: [GEMINI_API_KEY_SECRET],
+    secrets: [GEMINI_API_KEY_SECRET, GOOGLE_API_KEY_SECRET],
   },
   (req, res) => {
     // CORS preflight

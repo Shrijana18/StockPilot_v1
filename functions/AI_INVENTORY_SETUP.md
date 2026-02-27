@@ -1,103 +1,108 @@
-# AI Inventory Generator Setup Guide
+# AI Inventory Generator Setup Guide (Gemini)
 
-## Problem
-The AI inventory generator was throwing errors because `OPENAI_API_KEY` was not configured as a Firebase secret.
+## Two separate Google API keys
 
-## Solution
-Updated the `generateInventoryByBrand` function to properly use Firebase Functions v2 secrets and created a setup script.
+- **GEMINI_API_KEY** – Used for Gemini (Generative Language API): AI inventory “Magic Generate”, product identification, and **AI Catalogue Parser** (Parse with AI). Set via `firebase functions:secrets:set GEMINI_API_KEY`.
+- **GOOGLE_API_KEY** – Used for **other** Google APIs: Custom Search (CSE), Maps, etc. Set via `firebase functions:secrets:set GOOGLE_API_KEY`. Frontend can use `VITE_GOOGLE_API_KEY` for Custom Search / Maps.
 
-## Steps to Fix
+Do not use the same key for both. Gemini requires a key with Generative Language API enabled; the other key is for Custom Search / Maps.
 
-### 1. Set OpenAI API Key as Firebase Secret
+## Why AI inventory fails with "Gemini API Request Failed"
 
-You have two options:
+The AI inventory feature (retailer and distributor "Magic Generate") calls the Cloud Function `generateInventoryByBrand`, which uses **Google Gemini** (Generative Language API). It fails with HTTP 500 / "Gemini API Request Failed" when:
 
-#### Option A: Use the Setup Script (Recommended)
+1. **GEMINI_API_KEY is not set** – Firebase secret missing.
+2. **API key invalid or wrong** – Key typo (e.g. `Alza` instead of `AIza`), expired, or from wrong project.
+3. **Generative Language API not enabled** – Must be enabled in the Google Cloud project that owns the API key.
+4. **API key restrictions** – Key restricted in a way that blocks the Cloud Function’s requests.
+
+## Use your API key (e.g. from Google Cloud Console screenshot)
+
+If you have an API key from Google Cloud Console (e.g. project **stockpilot-ai** / stockpilot-ai-476610):
+
+### 1. Check the key format
+
+- Valid Google API keys start with **`AIza`** (capital **I**, then lowercase **z**, then **a**).
+- If you copied it and it shows **`Alza`** (lowercase L), fix it to **`AIza`** before saving.
+
+### 2. Enable Generative Language API (for that project)
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and select the project that owns the key (e.g. **stockpilot-ai**).
+2. Go to **APIs & Services** → **Library**.
+3. Search for **Generative Language API** and open it.
+4. Click **Enable** if it’s not already enabled.
+
+### 3. Set the key as a Firebase secret
+
+Your Cloud Function runs in the **Firebase** project (e.g. **stockpilotv1**). Set the Gemini key there:
+
+**Option A: Using the script (from repo root or `functions/`)**
+
 ```bash
 cd functions
-./set-openai-secret.sh
+./set-gemini-secret.sh
 ```
 
-The script will:
-- Check for `OPENAI_API_KEY` in your `.env` file
-- Prompt you to enter it if not found
-- Set it as a Firebase secret
+When prompted, paste your API key (the one from the second screenshot, e.g. from stockpilot-ai).
 
-#### Option B: Set Manually
+**Option B: Set manually**
+
 ```bash
-# Replace YOUR_OPENAI_API_KEY with your actual API key
-echo "YOUR_OPENAI_API_KEY" | firebase functions:secrets:set OPENAI_API_KEY
+cd /path/to/StockPilot_v1
+echo "YOUR_ACTUAL_KEY_FROM_GOOGLE_CLOUD_CONSOLE" | firebase functions:secrets:set GEMINI_API_KEY
 ```
 
-**Get your OpenAI API Key:**
-- Visit: https://platform.openai.com/api-keys
-- Create a new API key if you don't have one
-- Copy the key (it starts with `sk-`)
+Use the key from your Google Cloud Console (e.g. stockpilot-ai Credentials page). **Important:** The key must start with **AIza** (capital I). If you copied it and it shows **Alza** (lowercase L), correct it before pasting.
 
-### 2. Verify Secret is Set
-```bash
-firebase functions:secrets:access OPENAI_API_KEY
-```
+### 4. Redeploy the function
 
-### 3. Deploy the Updated Function
 ```bash
-# Deploy only the inventory function
 firebase deploy --only functions:generateInventoryByBrand
-
-# Or deploy all functions
-firebase deploy --only functions
 ```
 
-### 4. Test the Function
-1. Go to your distributor dashboard
-2. Navigate to "Add Inventory" → "AI Autogen" tab
-3. Fill in the form:
-   - Brand Name
-   - Product Category
-   - Product Types (optional)
-   - Quantity (10, 20, 30, or 50)
-4. Click "Magic Generate"
-5. The AI should now generate inventory items
+### 5. Test
 
-### 5. Check Logs (if issues persist)
+1. In the app: Retailer or Distributor dashboard → Add Inventory → AI / “Magic Generate”.
+2. Fill Known Product Types, Quantity, etc. and click **Magic Generate**.
+3. If it still fails, check the browser console and the function logs (below).
+
+## Verify secret and logs
+
 ```bash
+# Confirm the secret is set (shows that it exists; value is hidden)
+firebase functions:secrets:access GEMINI_API_KEY
+
+# View function logs
 firebase functions:log --only generateInventoryByBrand
 ```
 
-## What Was Changed
-
-1. **Updated `functions/inventory/generateInventoryByBrand.js`:**
-   - Added `defineSecret` import from `firebase-functions/params`
-   - Declared `OPENAI_API_KEY_SECRET` using `defineSecret("OPENAI_API_KEY")`
-   - Added `secrets: [OPENAI_API_KEY_SECRET]` to function configuration
-   - Updated error message to guide users to set the secret
-
-2. **Created `functions/set-openai-secret.sh`:**
-   - Script to easily set the OpenAI API key as a Firebase secret
-   - Checks `.env` file first, then prompts for input if needed
-   - Validates the input before setting
-
 ## Troubleshooting
 
-### Error: "OpenAI API key not configured"
-- **Solution:** Make sure you've set the secret using the script or manually
-- **Verify:** Run `firebase functions:secrets:access OPENAI_API_KEY`
+| Symptom | What to do |
+|--------|------------|
+| **"Gemini API key not configured"** | Set the secret: `firebase functions:secrets:set GEMINI_API_KEY` then redeploy. |
+| **"API key invalid or not found"** / 400 | Fix key: must start with **AIza** (not Alza). Re-copy from Google Cloud Console, set secret again, redeploy. |
+| **"Gemini API access denied"** / 403 | Enable **Generative Language API** in the Google Cloud project that owns the API key; check API key restrictions. |
+| **500 / "Gemini API Request Failed"** (no 400/403) | Check `firebase functions:log --only generateInventoryByBrand` for the exact Gemini error (rate limit, model name, etc.). |
 
-### Error: "No inventory returned"
-- **Possible causes:**
-  - Invalid API key
-  - API rate limits exceeded
-  - Network issues
-- **Check logs:** `firebase functions:log --only generateInventoryByBrand`
+## What the function uses
 
-### Function not updating after deployment
-- Make sure you've set the secret BEFORE deploying
-- Redeploy: `firebase deploy --only functions:generateInventoryByBrand`
+- **Secret name:** `GEMINI_API_KEY` (Firebase Functions secret).
+- **API:** `https://generativelanguage.googleapis.com/v1beta` with model `gemini-2.5-flash` (default). Set `GEMINI_MODEL` env to use e.g. `gemini-3-flash-preview` or `gemini-2.0-flash`.
+- **Code:** `functions/inventory/generateInventoryByBrand.js`, `functions/ocr/parseCatalogueWithAI.js`, and other AI functions read the key via `defineSecret("GEMINI_API_KEY")`.
+
+## AI Catalogue Parser (Parse with AI)
+
+The **Parse with AI** flow in Add Inventory uses the Cloud Function `parseCatalogueWithAI`. It uses the same **GEMINI_API_KEY** secret. After setting the secret once, redeploy all functions that use it:
+
+```bash
+firebase deploy --only functions:parseCatalogueWithAI,functions:generateInventoryByBrand
+```
+
+Supports: images (photos of catalogues, handwritten lists, whiteboards) and PDFs (text extracted then sent to Gemini). For scanned PDFs with little extractable text, the UI suggests uploading a screenshot as image for better results.
 
 ## Notes
 
-- The OpenAI API key is stored securely as a Firebase secret
-- For local development, you can still use `.env` file
-- The function uses `gpt-4o-mini` model by default (configurable via `OPENAI_MODEL` env var)
-- The function supports generating 6-50 products per request
-
+- The API key can be created in one Google Cloud project (e.g. **stockpilot-ai**) and used by the Firebase project (e.g. **stockpilotv1**) by setting `GEMINI_API_KEY` in that Firebase project’s secrets.
+- For local development you can use a `functions/.env` file with `GEMINI_API_KEY=your_key` when running the emulator.
+- The function generates 6–50 products per request.

@@ -80,6 +80,58 @@ const InvoiceSettings = ({ settings, onChange, grandTotal }) => {
     <div className="p-4 md:p-6 rounded-xl space-y-6 mb-6 bg-white/10 backdrop-blur-xl border border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.35)] text-white">
       <h2 className="text-lg font-semibold mb-2 text-white">Invoice Settings</h2>
 
+      {/* Billing price basis: MRP / Base+GST / Selling – applies to this order */}
+      <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+        <span className="block text-sm font-medium text-white/80 mb-2">Price basis for this order</span>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onChange({ ...settings, orderPricingMode: "" })}
+            className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+              !settings.orderPricingMode
+                ? "bg-emerald-500/30 border-emerald-400/50 text-emerald-200"
+                : "border-white/20 text-white/80 hover:bg-white/10"
+            }`}
+          >
+            Product default
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ...settings, orderPricingMode: "MRP_INCLUSIVE" })}
+            className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+              settings.orderPricingMode === "MRP_INCLUSIVE"
+                ? "bg-emerald-500/30 border-emerald-400/50 text-emerald-200"
+                : "border-white/20 text-white/80 hover:bg-white/10"
+            }`}
+          >
+            MRP (inclusive)
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ...settings, orderPricingMode: "BASE_PLUS_GST" })}
+            className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+              settings.orderPricingMode === "BASE_PLUS_GST"
+                ? "bg-emerald-500/30 border-emerald-400/50 text-emerald-200"
+                : "border-white/20 text-white/80 hover:bg-white/10"
+            }`}
+          >
+            Base + GST
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ...settings, orderPricingMode: "SELLING_SIMPLE" })}
+            className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+              settings.orderPricingMode === "SELLING_SIMPLE"
+                ? "bg-emerald-500/30 border-emerald-400/50 text-emerald-200"
+                : "border-white/20 text-white/80 hover:bg-white/10"
+            }`}
+          >
+            Selling price
+          </button>
+        </div>
+        <p className="text-xs text-white/50 mt-1">Override how each line is priced for this invoice. &quot;Product default&quot; uses each product&apos;s own mode.</p>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div className="flex flex-col gap-2 p-3 rounded-lg bg-white/5 border border-white/10">
           <label className="flex flex-col">

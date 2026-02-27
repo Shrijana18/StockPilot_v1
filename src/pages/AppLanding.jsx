@@ -5,8 +5,8 @@ import { useNavigate } from "react-router-dom";
 let Haptics;
 try { Haptics = require("@capacitor/haptics").Haptics; } catch (_) { Haptics = null; }
 
-const LOGO = "/assets/flyp-logo.png";     // square mark (light/mono)
-const LOGO_FALLBACK = "/logo.svg";        // fallback
+const LOGO = "/assets/flyp_logo.png";     // FLYP official logo
+const LOGO_FALLBACK = "/assets/flyp_logo.png";
 const WORDMARK = "FLYP";                   // wordmark text
 
 // --- NEW: Custom hook for the typewriter effect ---
@@ -149,14 +149,14 @@ export default function AppLanding() {
       {/* NEW: Boot-up Grid */}
       <div className="pointer-events-none absolute inset-0 -z-10 boot-grid" />
 
-      {/* Header */}
+      {/* Header - compact for mobile */}
       <header
-        className="px-4 pt-3 opacity-0 animate-fade-in"
-        style={{ paddingTop: "env(safe-area-inset-top)", animationDelay: "2400ms", animationFillMode: "both" }}
+        className="px-4 pt-1.5 pb-1 opacity-0 animate-fade-in"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 8px)", animationDelay: "2400ms", animationFillMode: "both" }}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <img src={logoSrc} onError={() => setLogoSrc(LOGO_FALLBACK)} alt="FLYP" className="h-7 w-auto drop-shadow-[0_0_24px_rgba(16,185,129,.45)]" />
+            <img src={logoSrc} onError={() => setLogoSrc(LOGO_FALLBACK)} alt="" className="h-10 w-10 object-contain drop-shadow-[0_0_24px_rgba(16,185,129,.45)]" aria-hidden />
             <span className="text-sm font-medium text-white/70 tracking-wider">Supply Chain OS</span>
           </div>
           <button onClick={transitionTo("/dashboard")} className="text-xs px-3 py-1 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 active:scale-[.98] transition-colors">
@@ -165,8 +165,8 @@ export default function AppLanding() {
         </div>
       </header>
 
-      {/* Center */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+      {/* Center - reduced top space for mobile */}
+      <main className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 text-center pt-2 sm:pt-4">
         {/* Brand lockup */}
         <div className="opacity-0 animate-fade-up" style={{ animationDelay: "2520ms", animationFillMode: "both" }}>
           <div className="relative">
@@ -275,14 +275,12 @@ function BrandWordmark() {
   );
 }
 
-// MODIFIED: BrandLockup for consistency (though letters won't animate here, structure is similar)
+// Logo only — no FLYP wordmark; enlarged logo + tagline
 function BrandLockup({ logoSrc }) {
   return (
-    <div className="flex items-center justify-center gap-3">
-      <img src={logoSrc} alt="FLYP" className="h-10 w-10 object-contain drop-shadow-[0_6px_18px_rgba(16,185,129,.45)]" />
-      <div className="text-[44px] sm:text-[52px] font-extrabold tracking-[.18em] leading-none">
-        FLYP
-      </div>
+    <div className="flex flex-col items-center justify-center gap-3">
+      <img src={logoSrc} alt="" className="h-20 w-20 sm:h-24 sm:w-24 object-contain drop-shadow-[0_8px_32px_rgba(16,185,129,.45)]" aria-hidden />
+      <span className="text-sm font-medium text-white/70 tracking-wider">Supply Chain OS</span>
     </div>
   );
 }

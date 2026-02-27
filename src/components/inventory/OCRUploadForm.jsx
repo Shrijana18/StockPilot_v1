@@ -11,6 +11,8 @@ const OCRUploadForm = ({ userId }) => {
   const [previewURL, setPreviewURL] = useState("");
   const [uploading, setUploading] = useState(false);
   const [products, setProducts] = useState([]);
+  const [brandHint, setBrandHint] = useState("");
+  const [categoryHint, setCategoryHint] = useState("");
 
   const [saving, setSaving] = useState(false);
 
@@ -44,84 +46,112 @@ const OCRUploadForm = ({ userId }) => {
       reader.onload = () => setPreviewURL(reader.result);
       reader.onerror = () => toast.error("Failed to read file for preview.");
       reader.readAsDataURL(file);
-      toast.info(`✅ ${file.name} selected. Ready to scan.`);
+      toast.info(file.type === "application/pdf" ? `✅ PDF selected. Ready to extract.` : `✅ ${file.name} selected. Ready to scan.`);
     } else {
       toast.error("File must be under 5MB and in JPG/PNG/PDF format.");
     }
   };
 
-  const handleScan = async () => {
+  const parseEndpoint = (useAI) =>
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_PARSE_CATALOGUE_AI_URL) ||
+    "https://us-central1-stockpilotv1.cloudfunctions.net/parseCatalogueWithAI";
+
+  const ocrEndpoint = () =>
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_OCR_FILE_URL) ||
+    "https://us-central1-stockpilotv1.cloudfunctions.net/ocrFromFile";
+
+  const enrichFromResponse = (parsedProducts) =>
+    (parsedProducts || []).map((product) => ({
+      productName: cleanStr(product.name || product.productName || ""),
+      brand: cleanStr(product.brand || ""),
+      sku: cleanStr(product.sku || ""),
+      category: cleanStr(product.category || ""),
+      quantity: String(product.quantity ?? "1"),
+      unit: cleanStr(product.unit || "pcs"),
+      costPrice: String(product.price ?? product.costPrice ?? ""),
+      sellingPrice: String(product.sellingPrice ?? product.mrp ?? ""),
+      description: cleanStr(product.description || ""),
+      imageURL: previewURL,
+    }));
+
+  const handleScan = async (useAI = false) => {
     if (!imageFile) {
       toast.error("No image selected.");
       return;
     }
 
     if (!userId) {
-      console.error("handleScan: Missing userId from props or AuthContext.");
       toast.dismiss();
       toast.error("User not authenticated. Please log in again.");
       return;
     }
 
     setUploading(true);
-    toast.loading("📤 Scanning Image with OCR...");
+    const isPdf = imageFile.type === "application/pdf";
+    if (useAI) {
+      toast.loading(isPdf ? "🤖 AI reading PDF catalogue…" : "🤖 AI reading image…");
+    } else {
+      toast.loading(isPdf ? "📄 Extracting from PDF…" : "📤 Scanning with OCR…");
+    }
 
     try {
-      // Convert image file to base64
       const toBase64 = (file) =>
         new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.readAsDataURL(file);
-          reader.onload = () => resolve(reader.result.split(",")[1]); // strip data URL prefix
+          reader.onload = () => resolve(reader.result.split(",")[1]);
           reader.onerror = (error) => reject(error);
         });
 
       const base64 = await toBase64(imageFile);
+      const body = isPdf
+        ? { pdfBase64: base64, mimeType: "application/pdf" }
+        : { imageBase64: base64 };
+      if (useAI) {
+        if (brandHint?.trim()) body.brandHint = brandHint.trim();
+        if (categoryHint?.trim()) body.categoryHint = categoryHint.trim();
+      }
 
-      const OCR_FUNCTION_URL =
-        (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_OCR_FUNCTION_URL)
-          || "https://asia-south1-stockpilotv1.cloudfunctions.net/ocrFromImage";
-
-      const response = await fetch(OCR_FUNCTION_URL, {
+      const url = useAI ? parseEndpoint(true) : ocrEndpoint();
+      const controller = useAI ? new AbortController() : null;
+      const timeoutId = useAI ? setTimeout(() => controller?.abort(), 130000) : null;
+      const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ imageBase64: base64 }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller?.signal,
       });
+      if (timeoutId) clearTimeout(timeoutId);
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result?.error || "Cloud Function OCR failed.");
+        throw new Error(result?.error || (useAI ? "AI parse failed." : "OCR failed."));
       }
 
       const parsedProducts = result?.products || [];
 
       if (!Array.isArray(parsedProducts) || parsedProducts.length === 0) {
-        throw new Error("No recognizable products parsed.");
+        throw new Error(
+          useAI
+            ? "AI found no products. Dense catalogues can take 1–2 min—if it timed out, try cropping to one table section or a clearer image."
+            : "No products found. Try a clearer image, or use **Parse with AI** for catalogues."
+        );
       }
 
-      const enriched = parsedProducts.map((product) => ({
-        productName: cleanStr(product.name || product.productName || ""),
-        brand: cleanStr(product.brand || ""),
-        sku: cleanStr(product.sku || ""),
-        category: cleanStr(product.category || ""),
-        quantity: String(product.quantity ?? ""),
-        unit: cleanStr(product.unit || "pcs"),
-        costPrice: String(product.price ?? product.costPrice ?? ""),
-        sellingPrice: String(product.sellingPrice ?? ""),
-        description: cleanStr(product.description || ""),
-        imageURL: previewURL,
-      }));
-
+      const enriched = enrichFromResponse(parsedProducts);
       setProducts(enriched);
       toast.dismiss();
-      toast.success("✅ Scan complete. Review and save.");
+      toast.success(useAI ? "✅ AI parse complete. Review and save." : "✅ Scan complete. Review and save.");
     } catch (err) {
       toast.dismiss();
-      toast.error("❌ OCR scan failed. Check console for details.");
-      console.error("OCR Scan Error:", err);
+      const isTimeout = err?.name === "AbortError";
+      toast.error(
+        isTimeout
+          ? "Parsing took too long (max 2 min). Try a smaller crop or one section of the catalogue."
+          : (err?.message || (useAI ? "AI parse failed." : "OCR scan failed."))
+      );
+      console.error(useAI ? "AI Parse Error:" : "OCR Scan Error:", err);
     } finally {
       setUploading(false);
     }
@@ -243,22 +273,63 @@ const OCRUploadForm = ({ userId }) => {
           {userId ? `User Authenticated: ${userId}` : "User not authenticated"}
         </p>
       )}
-      <h3 className="text-lg font-semibold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">OCR Inventory Upload</h3>
+      <h3 className="text-lg font-semibold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">OCR / PDF Inventory Upload</h3>
+      <p className="text-xs text-white/60 mb-2">Upload an image or a price-list PDF to build inventory.</p>
       <input type="file" accept="image/*,.pdf" onChange={handleFileChange} className="mt-1 p-2 rounded bg-white/10 border border-white/20 text-white file:bg-white/10 file:border-0 file:px-3 file:py-1 file:mr-3 file:rounded cursor-pointer" />
       {previewURL && (
-        <img
-          src={previewURL}
-          alt="Preview"
-          className="mt-2 w-40 h-40 object-cover rounded border border-white/20 ring-1 ring-white/10"
-        />
+        imageFile?.type === "application/pdf" ? (
+          <div className="mt-2 px-3 py-2 rounded border border-white/20 bg-white/5 text-white/90 text-sm">
+            📄 PDF: {imageFile?.name || "Uploaded"} — ready to extract
+          </div>
+        ) : (
+          <img
+            src={previewURL}
+            alt="Preview"
+            className="mt-2 w-40 h-40 object-cover rounded border border-white/20 ring-1 ring-white/10"
+          />
+        )
       )}
-      <button
-        onClick={handleScan}
-        className="mt-4 px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled={uploading || !imageFile}
-      >
-        {uploading ? "Scanning..." : "Scan & Import"}
-      </button>
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label className="block text-xs text-white/60 mb-0.5">Brand hint (optional)</label>
+          <input
+            type="text"
+            value={brandHint}
+            onChange={(e) => setBrandHint(e.target.value)}
+            placeholder="e.g. Ashirvad"
+            className="w-full px-2 py-1.5 rounded bg-white/10 border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-white/60 mb-0.5">Category hint (optional)</label>
+          <input
+            type="text"
+            value={categoryHint}
+            onChange={(e) => setCategoryHint(e.target.value)}
+            placeholder="e.g. CPVC plumbing, Fittings"
+            className="w-full px-2 py-1.5 rounded bg-white/10 border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
+          />
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-white/50">Optional hints help the AI set brand/category when the catalogue is unclear.</p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={() => handleScan(false)}
+          className="px-4 py-2 rounded-xl font-semibold text-slate-900 bg-white/90 hover:bg-white border border-white/30 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition"
+          disabled={uploading || !imageFile}
+        >
+          {uploading ? "Scanning…" : "Quick OCR"}
+        </button>
+        <button
+          onClick={() => handleScan(true)}
+          className="px-4 py-2 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_8px_24px_rgba(16,185,129,0.35)] disabled:opacity-50 disabled:cursor-not-allowed transition"
+          disabled={uploading || !imageFile}
+          title="Best for catalogues, price lists, and handwritten lists"
+        >
+          {uploading ? "Parsing…" : "Parse with AI"}
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-white/50">Use <strong>Parse with AI</strong> for catalogues, price lists, or handwritten lists.</p>
 
       {products.length > 0 && (
         <>

@@ -27,26 +27,34 @@ module.exports = onRequest(
         let userPrompt = prompt;
         if (!userPrompt) {
           userPrompt = `
-Generate ${requestedQty} products for this brand.
+Generate exactly ${requestedQty} products. ALL products must be from this brand and category ONLY—do not include products from any other brand or category.
+
 Brand: ${brand || brandName || ""}
 Category: ${category || ""}
-Known Types: ${knownTypes || "all"}
-Description: ${description || ""}
+Known product types/variants: ${knownTypes || "all"}
+Additional context: ${description || ""}
 `.trim();
         }
 
-        // ---- Gemini API: extended table with HSN / GST / Pricing Mode / Base / MRP ----
-        // Access secret via process.env (Firebase Functions v2 makes secrets available this way)
-        const geminiApiKey = process.env.GEMINI_API_KEY || GEMINI_API_KEY_SECRET.value();
-        const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
-        if (!geminiApiKey) {
-          console.error("Missing GEMINI_API_KEY");
-          return res.status(500).json({ error: "Gemini API key not configured. Please set GEMINI_API_KEY as a Firebase secret." });
+        // ---- Gemini API only: use ONLY the GEMINI_API_KEY secret (no other key, no process.env) ----
+        const geminiApiKey = GEMINI_API_KEY_SECRET.value();
+        const geminiModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+        if (!geminiApiKey || typeof geminiApiKey !== "string" || !geminiApiKey.trim()) {
+          console.error("Missing GEMINI_API_KEY secret");
+          return res.status(500).json({
+            error: "Gemini API key not configured. Set GEMINI_API_KEY as a Firebase secret (Gemini key only): firebase functions:secrets:set GEMINI_API_KEY",
+            details: "See functions/AI_INVENTORY_SETUP.md"
+          });
         }
 
       const systemPrompt = `You are an expert inventory assistant for Indian retail.
 Return ONLY a markdown table with the exact header:
 | Product Name | Brand | Category | SKU | Unit | HSN | GST (%) | Pricing Mode | Base Price | MRP | Cost |
+
+CRITICAL - Brand and Category constraint:
+- Every row in the table MUST be a product of the EXACT Brand and Category specified in the user prompt.
+- Do NOT include products from other brands or other categories. All products must share the same Brand and same Category as requested.
+- If the user says "Brand: Ashirvad, Category: CPVC Pipe", then every product must be Ashirvad and in the CPVC Pipe category (e.g. different SKUs/sizes of Ashirvad CPVC pipes only).
 
 Rules:
 - GST (%) must be one of: 0, 5, 12, 18, 28.
@@ -58,7 +66,8 @@ Rules:
 - Cost is optional (approx market-estimate or blank).
 - Output ONLY the table. No notes, no code fences.`;
 
-      const userMsg = `Make a product list for this prompt and output exactly the table described:
+      const userMsg = `Generate a product list that matches this request exactly. Every product must be from the Brand and Category specified below—do not add products from other brands or categories. Output exactly the table described.
+
 ${userPrompt}`;
 
       const baseUrl = "https://generativelanguage.googleapis.com/v1beta";
@@ -71,9 +80,9 @@ ${userPrompt}`;
           ]
         }],
         generationConfig: {
-          temperature: 0.3,
-          topK: 40,
-          topP: 0.95,
+          temperature: 0.2,
+          topK: 32,
+          topP: 0.9,
           maxOutputTokens: 4096,
         },
         safetySettings: [
@@ -109,14 +118,29 @@ ${userPrompt}`;
           break; // success
         } catch (apiError) {
           const status = apiError.response && apiError.response.status;
+          const apiData = apiError.response?.data;
+          const apiMessage = apiData?.error?.message || apiError.message;
+
           if ((status === 429 || status === 503 || status === 500) && retries > 1) {
             console.warn(`${status} from Gemini, retrying...`);
             retries--;
             await new Promise(r => setTimeout(r, 1200));
           } else {
-            console.error("Gemini API Request Failed:", apiError.message);
-            const errorDetails = apiError.response?.data || apiError.message;
-            return res.status(500).json({ error: "Gemini API Request Failed", details: errorDetails });
+            console.error("Gemini API Request Failed:", apiMessage, apiData);
+            // Return clearer messages for API key / permission errors
+            if (status === 400 && (apiMessage || "").toLowerCase().includes("api key")) {
+              return res.status(500).json({
+                error: "Gemini API key invalid or not found. Check that GEMINI_API_KEY is set correctly (key must start with AIza) and Generative Language API is enabled in your Google Cloud project.",
+                details: apiMessage
+              });
+            }
+            if (status === 403) {
+              return res.status(500).json({
+                error: "Gemini API access denied. Ensure Generative Language API is enabled and the API key has access.",
+                details: apiMessage
+              });
+            }
+            return res.status(500).json({ error: "Gemini API Request Failed", details: apiMessage || apiData });
           }
         }
       }

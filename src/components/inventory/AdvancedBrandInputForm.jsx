@@ -119,7 +119,7 @@ const AdvancedBrandInputForm = ({ onGenerate }) => {
 
   const generatedPrompt = (qty = quantity) =>
     `
-You are an inventory assistant for Indian retail. Return ONLY a markdown table of ${qty} products.
+CRITICAL: Generate exactly ${qty} products. Every product MUST be from the Brand and Category below only. Do NOT include products from other brands or other categories. All rows must have the same Brand and same Category.
 
 Start the response with the following header row exactly:
 | Product Name | Brand | Category | SKU | Unit | HSN | GST (%) | Pricing Mode | Base Price | MRP | Cost |
@@ -138,7 +138,7 @@ Rules:
 
 Brand: ${brandName}
 Category: ${category}
-Known Types: ${productTypes}
+Known product types/variants (use these to diversify SKUs within the same brand and category): ${productTypes || "any variants within the category"}
 SKU Pattern: ${skuHint}
 Region Context: ${regionNote}
 Additional Notes: ${description}
@@ -298,18 +298,16 @@ Additional Notes: ${description}
                 ref={productTypesRef}
               />
               <div className="relative w-full">
-                <select
+                <input
                   id="quantity"
+                  type="number"
+                  min={6}
+                  max={50}
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
-                  className="peer w-full rounded-xl bg-white/10 text-white placeholder-transparent border border-white/20 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 px-3 pt-5 pb-2 outline-none transition-colors appearance-none"
-                >
-                  {["10", "20", "30", "50"].map((q) => (
-                    <option key={q} value={q} className="bg-slate-900 text-white">
-                      {q}
-                    </option>
-                  ))}
-                </select>
+                  placeholder=" "
+                  className="peer w-full rounded-xl bg-white/10 text-white placeholder-transparent border border-white/20 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 px-3 pt-5 pb-2 outline-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
                 <label
                   htmlFor="quantity"
                   className="absolute left-3 top-2 text-white/70 text-sm cursor-pointer transition-all peer-focus:top-2 peer-focus:text-sm peer-focus:text-cyan-400 peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-base peer-placeholder-shown:text-white/40"
@@ -317,7 +315,7 @@ Additional Notes: ${description}
                   Quantity of Products
                 </label>
                 <p className="mt-1 text-xs text-white/50 select-none">
-                  How many rows the AI should return.
+                  How many rows the AI should return (6–50). Enter any number.
                 </p>
               </div>
             </div>

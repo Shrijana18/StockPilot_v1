@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
-  FaHome, FaBox, FaStore, FaWhatsapp, FaUser,
+  FaHome, FaBox, FaStore, FaWhatsapp, FaUser, FaUsers,
   FaChartLine, FaFileInvoice, FaTruck, FaCog,
   FaPlus, FaTimes, FaBell, FaQrcode
 } from 'react-icons/fa';
@@ -51,10 +51,11 @@ const MobileBottomNav = ({
       ];
     } else if (userRole === 'retailer') {
       return [
-        { id: 'home', icon: FaHome, label: 'Home', path: '/dashboard' },
-        { id: 'orders', icon: FaFileInvoice, label: 'Orders' },
+        { id: 'home', icon: FaHome, label: 'Home' },
+        { id: 'marketplace', icon: FaStore, label: 'Marketplace' },
         { id: 'inventory', icon: FaBox, label: 'Inventory' },
-        { id: 'distributors', icon: FaTruck, label: 'Suppliers' },
+        { id: 'billing', icon: FaFileInvoice, label: 'Billing' },
+        { id: 'employees', icon: FaUsers, label: 'Employees' },
         { id: 'profile', icon: FaUser, label: 'Profile' },
       ];
     }
@@ -136,19 +137,20 @@ const MobileBottomNav = ({
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar */}
+      {/* Bottom Navigation Bar - sits lower to use space; minimal bottom cushion */}
       <nav 
-        className="fixed bottom-0 left-0 right-0 z-30 bg-[#0f172a]/95 backdrop-blur-xl border-t border-white/10"
+        className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/5 relative"
         style={{ 
-          paddingBottom: 'max(env(safe-area-inset-bottom), 8px)',
+          background: '#0B0F14',
+          paddingBottom: 'max(6px, calc(env(safe-area-inset-bottom) * 0.6))',
         }}
       >
-        <div className="flex items-center justify-around px-2 pt-2">
+        <div className="flex items-center justify-around px-1 py-1.5 relative">
           {navItems.map((item, index) => {
             const isActive = activeTab === item.id;
-            const isCenter = index === Math.floor(navItems.length / 2);
+            const isCenter = userRole === 'distributor' && index === Math.floor(navItems.length / 2);
             
-            // Center FAB button
+            // Center FAB button (distributor only)
             if (isCenter) {
               return (
                 <React.Fragment key={item.id}>
@@ -206,6 +208,15 @@ const MobileBottomNav = ({
             );
           })}
         </div>
+        {/* Fill to screen bottom so no visible strip; matches reduced padding */}
+        <div 
+          className="absolute bottom-0 left-0 right-0 pointer-events-none"
+          style={{ 
+            height: 'max(6px, calc(env(safe-area-inset-bottom) * 0.6))', 
+            background: '#0B0F14',
+          }}
+          aria-hidden
+        />
       </nav>
     </>
   );
@@ -219,20 +230,20 @@ const NavItem = ({ item, isActive, onPress }) => {
     <motion.button
       whileTap={{ scale: 0.9 }}
       onClick={onPress}
-      className="relative flex flex-col items-center justify-center w-16 py-1"
+      className="relative flex flex-col items-center justify-center min-w-0 flex-1 py-1"
     >
       {/* Active indicator */}
       {isActive && (
         <motion.div
           layoutId="activeTab"
-          className="absolute -top-1 w-8 h-1 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+          className="absolute -top-0.5 w-9 h-1 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
         />
       )}
       
-      {/* Icon */}
+      {/* Icon - enlarged for better visibility */}
       <div className={`relative ${isActive ? 'text-emerald-400' : 'text-gray-400'}`}>
-        <Icon className={`text-xl transition-all ${isActive ? 'scale-110' : ''}`} />
+        <Icon className={`text-2xl transition-all ${isActive ? 'scale-105' : ''}`} />
         
         {/* Badge */}
         {item.badge > 0 && (
@@ -243,7 +254,7 @@ const NavItem = ({ item, isActive, onPress }) => {
       </div>
       
       {/* Label */}
-      <span className={`text-[10px] mt-1 font-medium transition-all ${
+      <span className={`text-[11px] mt-1 font-medium transition-all ${
         isActive ? 'text-emerald-400' : 'text-gray-500'
       }`}>
         {item.label}

@@ -22,6 +22,10 @@ import {
   cancelOrder,
   checkOrderItemsStock
 } from '../../../services/retailerMarketplaceService';
+import {
+  assignOrderToEmployee,
+  getRetailerEmployees
+} from '../../../services/deliveryEmployeeService';
 import OrderChat from './OrderChat';
 
 const CustomerOrders = () => {
@@ -43,6 +47,11 @@ const CustomerOrders = () => {
     phone: '',
     vehicleNumber: ''
   });
+  
+  // Employee assignment
+  const [employees, setEmployees] = useState([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [assignToEmployee, setAssignToEmployee] = useState(false);
   
   // Chat modal
   const [chatOrder, setChatOrder] = useState(null);
@@ -101,6 +110,17 @@ const CustomerOrders = () => {
     getMarketplaceStore(userId).then((store) => {
       if (store) setStoreSettings(store);
     }).catch(() => {});
+  }, []);
+
+  // Fetch employees for assignment
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+    getRetailerEmployees(userId).then((emps) => {
+      setEmployees(emps);
+    }).catch((err) => {
+      console.error('Error fetching employees:', err);
+    });
   }, []);
 
   // Filter orders
@@ -168,18 +188,41 @@ const CustomerOrders = () => {
   const handleOpenDeliveryModal = (orderId) => {
     setDeliveryOrderId(orderId);
     setDeliveryAgent({ name: '', phone: '', vehicleNumber: '' });
+    setSelectedEmployeeId('');
+    setAssignToEmployee(false);
     setShowDeliveryModal(true);
   };
 
   // Submit delivery agent and mark out for delivery
   const handleSubmitDeliveryAgent = async () => {
+    const userId = auth.currentUser?.uid;
+    
+    // If assigning to employee
+    if (assignToEmployee && selectedEmployeeId) {
+      try {
+        setActionLoading(deliveryOrderId);
+        await assignOrderToEmployee(userId, deliveryOrderId, selectedEmployeeId);
+        setActionLoading(null);
+        setShowDeliveryModal(false);
+        setDeliveryOrderId(null);
+        setSelectedEmployeeId('');
+        setAssignToEmployee(false);
+      } catch (error) {
+        console.error('Error assigning to employee:', error);
+        alert(error.message || 'Failed to assign order to employee');
+        setActionLoading(null);
+      }
+      return;
+    }
+    
+    // Manual delivery agent entry
     if (!deliveryAgent.name || !deliveryAgent.phone) {
-      alert('Please enter delivery agent name and phone');
+      alert('Please enter delivery agent name and phone, or select an employee');
       return;
     }
     
     setActionLoading(deliveryOrderId);
-    await markOrderOutForDelivery(auth.currentUser?.uid, deliveryOrderId, {
+    await markOrderOutForDelivery(userId, deliveryOrderId, {
       partnerName: deliveryAgent.name,
       partnerPhone: deliveryAgent.phone,
       vehicleNumber: deliveryAgent.vehicleNumber || ''
@@ -361,79 +404,85 @@ const CustomerOrders = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`rounded-xl p-4 border ${
-            newOrdersCount > 0
-              ? 'bg-yellow-500/20 border-yellow-500/30'
-              : 'bg-white/5 border-white/10'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-white/60 text-sm">New Orders</p>
-              <p className="text-2xl font-bold text-white">{newOrdersCount}</p>
+    <div className="space-y-5">
+      {/* Stats Cards - clear section */}
+      <div>
+        <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">Summary</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`rounded-xl p-3 border ${
+              newOrdersCount > 0
+                ? 'bg-yellow-500/20 border-yellow-500/30'
+                : 'bg-white/5 border-white/10'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white/60 text-xs">New</p>
+                <p className="text-lg font-bold text-white">{newOrdersCount}</p>
+              </div>
+              {newOrdersCount > 0 && (
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ repeat: Infinity, duration: 1.5 }}
+                  className="w-8 h-8 rounded-full bg-yellow-500/30 flex items-center justify-center"
+                >
+                  <FaBell className="text-yellow-400 text-sm" />
+                </motion.div>
+              )}
             </div>
-            {newOrdersCount > 0 && (
-              <motion.div
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ repeat: Infinity, duration: 1.5 }}
-                className="w-10 h-10 rounded-full bg-yellow-500/30 flex items-center justify-center"
-              >
-                <FaBell className="text-yellow-400" />
-              </motion.div>
-            )}
+          </motion.div>
+
+          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+            <p className="text-white/60 text-xs">Active</p>
+            <p className="text-lg font-bold text-blue-400">{activeOrdersCount}</p>
           </div>
-        </motion.div>
 
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-          <p className="text-white/60 text-sm">Active Orders</p>
-          <p className="text-2xl font-bold text-blue-400">{activeOrdersCount}</p>
-        </div>
+          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+            <p className="text-white/60 text-xs">Completed</p>
+            <p className="text-lg font-bold text-emerald-400">
+              {orders.filter(o => o.status === 'delivered').length}
+            </p>
+          </div>
 
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-          <p className="text-white/60 text-sm">Completed Today</p>
-          <p className="text-2xl font-bold text-emerald-400">
-            {orders.filter(o => o.status === 'delivered').length}
-          </p>
-        </div>
-
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-          <p className="text-white/60 text-sm">Total Orders</p>
-          <p className="text-2xl font-bold text-white">{orders.length}</p>
+          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+            <p className="text-white/60 text-xs">Total</p>
+            <p className="text-lg font-bold text-white">{orders.length}</p>
+          </div>
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {[
-          { id: 'all', label: 'All Orders' },
-          { id: 'new', label: 'New', count: newOrdersCount },
-          { id: 'active', label: 'Active', count: activeOrdersCount },
-          { id: 'completed', label: 'Completed' },
-          { id: 'cancelled', label: 'Cancelled' }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setFilter(tab.id)}
-            className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition ${
-              filter === tab.id
-                ? 'bg-emerald-500 text-white'
-                : 'bg-white/10 text-white/70 hover:bg-white/20'
-            }`}
-          >
-            {tab.label}
-            {tab.count > 0 && (
-              <span className="ml-2 px-2 py-0.5 bg-white/20 rounded-full text-xs">
-                {tab.count}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* Filter Tabs - separate row, app-friendly */}
+      <div>
+        <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">Filter</p>
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide -mx-1">
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'new', label: 'New', count: newOrdersCount },
+            { id: 'active', label: 'Active', count: activeOrdersCount },
+            { id: 'completed', label: 'Completed' },
+            { id: 'cancelled', label: 'Cancelled' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setFilter(tab.id)}
+              className={`flex-shrink-0 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                filter === tab.id
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-white/10 text-white/80'
+              }`}
+            >
+              {tab.label}
+              {tab.count != null && tab.count > 0 && (
+                <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] ${filter === tab.id ? 'bg-white/25' : 'bg-white/20'}`}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Batch Delivery Suggestions - Show on Active or All filters */}
@@ -939,33 +988,95 @@ const CustomerOrders = () => {
               </div>
 
               <div className="p-5 space-y-4">
-                {/* Delivery Agent Name */}
-                <div>
-                  <label className="block text-white/70 text-sm mb-2">
-                    Delivery Person Name *
-                  </label>
+                {/* Assign to Employee Toggle */}
+                <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
                   <input
-                    type="text"
-                    value={deliveryAgent.name}
-                    onChange={(e) => setDeliveryAgent(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Enter name"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-500"
+                    type="checkbox"
+                    id="assignToEmployee"
+                    checked={assignToEmployee}
+                    onChange={(e) => {
+                      setAssignToEmployee(e.target.checked);
+                      if (e.target.checked) {
+                        setDeliveryAgent({ name: '', phone: '', vehicleNumber: '' });
+                      } else {
+                        setSelectedEmployeeId('');
+                      }
+                    }}
+                    className="w-4 h-4 accent-cyan-500"
                   />
+                  <label htmlFor="assignToEmployee" className="text-white/80 text-sm cursor-pointer">
+                    Assign to Employee
+                  </label>
                 </div>
 
-                {/* Phone Number */}
-                <div>
-                  <label className="block text-white/70 text-sm mb-2">
-                    Phone Number *
-                  </label>
-                  <input
-                    type="tel"
-                    value={deliveryAgent.phone}
-                    onChange={(e) => setDeliveryAgent(prev => ({ ...prev, phone: e.target.value }))}
-                    placeholder="+91 XXXXXXXXXX"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
+                {/* Employee Selection */}
+                {assignToEmployee && (
+                  <div>
+                    <label className="block text-white/70 text-sm mb-2">
+                      Select Employee *
+                    </label>
+                    <select
+                      value={selectedEmployeeId}
+                      onChange={(e) => {
+                        setSelectedEmployeeId(e.target.value);
+                        const selected = employees.find(emp => emp.id === e.target.value);
+                        if (selected) {
+                          setDeliveryAgent({
+                            name: selected.name || '',
+                            phone: selected.phone || '',
+                            vehicleNumber: ''
+                          });
+                        }
+                      }}
+                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="">Select Employee</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id} className="bg-slate-800">
+                          {emp.name || emp.flypEmployeeId || emp.id} {emp.phone ? `- ${emp.phone}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {employees.length === 0 && (
+                      <p className="text-yellow-400 text-xs mt-2">
+                        No active employees found. Add employees from Employee Management.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Manual Entry (if not assigning to employee) */}
+                {!assignToEmployee && (
+                  <>
+                    {/* Delivery Agent Name */}
+                    <div>
+                      <label className="block text-white/70 text-sm mb-2">
+                        Delivery Person Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={deliveryAgent.name}
+                        onChange={(e) => setDeliveryAgent(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="Enter name"
+                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+
+                    {/* Phone Number */}
+                    <div>
+                      <label className="block text-white/70 text-sm mb-2">
+                        Phone Number *
+                      </label>
+                      <input
+                        type="tel"
+                        value={deliveryAgent.phone}
+                        onChange={(e) => setDeliveryAgent(prev => ({ ...prev, phone: e.target.value }))}
+                        placeholder="+91 XXXXXXXXXX"
+                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                  </>
+                )}
 
                 {/* Vehicle Number (Optional) */}
                 <div>
@@ -991,7 +1102,10 @@ const CustomerOrders = () => {
                 </button>
                 <button
                   onClick={handleSubmitDeliveryAgent}
-                  disabled={actionLoading === deliveryOrderId || !deliveryAgent.name || !deliveryAgent.phone}
+                  disabled={
+                    actionLoading === deliveryOrderId || 
+                    (assignToEmployee ? !selectedEmployeeId : (!deliveryAgent.name || !deliveryAgent.phone))
+                  }
                   className="flex-1 px-4 py-3 bg-cyan-500 text-white font-medium rounded-xl hover:bg-cyan-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {actionLoading === deliveryOrderId ? (
@@ -999,7 +1113,7 @@ const CustomerOrders = () => {
                   ) : (
                     <>
                       <FaTruck />
-                      Dispatch Order
+                      {assignToEmployee ? 'Assign to Employee' : 'Dispatch Order'}
                     </>
                   )}
                 </button>

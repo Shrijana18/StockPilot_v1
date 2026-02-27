@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { getAuth } from "firebase/auth";
-import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
+import { getAuth, deleteUser, reauthenticateWithPopup, reauthenticateWithCredential, GoogleAuthProvider, OAuthProvider, EmailAuthProvider } from "firebase/auth";
+import { usePlatform } from "../../hooks/usePlatform.js";
+import { doc, getDoc, updateDoc, setDoc, deleteDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
+import { useNavigate } from "react-router-dom";
 import { db, storage } from "../../firebase/firebaseConfig";
 import { toast } from "react-toastify";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -17,7 +19,7 @@ import {
   FaCreditCard, FaBell, FaLock, FaCalendarAlt, FaFileInvoiceDollar,
   FaUniversity, FaStore, FaFacebook, FaArrowRight, FaSpinner,
   FaExclamationTriangle, FaRocket, FaUsers, FaBullhorn, FaChartBar,
-  FaShieldVirus, FaLink, FaTimes
+  FaShieldVirus, FaLink, FaTimes, FaUserTimes
 } from "react-icons/fa";
 
 // WhatsApp Setup Section Component - Single UI source of truth
@@ -27,6 +29,8 @@ const WhatsAppSetupSection = ({ formData, setFormData, user }) => (
 
 const ProfileSettings = () => {
   const { t } = useTranslation();
+  const { isNativeApp } = usePlatform();
+  const navigate = useNavigate();
   const badgeMap = {
     Retailer: "🛍 Retailer",
     Distributor: "🏢 Distributor",
@@ -68,12 +72,20 @@ const ProfileSettings = () => {
     whatsappCreatedVia: "",
     whatsappPhoneRegistered: false,
     whatsappPhoneVerificationStatus: "",
+    // Cashfree Partner (payment gateway)
+    cashfreeMerchantId: "",
+    cashfreeOnboardingStatus: "",
+    cashfreeActive: false,
   });
   const [activeSection, setActiveSection] = useState("owner");
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
+  const [cashfreeLoading, setCashfreeLoading] = useState(false);
 
   const auth = getAuth();
   const user = auth.currentUser;
@@ -106,10 +118,12 @@ const ProfileSettings = () => {
     { id: "business", label: t("profile.businessDetails") || "Business", icon: FaBuilding, color: "from-indigo-500 to-blue-500" },
     { id: "tax", label: "Tax Information", icon: FaFileInvoiceDollar, color: "from-orange-500 to-red-500" },
     { id: "banking", label: "Banking & Payment", icon: FaUniversity, color: "from-blue-500 to-cyan-500" },
+    { id: "payments", label: "Payment Setup", icon: FaCreditCard, color: "from-teal-500 to-cyan-500" },
     { id: "whatsapp", label: "WhatsApp Business", icon: FaWhatsapp, color: "from-green-500 to-emerald-500" },
     { id: "branding", label: t("profile.branding") || "Branding", icon: FaPalette, color: "from-pink-500 to-rose-500" },
     { id: "notifications", label: "Notifications", icon: FaBell, color: "from-yellow-500 to-orange-500" },
     { id: "preferences", label: t("profile.preferences") || "Preferences", icon: FaCog, color: "from-gray-500 to-slate-500" },
+    { id: "account", label: "Delete account", icon: FaUserTimes, color: "from-red-500 to-rose-500" },
   ];
 
   useEffect(() => {
@@ -150,6 +164,9 @@ const ProfileSettings = () => {
             whatsappCreatedVia: data.whatsappCreatedVia || "",
             whatsappPhoneRegistered: data.whatsappPhoneRegistered || false,
             whatsappPhoneVerificationStatus: data.whatsappPhoneVerificationStatus || "",
+            cashfreeMerchantId: data.cashfreeMerchantId || "",
+            cashfreeOnboardingStatus: data.cashfreeOnboardingStatus || "",
+            cashfreeActive: data.cashfreeActive === true,
           };
           return newData;
         });
@@ -336,6 +353,40 @@ const ProfileSettings = () => {
     toast.success("✅ Your FLYP ID has been created!");
   };
 
+  // Apple Guideline 5.1.1(v): Account deletion
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== "DELETE" || !user) return;
+    setDeleteAccountLoading(true);
+    try {
+      const providerId = user.providerData?.[0]?.providerId;
+      if (providerId === "google.com") {
+        await reauthenticateWithPopup(user, new GoogleAuthProvider());
+      } else if (providerId === "apple.com") {
+        await reauthenticateWithPopup(user, new OAuthProvider("apple.com"));
+      } else {
+        const password = window.prompt("Enter your password to confirm account deletion:");
+        if (!password) {
+          setDeleteAccountLoading(false);
+          return;
+        }
+        const credential = EmailAuthProvider.credential(user.email, password);
+        await reauthenticateWithCredential(user, credential);
+      }
+      await deleteDoc(doc(db, "businesses", user.uid));
+      await deleteUser(user);
+      toast.success("Account deleted.");
+      navigate("/", { replace: true });
+      window.location.reload();
+    } catch (err) {
+      console.error("Delete account error:", err);
+      toast.error(err?.message || "Could not delete account. Try again.");
+    } finally {
+      setDeleteAccountLoading(false);
+      setShowDeleteAccountModal(false);
+      setDeleteConfirmText("");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8 min-h-screen">
@@ -393,88 +444,113 @@ const ProfileSettings = () => {
 
   FormField.displayName = "FormField";
 
+  const isMobileLayout = isNativeApp || typeof window !== "undefined" && window.innerWidth < 1024;
+
   return (
-    <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-      {/* Header Section */}
+    <div className={`w-full max-w-7xl mx-auto space-y-4 ${isMobileLayout ? "p-3 pb-8" : "p-4 sm:p-6 lg:p-8 space-y-6"}`}>
+      {/* Header - compact on mobile */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+        className={`flex flex-col ${isMobileLayout ? "gap-2" : "md:flex-row md:items-center md:justify-between gap-4"}`}
       >
         <div className="flex-1">
-          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-cyan-400 to-teal-400">
+          <h1 className={`font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-cyan-400 to-teal-400 ${isMobileLayout ? "text-xl" : "text-3xl"}`}>
             {t("profile.title") || "Profile Settings"}
           </h1>
-          <p className="text-gray-400 mt-1">Manage your retailer profile and preferences</p>
-              </div>
-        <div className="flex items-center gap-3">
-          {/* Profile Completion Badge */}
+          <p className="text-gray-400 mt-0.5 text-xs sm:text-sm">Manage your retailer profile and preferences</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-teal-500/20 border border-emerald-500/30 rounded-xl px-4 py-3 backdrop-blur-sm"
+            className="bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-teal-500/20 border border-emerald-500/30 rounded-xl px-3 py-2 backdrop-blur-sm"
           >
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-500/20 rounded-lg">
-                <FaChartLine className="w-5 h-5 text-emerald-400" />
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-emerald-500/20 rounded-lg">
+                <FaChartLine className="w-4 h-4 text-emerald-400" />
               </div>
               <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-white">{profileCompletion}%</span>
-                  <span className="text-xs text-gray-400">Complete</span>
+                <div className="flex items-baseline gap-1">
+                  <span className={`font-bold text-white ${isMobileLayout ? "text-lg" : "text-2xl"}`}>{profileCompletion}%</span>
+                  <span className="text-[10px] text-gray-400">Complete</span>
                 </div>
-                <div className="w-24 bg-slate-800/50 rounded-full h-1.5 mt-1 overflow-hidden">
+                <div className="w-20 bg-slate-800/50 rounded-full h-1 mt-0.5 overflow-hidden">
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${profileCompletion}%` }}
-                    transition={{ duration: 1, ease: "easeOut" }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
                     className="h-full bg-gradient-to-r from-emerald-500 via-cyan-500 to-teal-500 rounded-full"
                   />
                 </div>
               </div>
             </div>
           </motion.div>
-          <div className="px-4 py-2 bg-emerald-500/20 border border-emerald-500/30 rounded-lg">
-            <span className="text-sm text-emerald-300 font-medium">🛍 Retailer</span>
+          <div className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 rounded-lg">
+            <span className="text-xs text-emerald-300 font-medium">🛍 Retailer</span>
           </div>
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Sidebar Navigation */}
-        <div className="lg:col-span-1">
-          <div className="space-y-2 sticky top-4">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeSection === item.id;
-              return (
-                <motion.button
-                  key={item.id}
-                  onClick={() => setActiveSection(item.id)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                    isActive
-                      ? `bg-gradient-to-r ${item.color} text-white shadow-lg shadow-emerald-500/50`
-                      : "bg-slate-800/60 border border-white/10 text-gray-300 hover:bg-slate-700/60"
-                  }`}
-                >
-                  <Icon className={`w-5 h-5 ${isActive ? "text-white" : "text-gray-400"}`} />
-                  <span className="font-medium">{item.label}</span>
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeIndicator"
-                      className="ml-auto w-2 h-2 bg-white rounded-full"
-                    />
-                  )}
-                </motion.button>
-              );
-            })}
-          </div>
+      {/* Section nav: horizontal on mobile, sidebar on desktop */}
+      {isMobileLayout ? (
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeSection === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveSection(item.id)}
+                className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition ${
+                  isActive ? `bg-gradient-to-r ${item.color} text-white` : "bg-white/10 text-gray-300"
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {item.label}
+              </button>
+            );
+          })}
         </div>
+      ) : null}
+
+      <div className={`grid gap-4 ${isMobileLayout ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-4 gap-6"}`}>
+        {/* Sidebar Navigation - desktop only */}
+        {!isMobileLayout && (
+          <div className="lg:col-span-1">
+            <div className="space-y-2 sticky top-4">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSection === item.id;
+                return (
+                  <motion.button
+                    key={item.id}
+                    onClick={() => setActiveSection(item.id)}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                      isActive
+                        ? `bg-gradient-to-r ${item.color} text-white shadow-lg shadow-emerald-500/50`
+                        : "bg-slate-800/60 border border-white/10 text-gray-300 hover:bg-slate-700/60"
+                    }`}
+                  >
+                    <Icon className={`w-5 h-5 ${isActive ? "text-white" : "text-gray-400"}`} />
+                    <span className="font-medium">{item.label}</span>
+                    {isActive && (
+                      <motion.div
+                        layoutId="activeIndicator"
+                        className="ml-auto w-2 h-2 bg-white rounded-full"
+                      />
+                    )}
+                  </motion.button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Main Content */}
-        <div className="lg:col-span-3">
+        <div className={isMobileLayout ? "" : "lg:col-span-3"}>
         <AnimatePresence mode="wait">
           <motion.div
             key={activeSection}
@@ -487,9 +563,33 @@ const ProfileSettings = () => {
               // Don't auto-focus to avoid disrupting user flow
             }}
           >
+              {/* Account / Delete account - Apple Guideline 5.1.1(v), easily discoverable */}
+            {activeSection === "account" && (
+              <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl ${isMobileLayout ? 'p-4' : 'p-6'}`}>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                    <div className="p-2 bg-red-500/20 rounded-lg">
+                      <FaUserTimes className="w-5 h-5 text-red-400" />
+                    </div>
+                    Delete account
+                  </h2>
+                </div>
+                <p className="text-sm text-gray-400 mb-4">
+                  Permanently delete your FLYP business account and all associated data. This cannot be undone.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteAccountModal(true)}
+                  className="px-4 py-2 rounded-lg border border-red-500/50 text-red-300 hover:bg-red-500/20 transition"
+                >
+                  Delete my account
+                </button>
+              </div>
+            )}
+
               {/* Owner Information Section */}
             {activeSection === "owner" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                       <div className="p-2 bg-purple-500/20 rounded-lg">
@@ -591,7 +691,7 @@ const ProfileSettings = () => {
 
               {/* Business Details Section */}
             {activeSection === "business" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                       <div className="p-2 bg-indigo-500/20 rounded-lg">
@@ -715,7 +815,7 @@ const ProfileSettings = () => {
 
               {/* Tax Information Section */}
               {activeSection === "tax" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                       <div className="p-2 bg-orange-500/20 rounded-lg">
@@ -764,7 +864,7 @@ const ProfileSettings = () => {
 
               {/* Banking & Payment Section */}
               {activeSection === "banking" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                       <div className="p-2 bg-blue-500/20 rounded-lg">
@@ -849,6 +949,145 @@ const ProfileSettings = () => {
                 </div>
               )}
 
+              {/* Payment Setup (Cashfree) Section */}
+              {activeSection === "payments" && (
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                      <div className="p-2 bg-teal-500/20 rounded-lg">
+                        <FaCreditCard className="w-6 h-6 text-teal-400" />
+                      </div>
+                      Payment Setup
+                    </h2>
+                  </div>
+
+                  <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                      <FaInfoCircle className="w-5 h-5 text-teal-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm text-teal-300 font-medium mb-1">Cashfree Payments</p>
+                        <p className="text-xs text-gray-400">Connect your payment gateway so you can accept card and UPI payments. You’ll complete a short KYC on Cashfree’s secure page; no login required.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {formData.cashfreeActive ? (
+                    <div className="bg-emerald-500/20 border border-emerald-500/40 rounded-xl p-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-3 bg-emerald-500/30 rounded-full">
+                          <FaCheckCircle className="w-8 h-8 text-emerald-400" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-white text-lg">Payment gateway active</h3>
+                          <p className="text-sm text-gray-400">You can accept payments. Status is updated automatically.</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : formData.cashfreeMerchantId ? (
+                    <div className="space-y-4">
+                      <div className="bg-slate-800/60 rounded-xl p-4 border border-white/10">
+                        <p className="text-sm text-gray-400 mb-1">Status</p>
+                        <p className="text-white font-medium capitalize">{formData.cashfreeOnboardingStatus || "Pending"}</p>
+                        <p className="text-xs text-gray-500 mt-1">Complete KYC on Cashfree to activate your gateway.</p>
+                      </div>
+                      <motion.button
+                        onClick={async () => {
+                          if (!user || cashfreeLoading) return;
+                          setCashfreeLoading(true);
+                          try {
+                            const token = await user.getIdToken();
+                            const res = await fetch("https://asia-south1-stockpilotv1.cloudfunctions.net/cashfreeCreateMerchantAndOnboardingLinkHttp", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                              body: JSON.stringify({}),
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (res.ok && (data?.success || data?.onboardingLink)) {
+                              const userRef = doc(db, "businesses", user.uid);
+                              const snap = await getDoc(userRef);
+                              if (snap.exists()) {
+                                const d = snap.data();
+                                setFormData(prev => ({
+                                  ...prev,
+                                  cashfreeMerchantId: d.cashfreeMerchantId || data.merchantId || prev.cashfreeMerchantId,
+                                  cashfreeOnboardingStatus: d.cashfreeOnboardingStatus || data.onboardingStatus || prev.cashfreeOnboardingStatus,
+                                  cashfreeActive: d.cashfreeActive === true,
+                                }));
+                              }
+                              if (data?.onboardingLink) window.open(data.onboardingLink, "_blank");
+                              toast.success("Open the new tab to complete KYC. We’ll update status when you’re done.");
+                            } else {
+                              toast.error(data?.error || "Could not get setup link.");
+                            }
+                          } catch (e) {
+                            console.error(e);
+                            toast.error(e?.message || "Something went wrong.");
+                          } finally {
+                            setCashfreeLoading(false);
+                          }
+                        }}
+                        disabled={cashfreeLoading}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white px-6 py-3 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-60"
+                      >
+                        {cashfreeLoading ? <FaSpinner className="w-5 h-5 animate-spin" /> : <FaLink className="w-5 h-5" />}
+                        {cashfreeLoading ? "Opening…" : "Complete KYC (open setup link)"}
+                      </motion.button>
+                    </div>
+                  ) : (
+                    <motion.button
+                      onClick={async () => {
+                        if (!user || cashfreeLoading) return;
+                        if (!formData.email?.trim()) {
+                          toast.error("Please save your email in Owner Info first.");
+                          return;
+                        }
+                        setCashfreeLoading(true);
+                        try {
+                          const token = await user.getIdToken();
+                          const res = await fetch("https://asia-south1-stockpilotv1.cloudfunctions.net/cashfreeCreateMerchantAndOnboardingLinkHttp", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({}),
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (res.ok && (data?.success || data?.onboardingLink)) {
+                            const userRef = doc(db, "businesses", user.uid);
+                            const snap = await getDoc(userRef);
+                            if (snap.exists()) {
+                              const d = snap.data();
+                              setFormData(prev => ({
+                                ...prev,
+                                cashfreeMerchantId: d.cashfreeMerchantId || data.merchantId || prev.cashfreeMerchantId,
+                                cashfreeOnboardingStatus: d.cashfreeOnboardingStatus || data.onboardingStatus || prev.cashfreeOnboardingStatus,
+                                cashfreeActive: d.cashfreeActive === true,
+                              }));
+                            }
+                            if (data?.onboardingLink) window.open(data.onboardingLink, "_blank");
+                            toast.success("Open the new tab to complete setup. We’ll update status when you’re done.");
+                          } else {
+                            toast.error(data?.error || "Could not start setup.");
+                          }
+                        } catch (e) {
+                          console.error(e);
+                          toast.error(e?.message || "Something went wrong.");
+                        } finally {
+                          setCashfreeLoading(false);
+                        }
+                      }}
+                      disabled={cashfreeLoading}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white px-6 py-4 rounded-xl font-medium flex items-center justify-center gap-3"
+                    >
+                      {cashfreeLoading ? <FaSpinner className="w-6 h-6 animate-spin" /> : <FaCreditCard className="w-6 h-6" />}
+                      {cashfreeLoading ? "Setting up..." : "Connect Cashfree"}
+                    </motion.button>
+                  )}
+                </div>
+              )}
+
               {/* WhatsApp Business Section */}
               {activeSection === "whatsapp" && (
                 <WhatsAppSetupSection 
@@ -860,7 +1099,7 @@ const ProfileSettings = () => {
 
               {/* Branding Section */}
               {activeSection === "branding" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                       <div className="p-2 bg-pink-500/20 rounded-lg">
@@ -932,7 +1171,7 @@ const ProfileSettings = () => {
 
               {/* Notifications Section */}
               {activeSection === "notifications" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                       <div className="p-2 bg-yellow-500/20 rounded-lg">
@@ -1032,7 +1271,7 @@ const ProfileSettings = () => {
 
               {/* Preferences Section */}
             {activeSection === "preferences" && (
-                <div className="bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl p-6 space-y-6">
+                <div className={`bg-slate-900/80 border border-white/10 backdrop-blur-md rounded-2xl space-y-4 ${isMobileLayout ? 'p-4' : 'p-6 space-y-6'}`}>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                       <div className="p-2 bg-gray-500/20 rounded-lg">
@@ -1055,6 +1294,24 @@ const ProfileSettings = () => {
                     </div>
                   </div>
 
+                  {/* Apple Guideline 5.1.1(v): Account deletion */}
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6 border-white/10">
+                    <h4 className="font-semibold mb-2 flex items-center gap-2 text-red-300">
+                      <FaUserTimes className="w-5 h-5" />
+                      Delete Account
+                    </h4>
+                    <p className="text-sm text-gray-400 mb-4">
+                      Permanently delete your FLYP business account and all associated data. This cannot be undone.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteAccountModal(true)}
+                      className="px-4 py-2 rounded-lg border border-red-500/50 text-red-300 hover:bg-red-500/20 transition"
+                    >
+                      Delete my account
+                    </button>
+                  </div>
+
                   <div className="flex justify-end pt-4 border-t border-white/10">
                     <motion.button
                         onClick={handleSave}
@@ -1073,6 +1330,42 @@ const ProfileSettings = () => {
             )}
           </motion.div>
         </AnimatePresence>
+
+        {/* Delete Account Modal - Apple 5.1.1(v) */}
+        {showDeleteAccountModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-xl">
+              <h3 className="text-lg font-bold text-white mb-2">Delete Account</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                This will permanently delete your account and data. Type <strong className="text-red-400">DELETE</strong> to confirm.
+              </p>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-white/10 text-white placeholder-gray-500 mb-4"
+              />
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteAccountModal(false); setDeleteConfirmText(""); }}
+                  className="flex-1 py-3 rounded-lg border border-white/20 text-white hover:bg-white/10 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteAccount}
+                  disabled={deleteConfirmText !== "DELETE" || deleteAccountLoading}
+                  className="flex-1 py-3 rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {deleteAccountLoading ? "Deleting…" : "Delete Account"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         </div>
       </div>
     </div>

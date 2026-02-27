@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithCredential } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
 import { useNavigate } from 'react-router-dom';
 import { logoutUser } from '../utils/authUtils';
 import OTPVerification from './OTPVerification';
+import { usePlatform } from '../hooks/usePlatform.js';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -14,6 +15,7 @@ const ENABLE_OTP_VERIFICATION = false;
 
 const Login = () => {
   const navigate = useNavigate();
+  const { platform } = usePlatform();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -190,75 +192,120 @@ const Login = () => {
   };
 
   const handleGoogleSignIn = async () => {
+    setError('');
+    setLoading(true);
     try {
-      setError('');
-      setLoading(true);
-      // Keep session after refresh
-      await setPersistence(auth, browserLocalPersistence);
-
+      // Open popup immediately (no await before it) so the browser doesn't block it as not user-initiated
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-
       const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      // Try to read role; if missing, create a minimal doc with a safe default role
-      const ref = doc(db, 'businesses', user.uid);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          ownerName: user.displayName || '',
-          email: user.email || '',
-          photoURL: user.photoURL || '',
-          role: 'Retailer',
-          createdAt: new Date(),
-          authProvider: 'google'
-        }, { merge: true });
-      }
-
-      const userData = snap.exists() ? snap.data() : null;
-      // Check for both 'role' and 'businessType' fields (some users have businessType)
-      const roleRaw = userData?.role || userData?.businessType || 'Retailer';
-      const role = String(roleRaw).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
-      console.log("[Login] Google sign-in - raw role:", roleRaw, "normalized role:", role);
-      console.log("[Login] Google sign-in - Full user data:", userData);
-
-      // More robust role detection for Google sign-in
-      console.log("[Login] Google sign-in - Role detection - raw:", roleRaw, "normalized:", role);
-      
-      // Direct navigation after successful Google sign-in
-      let targetPath = '/dashboard';
-      if (role.includes('retailer')) {
-        console.log("[Login] Google sign-in - Redirecting to retailer dashboard");
-        targetPath = '/dashboard';
-      } else if (role.includes('distributor')) {
-        console.log("[Login] Google sign-in - Redirecting to distributor dashboard");
-        targetPath = '/distributor-dashboard';
-      } else if (role.includes('productowner') || role.includes('product-owner')) {
-        console.log("[Login] Google sign-in - Redirecting to product owner dashboard");
-        targetPath = '/product-owner-dashboard';
-      } else {
-        console.warn("[Login] Google sign-in - Unknown role:", roleRaw, "normalized:", role, "defaulting to retailer dashboard");
-        targetPath = '/dashboard';
-      }
-      
-      // Try React Router navigation first
-      navigate(targetPath, { replace: true });
-      
-      // Fallback for production: if navigation doesn't work, use window.location
-      if (isProduction) {
-        setTimeout(() => {
-          if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
-            console.log("[Login] Google sign-in React Router navigation failed, using window.location fallback");
-            window.location.href = targetPath;
-          }
-        }, 1000);
-      }
+      await completeSocialLogin(result.user);
     } catch (error) {
       console.error('[Login] Google Sign-In Error:', error?.code, error?.message);
       setError(error?.message || 'Google sign-in failed. Try again or use email login.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Apple Guideline 4.8: Sign in with Apple as equivalent option when using third-party login (e.g. Google)
+  // On iOS use native Sign in with Apple (Capacitor); on web/Android use popup
+  const handleAppleSignIn = async () => {
+    try {
+      setError('');
+      setLoading(true);
+      if (platform === 'ios') {
+        // Native Sign in with Apple (required for iOS app review; popup often fails in WebView)
+        const { SignInWithApple } = await import('@capacitor-community/apple-sign-in');
+        const appleResponse = await SignInWithApple.authorize({ scopes: 'email name' });
+        if (!appleResponse?.identityToken) {
+          throw new Error('Apple Sign In did not return an identity token.');
+        }
+        const provider = new OAuthProvider('apple.com');
+        const credentialOptions = { idToken: appleResponse.identityToken };
+        if (appleResponse.nonce) credentialOptions.rawNonce = appleResponse.nonce;
+        const credential = provider.credential(credentialOptions);
+        const result = await signInWithCredential(auth, credential);
+        const user = result.user;
+        const ref = doc(db, 'businesses', user.uid);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) {
+          const displayName = user.displayName || user.email?.split('@')[0] || 'User';
+          await setDoc(ref, {
+            ownerName: displayName,
+            email: user.email || '',
+            photoURL: user.photoURL || '',
+            role: 'Retailer',
+            createdAt: new Date(),
+            authProvider: 'apple',
+            ownerId: user.uid,
+          }, { merge: true });
+        }
+        await completeSocialLogin(user);
+        return;
+      }
+      // Open popup immediately so the browser doesn't block it
+      const provider = new OAuthProvider('apple.com');
+      provider.addScope('email');
+      provider.addScope('name');
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      const ref = doc(db, 'businesses', user.uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        const displayName = user.displayName || user.email?.split('@')[0] || 'User';
+        await setDoc(ref, {
+          ownerName: displayName,
+          email: user.email || '',
+          photoURL: user.photoURL || '',
+          role: 'Retailer',
+          createdAt: new Date(),
+          authProvider: 'apple',
+          ownerId: user.uid,
+        }, { merge: true });
+      }
+      await completeSocialLogin(user);
+    } catch (error) {
+      console.error('[Login] Apple Sign-In Error:', error?.code, error?.message);
+      if (error?.code === 'auth/operation-not-allowed') {
+        setError('Sign in with Apple is not enabled for this app. Please enable it in Firebase Console → Authentication → Sign-in method → Apple, then add your Apple Services ID, Team ID, Key ID and Private Key and Save.');
+      } else {
+        setError(error?.message || 'Sign in with Apple failed. Try again or use email login.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeSocialLogin = async (user) => {
+    const ref = doc(db, 'businesses', user.uid);
+    let snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        ownerName: user.displayName || '',
+        email: user.email || '',
+        photoURL: user.photoURL || '',
+        role: 'Retailer',
+        createdAt: new Date(),
+        authProvider: user.providerData?.[0]?.providerId || 'google',
+        ownerId: user.uid,
+      }, { merge: true });
+      snap = await getDoc(ref);
+    }
+    const userData = snap.exists() ? snap.data() : null;
+    const roleRaw = userData?.role || userData?.businessType || 'Retailer';
+    const role = String(roleRaw).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
+    let targetPath = '/dashboard';
+    if (role.includes('distributor')) targetPath = '/distributor-dashboard';
+    else if (role.includes('productowner') || role.includes('product-owner')) targetPath = '/product-owner-dashboard';
+    navigate(targetPath, { replace: true });
+    const isProduction = window.location.hostname !== 'localhost';
+    if (isProduction) {
+      setTimeout(() => {
+        if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
+          window.location.href = targetPath;
+        }
+      }, 1000);
     }
   };
 
@@ -298,15 +345,28 @@ const Login = () => {
               {error}
             </div>
           )}
-          <div className="px-4 sm:px-7 md:px-8 pb-2">
+          <div className="px-4 sm:px-7 md:px-8 pb-2 space-y-3">
+            {platform !== 'ios' && (
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-3 py-3.5 sm:py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 active:scale-[0.98] transition disabled:opacity-70 disabled:cursor-not-allowed min-h-[48px] touch-target"
+              >
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
+                Sign in with Google
+              </button>
+            )}
             <button
               type="button"
-              onClick={handleGoogleSignIn}
+              onClick={handleAppleSignIn}
               disabled={loading}
-              className="w-full mb-4 flex items-center justify-center gap-3 py-3.5 sm:py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 active:scale-[0.98] transition disabled:opacity-70 disabled:cursor-not-allowed min-h-[48px] touch-target"
+              className="w-full flex items-center justify-center gap-3 py-3.5 sm:py-3 rounded-xl bg-black text-white font-semibold hover:bg-gray-900 active:scale-[0.98] transition disabled:opacity-70 disabled:cursor-not-allowed min-h-[48px] touch-target border border-white/20"
             >
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
-              Sign in with Google
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+              </svg>
+              Sign in with Apple
             </button>
           </div>
           <div className="flex items-center px-4 sm:px-7 md:px-8 pb-2">

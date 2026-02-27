@@ -134,6 +134,28 @@ const MobileDistributorDashboard = () => {
   
   const distributorId = auth.currentUser?.uid;
 
+  // Lock body scroll and match app background so no colour mismatch at top/bottom
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBg = document.body.style.backgroundColor;
+    const prevHtmlBg = document.documentElement.style.backgroundColor;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.height = '100%';
+    document.documentElement.style.height = '100%';
+    document.body.style.backgroundColor = '#0B0F14';
+    document.documentElement.style.backgroundColor = '#0B0F14';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.height = '';
+      document.documentElement.style.height = '';
+      document.body.style.backgroundColor = prevBg;
+      document.documentElement.style.backgroundColor = prevHtmlBg;
+    };
+  }, []);
+
   // Fetch business info and stats
   useEffect(() => {
     if (!distributorId) return;
@@ -295,7 +317,10 @@ const MobileDistributorDashboard = () => {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14]">
+    <div
+      className="fixed inset-0 z-10 h-[100dvh] max-h-[100dvh] bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14] flex flex-col overflow-hidden"
+      style={{ height: '100dvh', maxHeight: '100dvh' }}
+    >
       {/* Mobile Header */}
       <MobileHeader
         title={currentConfig.title}
@@ -306,16 +331,17 @@ const MobileDistributorDashboard = () => {
         showSearch={activeTab === 'inventory'}
       />
 
-      {/* Main Content Area */}
-      <div 
-        className="pt-16 pb-24 px-3 overflow-y-auto"
+      {/* Main Content Area - only this section scrolls; header and bottom nav fixed */}
+      <main
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-3"
         style={{
-          minHeight: 'calc(100dvh - 64px)',
-          paddingBottom: 'calc(96px + env(safe-area-inset-bottom))',
+          paddingTop: 'calc(62px + max(env(safe-area-inset-top) - 12px, 2px))',
+          paddingBottom: 'calc(64px + env(safe-area-inset-bottom))',
+          WebkitOverflowScrolling: 'touch',
         }}
       >
         {renderContent()}
-      </div>
+      </main>
 
       {/* Bottom Navigation */}
       <MobileBottomNav

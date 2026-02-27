@@ -42,6 +42,9 @@ exports.resetPin = resetPin;
 exports.resetDistributorEmployeePin = require("./employees/resetDistributorEmployeePin");
 exports.distributorEmployeeLogin = require("./employees/distributorEmployeeLogin");
 exports.restoreDistributorEmployeeAuth = require("./employees/restoreDistributorEmployeeAuth");
+exports.retailerEmployeeLogin = require("./employees/retailerEmployeeLogin");
+exports.restoreRetailerEmployeeAuth = require("./employees/restoreRetailerEmployeeAuth");
+exports.restoreDistributorEmployeeAuth = require("./employees/restoreDistributorEmployeeAuth");
 exports.migrateEmployeeIds = require("./employees/migrateEmployeeIds");
 exports.createEmployeeSession = require("./employees/createEmployeeSession");
 exports.logDistributorActivity = require("./employees/logDistributorActivity");
@@ -50,8 +53,12 @@ exports.logDistributorActivity = require("./employees/logDistributorActivity");
 exports.resyncRetailerProfile = require("./profile/resyncRetailerProfile");
 exports.syncRetailerProfileToDistributors = require("./profile/syncRetailerProfileToDistributors");
 
-// OCR / Vision
+// OCR / Vision (image-only, callable)
 exports.ocrFromImage = require("./ocr/ocrFromImage");
+// OCR from image or PDF – returns text + parsed products (retailer/distributor inventory)
+exports.ocrFromFile = require("./ocr/ocrFromFile");
+// AI catalogue parser – Gemini-powered extraction for any catalogue/list (image or PDF)
+exports.parseCatalogueWithAI = require("./ocr/parseCatalogueWithAI");
 
 // Smart Assistant
 exports.generateAssistantReply = require("./assistant/generateAssistantReply");
@@ -77,6 +84,15 @@ exports.checkUniqueness = checkUniqueness;
 // Payment Gateway
 exports.createMerchantAccount = require("./payment/createMerchantAccount");
 exports.generatePaymentLink = require("./payment/generatePaymentLink");
+
+// Cashfree Partner (embedded merchant onboarding)
+// Single HTTP impl: cashfreeCreateMerchantAndOnboardingLinkHttp. Others are aliases (same handler, no duplication).
+const cashfreePartner = require("./cashfree/partnerOnboarding");
+exports.cashfreeCreateMerchantAndOnboardingLink = cashfreePartner.cashfreeCreateMerchantAndOnboardingLink;
+exports.cashfreeCreateMerchantAndOnboardingLinkHttp = cashfreePartner.cashfreeCreateMerchantAndOnboardingLinkHttp;
+exports.cashfreeCreateMerchantAndOnboarding1 = cashfreePartner.cashfreeCreateMerchantAndOnboarding1;
+exports.cashfreeCreateMerchantAndOnboarding = cashfreePartner.cashfreeCreateMerchantAndOnboarding;
+exports.cashfreeMerchantOnboardingWebhook = cashfreePartner.cashfreeMerchantOnboardingWebhook;
 
 // Location Data (India)
 exports.fetchIndiaLocationData = require("./location/fetchIndiaLocationData");

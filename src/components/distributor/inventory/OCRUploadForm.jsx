@@ -8,6 +8,8 @@ const OCRUploadForm = ({ distributorId }) => {
   const [imagePreview, setImagePreview] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [brandHint, setBrandHint] = useState("");
+  const [categoryHint, setCategoryHint] = useState("");
 
   // Enhanced parser: handles lines with or without commas, and prevents index-related crashes
   const parseCleanedText = (cleanedText) => {
@@ -61,81 +63,99 @@ const OCRUploadForm = ({ distributorId }) => {
     reader.readAsDataURL(file);
   };
 
-  const handleScan = async () => {
+  const toBase64 = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = (e) => reject(e);
+    });
+
+  const handleScan = async (useAI = false) => {
     if (!imageFile) return;
+    if (imageFile.type !== "application/pdf" && !imageFile.type.startsWith("image/")) {
+      toast.error("Unsupported file format. Please upload an image or PDF.");
+      return;
+    }
     setLoading(true);
 
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const fileBase64 = reader.result.split(",")[1];
-
-      // Clean raw OCR text to remove leading serial numbers
-      const cleanLines = (raw) => {
-        return raw
-          .trim()
-          .split("\n")
-          .map((line) => line.replace(/^\s*[\d\-.:]+\s*/, "").trim())
-          .filter((line) => line);
-      };
-
+    try {
+      const fileBase64 = await toBase64(imageFile);
       if (!fileBase64) {
         toast.error("Failed to convert file.");
         setLoading(false);
         return;
       }
 
-      try {
-        const OCR_ENDPOINT =
-          import.meta.env.VITE_DISTRIBUTOR_OCR_URL ||
-          "https://asia-south1-stockpilotv1.cloudfunctions.net/ocrFromImage";
+      const isPdf = imageFile.type === "application/pdf";
+      const url = useAI
+        ? (import.meta.env.VITE_PARSE_CATALOGUE_AI_URL || "https://us-central1-stockpilotv1.cloudfunctions.net/parseCatalogueWithAI")
+        : (import.meta.env.VITE_OCR_FILE_URL || import.meta.env.VITE_DISTRIBUTOR_OCR_URL || "https://us-central1-stockpilotv1.cloudfunctions.net/ocrFromFile");
 
-        const response = await fetch(OCR_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: fileBase64 })
-        });
-
-        const data = await response.json();
-        const ocrText = data?.text?.[0]?.description || "";
-        if (ocrText) {
-          const cleanedText = cleanLines(ocrText).join("\n");
-          data.products = parseCleanedText(cleanedText);
-        }
-
-        if (Array.isArray(data.products)) {
-          const formatted = data.products.map((p) => ({
-            productName: p?.productName || p?.name || "",
-            quantity: p?.quantity || "",
-            unit: p?.unit || "",
-            costPrice: p?.cost || p?.costPrice || "",
-            sellingPrice: p?.sellingPrice || p?.price || "",
-            mrp: p?.mrp || "",
-            brand: p?.brand || "",
-            category: p?.category || "",
-            description: p?.description || "",
-            sku: p?.sku || "",
-            imageUrl: p?.imageUrl || ""
-          })).filter(p => p.productName);
-          setProducts(formatted);
-          toast.success("OCR scan completed!");
-        } else {
-          toast.error("No valid product data found.");
-        }
-      } catch (error) {
-        console.error("OCR failed:", error);
-        toast.error("Failed to scan image.");
+      const body = isPdf
+        ? { pdfBase64: fileBase64, mimeType: "application/pdf" }
+        : { imageBase64: fileBase64 };
+      if (useAI) {
+        if (brandHint?.trim()) body.brandHint = brandHint.trim();
+        if (categoryHint?.trim()) body.categoryHint = categoryHint.trim();
       }
 
-      setLoading(false);
-    };
+      const controller = useAI ? new AbortController() : null;
+      const timeoutId = useAI ? setTimeout(() => controller?.abort(), 130000) : null;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller?.signal,
+      });
+      if (timeoutId) clearTimeout(timeoutId);
 
-    // Allow image and PDF preview
-    if (imageFile.type === "application/pdf" || imageFile.type.startsWith("image/")) {
-      reader.readAsDataURL(imageFile);
-    } else {
-      toast.error("Unsupported file format. Please upload an image or PDF.");
-      setLoading(false);
+      const data = await response.json();
+
+      if (!response.ok) {
+        toast.error(data?.error || (useAI ? "AI parse failed." : "Scan failed."));
+        setLoading(false);
+        return;
+      }
+
+      let productList = data.products || [];
+      if (!useAI && (!Array.isArray(productList) || productList.length === 0)) {
+        const cleanLines = (raw) =>
+          (raw || "")
+            .trim()
+            .split("\n")
+            .map((line) => line.replace(/^\s*[\d\-.:]+\s*/, "").trim())
+            .filter((line) => line);
+        const ocrText = data?.text || "";
+        if (ocrText) productList = parseCleanedText(cleanLines(ocrText).join("\n"));
+      }
+
+      if (Array.isArray(productList) && productList.length > 0) {
+        const formatted = productList.map((p) => ({
+          productName: p?.productName || p?.name || "",
+          quantity: p?.quantity ?? "1",
+          unit: p?.unit || "",
+          costPrice: p?.cost ?? p?.costPrice ?? "",
+          sellingPrice: p?.sellingPrice ?? p?.price ?? p?.mrp ?? "",
+          mrp: p?.mrp ?? "",
+          brand: p?.brand || "",
+          category: p?.category || "",
+          description: p?.description || "",
+          sku: p?.sku || "",
+          imageUrl: p?.imageUrl || ""
+        })).filter((p) => p.productName);
+        setProducts(formatted);
+        toast.success(useAI ? "AI parse complete!" : (isPdf ? "PDF extracted!" : "OCR scan completed!"));
+      } else {
+        toast.error(useAI ? "AI found no products. Try cropping to one table section or a clearer image." : "No valid product data found. Try **Parse with AI** for catalogues.");
+      }
+    } catch (error) {
+      console.error(useAI ? "AI parse failed:" : "OCR/PDF failed:", error);
+      const isTimeout = error?.name === "AbortError";
+      toast.error(isTimeout ? "Parsing took too long (max 2 min). Try a smaller crop or one section." : (useAI ? "AI parse failed." : "Failed to scan file."));
     }
+
+    setLoading(false);
   };
 
   const handleSaveAll = async () => {
@@ -190,7 +210,7 @@ const OCRUploadForm = ({ distributorId }) => {
 
   return (
     <div className="space-y-4">
-      <label className="block mb-1 text-sm font-medium text-white/80">Upload Inventory Image</label>
+      <label className="block mb-1 text-sm font-medium text-white/80">Upload Image or Price-List PDF</label>
       <input
         type="file"
         accept="image/*,application/pdf"
@@ -199,20 +219,60 @@ const OCRUploadForm = ({ distributorId }) => {
       />
       {imagePreview && (
         <div className="mt-3">
-          <img src={imagePreview} alt="Preview" className="max-w-xs rounded-lg border border-white/10 shadow-lg" />
+          {imageFile?.type === "application/pdf" ? (
+            <div className="px-3 py-2 rounded-lg border border-white/10 bg-slate-800/40 text-white/90 text-sm">
+              📄 PDF: {imageFile?.name || "Uploaded"} — ready to extract
+            </div>
+          ) : (
+            <img src={imagePreview} alt="Preview" className="max-w-xs rounded-lg border border-white/10 shadow-lg" />
+          )}
         </div>
       )}
-      <button
-        onClick={handleScan}
-        disabled={!imageFile || loading}
-        className={`mt-3 px-4 py-2 rounded-lg text-sm transition ${
-          loading || !imageFile
-            ? "bg-slate-700/60 text-white/60 cursor-not-allowed"
-            : "bg-emerald-500/90 hover:bg-emerald-500 text-white shadow-[0_6px_20px_rgba(16,185,129,.35)]"
-        }`}
-      >
-        {loading ? "Scanning..." : "Scan & Import"}
-      </button>
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label className="block text-xs text-white/60 mb-0.5">Brand hint (optional)</label>
+          <input
+            type="text"
+            value={brandHint}
+            onChange={(e) => setBrandHint(e.target.value)}
+            placeholder="e.g. Ashirvad"
+            className="w-full px-2 py-1.5 rounded bg-slate-800/60 border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-white/60 mb-0.5">Category hint (optional)</label>
+          <input
+            type="text"
+            value={categoryHint}
+            onChange={(e) => setCategoryHint(e.target.value)}
+            placeholder="e.g. CPVC plumbing, Fittings"
+            className="w-full px-2 py-1.5 rounded bg-slate-800/60 border border-white/20 text-white placeholder-white/40 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
+          />
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-white/50">Optional hints help the AI set brand/category when the catalogue is unclear.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={() => handleScan(false)}
+          disabled={!imageFile || loading}
+          className={`px-4 py-2 rounded-lg text-sm transition ${
+            loading || !imageFile ? "bg-slate-700/60 text-white/60 cursor-not-allowed" : "bg-white/20 hover:bg-white/30 text-white border border-white/20"
+          }`}
+        >
+          {loading ? "Scanning…" : "Quick OCR"}
+        </button>
+        <button
+          onClick={() => handleScan(true)}
+          disabled={!imageFile || loading}
+          className={`px-4 py-2 rounded-lg text-sm transition ${
+            loading || !imageFile ? "bg-slate-700/60 text-white/60 cursor-not-allowed" : "bg-emerald-500/90 hover:bg-emerald-500 text-white shadow-[0_6px_20px_rgba(16,185,129,.35)]"
+          }`}
+          title="Best for catalogues, price lists, handwritten lists"
+        >
+          {loading ? "Parsing…" : "Parse with AI"}
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-white/50">Use <strong>Parse with AI</strong> for catalogues or handwritten lists.</p>
 
       {products.length > 0 && (
         <>
