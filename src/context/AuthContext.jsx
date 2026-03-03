@@ -31,6 +31,11 @@ export const AuthProvider = ({ children }) => {
   const [role, setRole] = useState(null);
   const [initialized, setInitialized] = useState(false);   // <-- guards can wait on this
   const [authLoading, setAuthLoading] = useState(true);    // kept for backward-compat with existing code
+  const withTimeout = (promise, ms, label = 'Operation') =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
+    ]);
 
   // --- One-time: ensure persistence for primary app auth only (skip on native - firebaseConfig uses inMemoryPersistence)
   useEffect(() => {
@@ -123,7 +128,9 @@ export const AuthProvider = ({ children }) => {
 
         if (primaryUser) {
           // refresh token once to keep claims fresh for CF calls
-          try { await primaryUser.getIdToken(true); } catch (err) {
+          try {
+            await withTimeout(primaryUser.getIdToken(true), 10000, 'Auth token refresh');
+          } catch (err) {
             console.warn('[Auth] Failed to refresh ID token:', err?.message || err);
           }
 
@@ -132,8 +139,12 @@ export const AuthProvider = ({ children }) => {
             let userData = null;
             if (shouldUseRestFallback()) {
               try {
-                const idToken = await primaryUser.getIdToken();
-                const bizDoc = await getDocumentRest(`businesses/${primaryUser.uid}`, idToken);
+                const idToken = await withTimeout(primaryUser.getIdToken(), 10000, 'Auth token');
+                const bizDoc = await withTimeout(
+                  getDocumentRest(`businesses/${primaryUser.uid}`, idToken),
+                  15000,
+                  'Role fetch'
+                );
                 userData = bizDoc || null;
               } catch (e) {
                 if (!e?.message?.includes('404')) throw e;

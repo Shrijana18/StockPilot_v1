@@ -103,7 +103,11 @@ const Login = () => {
       let userData = null;
       if (shouldUseRestFallback()) {
         try {
-          const idToken = await user.getIdToken();
+          const idToken = await withTimeout(
+            user.getIdToken(),
+            10000,
+            'Token refresh'
+          );
           const bizDoc = await withTimeout(
             getDocumentRest(`businesses/${user.uid}`, idToken),
             15000,
@@ -330,9 +334,17 @@ const Login = () => {
   const completeSocialLogin = async (user) => {
     let userData = null;
     if (shouldUseRestFallback()) {
-      const idToken = await user.getIdToken();
+      const idToken = await withTimeout(
+        user.getIdToken(),
+        10000,
+        'Token refresh'
+      );
       try {
-        userData = await getDocumentRest(`businesses/${user.uid}`, idToken);
+        userData = await withTimeout(
+          getDocumentRest(`businesses/${user.uid}`, idToken),
+          15000,
+          'Profile lookup'
+        );
       } catch (e) {
         if (!e?.message?.includes('404') && !e?.message?.includes('NOT_FOUND')) throw e;
       }
@@ -346,8 +358,16 @@ const Login = () => {
           authProvider: user.providerData?.[0]?.providerId || 'google',
           ownerId: user.uid,
         };
-        await upsertDocumentRest(`businesses/${user.uid}`, newData, idToken);
-        userData = await getDocumentRest(`businesses/${user.uid}`, idToken);
+        await withTimeout(
+          upsertDocumentRest(`businesses/${user.uid}`, newData, idToken),
+          15000,
+          'Profile create'
+        );
+        userData = await withTimeout(
+          getDocumentRest(`businesses/${user.uid}`, idToken),
+          15000,
+          'Profile lookup'
+        );
       }
       userData = userData ? { ...userData } : null;
     } else {

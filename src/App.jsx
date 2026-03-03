@@ -1,18 +1,12 @@
 import React, { useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
-import { getEmployeeSession, isEmployeePath } from './utils/employeeSession.js';
-import { getDistributorEmployeeSession, isDistributorEmployeePath } from './utils/distributorEmployeeSession.js';
-
-import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute.jsx';
 import EmployeeRoute from './components/EmployeeRoute.jsx';
 import LoadingScreen from './components/common/LoadingScreen.jsx';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-
-import { AuthContext } from './context/AuthContext';
 
 import AppShell from './app/shells/AppShell.jsx';
 import WebShell from './app/shells/WebShell.jsx';
@@ -74,7 +68,7 @@ const App = () => {
   }, [isNativeApp]);
 
   return (
-    <AuthProvider>
+    <>
       {isNativeApp ? (
         <AppShell
           headerContent={
@@ -198,7 +192,7 @@ const App = () => {
         </WebShell>
       )}
       <ToastContainer position="top-right" autoClose={3000} />
-    </AuthProvider>
+    </>
   );
 };
 
