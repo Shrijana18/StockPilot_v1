@@ -5,6 +5,7 @@
 [build.environment]
   NODE_VERSION = "20.19.0"
   NPM_FLAGS = "--legacy-peer-deps"
+  CYPRESS_INSTALL_BINARY = "0"
 
 [[redirects]]
   from = "/assets/*"
