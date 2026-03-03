@@ -2,6 +2,8 @@ import React, { createContext, useEffect, useState, useContext, useMemo } from '
 import { auth, db, empAuth } from '../firebase/firebaseConfig';
 import { onAuthStateChanged, setPersistence, indexedDBLocalPersistence, getIdTokenResult } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
+import { shouldUseRestFallback, getDocumentRest } from '../customer/services/firestoreRestClient';
 import {
   getEmployeeSession,
   isEmployeePath,
@@ -30,8 +32,9 @@ export const AuthProvider = ({ children }) => {
   const [initialized, setInitialized] = useState(false);   // <-- guards can wait on this
   const [authLoading, setAuthLoading] = useState(true);    // kept for backward-compat with existing code
 
-  // --- One-time: ensure persistence for primary app auth only (employee app remains in-memory by design)
+  // --- One-time: ensure persistence for primary app auth only (skip on native - firebaseConfig uses inMemoryPersistence)
   useEffect(() => {
+    if (Capacitor?.isNativePlatform?.()) return;
     try { setPersistence(auth, indexedDBLocalPersistence); } catch (_) {}
   }, []);
 
@@ -124,11 +127,23 @@ export const AuthProvider = ({ children }) => {
             console.warn('[Auth] Failed to refresh ID token:', err?.message || err);
           }
 
-          // Fetch role from Firestore
+          // Fetch role from Firestore (use REST on native - SDK getDoc hangs in WKWebView)
           try {
-            const docRef = doc(db, 'businesses', primaryUser.uid);
-            const docSnap = await getDoc(docRef);
-            const userData = docSnap.exists() ? docSnap.data() : null;
+            let userData = null;
+            if (shouldUseRestFallback()) {
+              try {
+                const idToken = await primaryUser.getIdToken();
+                const bizDoc = await getDocumentRest(`businesses/${primaryUser.uid}`, idToken);
+                userData = bizDoc || null;
+              } catch (e) {
+                if (!e?.message?.includes('404')) throw e;
+                userData = null;
+              }
+            } else {
+              const docRef = doc(db, 'businesses', primaryUser.uid);
+              const docSnap = await getDoc(docRef);
+              userData = docSnap.exists() ? docSnap.data() : null;
+            }
 
             const rawRole = userData?.role || userData?.businessType || null;
             const normalizedRole = rawRole

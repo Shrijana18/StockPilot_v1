@@ -849,10 +849,10 @@ const StoreDetail = ({ storeId, onBack, onCartClick }) => {
   }
 
   return (
-    <div className="bg-transparent w-full h-full flex flex-col">
+    <div className="customer-screen bg-transparent">
       
       {/* ===== FIXED HEADER ===== */}
-      <header className="sticky top-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <header className="z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <div className="flex items-center gap-3 px-3 lg:px-4 py-3">
             {/* Back Button */}
             <button onClick={onBack} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/15 transition-colors">
@@ -1018,7 +1018,7 @@ const StoreDetail = ({ storeId, onBack, onCartClick }) => {
       </header>
 
       {/* ===== MAIN CONTENT - Scrollable ===== */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="customer-scroll">
         {/* ===== MOBILE: Horizontal Categories (visible on mobile/tablet) ===== */}
         <div className="lg:hidden sticky top-0 z-20 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-md border-b border-white/10">
           <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-hide" style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
@@ -1113,7 +1113,7 @@ const StoreDetail = ({ storeId, onBack, onCartClick }) => {
               )}
               
               {/* Bottom Padding */}
-              <div className="h-24" />
+              <div className="h-44" />
             </div>
           </div>
         </div>
@@ -1126,10 +1126,10 @@ const StoreDetail = ({ storeId, onBack, onCartClick }) => {
             initial={{ y: 100 }}
             animate={{ y: 0 }}
             exit={{ y: 100 }}
-            className="fixed bottom-0 left-0 right-0 z-40 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-md border-t border-white/10"
-            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+            className="fixed left-0 right-0 z-40 px-3 lg:pl-56 xl:pl-60"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 8px)' }}
           >
-            <div className="p-3 lg:pl-56 xl:pl-60">
+            <div className="bg-gradient-to-r from-slate-900/96 via-slate-800/96 to-slate-900/96 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl shadow-black/40">
               <button
                 onClick={onCartClick}
                 className="w-full bg-emerald-500 text-slate-900 rounded-xl p-3 flex items-center justify-between hover:bg-emerald-400 transition-colors"

@@ -85,7 +85,7 @@ try {
     webDir: "dist",
     bundledWebRuntime: false,
     server: {
-      iosScheme: "capacitor",
+      iosScheme: "http",
       androidScheme: "https",
       allowNavigation: [
         "apis.google.com",
@@ -112,9 +112,9 @@ try {
     },
     ios: {
       backgroundColor: "#0a0f1c",
-      contentInset: "automatic",
+      contentInset: "never",
       allowsLinkPreview: true,
-      scrollEnabled: true
+      scrollEnabled: false
     },
     plugins: {
       SplashScreen: {
@@ -132,8 +132,8 @@ try {
         backgroundColor: "#0a0f1c"
       },
       Keyboard: {
-        resize: "body",
-        resizeOnFullScreen: true
+        resize: "none",
+        resizeOnFullScreen: false
       }
     }
   };
@@ -186,12 +186,20 @@ try {
     }
   } finally {
     // Always restore directory names
-    fs.renameSync(iosDir, iosCustomerDir);
-    console.log('   ✓ Restored ios-customer directory name');
+    if (fs.existsSync(iosDir) && !fs.existsSync(iosCustomerDir)) {
+      fs.renameSync(iosDir, iosCustomerDir);
+      console.log('   ✓ Restored ios-customer directory name');
+    } else if (fs.existsSync(iosCustomerDir)) {
+      console.log('   ℹ️  ios-customer already present, skip restore rename');
+    }
     
     if (iosWasRenamed) {
-      fs.renameSync(iosBackupDir, iosDir);
-      console.log('   ✓ Restored ios directory name');
+      if (fs.existsSync(iosBackupDir) && !fs.existsSync(iosDir)) {
+        fs.renameSync(iosBackupDir, iosDir);
+        console.log('   ✓ Restored ios directory name');
+      } else if (fs.existsSync(iosDir)) {
+        console.log('   ℹ️  ios already present, skip backup restore rename');
+      }
     }
   }
 
@@ -262,7 +270,7 @@ try {
     // ios-customer was renamed to ios, restore it
     fs.renameSync(iosDir, iosCustomerDir);
   }
-  if (fs.existsSync(iosBackupDir)) {
+  if (fs.existsSync(iosBackupDir) && !fs.existsSync(iosDir)) {
     fs.renameSync(iosBackupDir, iosDir);
   }
   

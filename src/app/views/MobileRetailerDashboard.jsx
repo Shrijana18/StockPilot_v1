@@ -8,6 +8,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, db } from '../../firebase/firebaseConfig';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { shouldUseRestFallback, getDocumentRest, listDocumentsRest } from '../../customer/services/firestoreRestClient';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MobileHeader from '../components/MobileHeader';
 import RetailerMobileHomeScreen from './RetailerMobileHomeScreen';
@@ -79,33 +80,60 @@ const MobileRetailerDashboard = () => {
 
     const fetchData = async () => {
       try {
-        const [businessSnap, productsSnap, employeesSnap] = await Promise.all([
-          getDoc(doc(db, 'businesses', retailerId)),
-          getDocs(collection(db, 'businesses', retailerId, 'products')),
-          getDocs(collection(db, 'businesses', retailerId, 'employees')),
-        ]);
+        let businessSnap, productsSnap, employeesSnap, invoicesSnap;
+
+        if (shouldUseRestFallback()) {
+          const idToken = await auth.currentUser?.getIdToken?.();
+          if (!idToken) return;
+          const [bizDoc, productsList, employeesList, invoicesList] = await Promise.all([
+            getDocumentRest(`businesses/${retailerId}`, idToken),
+            listDocumentsRest(`businesses/${retailerId}/products`, 500, idToken).catch(() => []),
+            listDocumentsRest(`businesses/${retailerId}/employees`, 500, idToken).catch(() => []),
+            listDocumentsRest(`businesses/${retailerId}/invoices`, 500, idToken).catch(() => []),
+          ]);
+          const toSnap = (doc) => ({
+            exists: () => !!doc,
+            data: () => doc ? (() => { const { id: _id, ...d } = doc; return d; })() : undefined,
+          });
+          const toQuerySnap = (arr) => ({
+            size: (arr || []).length,
+            docs: (arr || []).map((d) => ({ data: () => (() => { const { id: _id, ...rest } = d; return rest; })() })),
+          });
+          businessSnap = toSnap(bizDoc);
+          productsSnap = toQuerySnap(productsList);
+          employeesSnap = toQuerySnap(employeesList);
+          invoicesSnap = toQuerySnap(invoicesList);
+        } else {
+          [businessSnap, productsSnap, employeesSnap] = await Promise.all([
+            getDoc(doc(db, 'businesses', retailerId)),
+            getDocs(collection(db, 'businesses', retailerId, 'products')),
+            getDocs(collection(db, 'businesses', retailerId, 'employees')),
+          ]);
+          try {
+            invoicesSnap = await getDocs(collection(db, 'businesses', retailerId, 'invoices'));
+          } catch (_) {
+            invoicesSnap = { size: 0, docs: [] };
+          }
+        }
 
         if (businessSnap.exists()) {
           setUserData(businessSnap.data());
         }
 
-        // Optional: orders/revenue from invoices if you have that collection
         let orders = 0;
         let revenue = 0;
-        try {
-          const invoicesSnap = await getDocs(collection(db, 'businesses', retailerId, 'invoices'));
-          orders = invoicesSnap.size;
-          invoicesSnap.docs.forEach((d) => {
-            const amt = d.data().paidAmount ?? d.data().total ?? 0;
-            revenue += Number(amt);
-          });
-        } catch (_) {}
+        invoicesSnap?.docs?.forEach((d) => {
+          const data = typeof d.data === 'function' ? d.data() : d;
+          const amt = data?.paidAmount ?? data?.total ?? 0;
+          revenue += Number(amt);
+        });
+        orders = invoicesSnap?.size ?? 0;
 
         setStats({
-          products: productsSnap.size,
+          products: productsSnap?.size ?? 0,
           orders,
           revenue,
-          employees: employeesSnap.size,
+          employees: employeesSnap?.size ?? 0,
         });
       } catch (err) {
         console.error('Error fetching retailer data:', err);

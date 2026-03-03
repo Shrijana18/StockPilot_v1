@@ -19,6 +19,17 @@ import {
   serverTimestamp,
   onSnapshot
 } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
+import { shouldUseRestFallback, listDocumentsRest, getDocumentRest, createDocumentRest, upsertDocumentRest } from './firestoreRestClient';
+
+const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
+
+const parseCreatedAt = (value) => {
+  if (!value) return new Date(0);
+  if (typeof value?.toDate === 'function') return value.toDate();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date(0) : date;
+};
 
 /**
  * Place a new order
@@ -76,6 +87,7 @@ export const placeOrder = async (orderData) => {
       paymentStatus = 'partial_paid';
     }
 
+    const timestamp = new Date().toISOString();
     const order = {
       orderNumber,
       customerId,
@@ -119,49 +131,81 @@ export const placeOrder = async (orderData) => {
       // Status
       status: 'pending',
       statusHistory: {
-        pending: serverTimestamp()
+        pending: shouldUseRestFallback() ? timestamp : serverTimestamp()
       },
       specialInstructions: specialInstructions || '',
       deliveryPartner: null,
       deliveryPartnerPhone: null,
       estimatedDeliveryMinutes: null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      createdAt: shouldUseRestFallback() ? timestamp : serverTimestamp(),
+      updatedAt: shouldUseRestFallback() ? timestamp : serverTimestamp()
     };
 
-    // Add to customerOrders collection
-    const orderRef = await addDoc(collection(db, 'customerOrders'), order);
+    let orderRef;
+    let orderId;
 
-    // Also add to store's orders subcollection for retailer access (same ID)
-    await setDoc(doc(db, 'stores', storeId, 'customerOrders', orderRef.id), {
-      ...order,
-      orderId: orderRef.id
-    });
-
-    // Update customer's totalOrders count using Firestore increment
-    try {
-      const customerRef = doc(db, 'customers', customerId);
-      const customerDoc = await getDoc(customerRef);
-      if (customerDoc.exists()) {
-        await updateDoc(customerRef, {
-          totalOrders: increment(1),
-          updatedAt: serverTimestamp()
-        });
-      } else {
-        // If customer doesn't exist, create with totalOrders = 1
-        await setDoc(customerRef, {
-          totalOrders: 1,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+    if (shouldUseRestFallback()) {
+      // Use REST API for native
+      const createdOrder = await createDocumentRest('customerOrders', order);
+      orderId = createdOrder.id;
+      
+      // Add to store's orders subcollection
+      await upsertDocumentRest(`stores/${storeId}/customerOrders/${orderId}`, {
+        ...order,
+        orderId
+      });
+      
+      // Update customer's totalOrders count
+      try {
+        const customerDoc = await getDocumentRest(`customers/${customerId}`);
+        if (customerDoc) {
+          await upsertDocumentRest(`customers/${customerId}`, {
+            totalOrders: (customerDoc.totalOrders || 0) + 1,
+            updatedAt: timestamp
+          });
+        } else {
+          await upsertDocumentRest(`customers/${customerId}`, {
+            totalOrders: 1,
+            updatedAt: timestamp
+          });
+        }
+      } catch (error) {
+        console.error('Error updating customer order count:', error);
       }
-    } catch (error) {
-      console.error('Error updating customer order count:', error);
-      // Don't fail the order if this update fails
+    } else {
+      // Use SDK for web
+      orderRef = await addDoc(collection(db, 'customerOrders'), order);
+      orderId = orderRef.id;
+
+      // Add to store's orders subcollection
+      await setDoc(doc(db, 'stores', storeId, 'customerOrders', orderId), {
+        ...order,
+        orderId
+      });
+
+      // Update customer's totalOrders count
+      try {
+        const customerRef = doc(db, 'customers', customerId);
+        const customerDoc = await getDoc(customerRef);
+        if (customerDoc.exists()) {
+          await updateDoc(customerRef, {
+            totalOrders: increment(1),
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          await setDoc(customerRef, {
+            totalOrders: 1,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+      } catch (error) {
+        console.error('Error updating customer order count:', error);
+      }
     }
 
     return { 
       success: true, 
-      orderId: orderRef.id, 
+      orderId, 
       orderNumber 
     };
   } catch (error) {
@@ -175,6 +219,18 @@ export const placeOrder = async (orderData) => {
  */
 export const getCustomerOrders = async (customerId, limitCount = 20) => {
   try {
+    if (shouldUseRestFallback() && IS_NATIVE) {
+      const docs = await listDocumentsRest('customerOrders', 300);
+      const orders = docs
+        .filter((d) => d.customerId === customerId)
+        .map((d) => ({
+          ...d,
+          createdAt: parseCreatedAt(d.createdAt),
+        }))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return orders.slice(0, limitCount);
+    }
+
     const ordersRef = collection(db, 'customerOrders');
     // Simple query without orderBy to avoid requiring composite index
     const q = query(
@@ -187,7 +243,7 @@ export const getCustomerOrders = async (customerId, limitCount = 20) => {
     const orders = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.() || new Date()
+      createdAt: parseCreatedAt(doc.data().createdAt)
     }));
 
     // Sort by createdAt descending (newest first) client-side
@@ -205,12 +261,21 @@ export const getCustomerOrders = async (customerId, limitCount = 20) => {
  */
 export const getOrderById = async (orderId) => {
   try {
+    if (shouldUseRestFallback() && IS_NATIVE) {
+      const order = await getDocumentRest(`customerOrders/${orderId}`);
+      if (!order) return null;
+      return {
+        ...order,
+        createdAt: parseCreatedAt(order.createdAt),
+      };
+    }
+
     const orderDoc = await getDoc(doc(db, 'customerOrders', orderId));
     if (orderDoc.exists()) {
       return {
         id: orderDoc.id,
         ...orderDoc.data(),
-        createdAt: orderDoc.data().createdAt?.toDate?.() || new Date()
+        createdAt: parseCreatedAt(orderDoc.data().createdAt)
       };
     }
     return null;
@@ -221,22 +286,54 @@ export const getOrderById = async (orderId) => {
 };
 
 /**
- * Listen to order status changes (real-time)
+ * Listen to order status changes (real-time on web, polling on native)
  */
 export const subscribeToOrder = (orderId, callback) => {
-  const orderRef = doc(db, 'customerOrders', orderId);
-  
-  return onSnapshot(orderRef, (doc) => {
-    if (doc.exists()) {
-      callback({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate?.() || new Date()
-      });
-    }
-  }, (error) => {
-    console.error('Error in order subscription:', error);
-  });
+  if (shouldUseRestFallback() && IS_NATIVE) {
+    // Use polling for native (every 3 seconds)
+    let isActive = true;
+    
+    const poll = async () => {
+      if (!isActive) return;
+      try {
+        const order = await getDocumentRest(`customerOrders/${orderId}`);
+        if (order && isActive) {
+          callback({
+            ...order,
+            createdAt: parseCreatedAt(order.createdAt)
+          });
+        }
+      } catch (error) {
+        console.error('Error polling order:', error);
+      }
+      
+      if (isActive) {
+        setTimeout(poll, 3000);
+      }
+    };
+    
+    poll(); // Start immediately
+    
+    // Return cleanup function
+    return () => {
+      isActive = false;
+    };
+  } else {
+    // Use real-time listener for web
+    const orderRef = doc(db, 'customerOrders', orderId);
+    
+    return onSnapshot(orderRef, (doc) => {
+      if (doc.exists()) {
+        callback({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate?.() || new Date()
+        });
+      }
+    }, (error) => {
+      console.error('Error in order subscription:', error);
+    });
+  }
 };
 
 /**

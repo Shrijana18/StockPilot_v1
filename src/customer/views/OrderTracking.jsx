@@ -111,7 +111,7 @@ const OrderTracking = ({ orderId, onBack }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0a0f1a] flex flex-col items-center justify-center">
+      <div className="customer-screen bg-[#0a0f1a] flex flex-col items-center justify-center">
         <div className="w-12 h-12 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin mb-4" />
         <p className="text-white/40">Loading order...</p>
       </div>
@@ -120,7 +120,7 @@ const OrderTracking = ({ orderId, onBack }) => {
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-[#0a0f1a] flex flex-col items-center justify-center px-6">
+      <div className="customer-screen bg-[#0a0f1a] flex flex-col items-center justify-center px-6">
         <div className="w-20 h-20 rounded-full bg-white/[0.04] flex items-center justify-center mb-4">
           <FaBox className="text-white/20 text-3xl" />
         </div>
@@ -177,9 +177,9 @@ const OrderTracking = ({ orderId, onBack }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a]">
+    <div className="customer-screen bg-[#0a0f1a]">
       {/* Header */}
-      <div className="bg-[#0a0f1a]/90 backdrop-blur-xl sticky top-0 z-10 border-b border-white/[0.06]">
+      <div className="bg-[#0a0f1a]/90 backdrop-blur-xl z-10 border-b border-white/[0.06] flex-shrink-0">
         <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
           <button
             onClick={() => {
@@ -215,6 +215,10 @@ const OrderTracking = ({ orderId, onBack }) => {
           </div>
         </div>
       </div>
+
+      {/* Scrollable Content */}
+      <div className="customer-scroll">
+        <div className="customer-bottom-spacer">
 
       {/* Status Banner */}
       <div className={`mx-4 mt-4 p-4 rounded-2xl border ${
@@ -725,8 +729,30 @@ const OrderTracking = ({ orderId, onBack }) => {
         </div>
       )}
 
+      {/* Quick Actions - Reorder for completed/cancelled orders */}
+      {(order.status === 'delivered' || order.status === 'cancelled') && (
+        <div className="mx-4 mt-6 space-y-3">
+          <button
+            onClick={() => {
+              // Navigate to store with order items pre-filled
+              if (onBack) {
+                onBack();
+                // Could add logic here to pre-fill cart with order items
+              }
+            }}
+            className="w-full p-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl font-semibold flex items-center justify-center gap-3 hover:from-emerald-400 hover:to-teal-400 transition-all shadow-lg shadow-emerald-500/20"
+          >
+            <FaBox className="text-lg" />
+            <span>Reorder from {order.storeName}</span>
+          </button>
+        </div>
+      )}
+
       {/* Bottom spacing */}
-      <div className="h-28" />
+      <div className="h-8" />
+
+        </div>
+      </div>
 
       {/* Delivery Chat Modal */}
       <AnimatePresence>

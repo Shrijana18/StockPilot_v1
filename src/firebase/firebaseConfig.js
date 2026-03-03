@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, setPersistence, inMemoryPersistence, indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence } from "firebase/auth";
-import { getFirestore, initializeFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import { Capacitor } from '@capacitor/core';
@@ -107,12 +107,20 @@ if (IS_PRODUCTION) {
     // App continues without auth state listener
   }
 }
-// Initialize Firestore with long polling for better iOS compatibility
-export const db = initializeFirestore(app, { 
+// Initialize Firestore — on native (iOS/Android WKWebView), use in-memory cache
+// to avoid IndexedDB which hangs in WKWebView and stalls every getDoc/getDocs call.
+const firestoreSettings = {
   experimentalForceLongPolling: true,
-  ignoreUndefinedProperties: true
-});
-console.log('[Firebase] Firestore initialized with long polling');
+  experimentalAutoDetectLongPolling: false,
+  ignoreUndefinedProperties: true,
+};
+if (IS_NATIVE) {
+  // WKWebView can hang with fetch-stream transport; force XHR long-polling.
+  firestoreSettings.useFetchStreams = false;
+  firestoreSettings.localCache = memoryLocalCache();
+}
+export const db = initializeFirestore(app, firestoreSettings);
+console.log('[Firebase] Firestore initialized', { longPolling: true, memoryCache: IS_NATIVE });
 export const storage = getStorage(app);
 export const functions = getFunctions(app, "us-central1");
 
@@ -126,7 +134,15 @@ if (existingEmpApp) {
   empApp = initializeApp(configForPlatform, "employeeApp");
 }
 
-export const empDB = initializeFirestore(empApp, { experimentalForceLongPolling: true });
+const empFirestoreSettings = {
+  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: false
+};
+if (IS_NATIVE) {
+  empFirestoreSettings.useFetchStreams = false;
+  empFirestoreSettings.localCache = memoryLocalCache();
+}
+export const empDB = initializeFirestore(empApp, empFirestoreSettings);
 export const empAuth = getAuth(empApp);
 export const empFunctions = getFunctions(empApp, "us-central1");
 if (IS_NATIVE) {

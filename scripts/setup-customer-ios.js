@@ -59,7 +59,7 @@ try {
     webDir: "dist",
     bundledWebRuntime: false,
     server: {
-      iosScheme: "capacitor",
+      iosScheme: "https",
       androidScheme: "https",
       allowNavigation: [
         "apis.google.com",

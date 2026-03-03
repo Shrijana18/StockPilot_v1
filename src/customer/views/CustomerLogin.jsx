@@ -46,9 +46,10 @@ const CustomerLogin = ({ onLoginSuccess, onContinueAsGuest, isCheckoutFlow }) =>
     if (!name.trim() || phone.length < 10) return;
     const result = await simpleLogin(phone, name.trim());
     if (result?.success && typeof onLoginSuccess === 'function') {
-      requestAnimationFrame(() => {
-        onLoginSuccess();
-      });
+      // Use setTimeout instead of requestAnimationFrame — rAF can be dropped
+      // in iOS WKWebView during React state transitions, causing the
+      // navigation callback to silently never fire.
+      setTimeout(() => onLoginSuccess(), 50);
     }
   };
 

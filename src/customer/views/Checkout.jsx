@@ -889,7 +889,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
 
   if (loadingSettings) {
     return (
-      <div className="min-h-screen bg-transparent flex items-center justify-center">
+      <div className="customer-screen bg-[#0B0F14] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-[#05E06C]500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -898,10 +898,10 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
   const pickupEnabled = storeSettings?.pickupEnabled && storeSettings?.pickupTimeSlots?.some(s => s.enabled);
 
   return (
-    <div className="bg-transparent">
+    <div className="customer-screen bg-[#0B0F14]">
       {/* Header */}
-      <div className="bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl sticky top-0 z-10 border-b border-white/10">
-        <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+      <div className="bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl z-10 border-b border-white/10 flex-shrink-0">
+        <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}>
           <button
             onClick={onBack}
             className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center"
@@ -912,7 +912,8 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
         </div>
       </div>
 
-      <div className="px-4 py-4 space-y-6">
+      <div className="customer-scroll">
+      <div className="px-4 py-4 space-y-6 customer-bottom-spacer">
         {/* Delivery Type Selection */}
         <div>
           <h3 className="font-semibold text-white mb-3">How would you like to receive?</h3>
@@ -1585,8 +1586,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
           )}
         </button>
       </div>
-
-      <div className="h-24" />
+      </div>
     </div>
   );
 };

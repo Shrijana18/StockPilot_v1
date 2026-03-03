@@ -15,6 +15,9 @@ import {
   getFeaturedProducts 
 } from '../services/storeService';
 import { usePlatform } from '../../hooks/usePlatform';
+import { Capacitor } from '@capacitor/core';
+
+const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
 
 // ============================================
 // STORE CARD - Clean, Clear, and Informative
@@ -364,9 +367,9 @@ const LocationSheet = ({ isOpen, onClose, location, onSelect }) => {
         }
       },
       { 
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0 // Don't use cached location
+        enableHighAccuracy: !IS_NATIVE,
+        timeout: IS_NATIVE ? 25000 : 15000,
+        maximumAge: 0
       }
     );
   };
@@ -571,7 +574,7 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
         setLocation({ lat: 19.0760, lng: 72.8777, label: 'Select Location' });
         setLocationLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 300000 }
+      { enableHighAccuracy: !IS_NATIVE, timeout: IS_NATIVE ? 20000 : 10000, maximumAge: 300000 }
     );
   }, [propLocation]);
 
@@ -589,23 +592,36 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      console.log('[CustomerHome] Starting to fetch stores and products...', currentLocation);
       try {
-        const [storesData, productsData] = await Promise.all([
-          getNearbyStores(currentLocation.lat, currentLocation.lng, 50, 10),
-          getFeaturedProducts(currentLocation.lat, currentLocation.lng, 50, 10)
-        ]);
+        // Load stores first so the primary UI renders immediately
+        const storesData = await getNearbyStores(currentLocation.lat, currentLocation.lng, 50, 10);
         setStores(storesData || []);
-        setFeaturedProducts(productsData || []);
+        setLoading(false);
+
+        // Load featured products in background; never block initial render
+        getFeaturedProducts(currentLocation.lat, currentLocation.lng, 50, 10, storesData)
+          .then((productsData) => {
+            setFeaturedProducts(productsData || []);
+            console.log('[CustomerHome] Fetch complete:', {
+              storesCount: storesData?.length || 0,
+              productsCount: productsData?.length || 0
+            });
+          })
+          .catch((err) => {
+            console.warn('[CustomerHome] Products fetch failed:', err?.message);
+            setFeaturedProducts([]);
+          });
       } catch (error) {
-        console.error('Error fetching data:', error);
+        console.error('[CustomerHome] Unexpected error:', error?.message);
         setError({
-          message: error.message || 'Failed to load stores. Please check your connection and try again.',
+          message: 'Failed to load stores. Please check your connection and try again.',
           type: 'fetch_error'
         });
-        // Set empty arrays as fallback
         setStores([]);
         setFeaturedProducts([]);
       } finally {
+        // Keep false if already set after stores load
         setLoading(false);
       }
     };
@@ -680,22 +696,19 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
                 onClick={() => {
                   setError(null);
                   setLoading(true);
-                  // Retry fetch
                   if (location) {
                     const fetchData = async () => {
                       try {
-                        const [storesData, productsData] = await Promise.all([
-                          getNearbyStores(location.lat, location.lng, 50, 10),
-                          getFeaturedProducts(location.lat, location.lng, 50, 10)
-                        ]);
+                        const storesData = await getNearbyStores(location.lat, location.lng, 50, 10);
                         setStores(storesData || []);
-                        setFeaturedProducts(productsData || []);
                         setError(null);
+                        setLoading(false);
+
+                        getFeaturedProducts(location.lat, location.lng, 50, 10, storesData)
+                          .then((productsData) => setFeaturedProducts(productsData || []))
+                          .catch(() => setFeaturedProducts([]));
                       } catch (err) {
-                        setError({
-                          message: err.message || 'Failed to load stores. Please check your connection and try again.',
-                          type: 'fetch_error'
-                        });
+                        setError({ message: err.message || 'Failed to load stores.', type: 'fetch_error' });
                       } finally {
                         setLoading(false);
                       }
@@ -723,12 +736,12 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
   }
 
   return (
-    <div className="bg-transparent w-full h-full flex flex-col min-h-0">
+    <div className="customer-screen bg-transparent">
       {/* Header - Refined for native app */}
       <header 
-        className="sticky top-0 z-40 flex-shrink-0 border-b border-white/[0.06]"
+        className="z-40 flex-shrink-0 border-b border-white/[0.06]"
         style={{ 
-          paddingTop: 'max(env(safe-area-inset-top), 12px)',
+          paddingTop: 'max(env(safe-area-inset-top), 6px)',
           paddingBottom: 12,
           paddingLeft: 'max(env(safe-area-inset-left), 20px)',
           paddingRight: 'max(env(safe-area-inset-right), 20px)',
@@ -770,9 +783,9 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
       </header>
 
       {/* Content - Consistent spacing, professional rhythm */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-behavior-y-contain">
+      <div className="customer-scroll overflow-x-hidden">
         <div 
-          className="w-full"
+          className="w-full customer-bottom-spacer"
           style={{ 
             paddingLeft: 'max(env(safe-area-inset-left), 20px)',
             paddingRight: 'max(env(safe-area-inset-right), 20px)',

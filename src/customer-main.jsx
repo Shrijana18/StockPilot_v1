@@ -12,25 +12,40 @@ import './customer/customer.css';
 
 // Global error handler to prevent "Page not available" errors
 window.addEventListener('error', (event) => {
-  console.error('Global error caught:', event.error);
+  console.error('[CustomerApp] Global error caught:', {
+    error: event.error,
+    message: event.message,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+    stack: event.error?.stack
+  });
   // Prevent default error handling that could cause blank page
   // Only prevent if it's a script loading error that we can handle
   if (event.filename && event.filename.includes('assets/')) {
-    console.warn('Asset loading error, app will continue with fallback');
+    console.warn('[CustomerApp] Asset loading error, app will continue with fallback');
   }
   // Don't prevent all errors - let React ErrorBoundary handle component errors
   return false;
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled promise rejection:', event.reason);
+  // Log detailed error information for debugging
+  console.error('[CustomerApp] Unhandled promise rejection:', {
+    reason: event.reason,
+    message: event.reason?.message,
+    code: event.reason?.code,
+    stack: event.reason?.stack,
+    type: typeof event.reason
+  });
+  
   // Prevent default error handling for network/Firebase errors
   // These shouldn't crash the app
   if (event.reason?.code === 'permission-denied' || 
       event.reason?.code === 'unavailable' ||
       event.reason?.message?.includes('network') ||
       event.reason?.message?.includes('Failed to fetch')) {
-    console.warn('Network/Firebase error handled gracefully');
+    console.warn('[CustomerApp] Network/Firebase error handled gracefully:', event.reason?.code || event.reason?.message);
     event.preventDefault();
     return false;
   }

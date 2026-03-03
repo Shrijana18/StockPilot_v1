@@ -1481,8 +1481,11 @@ service cloud.firestore {
       // DEV MODE: Customers can read orders where their customerId matches
       allow read: if true;
       
-      // DEV MODE: Allow creating orders (customerId format: customer_<phone>)
-      allow create: if request.resource.data.customerId.matches('customer_[0-9]+');
+      // DEV MODE: Allow creating orders (customerId format: customer_<phone> OR Firebase Auth UID)
+      allow create: if (
+        request.resource.data.customerId.matches('customer_[0-9]+') ||
+        request.resource.data.customerId is string
+      );
       
       // Customer can update their own orders (e.g., cancel, rate)
       // DEV MODE: Allow rating updates more permissively

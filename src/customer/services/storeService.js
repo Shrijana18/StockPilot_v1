@@ -2,19 +2,41 @@
  * Store Service - Firebase operations for stores and products
  */
 
-import { db } from '../../firebase/firebaseConfig';
+import { app } from '../../firebase/firebaseConfig';
 import { 
+  getFirestore,
   collection, 
   doc, 
-  getDoc, 
-  getDocs, 
+  getDoc,
+  getDocs,
   query, 
   where, 
-  orderBy, 
-  limit,
-  startAfter,
-  GeoPoint
-} from 'firebase/firestore';
+  limit
+} from 'firebase/firestore/lite';
+import { Capacitor } from '@capacitor/core';
+import {
+  shouldUseRestFallback,
+  listDocumentsRest,
+  getDocumentRest,
+} from './firestoreRestClient';
+
+const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
+const customerDb = getFirestore(app);
+
+const NATIVE_TIMEOUT_MS = 6000;
+
+const withTimeout = (promise, ms = NATIVE_TIMEOUT_MS) => {
+  if (!IS_NATIVE) return promise;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Firestore request timed out')), ms)
+    )
+  ]);
+};
+
+const fetchDocs = (q, ms = NATIVE_TIMEOUT_MS) => withTimeout(getDocs(q), ms);
+const fetchDoc = (ref) => withTimeout(getDoc(ref));
 
 // Haversine formula to calculate distance between two points
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -38,22 +60,28 @@ export const getNearbyStores = async (userLat, userLng, radiusKm = 50, maxStores
     console.log('[StoreService] Fetching nearby stores...', { userLat, userLng, radiusKm });
     
     // Check if db is initialized
-    if (!db) {
+    if (!customerDb) {
       console.error('[StoreService] Database not initialized!');
       throw new Error('Database not initialized. Please check your connection.');
     }
     
     console.log('[StoreService] Database initialized, querying stores collection...');
     
-    // Query all active stores from the stores collection
-    const storesRef = collection(db, 'stores');
-    const snapshot = await getDocs(storesRef);
-    
-    console.log('[StoreService] Fetched stores:', snapshot.size);
+    let rawStores = [];
+    if (shouldUseRestFallback()) {
+      rawStores = await listDocumentsRest('stores', 500);
+      console.log('[StoreService] Fetched stores (REST):', rawStores.length);
+    } else {
+      const storesRef = collection(customerDb, 'stores');
+      const snapshot = await fetchDocs(storesRef);
+      rawStores = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      console.log('[StoreService] Fetched stores:', rawStores.length);
+    }
+
     const stores = [];
 
-    snapshot.docs.forEach(docSnap => {
-      const data = docSnap.data();
+    rawStores.forEach((storeDoc) => {
+      const data = storeDoc || {};
       
       // Skip if explicitly inactive
       if (data.isActive === false) return;
@@ -78,7 +106,7 @@ export const getNearbyStores = async (userLat, userLng, radiusKm = 50, maxStores
       
       // Add store with distance and delivery range info
       stores.push({
-        id: docSnap.id,
+        id: storeDoc.id,
         ...data,
         distance: distance !== null ? Math.round(distance * 10) / 10 : null,
         deliveryRadius: deliveryRadius,
@@ -99,14 +127,16 @@ export const getNearbyStores = async (userLat, userLng, radiusKm = 50, maxStores
     // return stores.filter(s => s.distance === null || s.distance <= radiusKm).slice(0, maxStores);
     return stores.slice(0, maxStores);
   } catch (error) {
-    console.error('Error fetching nearby stores:', error);
-    // Return empty array instead of throwing to prevent blank page
-    // The component will handle the empty state gracefully
-    if (error.code === 'permission-denied' || error.code === 'unavailable') {
-      console.warn('Firebase permission or availability issue. Returning empty stores list.');
-      return [];
-    }
-    throw error;
+    console.error('[StoreService] Error fetching nearby stores:', {
+      error: error,
+      message: error?.message,
+      code: error?.code,
+      name: error?.name,
+      stack: error?.stack,
+      type: typeof error
+    });
+    console.warn('[StoreService] Returning empty stores list due to error.');
+    return [];
   }
 };
 
@@ -115,7 +145,11 @@ export const getNearbyStores = async (userLat, userLng, radiusKm = 50, maxStores
  */
 export const getStoreById = async (storeId) => {
   try {
-    const storeDoc = await getDoc(doc(db, 'stores', storeId));
+    if (shouldUseRestFallback()) {
+      const docData = await getDocumentRest(`stores/${storeId}`);
+      return docData || null;
+    }
+    const storeDoc = await fetchDoc(doc(customerDb, 'stores', storeId));
     if (storeDoc.exists()) {
       return { id: storeDoc.id, ...storeDoc.data() };
     }
@@ -132,14 +166,21 @@ export const getStoreById = async (storeId) => {
  */
 export const getStoreProducts = async (storeId, category = null, limitCount = 100) => {
   try {
-    const productsRef = collection(db, 'stores', storeId, 'products');
-    const snapshot = await getDocs(productsRef);
-    
-    let products = snapshot.docs.map(doc => ({
-      id: doc.id,
-      storeId,
-      ...doc.data()
-    }));
+    let products = [];
+    if (shouldUseRestFallback()) {
+      products = (await listDocumentsRest(`stores/${storeId}/products`, 500)).map((d) => ({
+        ...d,
+        storeId,
+      }));
+    } else {
+      const productsRef = collection(customerDb, 'stores', storeId, 'products');
+      const snapshot = await fetchDocs(productsRef);
+      products = snapshot.docs.map(doc => ({
+        id: doc.id,
+        storeId,
+        ...doc.data()
+      }));
+    }
 
     // Filter products - be permissive, show all synced products
     products = products.filter(p => {
@@ -185,14 +226,26 @@ export const getStoreProducts = async (storeId, category = null, limitCount = 10
 export const getStoreCategories = async (storeId) => {
   try {
     // First check if store has categories array
-    const storeDoc = await getDoc(doc(db, 'stores', storeId));
+    if (shouldUseRestFallback()) {
+      const storeData = await getDocumentRest(`stores/${storeId}`);
+      if (storeData?.categories?.length > 0) {
+        return storeData.categories;
+      }
+      const products = await listDocumentsRest(`stores/${storeId}/products`, 500);
+      const categoriesSet = new Set();
+      products.forEach((p) => {
+        if (p.category) categoriesSet.add(p.category);
+      });
+      return Array.from(categoriesSet).sort();
+    }
+
+    const storeDoc = await fetchDoc(doc(customerDb, 'stores', storeId));
     if (storeDoc.exists() && storeDoc.data().categories?.length > 0) {
       return storeDoc.data().categories;
     }
 
-    // Otherwise, extract unique categories from ALL products
-    const productsRef = collection(db, 'stores', storeId, 'products');
-    const snapshot = await getDocs(productsRef);
+    const productsRef = collection(customerDb, 'stores', storeId, 'products');
+    const snapshot = await fetchDocs(productsRef);
     
     const categoriesSet = new Set();
     
@@ -254,7 +307,7 @@ const storeMatchesSearch = (store, searchLower, searchWords) => {
  * Returns { products, stores } – products with store info, stores with matchedProductCount & sample products
  */
 export const advancedSearch = async (searchTerm, userLat, userLng, options = {}) => {
-  const { radiusKm = 50, maxStores = 30, maxProductsPerStore = 150, maxProducts = 80, maxStoresInResult = 15 } = options;
+  const { radiusKm = 50, maxStores = 30, maxProductsPerStore = 150, maxProducts = 80, maxStoresInResult = 15, productsPerStoreLimit = 500 } = options;
 
   try {
     const nearbyStores = await getNearbyStores(userLat, userLng, radiusKm, maxStores);
@@ -264,21 +317,29 @@ export const advancedSearch = async (searchTerm, userLat, userLng, options = {})
     const productResults = [];
     const storeMatches = new Map(); // storeId -> { store, matchedProducts[], matchedByName }
 
-    for (const store of nearbyStores) {
-      const productsRef = collection(db, 'stores', store.id, 'products');
-      const snapshot = await getDocs(productsRef);
-      const marketplaceProducts = [];
-      snapshot.docs.forEach((d) => {
-        const p = d.data();
-        const onMarketplace = p.onMarketplace === true || p.isAvailable === true || p.syncedToMarketplace === true ||
-          p.marketplaceEnabled === true || (p.onMarketplace === undefined && p.isAvailable === undefined);
-        if (!onMarketplace) return;
-        marketplaceProducts.push({ id: d.id, ...p });
-      });
+    const storeScans = await Promise.all(
+      nearbyStores.map(async (store) => {
+        let rawProducts = [];
+        if (shouldUseRestFallback()) {
+          rawProducts = await listDocumentsRest(`stores/${store.id}/products`, productsPerStoreLimit);
+        } else {
+          const productsRef = collection(customerDb, 'stores', store.id, 'products');
+          const snapshot = await fetchDocs(productsRef);
+          rawProducts = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        }
 
-      const matched = marketplaceProducts.filter((p) => productMatchesSearch(p, searchLower, searchWords));
-      const matchedByName = storeMatchesSearch(store, searchLower, searchWords);
+        const marketplaceProducts = rawProducts.filter((p) => {
+          return p.onMarketplace === true || p.isAvailable === true || p.syncedToMarketplace === true ||
+            p.marketplaceEnabled === true || (p.onMarketplace === undefined && p.isAvailable === undefined);
+        });
 
+        const matched = marketplaceProducts.filter((p) => productMatchesSearch(p, searchLower, searchWords));
+        const matchedByName = storeMatchesSearch(store, searchLower, searchWords);
+        return { store, matched, matchedByName };
+      })
+    );
+
+    storeScans.forEach(({ store, matched, matchedByName }) => {
       if (matched.length > 0 || matchedByName) {
         const sample = matched.slice(0, 3).map((p) => ({ id: p.id, name: p.name, price: p.sellingPrice || p.price }));
         storeMatches.set(store.id, {
@@ -298,7 +359,7 @@ export const advancedSearch = async (searchTerm, userLat, userLng, options = {})
           ...p,
         });
       });
-    }
+    });
 
     // Build stores list: stores that matched by name OR have matching products
     const storesList = Array.from(storeMatches.values())
@@ -344,42 +405,64 @@ export const searchProducts = async (searchTerm, userLat, userLng, radiusKm = 5)
 
 /**
  * Get featured/popular products from nearby stores
+ * Always returns an array (never throws) — a product fetch failure must not
+ * cascade into the store list disappearing.
  */
-export const getFeaturedProducts = async (userLat, userLng, radiusKm = 3, limitCount = 20) => {
+export const getFeaturedProducts = async (
+  userLat,
+  userLng,
+  radiusKm = 3,
+  limitCount = 20,
+  preloadedStores = null
+) => {
   try {
-    const nearbyStores = await getNearbyStores(userLat, userLng, radiusKm, 10);
-    const products = [];
+    const nearbyStores = Array.isArray(preloadedStores)
+      ? preloadedStores
+      : await getNearbyStores(userLat, userLng, radiusKm, 10);
 
-    for (const store of nearbyStores.slice(0, 5)) {
-      const productsRef = collection(db, 'stores', store.id, 'products');
-      const q = query(
-        productsRef,
-        where('isAvailable', '==', true),
-        limit(10)
-      );
-      
-      const snapshot = await getDocs(q);
-      snapshot.docs.forEach(doc => {
-        products.push({
-          id: doc.id,
+    const topStores = nearbyStores.slice(0, 5);
+    const storeFetches = topStores.map(async (store) => {
+      try {
+        if (shouldUseRestFallback()) {
+          const docs = await listDocumentsRest(`stores/${store.id}/products`, 80);
+          return docs.map((d) => ({
+            ...d,
+            storeId: store.id,
+            storeName: store.businessName,
+            storeDistance: store.distance,
+          }));
+        }
+
+        const productsRef = collection(customerDb, 'stores', store.id, 'products');
+        let snapshot;
+        try {
+          const q = query(productsRef, where('isAvailable', '==', true), limit(10));
+          snapshot = await fetchDocs(q, 4000);
+        } catch {
+          snapshot = await fetchDocs(query(productsRef, limit(10)), 4000);
+        }
+        return snapshot.docs.map((d) => ({
+          id: d.id,
           storeId: store.id,
           storeName: store.businessName,
           storeDistance: store.distance,
-          ...doc.data()
-        });
-      });
-    }
+          ...d.data(),
+        }));
+      } catch (storeErr) {
+        console.warn(`[StoreService] Skipping products for store ${store.id}:`, storeErr?.message);
+        return [];
+      }
+    });
 
-    // Shuffle and return limited
+    const settled = await Promise.allSettled(storeFetches);
+    const products = settled
+      .filter((r) => r.status === 'fulfilled')
+      .flatMap((r) => r.value || []);
+
     return products.sort(() => Math.random() - 0.5).slice(0, limitCount);
   } catch (error) {
-    console.error('Error fetching featured products:', error);
-    // Return empty array instead of throwing to prevent blank page
-    if (error.code === 'permission-denied' || error.code === 'unavailable') {
-      console.warn('Firebase permission or availability issue. Returning empty products list.');
-      return [];
-    }
-    throw error;
+    console.error('[StoreService] getFeaturedProducts failed:', error?.message);
+    return [];
   }
 };
 

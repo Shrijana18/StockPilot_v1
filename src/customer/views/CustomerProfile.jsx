@@ -10,7 +10,7 @@ import {
   FaChevronRight, FaPlus, FaEdit, FaTrash, FaShieldAlt,
   FaQuestionCircle, FaInfoCircle, FaCreditCard, FaBell,
   FaGift, FaLock, FaLanguage, FaUserEdit, FaCamera,
-  FaCheck, FaTimes, FaCopy, FaStar, FaWallet, FaCoins, FaUserTimes
+  FaCheck, FaTimes, FaCopy, FaStar, FaWallet, FaCoins, FaUserTimes, FaClock
 } from 'react-icons/fa';
 import { useCustomerAuth } from '../context/CustomerAuthContext';
 import { getCustomerOrders } from '../services/orderService';
@@ -148,6 +148,7 @@ const CustomerProfile = ({ onBack }) => {
   const [addingAddress, setAddingAddress] = useState(false);
   const [newAddress, setNewAddress] = useState({ label: '', address: '' });
   const [showSupportFlow, setShowSupportFlow] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   
   // Modal states
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -170,45 +171,76 @@ const CustomerProfile = ({ onBack }) => {
     orderUpdates: customerData?.settings?.orderUpdates ?? true,
     offers: customerData?.settings?.offers ?? true,
   });
+  
+  // Pull to refresh state
+  const [refreshing, setRefreshing] = useState(false);
 
   // Payment methods (mock data - integrate with your payment system)
   const [paymentMethods, setPaymentMethods] = useState(customerData?.paymentMethods || []);
   
-  // Actual order count from database
+  // Actual order count and recent orders from database
   const [actualOrderCount, setActualOrderCount] = useState(customerData?.totalOrders || 0);
+  const [recentOrders, setRecentOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
 
-  // Fetch actual order count on mount and when customer changes
+  // Fetch actual order count and recent orders on mount
   useEffect(() => {
-    const fetchOrderCount = async () => {
+    const fetchOrderData = async () => {
       if (!customer?.uid) return;
       
       try {
+        setLoadingOrders(true);
         const orders = await getCustomerOrders(customer.uid, 1000); // Get all orders
         const count = orders.length;
         setActualOrderCount(count);
+        setRecentOrders(orders.slice(0, 3)); // Get 3 most recent
         
-        // Update customerData if count differs (only update if significantly different to avoid loops)
+        // Update customerData if count differs
         const storedCount = customerData?.totalOrders || 0;
         if (Math.abs(count - storedCount) > 0) {
           await updateProfile({ totalOrders: count });
         }
       } catch (error) {
-        console.error('Error fetching order count:', error);
-        // Fallback to stored count on error
+        console.error('Error fetching order data:', error);
         setActualOrderCount(customerData?.totalOrders || 0);
+      } finally {
+        setLoadingOrders(false);
       }
     };
 
-    fetchOrderCount();
+    fetchOrderData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer?.uid]);
 
   // Handle name update
   const handleNameUpdate = async () => {
+    if (isUpdating) return; // Prevent double updates
+    
     if (newName.trim() && newName !== customerData?.name) {
-      const result = await updateProfile({ name: newName.trim() });
-      if (result.success) {
-        setEditingName(false);
+      setIsUpdating(true);
+      
+      // Save current scroll position and layout state
+      const scrollPosition = window.scrollY;
+      const scrollContainer = document.querySelector('.customer-scroll');
+      const containerScrollTop = scrollContainer?.scrollTop || 0;
+      
+      try {
+        const result = await updateProfile({ name: newName.trim() });
+        if (result.success) {
+          setEditingName(false);
+          
+          // Restore scroll positions immediately after state update
+          requestAnimationFrame(() => {
+            window.scrollTo(0, scrollPosition);
+            if (scrollContainer) {
+              scrollContainer.scrollTop = containerScrollTop;
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error updating name:', error);
+      } finally {
+        setIsUpdating(false);
       }
     } else {
       setEditingName(false);
@@ -326,142 +358,337 @@ const CustomerProfile = ({ onBack }) => {
     }
   };
 
+  // Handle pull to refresh
+  const handleRefresh = async () => {
+    if (refreshing || !customer?.uid) return;
+    setRefreshing(true);
+    try {
+      const orders = await getCustomerOrders(customer.uid, 1000);
+      const count = orders.length;
+      setActualOrderCount(count);
+      setRecentOrders(orders.slice(0, 3));
+      await updateProfile({ totalOrders: count });
+    } catch (error) {
+      console.error('Error refreshing profile:', error);
+    } finally {
+      setTimeout(() => setRefreshing(false), 500); // Smooth animation
+    }
+  };
+
   // Calculate additional stats
   const totalSavings = customerData?.totalSavings || 0;
   const loyaltyPoints = customerData?.loyaltyPoints || 0;
   const referralCode = customerData?.referralCode || `FLYP${customer?.uid?.slice(-6).toUpperCase()}`;
+  
+  // Calculate membership tier based on order count
+  const getMembershipTier = (orderCount) => {
+    if (orderCount >= 50) return { name: 'Diamond', color: 'from-cyan-400 to-blue-500', icon: '💎' };
+    if (orderCount >= 25) return { name: 'Platinum', color: 'from-slate-300 to-slate-400', icon: '⭐' };
+    if (orderCount >= 10) return { name: 'Gold', color: 'from-yellow-400 to-amber-500', icon: '🏆' };
+    if (orderCount >= 5) return { name: 'Silver', color: 'from-slate-400 to-slate-500', icon: '🥈' };
+    return { name: 'Bronze', color: 'from-amber-600 to-amber-700', icon: '🥉' };
+  };
+  
+  const membershipTier = getMembershipTier(actualOrderCount);
 
   return (
-    <div className="bg-transparent w-full h-full flex flex-col overflow-y-auto">
-      {/* Profile Header */}
+    <div className="customer-screen bg-[#0B0F14]">
+      {/* Compact Premium Header */}
       <div 
-        className="relative px-4 pt-6 pb-12 overflow-hidden"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 24px)' }}
+        className="relative px-4 pt-3 pb-4 overflow-hidden flex-shrink-0"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}
       >
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 via-slate-900 to-slate-900" />
-        <div className="absolute -top-20 -right-20 w-60 h-60 rounded-full bg-emerald-500/10 blur-3xl" />
-        <div className="absolute -bottom-20 -left-20 w-60 h-60 rounded-full bg-teal-500/10 blur-3xl" />
+        {/* Subtle gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-900/50 to-transparent" />
 
-        <div className="relative flex items-center gap-4">
-          {/* Profile Picture */}
-          <div className="relative">
-            <div 
-              className="w-20 h-20 rounded-full bg-white/5 border-2 border-emerald-500/30 flex items-center justify-center overflow-hidden cursor-pointer hover:border-emerald-500/50 transition"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {customerData?.profilePicture ? (
-                <img 
-                  src={customerData.profilePicture} 
-                  alt="Profile" 
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <FaUser className="text-emerald-400 text-3xl" />
-              )}
-            </div>
+        <div className="relative">
+          {/* Compact Top Bar */}
+          <div className="flex items-center justify-between mb-3">
             <button
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute bottom-0 right-0 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-slate-900 hover:bg-emerald-400 transition"
+              onClick={onBack}
+              className="w-8 h-8 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center hover:bg-white/10 transition"
             >
-              <FaCamera className="text-slate-900 text-xs" />
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleProfilePictureUpload}
-              className="hidden"
-            />
+            <h1 className="text-base font-semibold text-white/90">Profile</h1>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="w-8 h-8 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center hover:bg-white/10 transition disabled:opacity-50"
+            >
+              <svg 
+                className={`w-4 h-4 text-white ${refreshing ? 'animate-spin' : ''}`} 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
           </div>
-          
-          <div className="flex-1">
-            {editingName ? (
-              <div className="flex items-center gap-2">
+
+          {/* Compact User Info Card */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-br from-white/[0.08] to-white/[0.03] backdrop-blur-xl rounded-2xl border border-white/10 p-3 shadow-xl shadow-black/20"
+          >
+            <div className="flex items-center gap-3">
+              {/* Compact Profile Picture */}
+              <div className="relative flex-shrink-0">
+                <div 
+                  className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border-2 border-emerald-500/30 flex items-center justify-center overflow-hidden cursor-pointer hover:border-emerald-500/50 transition"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {customerData?.profilePicture ? (
+                    <img 
+                      src={customerData.profilePicture} 
+                      alt="Profile" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <FaUser className="text-emerald-400 text-xl" />
+                  )}
+                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-slate-900 hover:bg-emerald-400 transition"
+                >
+                  <FaCamera className="text-slate-900 text-[10px]" />
+                </button>
                 <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-emerald-500"
-                  autoFocus
-                  onKeyPress={(e) => e.key === 'Enter' && handleNameUpdate()}
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProfilePictureUpload}
+                  className="hidden"
                 />
-                <button
-                  onClick={handleNameUpdate}
-                  className="px-3 py-2 bg-emerald-500 rounded-lg text-slate-900 font-medium hover:bg-emerald-400 transition"
-                >
-                  <FaCheck />
-                </button>
-                <button
-                  onClick={() => {
-                    setNewName(customerData?.name || '');
-                    setEditingName(false);
-                  }}
-                  className="px-3 py-2 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition"
-                >
-                  <FaTimes />
-                </button>
               </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-white">
-                  {customerData?.name || 'Customer'}
-                </h2>
-                <button 
-                  onClick={() => setEditingName(true)}
-                  className="p-1 hover:bg-white/10 rounded transition"
-                >
-                  <FaEdit className="text-white/40 text-sm" />
-                </button>
+              
+              {/* Compact User Details */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 h-6">
+                  {editingName ? (
+                    <>
+                      <input
+                        type="text"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        disabled={isUpdating}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-base font-bold text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-emerald-500 h-6 disabled:opacity-50"
+                        autoFocus
+                        onKeyPress={(e) => e.key === 'Enter' && !isUpdating && handleNameUpdate()}
+                        onBlur={() => !isUpdating && handleNameUpdate()}
+                      />
+                      <button
+                        onClick={handleNameUpdate}
+                        disabled={isUpdating}
+                        className="p-1 bg-emerald-500 rounded-lg text-slate-900 hover:bg-emerald-400 transition flex-shrink-0 disabled:opacity-50"
+                      >
+                        {isUpdating ? (
+                          <div className="w-3 h-3 border border-slate-900 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <FaCheck className="text-xs" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!isUpdating) {
+                            setNewName(customerData?.name || '');
+                            setEditingName(false);
+                          }
+                        }}
+                        disabled={isUpdating}
+                        className="p-1 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition flex-shrink-0 disabled:opacity-50"
+                      >
+                        <FaTimes className="text-xs" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="text-base font-bold text-white truncate">
+                        {customerData?.name || 'Customer'}
+                      </h2>
+                      <button 
+                        onClick={() => setEditingName(true)}
+                        className="p-0.5 hover:bg-white/10 rounded transition flex-shrink-0"
+                      >
+                        <FaEdit className="text-white/40 text-xs" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                <p className="text-slate-400 text-xs truncate mt-0.5">{customer?.phoneNumber}</p>
+                {/* Compact Membership Badge */}
+                <div className={`mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r ${membershipTier.color} text-white text-[10px] font-semibold`}>
+                  <span className="text-xs">{membershipTier.icon}</span>
+                  <span>{membershipTier.name}</span>
+                </div>
               </div>
-            )}
-            <p className="text-slate-400 text-sm">{customer?.phoneNumber}</p>
-            {customerData?.email && (
-              <p className="text-slate-500 text-xs">{customerData.email}</p>
-            )}
-          </div>
+
+              {/* Quick Stats Badge */}
+              <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                <div className="text-right">
+                  <p className="text-lg font-bold text-white leading-none">{actualOrderCount}</p>
+                  <p className="text-[10px] text-white/40 leading-none">Orders</p>
+                </div>
+                {loyaltyPoints > 0 && (
+                  <div className="px-2 py-0.5 bg-amber-500/20 rounded-full border border-amber-500/30">
+                    <p className="text-[10px] text-amber-400 font-semibold">{loyaltyPoints} pts</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
         </div>
       </div>
 
-      {/* Enhanced Stats */}
-      <div className="px-4 -mt-6">
-        <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 p-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-white">
-                {actualOrderCount}
-              </p>
-              <p className="text-xs text-white/40 mt-1">Total Orders</p>
+      {/* Scrollable Content */}
+      <div className="customer-scroll">
+        <div className="customer-bottom-spacer">
+
+      {/* Compact Stats Grid */}
+      <div className="px-4 mt-3">
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+          className="grid grid-cols-3 gap-2"
+        >
+          <motion.div 
+            whileTap={{ scale: 0.95 }}
+            className="bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 p-3 text-center hover:bg-white/10 transition cursor-pointer"
+          >
+            <p className="text-xl font-bold text-white leading-none">{customerData?.addresses?.length || 0}</p>
+            <p className="text-[10px] text-white/40 mt-1">Addresses</p>
+          </motion.div>
+          <motion.div 
+            whileTap={{ scale: 0.95 }}
+            className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 backdrop-blur-xl rounded-xl border border-emerald-500/20 p-3 text-center hover:from-emerald-500/20 hover:to-teal-500/20 transition cursor-pointer"
+          >
+            <p className="text-xl font-bold text-emerald-400 leading-none">₹{totalSavings.toLocaleString()}</p>
+            <p className="text-[10px] text-emerald-400/60 mt-1">Saved</p>
+          </motion.div>
+          <motion.div 
+            whileTap={{ scale: 0.95 }}
+            className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 backdrop-blur-xl rounded-xl border border-amber-500/20 p-3 text-center hover:from-amber-500/20 hover:to-orange-500/20 transition cursor-pointer"
+          >
+            <p className="text-xl font-bold text-amber-400 leading-none">{loyaltyPoints}</p>
+            <p className="text-[10px] text-amber-400/60 mt-1">Points</p>
+          </motion.div>
+        </motion.div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="px-4 mt-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="grid grid-cols-3 gap-3"
+        >
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowAddresses(!showAddresses)}
+            className="flex flex-col items-center gap-2 p-3 bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 hover:bg-white/10 transition shadow-lg shadow-black/10"
+          >
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <FaMapMarkerAlt className="text-emerald-400" />
             </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-white">
-                {customerData?.addresses?.length || 0}
-              </p>
-              <p className="text-xs text-white/40 mt-1">Saved Addresses</p>
+            <span className="text-xs text-white/70 font-medium">Addresses</span>
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowPaymentModal(true)}
+            className="flex flex-col items-center gap-2 p-3 bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 hover:bg-white/10 transition shadow-lg shadow-black/10"
+          >
+            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+              <FaWallet className="text-blue-400" />
             </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-emerald-400">
-                ₹{totalSavings.toLocaleString()}
-              </p>
-              <p className="text-xs text-white/40 mt-1">Total Savings</p>
+            <span className="text-xs text-white/70 font-medium">Wallet</span>
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowSupportFlow(true)}
+            className="flex flex-col items-center gap-2 p-3 bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 hover:bg-white/10 transition shadow-lg shadow-black/10"
+          >
+            <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+              <FaQuestionCircle className="text-amber-400" />
             </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-amber-400">
-                {loyaltyPoints}
-              </p>
-              <p className="text-xs text-white/40 mt-1">Loyalty Points</p>
+            <span className="text-xs text-white/70 font-medium">Help</span>
+          </motion.button>
+        </motion.div>
+      </div>
+
+      {/* Recent Orders Preview */}
+      {!loadingOrders && recentOrders.length > 0 && (
+        <div className="px-4 mt-4">
+          <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <p className="text-sm font-medium text-white/70">Recent Orders</p>
+              <button 
+                onClick={onBack}
+                className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
+              >
+                View All
+              </button>
+            </div>
+            <div className="divide-y divide-white/5">
+              {recentOrders.map((order) => (
+                <button
+                  key={order.id}
+                  onClick={onBack}
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/5 transition text-left"
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    order.status === 'delivered' 
+                      ? 'bg-emerald-500/20' 
+                      : order.status === 'cancelled' 
+                        ? 'bg-red-500/20' 
+                        : 'bg-amber-500/20'
+                  }`}>
+                    {order.status === 'delivered' ? (
+                      <FaCheck className="text-emerald-400" />
+                    ) : order.status === 'cancelled' ? (
+                      <FaTimes className="text-red-400" />
+                    ) : (
+                      <FaClock className="text-amber-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-medium text-sm truncate">{order.storeName}</p>
+                    <p className="text-white/40 text-xs">
+                      {order.items?.length || 0} items • ₹{order.total}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-xs font-medium capitalize ${
+                      order.status === 'delivered' 
+                        ? 'text-emerald-400' 
+                        : order.status === 'cancelled' 
+                          ? 'text-red-400' 
+                          : 'text-amber-400'
+                    }`}>
+                      {order.status}
+                    </p>
+                    <p className="text-white/30 text-xs">
+                      {order.createdAt?.toLocaleDateString?.('en-IN', { month: 'short', day: 'numeric' }) || 'Recent'}
+                    </p>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Menu - Scrollable content with proper bottom padding */}
-      <div 
-        className="mt-6 px-4 space-y-4 flex-1"
-        style={{ 
-          paddingBottom: 'calc(120px + env(safe-area-inset-bottom))' 
-        }}
-      >
+      {/* Menu Sections */}
+      <div className="mt-6 px-4 space-y-4">
         {/* Account Section */}
         <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
           <p className="px-4 py-3 text-sm font-medium text-white/40 border-b border-white/10">
@@ -520,17 +747,24 @@ const CustomerProfile = ({ onBack }) => {
           />
         </div>
 
-        {/* Rewards & Referral */}
+        {/* Wallet & Rewards */}
         <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
           <p className="px-4 py-3 text-sm font-medium text-white/40 border-b border-white/10">
-            Rewards
+            Wallet & Rewards
           </p>
+          <MenuItem
+            icon={FaWallet}
+            label="FLYP Wallet"
+            value={`₹${customerData?.walletBalance || 0} available`}
+            onClick={() => alert('Wallet feature coming soon! Add money and get cashback.')}
+            badge={customerData?.walletBalance > 0 ? undefined : 'New'}
+          />
           <MenuItem
             icon={FaGift}
             label="Referral Code"
             value={referralCode}
             onClick={() => setShowReferralModal(true)}
-            badge="Earn"
+            badge="Earn ₹50"
           />
           <MenuItem
             icon={FaCoins}
@@ -550,13 +784,6 @@ const CustomerProfile = ({ onBack }) => {
             label="Account Security"
             value="Manage your account security"
             onClick={() => setShowSecurityModal(true)}
-          />
-          <MenuItem
-            icon={FaUserTimes}
-            label="Delete Account"
-            value="Permanently delete your account and data"
-            onClick={() => setShowDeleteAccountModal(true)}
-            danger
           />
         </div>
 
@@ -648,12 +875,24 @@ const CustomerProfile = ({ onBack }) => {
           />
         </div>
 
-        {/* Version with Logo */}
-        <div className="flex flex-col items-center py-6">
-          <FlypLogo />
-          <p className="text-xs text-white/40 mt-3">
-            FLYP Customer App v1.0.9
-          </p>
+        {/* App Info */}
+        <div className="bg-white/5/50 backdrop-blur-xl rounded-xl border border-white/10/50 overflow-hidden">
+          <div className="px-4 py-4 flex items-center gap-4">
+            <FlypLogo />
+            <div className="flex-1">
+              <p className="text-white font-semibold">FLYP</p>
+              <p className="text-xs text-white/40">Version 1.0.10</p>
+            </div>
+            <button
+              onClick={() => alert('You are on the latest version!')}
+              className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 text-xs font-medium rounded-lg border border-emerald-500/30"
+            >
+              Latest
+            </button>
+          </div>
+        </div>
+      </div>
+
         </div>
       </div>
 

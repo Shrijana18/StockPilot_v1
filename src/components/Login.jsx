@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithCredential } from 'firebase/auth';
+import React, { useState, useEffect } from 'react';
+import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
 import { useNavigate } from 'react-router-dom';
 import { logoutUser } from '../utils/authUtils';
 import OTPVerification from './OTPVerification';
 import { usePlatform } from '../hooks/usePlatform.js';
+import { shouldUseRestFallback, getDocumentRest, upsertDocumentRest } from '../customer/services/firestoreRestClient';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -23,6 +24,11 @@ const Login = () => {
   const [userPhone, setUserPhone] = useState(null);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
+  const withTimeout = (promise, ms, label = 'Operation') =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out. Please try again.`)), ms)),
+    ]);
 
   // simple keyframes via a style tag injected once
   const LoadBarKeyframes = () => (
@@ -38,6 +44,25 @@ const Login = () => {
     `}</style>
   );
 
+  // Handle Google redirect return (iOS app flow)
+  useEffect(() => {
+    let cancelled = false;
+    getRedirectResult(auth)
+      .then((result) => {
+        if (cancelled || !result?.user) return;
+        completeSocialLogin(result.user);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[Login] Redirect result error:', err?.code, err?.message);
+        if (err?.code && !err?.code.includes('auth/no-redirect')) {
+          setError(err?.message || 'Google sign-in failed. Try again.');
+        }
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleChange = (e) => {
     setFormData(prev => ({
       ...prev,
@@ -47,6 +72,7 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault?.();
+    if (loading) return;
     console.log("[Login] submit clicked");
     setError('');
     setLoading(true);
@@ -65,23 +91,46 @@ const Login = () => {
         setLoading(false);
         return;
       }
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await withTimeout(
+        signInWithEmailAndPassword(auth, email, password),
+        20000,
+        'Sign-in request'
+      );
       const user = userCredential.user;
       console.log("[Login] firebase signIn OK, uid:", user.uid);
-      
-      // Email verification removed from flow - can be added later as optional notification
-      
-      const snap = await getDoc(doc(db, 'businesses', user.uid));
-      console.log("[Login] role doc exists:", snap.exists());
-      if (!snap.exists()) {
+
+      // On native iOS/Android, Firestore SDK getDoc can hang in WKWebView; use REST fallback
+      let userData = null;
+      if (shouldUseRestFallback()) {
+        try {
+          const idToken = await user.getIdToken();
+          const bizDoc = await withTimeout(
+            getDocumentRest(`businesses/${user.uid}`, idToken),
+            15000,
+            'Profile lookup'
+          );
+          userData = bizDoc ? { ...bizDoc, id: bizDoc.id } : null;
+        } catch (err) {
+          console.warn("[Login] REST getDoc failed:", err?.message);
+          if (err?.message?.includes('404') || err?.message?.includes('NOT_FOUND')) {
+            userData = null;
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        const snap = await getDoc(doc(db, 'businesses', user.uid));
+        userData = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+      }
+      console.log("[Login] role doc exists:", !!userData);
+      if (!userData) {
         setError('⚠️ Account not found. Please register first.');
         await auth.signOut();
         setLoading(false);
         return;
       }
-      
+
       // SECURITY: Verify user owns this account (email matches)
-      const userData = snap.data();
       if (userData.email && userData.email.toLowerCase() !== email.toLowerCase()) {
         setError('⚠️ Email mismatch detected. Please contact support.');
         await auth.signOut();
@@ -97,7 +146,7 @@ const Login = () => {
           // Show OTP verification if phone exists and not already verified
           if (!phoneVerified) {
             setUserPhone(phone);
-            setPendingUser({ user, userData, snap });
+            setPendingUser({ user, userData });
             setShowOtpVerification(true);
             setLoading(false);
             return;
@@ -107,6 +156,7 @@ const Login = () => {
 
       // Proceed with login (skip OTP if disabled)
       await completeLogin(user, userData);
+      setLoading(false);
     } catch (err) {
       console.error("[Login] error", err?.code, err?.message);
       const code = err?.code || '';
@@ -161,19 +211,11 @@ const Login = () => {
       targetPath = '/dashboard';
     }
     
-    // Try React Router navigation first
-    navigate(targetPath, { replace: true });
-    
-    // Fallback for production: if navigation doesn't work, use window.location
-    const isProduction = window.location.hostname !== 'localhost';
-    if (isProduction) {
-      setTimeout(() => {
-        if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
-          console.log("[Login] React Router navigation failed, using window.location fallback");
-          window.location.href = targetPath;
-        }
-      }, 1000);
+    // On native: AuthContext's onAuthStateChanged updates async; yield so PrivateRoute sees user
+    if (platform === 'ios' || platform === 'android') {
+      await new Promise((r) => setTimeout(r, 150));
     }
+    navigate(targetPath, { replace: true });
   };
 
   const handleForgotPassword = async () => {
@@ -195,14 +237,22 @@ const Login = () => {
     setError('');
     setLoading(true);
     try {
-      // Open popup immediately (no await before it) so the browser doesn't block it as not user-initiated
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
+      // On iOS WebView, popup often fails (auth/popup-blocked); use redirect instead
+      if (platform === 'ios') {
+        await signInWithRedirect(auth, provider);
+        return; // User will be redirected; getRedirectResult handles return
+      }
       const result = await signInWithPopup(auth, provider);
       await completeSocialLogin(result.user);
     } catch (error) {
       console.error('[Login] Google Sign-In Error:', error?.code, error?.message);
-      setError(error?.message || 'Google sign-in failed. Try again or use email login.');
+      if (error?.code === 'auth/popup-blocked' && platform !== 'ios') {
+        setError('Popup blocked. Please allow popups or try Sign in with Apple.');
+      } else {
+        setError(error?.message || 'Google sign-in failed. Try again or use email login.');
+      }
     } finally {
       setLoading(false);
     }
@@ -278,39 +328,69 @@ const Login = () => {
   };
 
   const completeSocialLogin = async (user) => {
-    const ref = doc(db, 'businesses', user.uid);
-    let snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        ownerName: user.displayName || '',
-        email: user.email || '',
-        photoURL: user.photoURL || '',
-        role: 'Retailer',
-        createdAt: new Date(),
-        authProvider: user.providerData?.[0]?.providerId || 'google',
-        ownerId: user.uid,
-      }, { merge: true });
-      snap = await getDoc(ref);
+    let userData = null;
+    if (shouldUseRestFallback()) {
+      const idToken = await user.getIdToken();
+      try {
+        userData = await getDocumentRest(`businesses/${user.uid}`, idToken);
+      } catch (e) {
+        if (!e?.message?.includes('404') && !e?.message?.includes('NOT_FOUND')) throw e;
+      }
+      if (!userData) {
+        const newData = {
+          ownerName: user.displayName || '',
+          email: user.email || '',
+          photoURL: user.photoURL || '',
+          role: 'Retailer',
+          createdAt: new Date(),
+          authProvider: user.providerData?.[0]?.providerId || 'google',
+          ownerId: user.uid,
+        };
+        await upsertDocumentRest(`businesses/${user.uid}`, newData, idToken);
+        userData = await getDocumentRest(`businesses/${user.uid}`, idToken);
+      }
+      userData = userData ? { ...userData } : null;
+    } else {
+      const ref = doc(db, 'businesses', user.uid);
+      let snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          ownerName: user.displayName || '',
+          email: user.email || '',
+          photoURL: user.photoURL || '',
+          role: 'Retailer',
+          createdAt: new Date(),
+          authProvider: user.providerData?.[0]?.providerId || 'google',
+          ownerId: user.uid,
+        }, { merge: true });
+        snap = await getDoc(ref);
+      }
+      userData = snap.exists() ? snap.data() : null;
     }
-    const userData = snap.exists() ? snap.data() : null;
     const roleRaw = userData?.role || userData?.businessType || 'Retailer';
     const role = String(roleRaw).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
     let targetPath = '/dashboard';
     if (role.includes('distributor')) targetPath = '/distributor-dashboard';
     else if (role.includes('productowner') || role.includes('product-owner')) targetPath = '/product-owner-dashboard';
-    navigate(targetPath, { replace: true });
-    const isProduction = window.location.hostname !== 'localhost';
-    if (isProduction) {
-      setTimeout(() => {
-        if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
-          window.location.href = targetPath;
-        }
-      }, 1000);
+    // On native: yield so AuthContext sees user, avoid window.location (reload loses in-memory auth)
+    if (platform === 'ios' || platform === 'android') {
+      await new Promise((r) => setTimeout(r, 150));
+      navigate(targetPath, { replace: true });
+    } else {
+      navigate(targetPath, { replace: true });
+      const isProduction = window.location.hostname !== 'localhost';
+      if (isProduction) {
+        setTimeout(() => {
+          if (window.location.pathname === '/auth?type=login' || window.location.pathname === '/auth') {
+            window.location.href = targetPath;
+          }
+        }, 1000);
+      }
     }
   };
 
   return (
-    <div className="min-h-[100dvh] w-full relative overflow-hidden bg-gradient-to-br from-[#0B0F14] via-[#0D1117] to-[#0B0F14]">
+    <div className="min-h-[100dvh] w-full relative overflow-hidden bg-[#0B0F14]">
       <LoadBarKeyframes />
       {/* Aurora / brand glow */}
       <div className="pointer-events-none absolute inset-0 opacity-40">
@@ -318,8 +398,14 @@ const Login = () => {
         <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
       </div>
 
-      {/* Centered glass card */}
-      <div className="relative z-10 flex items-center justify-center px-4 sm:px-6 py-8 sm:py-14 safe-top safe-bottom">
+      {/* Centered glass card - safe area for iOS notch/home indicator */}
+      <div
+        className="relative z-10 flex items-center justify-center px-4 sm:px-6 py-8 sm:py-14"
+        style={{
+          paddingTop: 'max(env(safe-area-inset-top, 0px), 24px)',
+          paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 24px)',
+        }}
+      >
         <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.4)] relative">
           {loading && (
             <div className="absolute left-0 top-0 h-1 w-full overflow-hidden rounded-t-3xl">
@@ -346,17 +432,15 @@ const Login = () => {
             </div>
           )}
           <div className="px-4 sm:px-7 md:px-8 pb-2 space-y-3">
-            {platform !== 'ios' && (
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-3 py-3.5 sm:py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 active:scale-[0.98] transition disabled:opacity-70 disabled:cursor-not-allowed min-h-[48px] touch-target"
-              >
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
-                Sign in with Google
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 py-3.5 sm:py-3 rounded-xl bg-white text-slate-900 font-semibold hover:bg-slate-100 active:scale-[0.98] transition disabled:opacity-70 disabled:cursor-not-allowed min-h-[48px] touch-target"
+            >
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
+              Sign in with Google
+            </button>
             <button
               type="button"
               onClick={handleAppleSignIn}
@@ -415,7 +499,6 @@ const Login = () => {
 
             <button
               type="submit"
-              onClick={handleSubmit}
               disabled={loading}
               className={`w-full py-4 sm:py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 active:scale-[.98] min-h-[52px] touch-target no-select ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
             >

@@ -25,39 +25,99 @@ import OrderTracking from './views/OrderTracking';
 import MyOrders from './views/MyOrders';
 import CustomerProfile from './views/CustomerProfile';
 
-// Order Success Modal - Retailer Dashboard theme
+// Order Success Modal - Premium animation with bag + checkmark
 const OrderSuccessModal = ({ orderNumber, onTrack, onHome }) => (
   <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
     className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-6"
   >
     <motion.div
-      initial={{ scale: 0.8, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      className="bg-slate-800/95 backdrop-blur-xl rounded-2xl p-6 w-full max-w-sm text-center border border-white/10"
+      initial={{ scale: 0.5, opacity: 0, y: 50 }}
+      animate={{ scale: 1, opacity: 1, y: 0 }}
+      transition={{ type: "spring", duration: 0.6, bounce: 0.4 }}
+      className="bg-slate-800/95 backdrop-blur-xl rounded-2xl p-6 w-full max-w-sm text-center border border-white/10 shadow-2xl"
     >
-      <div className="w-20 h-20 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center mx-auto mb-4">
-        <span className="text-4xl">🎉</span>
-      </div>
-      <h2 className="text-xl font-bold text-white mb-2">Order Placed!</h2>
-      <p className="text-white/60 mb-2">Your order has been placed successfully</p>
-      <p className="text-sm text-emerald-400 font-medium mb-6">Order #{orderNumber}</p>
+      {/* Animated Success Icon */}
+      <motion.div 
+        className="relative w-24 h-24 mx-auto mb-4"
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+      >
+        {/* Outer glow ring */}
+        <motion.div
+          className="absolute inset-0 rounded-full bg-emerald-500/30"
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1.3, opacity: 0 }}
+          transition={{ duration: 1, repeat: Infinity, repeatDelay: 0.5 }}
+        />
+        
+        {/* Main circle */}
+        <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 border-4 border-emerald-400/50 flex items-center justify-center shadow-lg shadow-emerald-500/50">
+          {/* Shopping bag icon */}
+          <motion.div
+            initial={{ y: 10, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-white text-3xl"
+          >
+            🛍️
+          </motion.div>
+          
+          {/* Checkmark overlay */}
+          <motion.div
+            initial={{ scale: 0, rotate: -180 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ delay: 0.5, type: "spring", stiffness: 200 }}
+            className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-lg"
+          >
+            <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </motion.div>
+        </div>
+      </motion.div>
+
+      {/* Success text with stagger animation */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+      >
+        <h2 className="text-2xl font-bold text-white mb-2">Order Placed!</h2>
+        <p className="text-white/60 mb-2">Your order has been placed successfully</p>
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="inline-block px-4 py-2 bg-emerald-500/20 border border-emerald-500/30 rounded-full mb-6"
+        >
+          <p className="text-sm text-emerald-300 font-semibold">Order #{orderNumber}</p>
+        </motion.div>
+      </motion.div>
       
-      <div className="space-y-3">
+      {/* Action buttons */}
+      <motion.div
+        className="space-y-3"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.7 }}
+      >
         <button
           onClick={onTrack}
-          className="w-full py-3 bg-emerald-500 text-slate-900 rounded-xl font-semibold hover:bg-emerald-400 transition"
+          className="w-full py-3 bg-emerald-500 text-slate-900 rounded-xl font-semibold hover:bg-emerald-400 transition-all active:scale-95"
         >
           Track Order
         </button>
         <button
           onClick={onHome}
-          className="w-full py-3 bg-white/10 text-white rounded-xl font-semibold hover:bg-white/15 border border-white/10 transition"
+          className="w-full py-3 bg-white/10 text-white rounded-xl font-semibold hover:bg-white/15 border border-white/10 transition-all active:scale-95"
         >
           Back to Home
         </button>
-      </div>
+      </motion.div>
     </motion.div>
   </motion.div>
 );
@@ -84,30 +144,32 @@ const CustomerAppContent = () => {
 
   // Get user location on mount (for both guest and logged-in — required for store browsing)
   useEffect(() => {
+    const defaultLoc = { lat: 19.0760, lng: 72.8777, label: 'Mumbai' };
+
+    // Set a default immediately so the UI is never stuck waiting for geo
     if (!location) {
-      setLocation({ lat: 19.0760, lng: 72.8777, label: 'Mumbai' });
+      setLocation(defaultLoc);
     }
 
-    const getLocation = () => {
-      if (!navigator.geolocation) {
-        setLocation({ lat: 19.0760, lng: 72.8777, label: 'Mumbai' });
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            label: 'Current Location'
-          });
-        },
-        (error) => {
-          setLocation({ lat: 19.0760, lng: 72.8777, label: 'Mumbai' });
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-      );
-    };
-    getLocation();
+    if (!navigator.geolocation) return;
+
+    // On iOS native the system permission dialog delays the callback.
+    // Use a generous timeout and disable enableHighAccuracy (which
+    // forces GPS and can take 30 s+) so the A-GPS / Wi-Fi fix returns quickly.
+    const isNative = window.Capacitor?.isNativePlatform?.() === true;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          label: 'Current Location'
+        });
+      },
+      () => {
+        // Fallback already set above; nothing to do
+      },
+      { enableHighAccuracy: !isNative, timeout: isNative ? 20000 : 10000, maximumAge: 300000 }
+    );
   }, []);
 
   // Apple Guideline 5.1.1: Guests must be able to browse without signing in. Never show login as first screen.
@@ -180,6 +242,14 @@ const CustomerAppContent = () => {
 
   // Handle tab change (guest: orders/profile show login screen per Apple Guideline 5.1.1)
   const handleTabChange = (tab) => {
+    // Hard reset window/document scroll to prevent iOS carry-over bounce
+    window.scrollTo(0, 0);
+    if (document?.documentElement) document.documentElement.scrollTop = 0;
+    if (document?.body) document.body.scrollTop = 0;
+    if (document?.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+
     setActiveTab(tab);
     setViewHistory([]);
     if (!isLoggedIn && (tab === 'orders' || tab === 'profile')) {
@@ -209,6 +279,7 @@ const CustomerAppContent = () => {
 
   // Require login for checkout; if guest, show login then proceed to checkout after success
   const handleCheckout = () => {
+    window.scrollTo(0, 0);
     if (isLoggedIn) {
       navigateTo('checkout');
     } else {
@@ -269,12 +340,13 @@ const CustomerAppContent = () => {
 
   // Determine if bottom nav should be shown
   const showBottomNav = ['home', 'search', 'cart', 'orders', 'profile'].includes(currentView);
+  const showRichBackdrop = ['home', 'store'].includes(currentView);
 
   return (
-    <div className="bg-[#0B0F14] relative w-full h-screen overflow-hidden flex flex-col">
+    <div className="bg-[#0B0F14] relative customer-screen">
       {/* Aurora backdrop - only on main app, not login */}
-      {!showLoginView && (
-        <div className="pointer-events-none fixed inset-0 opacity-30 z-0">
+      {!showLoginView && showRichBackdrop && (
+        <div className="pointer-events-none fixed inset-0 z-0 opacity-30">
           <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/30 via-teal-400/20 to-transparent" />
           <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-teal-500/20 via-emerald-400/15 to-transparent" />
         </div>
@@ -282,10 +354,8 @@ const CustomerAppContent = () => {
 
       {/* Main Content */}
       <main 
-        className={`relative z-10 w-full flex-1 min-h-0 flex flex-col ${showLoginView ? 'overflow-hidden' : 'overflow-y-auto'}`}
-        style={{ 
-          paddingBottom: showBottomNav ? 'calc(80px + env(safe-area-inset-bottom))' : '0'
-        }}
+        className="relative z-10 w-full flex-1 min-h-0 flex flex-col overflow-hidden"
+        style={{ paddingBottom: 0 }}
       >
         {/* Login (guest: orders, profile, or checkout require login per Apple 5.1.1) */}
         {showLoginView && (
@@ -303,7 +373,7 @@ const CustomerAppContent = () => {
 
         {/* Home */}
         {!showLoginView && currentView === 'home' && (
-          <div className="bg-transparent w-full h-full">
+          <div className="bg-transparent w-full h-full min-h-0">
             <CustomerHome
               location={location}
               onNavigate={handleTabChange}
@@ -315,7 +385,7 @@ const CustomerAppContent = () => {
 
         {/* Store Detail */}
         {!showLoginView && currentView === 'store' && selectedStore && (
-          <div className="bg-transparent">
+          <div className="bg-transparent w-full h-full min-h-0">
             <StoreDetail
               storeId={selectedStore.id}
               onBack={goBack}
@@ -326,7 +396,7 @@ const CustomerAppContent = () => {
 
         {/* Search */}
         {!showLoginView && currentView === 'search' && (
-          <div className="bg-transparent">
+          <div className="bg-transparent w-full h-full min-h-0">
             <ProductSearch
               location={location}
               onBack={() => handleTabChange('home')}
@@ -339,7 +409,7 @@ const CustomerAppContent = () => {
 
         {/* Cart */}
         {!showLoginView && currentView === 'cart' && (
-          <div className="bg-transparent">
+          <div className="bg-transparent w-full h-full min-h-0">
             <Cart
               onBack={goBack}
               onCheckout={handleCheckout}
@@ -350,7 +420,7 @@ const CustomerAppContent = () => {
 
         {/* Checkout (only when logged in) */}
         {!showLoginView && currentView === 'checkout' && (
-          <div className="bg-transparent">
+          <div className="bg-transparent w-full h-full min-h-0">
             <Checkout
               onBack={goBack}
               onOrderPlaced={handleOrderPlaced}
@@ -360,7 +430,7 @@ const CustomerAppContent = () => {
 
         {/* Order Tracking */}
         {!showLoginView && currentView === 'tracking' && trackingOrderId && (
-          <div className="bg-transparent">
+          <div className="bg-transparent w-full h-full min-h-0">
             <OrderTracking
               orderId={trackingOrderId}
               onBack={goBack}
@@ -370,7 +440,7 @@ const CustomerAppContent = () => {
 
         {/* My Orders */}
         {!showLoginView && currentView === 'orders' && (
-          <div className="bg-transparent">
+          <div className="bg-transparent w-full h-full min-h-0">
             <MyOrders
               onBack={() => handleTabChange('home')}
               onOrderClick={(orderId) => navigateTo('tracking', { orderId })}
@@ -380,7 +450,7 @@ const CustomerAppContent = () => {
 
         {/* Profile */}
         {!showLoginView && currentView === 'profile' && (
-          <div className="bg-transparent">
+          <div className="bg-transparent w-full h-full min-h-0">
             <CustomerProfile onBack={() => handleTabChange('home')} />
           </div>
         )}

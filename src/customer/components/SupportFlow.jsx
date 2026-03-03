@@ -233,16 +233,20 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-[201] bg-[#0f172a] rounded-t-3xl border-t border-white/10 shadow-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        className="fixed bottom-0 left-0 right-0 z-[201] bg-[#0f172a] rounded-t-3xl border-t border-white/10 shadow-2xl flex flex-col"
+        style={{
+          maxHeight: 'calc(90vh - env(safe-area-inset-bottom))',
+          paddingBottom: 'env(safe-area-inset-bottom)'
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Handle */}
-        <div className="flex justify-center py-3">
+        <div className="flex justify-center py-3 flex-shrink-0">
           <div className="w-12 h-1.5 bg-white/20 rounded-full" />
         </div>
 
         {/* Header */}
-        <div className="px-5 pb-3 flex items-center justify-between border-b border-white/10">
+        <div className="px-5 pb-3 flex items-center justify-between border-b border-white/10 flex-shrink-0">
           <button
             type="button"
             onClick={step === STEP.CATEGORY ? onClose : goBack}
@@ -265,7 +269,7 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
           <div className="w-10" />
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-5 py-4" style={{ WebkitOverflowScrolling: 'touch' }}>
           <AnimatePresence mode="wait">
             {/* Step: Category */}
             {step === STEP.CATEGORY && (
@@ -274,7 +278,7 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className="space-y-3"
+                className="space-y-3 pb-6"
               >
                 <p className="text-white/60 text-sm mb-4">What do you need help with?</p>
                 {CATEGORIES.map((c) => (
@@ -304,7 +308,7 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className="space-y-3"
+                className="space-y-3 pb-6"
               >
                 <p className="text-white/60 text-sm mb-4">Which order is this about?</p>
                 {ordersLoading ? (
@@ -359,7 +363,7 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className="space-y-3"
+                className="space-y-3 pb-6"
               >
                 {selectedOrder && (
                   <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-3">
@@ -395,7 +399,7 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className="space-y-3"
+                className="space-y-3 pb-6"
               >
                 <p className="text-white/60 text-sm mb-4">
                   Select the product(s) this is about. You can also continue without selecting.
@@ -459,7 +463,7 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className="space-y-4"
+                className="space-y-4 pb-6"
               >
                 {showProductStep && selectedItems.length > 0 && selectedOrder?.items && (
                   <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-2">
@@ -533,7 +537,7 @@ const SupportFlow = ({ isOpen, onClose, preSelectedOrder = null }) => {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
-                className="py-8 text-center"
+                className="py-8 pb-12 text-center"
               >
                 <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6">
                   <FaCheckCircle className="text-emerald-400 text-4xl" />

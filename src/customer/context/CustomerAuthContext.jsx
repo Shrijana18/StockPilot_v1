@@ -4,11 +4,53 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { db } from '../../firebase/firebaseConfig';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { app } from '../../firebase/firebaseConfig';
+import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore/lite';
 import { Capacitor } from '@capacitor/core';
+import {
+  shouldUseRestFallback,
+  getDocumentRest,
+  upsertDocumentRest,
+  deleteDocumentRest,
+} from '../services/firestoreRestClient';
 
 const IS_NATIVE_APP = Capacitor?.isNativePlatform?.() === true;
+const customerDb = getFirestore(app);
+
+const fetchDoc = (ref) => getDoc(ref);
+
+const Storage = {
+  async get(key) {
+    if (IS_NATIVE_APP) {
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        const { value } = await Preferences.get({ key });
+        return value;
+      } catch { /* fall through */ }
+    }
+    return localStorage.getItem(key);
+  },
+  async set(key, value) {
+    if (IS_NATIVE_APP) {
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        await Preferences.set({ key, value });
+        return;
+      } catch { /* fall through */ }
+    }
+    localStorage.setItem(key, value);
+  },
+  async remove(key) {
+    if (IS_NATIVE_APP) {
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        await Preferences.remove({ key });
+        return;
+      } catch { /* fall through */ }
+    }
+    localStorage.removeItem(key);
+  }
+};
 
 const CustomerAuthContext = createContext();
 
@@ -31,25 +73,37 @@ export const CustomerAuthProvider = ({ children }) => {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const savedCustomerId = localStorage.getItem('flyp_customer_id');
+        const savedCustomerId = await Storage.get('flyp_customer_id');
         if (savedCustomerId) {
-          const customerDoc = await getDoc(doc(db, 'customers', savedCustomerId));
-          if (customerDoc.exists()) {
-            const data = customerDoc.data();
-            // Set customer with phone number from stored data
+          // Firestore can hang in iOS WebView on first load; add a timeout
+          // so the app still renders in guest mode instead of stuck on splash.
+          const sessionTimeout = IS_NATIVE_APP ? 10000 : 20000;
+          const customerDoc = await Promise.race([
+            shouldUseRestFallback()
+              ? getDocumentRest(`customers/${savedCustomerId}`)
+              : fetchDoc(doc(customerDb, 'customers', savedCustomerId)),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('session_timeout')), sessionTimeout)
+            )
+          ]);
+          const exists = shouldUseRestFallback() ? !!customerDoc : customerDoc.exists();
+          if (exists) {
+            const data = shouldUseRestFallback() ? customerDoc : customerDoc.data();
             setCustomer({ 
               uid: savedCustomerId, 
               phoneNumber: data.phone || '' 
             });
             setCustomerData(data);
           } else {
-            // Clear invalid session
-            localStorage.removeItem('flyp_customer_id');
+            await Storage.remove('flyp_customer_id');
           }
         }
       } catch (error) {
-        console.error('Error checking session:', error);
-        localStorage.removeItem('flyp_customer_id');
+        console.error('[CustomerAuth] Session check failed:', error?.message);
+        // Don't remove stored ID on timeout — let user retry login later
+        if (error?.message !== 'session_timeout') {
+          await Storage.remove('flyp_customer_id');
+        }
       } finally {
         setLoading(false);
       }
@@ -68,66 +122,85 @@ export const CustomerAuthProvider = ({ children }) => {
     console.log('[CustomerAuth] Starting login:', { customerId, isNative: IS_NATIVE_APP });
 
     const doFirestoreLogin = async () => {
-      try {
-        console.log('[CustomerAuth] Fetching customer document...');
-        const customerRef = doc(db, 'customers', customerId);
-        const customerDoc = await getDoc(customerRef);
+      console.log('[CustomerAuth] Fetching customer document...');
+      const customerRef = shouldUseRestFallback() ? null : doc(customerDb, 'customers', customerId);
+      const customerDoc = shouldUseRestFallback()
+        ? await getDocumentRest(`customers/${customerId}`)
+        : await fetchDoc(customerRef);
 
-        let data;
-        if (customerDoc.exists()) {
-          console.log('[CustomerAuth] Existing customer found');
-          data = customerDoc.data();
-          if (name && name !== data.name) {
-            console.log('[CustomerAuth] Updating customer name...');
+      let data;
+      const exists = shouldUseRestFallback() ? !!customerDoc : customerDoc.exists();
+      if (exists) {
+        console.log('[CustomerAuth] Existing customer found');
+        data = shouldUseRestFallback() ? customerDoc : customerDoc.data();
+        if (name && name !== data.name) {
+          console.log('[CustomerAuth] Updating customer name...');
+          if (shouldUseRestFallback()) {
+            await upsertDocumentRest(`customers/${customerId}`, { ...data, name, updatedAt: new Date().toISOString() });
+          } else {
             await updateDoc(customerRef, { name, updatedAt: serverTimestamp() });
-            data.name = name;
           }
-        } else {
-          console.log('[CustomerAuth] Creating new customer...');
-          data = {
-            name: name || 'Customer',
-            phone: `+91${formattedPhone}`,
-            email: '',
-            addresses: [],
-            paymentMethods: [],
-            settings: {
-              pushNotifications: true,
-              emailNotifications: false,
-              smsNotifications: false,
-              orderUpdates: true,
-              offers: true,
-            },
-            totalOrders: 0,
-            totalSavings: 0,
-            loyaltyPoints: 0,
-            referralCode: `FLYP${customerId.slice(-6).toUpperCase()}`,
-            createdAt: serverTimestamp(),
-            isActive: true
-          };
-          await setDoc(customerRef, data);
-          console.log('[CustomerAuth] New customer created successfully');
+          data.name = name;
         }
-        return { data, isNewUser: !customerDoc.exists() };
-      } catch (error) {
-        console.error('[CustomerAuth] Firestore operation failed:', error);
-        throw error;
+      } else {
+        console.log('[CustomerAuth] Creating new customer...');
+        data = {
+          name: name || 'Customer',
+          phone: `+91${formattedPhone}`,
+          email: '',
+          addresses: [],
+          paymentMethods: [],
+          settings: {
+            pushNotifications: true,
+            emailNotifications: false,
+            smsNotifications: false,
+            orderUpdates: true,
+            offers: true,
+          },
+          totalOrders: 0,
+          totalSavings: 0,
+          loyaltyPoints: 0,
+          referralCode: `FLYP${customerId.slice(-6).toUpperCase()}`,
+          createdAt: shouldUseRestFallback() ? new Date().toISOString() : serverTimestamp(),
+          isActive: true
+        };
+        if (shouldUseRestFallback()) {
+          await upsertDocumentRest(`customers/${customerId}`, data);
+        } else {
+          await setDoc(customerRef, data);
+        }
+        console.log('[CustomerAuth] New customer created successfully');
+      }
+      return { data, isNewUser: !exists };
+    };
+
+    // Retry wrapper — the first Firestore call in an iOS WebView session can
+    // fail or hang while the SDK warms up, so retry once before giving up.
+    const withRetry = async (fn, retries = IS_NATIVE_APP ? 2 : 1) => {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const timeoutMs = IS_NATIVE_APP ? 15000 : 25000;
+          const result = await Promise.race([
+            fn(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Connection timed out. Please check your network and try again.')), timeoutMs)
+            )
+          ]);
+          return result;
+        } catch (err) {
+          console.warn(`[CustomerAuth] Attempt ${attempt}/${retries} failed:`, err?.message);
+          if (attempt === retries) throw err;
+          // Short pause before retry to let the SDK stabilize
+          await new Promise(r => setTimeout(r, 1000));
+        }
       }
     };
 
-    // Timeout for app - Firestore can hang in WebView
-    const timeoutMs = IS_NATIVE_APP ? 20000 : 30000;
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        console.error('[CustomerAuth] Login timeout after', timeoutMs, 'ms');
-        reject(new Error('Connection timed out. Please check your network and try again.'));
-      }, timeoutMs);
-    });
-
     try {
-      const result = await Promise.race([doFirestoreLogin(), timeoutPromise]);
+      const result = await withRetry(doFirestoreLogin);
 
-      console.log('[CustomerAuth] Login successful, saving to localStorage');
-      localStorage.setItem('flyp_customer_id', customerId);
+      console.log('[CustomerAuth] Login successful, saving session');
+      await Storage.set('flyp_customer_id', customerId);
       setCustomer({ uid: customerId, phoneNumber: `+91${formattedPhone}` });
       setCustomerData(result.data);
 
@@ -147,11 +220,20 @@ export const CustomerAuthProvider = ({ children }) => {
     try {
       if (!customer) throw new Error('Not logged in');
       
-      const customerRef = doc(db, 'customers', customer.uid);
-      await updateDoc(customerRef, {
-        ...updates,
-        updatedAt: serverTimestamp()
-      });
+      if (shouldUseRestFallback()) {
+        const existing = await getDocumentRest(`customers/${customer.uid}`);
+        await upsertDocumentRest(`customers/${customer.uid}`, {
+          ...(existing || {}),
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        const customerRef = doc(customerDb, 'customers', customer.uid);
+        await updateDoc(customerRef, {
+          ...updates,
+          updatedAt: serverTimestamp()
+        });
+      }
       
       setCustomerData(prev => ({ ...prev, ...updates }));
       return { success: true };
@@ -208,7 +290,7 @@ export const CustomerAuthProvider = ({ children }) => {
   // Logout
   const logout = async () => {
     try {
-      localStorage.removeItem('flyp_customer_id');
+      await Storage.remove('flyp_customer_id');
       setCustomer(null);
       setCustomerData(null);
       return { success: true };
@@ -221,9 +303,13 @@ export const CustomerAuthProvider = ({ children }) => {
   const deleteAccount = async () => {
     try {
       if (!customer?.uid) return { success: false, error: 'Not logged in' };
-      const customerRef = doc(db, 'customers', customer.uid);
-      await deleteDoc(customerRef);
-      localStorage.removeItem('flyp_customer_id');
+      if (shouldUseRestFallback()) {
+        await deleteDocumentRest(`customers/${customer.uid}`);
+      } else {
+        const customerRef = doc(customerDb, 'customers', customer.uid);
+        await deleteDoc(customerRef);
+      }
+      await Storage.remove('flyp_customer_id');
       setCustomer(null);
       setCustomerData(null);
       return { success: true };

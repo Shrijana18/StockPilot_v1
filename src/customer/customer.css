@@ -3,6 +3,13 @@
  * Slate-900/800 base, emerald accents, white/10 surfaces, pill tabs
  */
 
+:root {
+  --customer-gutter: 16px;
+  --customer-radius-card: 16px;
+  --customer-radius-soft: 12px;
+  --customer-nav-height: 72px;
+}
+
 /* ============================================
    BASE STYLES (match Retailer Dashboard)
    ============================================ */
@@ -10,14 +17,58 @@
 html, body, #root {
   background: linear-gradient(to bottom right, #0B0F14, #0D1117, #0B0F14) !important;
   min-height: 100vh;
+  height: 100%;
   color: white;
+  overflow: hidden;
+  overscroll-behavior-y: none;
 }
 
 #root > div,
 main,
 main > div {
   background: transparent !important;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100%;
+}
+
+.customer-screen {
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.customer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.customer-bottom-spacer {
+  padding-bottom: calc(var(--customer-nav-height) + env(safe-area-inset-bottom));
+}
+
+.customer-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(56px + env(safe-area-inset-bottom));
+  z-index: 45;
+}
+
+@supports not (height: 100dvh) {
+  .customer-screen {
+    height: 100vh;
+    min-height: 100vh;
+    max-height: 100vh;
+  }
 }
 
 /* ============================================

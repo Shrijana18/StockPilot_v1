@@ -14,9 +14,9 @@ import { useCart } from '../context/CartContext';
 
 // Compact Cart Item - Optimized for performance
 const CartItem = ({ item, onUpdate, onRemove }) => (
-  <div className="flex items-center gap-3 py-3 border-b border-white/[0.06] last:border-0">
+  <div className="flex items-center gap-3 py-3.5 border-b border-white/[0.06] last:border-0">
     {/* Product Image - Smaller */}
-    <div className="w-14 h-14 bg-white rounded-lg flex-shrink-0 overflow-hidden">
+    <div className="w-14 h-14 bg-slate-50 rounded-xl flex-shrink-0 overflow-hidden border border-white/30">
       {item.image ? (
         <img src={item.image} alt={item.name} className="w-full h-full object-contain p-1" />
       ) : (
@@ -49,12 +49,12 @@ const CartItem = ({ item, onUpdate, onRemove }) => (
     </div>
 
     {/* Quantity Controls - Compact */}
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1.5 bg-white/[0.03] border border-white/[0.08] rounded-lg p-1">
       <button
         onClick={() => item.quantity === 1 ? onRemove(item.productId) : onUpdate(item.productId, item.quantity - 1)}
         className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
           item.quantity === 1 
-            ? 'bg-red-500/20 text-red-400' 
+            ? 'bg-red-500/25 text-red-300' 
             : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.1]'
         }`}
       >
@@ -63,7 +63,7 @@ const CartItem = ({ item, onUpdate, onRemove }) => (
       <span className="font-bold text-white text-sm w-6 text-center">{item.quantity}</span>
       <button
         onClick={() => onUpdate(item.productId, item.quantity + 1)}
-        className="w-7 h-7 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center hover:bg-emerald-500/30 transition-colors"
+        className="w-7 h-7 rounded-md bg-emerald-500/25 text-emerald-300 flex items-center justify-center hover:bg-emerald-500/35 transition-colors"
       >
         <FaPlus className="text-[10px]" />
       </button>
@@ -99,9 +99,9 @@ const Cart = ({ onBack, onCheckout }) => {
   // Empty Cart State
   if (cartItems.length === 0) {
     return (
-      <div className="bg-transparent w-full h-full flex flex-col">
+      <div className="customer-screen bg-[#0B0F14]">
         {/* Header */}
-        <header className="sticky top-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0"
+        <header className="z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0"
                 style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <div className="flex items-center gap-3 px-4 py-3">
             <button onClick={onBack} className="w-9 h-9 rounded-full bg-white/[0.06] flex items-center justify-center">
@@ -132,9 +132,9 @@ const Cart = ({ onBack, onCheckout }) => {
   }
 
   return (
-    <div className="bg-transparent w-full h-full flex flex-col">
+    <div className="customer-screen bg-[#0B0F14]">
       {/* Fixed Header with Summary */}
-      <header className="sticky top-0 z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0"
+      <header className="z-50 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 flex-shrink-0"
               style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
@@ -176,13 +176,13 @@ const Cart = ({ onBack, onCheckout }) => {
       </header>
 
       {/* Main Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="pb-[180px]">
+      <div className="customer-scroll">
+        <div className="pb-[320px]">
         {/* Cart Items - Compact List */}
         <div className="px-4">
-          <div className="bg-white/5 rounded-xl border border-white/[0.06] overflow-hidden">
+          <div className="bg-white/[0.04] rounded-2xl border border-white/[0.08] overflow-hidden shadow-lg shadow-black/20">
             {/* Items Header */}
-            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.02]">
+            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.03]">
               <span className="text-white font-medium text-sm">{cartItems.length} Items</span>
               {cartItems.length > 5 && (
                 <button
@@ -221,12 +221,12 @@ const Cart = ({ onBack, onCheckout }) => {
 
         {/* Coupon Section */}
         <div className="px-4 mt-4">
-          <button className="w-full bg-white/5 rounded-xl p-3 flex items-center gap-3 border border-dashed border-emerald-500/30 hover:border-emerald-500/50 transition-colors">
-            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+          <button className="w-full bg-gradient-to-r from-emerald-500/10 to-teal-500/5 rounded-2xl p-3.5 flex items-center gap-3 border border-dashed border-emerald-500/35 hover:border-emerald-500/60 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center">
               <FaTag className="text-emerald-400 text-sm" />
             </div>
             <div className="flex-1 text-left">
-              <p className="font-medium text-white text-sm">Apply Coupon</p>
+              <p className="font-semibold text-white text-sm">Apply Coupon</p>
               <p className="text-xs text-white/40">Save more on your order</p>
             </div>
             <FaChevronRight className="text-white/30 text-sm" />
@@ -235,10 +235,10 @@ const Cart = ({ onBack, onCheckout }) => {
 
         {/* Bill Details - Collapsible */}
         <div className="px-4 mt-4">
-          <div className="bg-white/5 rounded-xl border border-white/[0.06] overflow-hidden">
+          <div className="bg-white/[0.04] rounded-2xl border border-white/[0.08] overflow-hidden shadow-lg shadow-black/20">
             <button
               onClick={() => setExpandBill(!expandBill)}
-              className="w-full px-4 py-3 flex items-center justify-between bg-white/[0.02]"
+              className="w-full px-4 py-3 flex items-center justify-between bg-white/[0.03]"
             >
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-md bg-amber-500/20 flex items-center justify-center">
@@ -294,7 +294,7 @@ const Cart = ({ onBack, onCheckout }) => {
                         <span>-₹{savings}</span>
                       </div>
                     )}
-                    <div className="flex justify-between pt-2 border-t border-white/[0.06] font-bold">
+                    <div className="flex justify-between pt-2 border-t border-white/[0.08] font-bold">
                       <span className="text-white">To Pay</span>
                       <span className="text-white text-base">₹{total}</span>
                     </div>
@@ -308,7 +308,7 @@ const Cart = ({ onBack, onCheckout }) => {
         {/* Minimum Order Warning */}
         {!canCheckout && minOrderValue > 0 && (
           <div className="px-4 mt-4">
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-center gap-3">
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
                 <FaShoppingBag className="text-amber-400" />
               </div>
@@ -329,7 +329,7 @@ const Cart = ({ onBack, onCheckout }) => {
           <div className="px-4 mt-4">
             {qualifiesForFreeDelivery ? (
               // Free Delivery Unlocked
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-center gap-3">
+              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-3 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center">
                   <FaGift className="text-white" />
                 </div>
@@ -343,13 +343,13 @@ const Cart = ({ onBack, onCheckout }) => {
               </div>
             ) : (
               // Progress towards free delivery
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3">
+              <div className="bg-teal-500/10 border border-teal-500/30 rounded-2xl p-3">
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                    <FaTruck className="text-blue-400 text-sm" />
+                  <div className="w-8 h-8 rounded-lg bg-teal-500/20 flex items-center justify-center">
+                    <FaTruck className="text-teal-400 text-sm" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-blue-400 text-sm font-medium">
+                    <p className="text-teal-300 text-sm font-medium">
                       Add ₹{amountForFreeDelivery} more for free delivery
                     </p>
                   </div>
@@ -357,7 +357,7 @@ const Cart = ({ onBack, onCheckout }) => {
                 </div>
                 <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full transition-all duration-300"
+                    className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 rounded-full transition-all duration-300"
                     style={{ width: `${Math.min((subtotal / freeDeliveryAbove) * 100, 100)}%` }}
                   />
                 </div>
@@ -369,7 +369,7 @@ const Cart = ({ onBack, onCheckout }) => {
         {/* Savings Banner */}
         {savings > 0 && (
           <div className="px-4 mt-4">
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-3">
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center">
                 <HiSparkles className="text-white" />
               </div>
@@ -383,9 +383,28 @@ const Cart = ({ onBack, onCheckout }) => {
         </div>
       </div>
 
-      {/* Fixed Checkout Bar - positioned above bottom nav (80px nav + safe area) */}
-      <div className="sticky bottom-0 z-40 px-4 pb-3 bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl border-t border-white/10 flex-shrink-0"
-           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+      {/* Fixed Checkout Bar - always visible above bottom nav */}
+      <div
+        className="customer-action-bar px-4"
+        style={{ paddingBottom: '8px' }}
+      >
+        <div className="bg-gradient-to-r from-slate-900/96 via-slate-800/96 to-slate-900/96 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl shadow-black/40">
+        <div className="flex items-center justify-between mb-2 px-1">
+          <div>
+            <p className="text-[11px] text-white/50">Total to pay</p>
+            <p className="text-white font-bold text-base">₹{total}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] text-white/45">{itemCount} item{itemCount > 1 ? 's' : ''}</p>
+            <p className="text-[11px] text-white/45">{cartStore?.avgDeliveryTime || 30} min</p>
+          </div>
+        </div>
+        {qualifiesForFreeDelivery && (
+          <div className="mb-2 px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
+            <span className="text-[11px] text-emerald-300">Free delivery unlocked</span>
+            <span className="text-[11px] font-semibold text-emerald-300">Saved ₹{baseDeliveryFee}</span>
+          </div>
+        )}
         {/* Show minimum order progress if not met */}
         {!canCheckout && minOrderValue > 0 && (
           <div className="mb-2 bg-white/5 rounded-xl p-2 border border-amber-500/30">
@@ -405,7 +424,7 @@ const Cart = ({ onBack, onCheckout }) => {
         <button
           onClick={canCheckout ? onCheckout : undefined}
           disabled={!canCheckout}
-          className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors ${
+          className={`w-full py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors ${
             canCheckout 
               ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-900' 
               : 'bg-slate-700 text-white/40 cursor-not-allowed'
@@ -413,9 +432,10 @@ const Cart = ({ onBack, onCheckout }) => {
         >
           <span>{canCheckout ? 'Proceed to Checkout' : `Add ₹${amountToAdd} more`}</span>
           <span className={`px-3 py-1 rounded-lg text-sm font-semibold ${canCheckout ? 'bg-white/20' : 'bg-white/10'}`}>
-            ₹{subtotal}
+            ₹{total}
           </span>
         </button>
+        </div>
       </div>
     </div>
   );

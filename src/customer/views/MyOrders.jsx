@@ -319,10 +319,10 @@ const MyOrders = ({ onBack, onOrderClick }) => {
   const completedCount = orders.filter(o => o.status === 'delivered').length;
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a]">
+    <div className="customer-screen bg-[#0a0f1a]">
       {/* Header */}
-      <div className="bg-[#0a0f1a]/90 backdrop-blur-xl sticky top-0 z-10 border-b border-white/[0.06]">
-        <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+      <div className="bg-[#0a0f1a]/90 backdrop-blur-xl z-10 border-b border-white/[0.06]">
+        <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)' }}>
           <button
             onClick={onBack}
             className="w-10 h-10 rounded-full bg-white/[0.06] border border-white/[0.08] flex items-center justify-center"
@@ -346,7 +346,7 @@ const MyOrders = ({ onBack, onOrderClick }) => {
         </div>
 
         {/* Filter Tabs */}
-        <div className="px-4 pb-3 flex gap-2">
+        <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
           {[
             { id: 'all', label: 'All', count: orders.length },
             { id: 'active', label: 'Active', count: activeCount },
@@ -375,7 +375,10 @@ const MyOrders = ({ onBack, onOrderClick }) => {
       </div>
 
       {/* Content */}
-      <div className="px-4 py-4 pb-28">
+      <div className="customer-scroll">
+        <div
+          className="px-4 py-4 customer-bottom-spacer"
+        >
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16">
             <div className="w-12 h-12 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin mb-4" />
@@ -423,6 +426,7 @@ const MyOrders = ({ onBack, onOrderClick }) => {
             </button>
           </div>
         )}
+        </div>
       </div>
 
       <SupportFlow

@@ -24,14 +24,17 @@ const CustomerBottomNav = ({ activeTab, onTabChange }) => {
     <div 
       className="fixed bottom-0 left-0 right-0 z-50"
       style={{ 
-        paddingBottom: 'max(env(safe-area-inset-bottom), 8px)',
+        bottom: 0,
+        minHeight: 'var(--customer-nav-height)',
+        paddingBottom: 'max(env(safe-area-inset-bottom), 0px)',
         paddingLeft: 'max(env(safe-area-inset-left), 16px)',
         paddingRight: 'max(env(safe-area-inset-right), 16px)',
-        paddingTop: 8,
-        background: 'rgba(11, 15, 20, 0.94)',
+        paddingTop: 4,
+        background: 'rgba(11, 15, 20, 0.96)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(255,255,255,0.06)'
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+        transform: 'translateZ(0)'
       }}
     >
       <div className="flex items-center justify-around">
@@ -46,7 +49,7 @@ const CustomerBottomNav = ({ activeTab, onTabChange }) => {
               onClick={() => onTabChange(tab.id)}
               className={`relative flex flex-col items-center justify-center py-2 px-4 rounded-xl transition-all duration-200 min-w-[56px] ${
                 isActive 
-                  ? 'text-emerald-400' 
+                  ? 'text-emerald-400 bg-emerald-500/12 border border-emerald-500/25' 
                   : 'text-white/45 hover:text-white/70 active:scale-95'
               }`}
             >
