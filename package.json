@@ -7,7 +7,6 @@
     "node": ">=20.19.0"
   },
   "devDependencies": {
-    "@capacitor/assets": "^3.0.5",
     "@vitejs/plugin-react": "^4.6.0",
     "autoprefixer": "^10.4.21",
     "cypress": "^14.5.3",
@@ -48,7 +47,8 @@
     "android:employee:release": "npm run build:employee && cd android-employee && ./gradlew bundleRelease",
     "setup:ios:employee": "node scripts/setup-employee-ios.js",
     "ios:employee": "node scripts/build-employee-ios.js",
-    "ios:employee:open": "node scripts/build-employee-ios.js --open"
+    "ios:employee:open": "node scripts/build-employee-ios.js --open",
+    "icons:capacitor": "npx @capacitor/assets generate"
   },
   "dependencies": {
     "@capacitor-community/apple-sign-in": "^7.1.0",
