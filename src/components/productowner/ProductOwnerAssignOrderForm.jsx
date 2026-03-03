@@ -224,7 +224,6 @@ const ProductOwnerAssignOrderForm = ({ distributor, onClose, onSuccess }) => {
         productOwnerName: productOwnerBusinessData.businessName || productOwnerBusinessData.ownerName || auth.currentUser?.displayName || 'Product Owner',
         productOwnerEmail: productOwnerBusinessData.email || auth.currentUser?.email || '',
         productOwnerPhone: productOwnerBusinessData.phone || auth.currentUser?.phoneNumber || '',
-        productOwnerId: productOwnerId,
         distributorName: distributor.businessName || distributor.distributorName || '',
         distributorEmail: distributor.email || distributor.distributorEmail || '',
         distributorPhone: distributor.phone || distributor.distributorPhone || '',

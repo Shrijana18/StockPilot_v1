@@ -14,6 +14,8 @@ import {
 import { ORDER_STATUSES, codeOf } from '../../constants/orderStatus';
 
 export const VERSION = '2025-11-09a';
+export const ORDER_POLICY_VERSION = VERSION;
+export const POLICY_VERSION = VERSION;
 
 /* ============================== Payment ============================== */
 

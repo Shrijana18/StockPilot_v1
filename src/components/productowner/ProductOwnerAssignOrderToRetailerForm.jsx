@@ -219,7 +219,6 @@ const ProductOwnerAssignOrderToRetailerForm = ({ retailer, onClose, onSuccess })
         productOwnerName: productOwnerBusinessData.businessName || productOwnerBusinessData.ownerName || auth.currentUser?.displayName || 'Product Owner',
         productOwnerEmail: productOwnerBusinessData.email || auth.currentUser?.email || '',
         productOwnerPhone: productOwnerBusinessData.phone || auth.currentUser?.phoneNumber || '',
-        productOwnerId: productOwnerId,
         retailerName: retailer.businessName || retailer.retailerName || retailerBusinessData.businessName || '',
         retailerEmail: retailer.retailerEmail || retailer.email || retailerBusinessData.email || '',
         retailerPhone: retailer.retailerPhone || retailer.phone || retailerBusinessData.phone || '',

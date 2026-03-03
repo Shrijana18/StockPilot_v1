@@ -336,10 +336,8 @@ const SmartStoreDesigner = ({ userId, products = [], onClose, mode = 'designer' 
                       })),
                     };
                   }),
-                  products: rackProducts,
                 };
               }),
-              products: aisleProducts,
             };
           }),
         };

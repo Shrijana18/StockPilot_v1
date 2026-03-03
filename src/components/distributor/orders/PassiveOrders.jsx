@@ -1352,7 +1352,6 @@ export default function PassiveOrders() {
         // Initial chargesSnapshot for passive orders (can be edited in OrderRequests)
         chargesSnapshot: initialChargesSnapshot || {},
         distributorState: distributorState || 'Maharashtra',
-        retailerState: finalRetailerState || null,
 
         // Dates & delivery
         createdAt: serverTimestamp(),
