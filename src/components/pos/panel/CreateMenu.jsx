@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // Firebase / Firestore imports
-import { db } from "../../../firebase/firebaseConfig";
+import { db, storage } from "../../../firebase/firebaseConfig";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getAuth } from "firebase/auth";
 import {
   collection,
@@ -228,6 +229,108 @@ const MENU_TEMPLATES = {
   },
 };
 
+// ── Curated food image DB (watermark-free, Unsplash License) ────────────────
+const FOOD_IMG_DB = [
+  // Beverages
+  { id:"b1", label:"Latte Art",      cat:"beverages", tags:"coffee latte hot espresso cappuccino cream",   url:"https://images.unsplash.com/photo-1495474472-8738373d1cf2?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"b2", label:"Iced Coffee",    cat:"beverages", tags:"cold coffee iced brew americano mocha",        url:"https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"b3", label:"Coffee Cup",     cat:"beverages", tags:"coffee cup espresso morning black",             url:"https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"b4", label:"Citrus Juice",   cat:"beverages", tags:"juice orange fresh citrus lemonade healthy",    url:"https://images.unsplash.com/photo-1500673922987-e212871fec22?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"b5", label:"Smoothie",       cat:"beverages", tags:"smoothie shake milkshake thick creamy",         url:"https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"b6", label:"Cold Brew",      cat:"beverages", tags:"cold brew coffee glass iced dark",              url:"https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=240&h=240&fit=crop&auto=format&q=75" },
+  // Indian
+  { id:"i1", label:"Biryani",        cat:"indian",    tags:"biryani rice dum pulao basmati aromatic",      url:"https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"i2", label:"Paneer Curry",   cat:"indian",    tags:"paneer curry masala makhani butter tikka",     url:"https://images.unsplash.com/photo-1567620832903-9fc6debc209f?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"i3", label:"Butter Chicken", cat:"indian",    tags:"chicken butter tikka masala curry orange",     url:"https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"i4", label:"Dosa",           cat:"indian",    tags:"dosa masala south india crispy golden",        url:"https://images.unsplash.com/photo-1589301760014-8bbd4e1bc0e7?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"i5", label:"Indian Bread",   cat:"indian",    tags:"naan roti bread garlic paratha butter",        url:"https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"i6", label:"Samosa",         cat:"indian",    tags:"samosa snack fried crispy chaat potato",      url:"https://images.unsplash.com/photo-1601050690597-df0568f70950?w=240&h=240&fit=crop&auto=format&q=75" },
+  // Fast Food
+  { id:"f1", label:"Burger",         cat:"fastfood",  tags:"burger beef bun hamburger patty juicy",        url:"https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"f2", label:"Pizza",          cat:"fastfood",  tags:"pizza margherita cheese slice tomato",         url:"https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"f3", label:"Sandwich",       cat:"fastfood",  tags:"sandwich bread grilled toast club sub",        url:"https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"f4", label:"French Fries",   cat:"fastfood",  tags:"fries potato chips fried crispy golden",      url:"https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"f5", label:"Pasta",          cat:"fastfood",  tags:"pasta spaghetti noodles italian cheese",      url:"https://images.unsplash.com/photo-1555949258-eb67b1ef0ceb?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"f6", label:"Tacos",          cat:"fastfood",  tags:"taco wrap tortilla mexican street food",      url:"https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=240&h=240&fit=crop&auto=format&q=75" },
+  // Desserts
+  { id:"d1", label:"Chocolate Cake", cat:"desserts",  tags:"cake chocolate slice dessert sweet birthday",  url:"https://images.unsplash.com/photo-1563729784474-d77dce1ae7e5?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"d2", label:"Ice Cream",      cat:"desserts",  tags:"ice cream gelato scoop cone sweet",            url:"https://images.unsplash.com/photo-1488477181069-e10eb29e24e4?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"d3", label:"Croissant",      cat:"desserts",  tags:"croissant pastry bakery butter flaky",         url:"https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"d4", label:"Waffles",        cat:"desserts",  tags:"waffles syrup pancake breakfast sweet cream",  url:"https://images.unsplash.com/photo-1484723091739-30a097e8f929?w=240&h=240&fit=crop&auto=format&q=75" },
+  // Healthy
+  { id:"h1", label:"Green Salad",    cat:"healthy",   tags:"salad green healthy vegetable fresh bowl",    url:"https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"h2", label:"Buddha Bowl",    cat:"healthy",   tags:"bowl buddha quinoa grain healthy colorful",   url:"https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"h3", label:"Avocado Toast",  cat:"healthy",   tags:"avocado toast bread healthy breakfast egg",   url:"https://images.unsplash.com/photo-1541519227354-08fa5d50c820?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"h4", label:"Soup",           cat:"healthy",   tags:"soup tomato broth warm healthy comfort",      url:"https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=240&fit=crop&auto=format&q=75" },
+  // Aesthetic
+  { id:"a1", label:"Overhead Shot",  cat:"aesthetic", tags:"overhead flat lay food photography dark",     url:"https://images.unsplash.com/photo-1540914124281-342587941389?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"a2", label:"Dark & Moody",   cat:"aesthetic", tags:"dark moody elegant food background dramatic", url:"https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"a3", label:"Fine Dining",    cat:"aesthetic", tags:"fine dining elegant plated restaurant upscale",url:"https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=240&h=240&fit=crop&auto=format&q=75" },
+  { id:"a4", label:"Café Morning",   cat:"aesthetic", tags:"cafe coffee morning breakfast aesthetic light", url:"https://images.unsplash.com/photo-1445116572660-236099ec97a0?w=240&h=240&fit=crop&auto=format&q=75" },
+];
+
+const autoDetectImgCat = (name) => {
+  const n = (name || "").toLowerCase();
+  if (/coffee|latte|cappuccino|espresso|chai|tea|juice|shake|smoothie|lassi|soda|drink|beverage|water/.test(n)) return "beverages";
+  if (/biryani|paneer|curry|dal|tikka|masala|dosa|idli|samosa|naan|roti|paratha|chole|rajma|sabzi|khichdi/.test(n)) return "indian";
+  if (/burger|pizza|sandwich|fries|wrap|taco|pasta|noodle|wings|nugget|hot dog|hotdog/.test(n)) return "fastfood";
+  if (/cake|ice cream|dessert|sweet|brownie|pastry|waffle|gulab|kheer|halwa|pudding|cookie|tart/.test(n)) return "desserts";
+  if (/salad|bowl|soup|healthy|avocado|quinoa|detox/.test(n)) return "healthy";
+  return "all";
+};
+
+// ── PreviewItemCard ──────────────────────────────────────────────────────────
+function PreviewItemCard({ item, onEdit, onToggle }) {
+  const isVeg = (item.type || "").toLowerCase() === "veg";
+  const available = item.available !== false;
+  return (
+    <div className={`relative rounded-2xl overflow-hidden border transition-all ${available ? "border-white/8 bg-white/4 hover:border-white/15 hover:bg-white/6" : "border-white/5 bg-white/2 opacity-50"}`}>
+      {/* Image */}
+      <div className="relative w-full h-32 bg-slate-800/80 overflow-hidden">
+        {item.image ? (
+          <img src={item.image} alt={item.name} className="w-full h-full object-cover" onError={e => e.currentTarget.style.display="none"} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-4xl opacity-10">🍽️</div>
+        )}
+        {/* Veg badge — Indian standard square */}
+        <div className={`absolute top-2 left-2 w-4 h-4 rounded-sm border-2 flex items-center justify-center ${isVeg ? "border-emerald-400 bg-black/60" : "border-red-400 bg-black/60"}`}>
+          <div className={`w-2 h-2 rounded-full ${isVeg ? "bg-emerald-400" : "bg-red-400"}`} />
+        </div>
+        {!available && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <span className="text-[10px] font-bold text-white/50 bg-black/60 px-2 py-0.5 rounded-full uppercase tracking-wide">Unavailable</span>
+          </div>
+        )}
+        {item.calories && (
+          <div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-black/70 backdrop-blur text-[9px] text-amber-300/80 font-semibold">{item.calories} kcal</div>
+        )}
+      </div>
+      {/* Body */}
+      <div className="p-3">
+        <p className="font-bold text-white/90 text-sm line-clamp-1 mb-0.5">{item.name}</p>
+        {item.description && <p className="text-[10px] text-white/40 line-clamp-2 mb-1.5 leading-relaxed">{item.description}</p>}
+        {item.ingredients && (
+          <div className="flex flex-wrap gap-1 mb-1.5">
+            {item.ingredients.split(",").slice(0,3).map((ing, i) => ing.trim() && (
+              <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/8 text-white/35">{ing.trim()}</span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-base font-black text-white">₹{item.price}</span>
+          <div className="flex items-center gap-1.5">
+            <button onClick={onToggle} className={`w-7 h-3.5 rounded-full transition-colors relative ${available ? "bg-emerald-500" : "bg-white/15"}`}>
+              <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-all ${available ? "left-3.5" : "left-0.5"}`} />
+            </button>
+            <button onClick={onEdit} className="text-white/25 hover:text-emerald-300 transition text-xs">✏️</button>
+          </div>
+        </div>
+        {item.tax > 0 && <p className="text-[9px] text-white/20 mt-0.5">{item.tax}% GST incl.</p>}
+      </div>
+    </div>
+  );
+}
+
 // ---------- Component ----------
 const CreateMenu = ({ onBack }) => {
   // State
@@ -239,7 +342,7 @@ const CreateMenu = ({ onBack }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [items, setItems] = useState([]);
 
-  const [activeTab, setActiveTab] = useState("manual"); // manual | quick | ai
+  const [activeTab, setActiveTab] = useState("manual"); // manual | quick | import
   const [showQuickStart, setShowQuickStart] = useState(false); // legacy flag (still drives the top "Quick Start" button)
   const [showPreview, setShowPreview] = useState(false);
 
@@ -255,9 +358,23 @@ const CreateMenu = ({ onBack }) => {
     tax: "",
     type: "veg",
     image: "",
+    images: [],
     categoryId: "",
     available: true,
+    description: "",
+    ingredients: "",
+    calories: "",
   });
+  const [itemModalTab, setItemModalTab] = useState("basic"); // basic | details | images
+  const [aiDescKeywords, setAiDescKeywords] = useState("");
+  const [aiDescGenerating, setAiDescGenerating] = useState(false);
+  const [itemImageUploading, setItemImageUploading] = useState(false);
+  const [itemContextMenu, setItemContextMenu] = useState(null); // { itemId, x, y }
+  const [showTemplatePreview, setShowTemplatePreview] = useState(null); // template key
+  const [aiCalorieGenerating, setAiCalorieGenerating] = useState(false);
+  const [imgSubTab, setImgSubTab] = useState("pick"); // "pick" | "upload" | "url"
+  const [imgPickSearch, setImgPickSearch] = useState("");
+  const [imgPickCat, setImgPickCat] = useState("all");
 
   const [aiForm, setAiForm] = useState({
     industry: "restaurant",   // restaurant | cafe | pizzeria | bar | fastfood
@@ -267,6 +384,16 @@ const CreateMenu = ({ onBack }) => {
   });
 
   const fileInputRef = useRef(null);
+  const importDropRef = useRef(null);
+
+  // ── Smart Import state ──────────────────────────────────────────────────────
+  const [importFiles, setImportFiles] = useState([]); // [{ file, preview, id }]
+  const [importScanning, setImportScanning] = useState(false);
+  const [importResults, setImportResults] = useState([]); // parsed menu rows
+  const [importHint, setImportHint] = useState(""); // e.g. "North Indian restaurant"
+  const [importDragging, setImportDragging] = useState(false);
+  const [importToast, setImportToast] = useState(null);
+  const [importSaving, setImportSaving] = useState(false);
 
   // decorate background
   const particles = useMemo(
@@ -485,6 +612,236 @@ const CreateMenu = ({ onBack }) => {
     setShowQuickStart(false);
   };
 
+  // ── Item Modal helpers ──────────────────────────────────────────────────────
+  const generateAIDescription = () => {
+    const name = itemModalValue.name.trim();
+    const kw = (aiDescKeywords || name).toLowerCase();
+    const isVeg = normalizeType(itemModalValue.type) === "veg";
+    setAiDescGenerating(true);
+
+    const has = (...words) => words.some(w => kw.includes(w));
+    const spicy = has("spicy","hot","fiery","bold","pungent","zesty","chili","pepper");
+    const creamy = has("creamy","rich","buttery","smooth","velvety","malai","makhani");
+    const fresh = has("fresh","light","healthy","crisp","garden","salad","green");
+    const smoky = has("smoky","grilled","tandoor","charred","bbq","coal");
+    const sweet = has("sweet","caramel","chocolate","dessert","sugar","honey","halwa");
+    const tangy = has("tangy","sour","tamarind","lemon","lime","amchur","chaat");
+    const crispy = has("crispy","crunchy","fried","golden","crisp");
+
+    const adj = spicy ? "boldly spiced and fiery"
+      : creamy ? "rich, creamy and indulgent"
+      : fresh ? "light, fresh and wholesome"
+      : smoky ? "smoky and flame-kissed"
+      : sweet ? "delicately sweet and comforting"
+      : tangy ? "tangy with a burst of flavor"
+      : crispy ? "perfectly crispy and golden"
+      : "carefully crafted and flavorful";
+
+    const base = isVeg ? "vegetarian dish" : "non-vegetarian specialty";
+    const kwPart = aiDescKeywords.trim()
+      ? `crafted with ${aiDescKeywords.trim()}`
+      : "made with premium, hand-picked ingredients";
+
+    const endings = [
+      "Prepared fresh to order with authentic flavors that keep guests coming back.",
+      "A beloved classic, perfected with every serving.",
+      "Every bite tells a story of tradition and quality.",
+      "Crafted with care — a true crowd favourite.",
+      "Ideal for sharing, though you may not want to!",
+    ];
+    const ending = endings[Math.floor(Math.random() * endings.length)];
+
+    const desc = `${name || "This dish"} is a ${adj} ${base} ${kwPart}. ${ending}`;
+    setTimeout(() => {
+      setItemModalValue(v => ({ ...v, description: desc }));
+      setAiDescGenerating(false);
+    }, 800);
+  };
+
+  const suggestAICalories = () => {
+    const combined = (itemModalValue.name + " " + (itemModalValue.ingredients || "")).toLowerCase();
+    const has = (...words) => words.some(w => combined.includes(w));
+    setAiCalorieGenerating(true);
+    setTimeout(() => {
+      let cal = 220;
+      if (has("biryani","pulao","fried rice")) cal = 380 + Math.floor(Math.random()*80);
+      else if (has("burger","pizza","sandwich","wrap")) cal = 420 + Math.floor(Math.random()*120);
+      else if (has("chicken","mutton","fish","prawn","egg")) cal = 290 + Math.floor(Math.random()*90);
+      else if (has("paneer","cheese","cream","butter","makhani")) cal = 310 + Math.floor(Math.random()*90);
+      else if (has("halwa","gulab","kheer","ice cream","cake","brownie")) cal = 340 + Math.floor(Math.random()*100);
+      else if (has("salad","raita","soup")) cal = 75 + Math.floor(Math.random()*55);
+      else if (has("dal","lentil")) cal = 170 + Math.floor(Math.random()*60);
+      else if (has("tea","chai","coffee")) cal = 50 + Math.floor(Math.random()*50);
+      else if (has("juice","shake","lassi","smoothie")) cal = 130 + Math.floor(Math.random()*80);
+      else if (has("bread","naan","roti","paratha")) cal = 180 + Math.floor(Math.random()*80);
+      else cal = 200 + Math.floor(Math.random()*120);
+      setItemModalValue(v => ({ ...v, calories: String(cal) }));
+      setAiCalorieGenerating(false);
+    }, 700);
+  };
+
+  const handleItemImageUpload = async (files) => {
+    const valid = Array.from(files).filter(f => f.type.startsWith("image/") && f.size <= 8 * 1024 * 1024);
+    if (!valid.length) return;
+    const uid = getUid();
+    if (!uid) return;
+    setItemImageUploading(true);
+    try {
+      const urls = [];
+      for (const file of valid) {
+        const path = `businesses/${uid}/menuItems/${Date.now()}-${file.name}`;
+        const sRef = storageRef(storage, path);
+        await uploadBytes(sRef, file);
+        const url = await getDownloadURL(sRef);
+        urls.push(url);
+      }
+      setItemModalValue(v => ({
+        ...v,
+        images: [...(v.images || []), ...urls],
+        image: v.image || urls[0] || "",
+      }));
+    } catch (e) {
+      console.error("Image upload error:", e);
+    }
+    setItemImageUploading(false);
+  };
+
+  const handleMoveItemToCategory = async (itemId, newCategoryId) => {
+    const uid = getUid();
+    if (!uid) return;
+    try {
+      await updateDoc(doc(db, "businesses", uid, "items", itemId), { categoryId: newCategoryId });
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, categoryId: newCategoryId } : i));
+    } catch (e) {
+      console.error("Move item error:", e);
+    }
+    setItemContextMenu(null);
+  };
+
+  // ── Smart Import helpers ────────────────────────────────────────────────────
+  const showImportToast = (msg, type = "info") => {
+    setImportToast({ msg, type });
+    setTimeout(() => setImportToast(null), 3500);
+  };
+
+  const toBase64 = (file) =>
+    new Promise((res, rej) => {
+      const r = new FileReader();
+      r.readAsDataURL(file);
+      r.onload = () => res(r.result.split(",")[1]);
+      r.onerror = rej;
+    });
+
+  const handleImportFiles = (files) => {
+    const valid = Array.from(files).filter(
+      (f) => f.size <= 10 * 1024 * 1024 && (f.type.startsWith("image/") || f.type === "application/pdf")
+    );
+    if (!valid.length) { showImportToast("Only images or PDFs under 10MB", "error"); return; }
+    const newEntries = valid.map((file) => {
+      const id = Math.random().toString(36).slice(2);
+      const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+      return { id, file, preview };
+    });
+    setImportFiles((prev) => [...prev, ...newEntries]);
+  };
+
+  const handleImportScan = async () => {
+    if (!importFiles.length) { showImportToast("Add at least one file first", "error"); return; }
+    setImportScanning(true);
+    setImportResults([]);
+    const aiUrl =
+      (typeof import.meta !== "undefined" && import.meta.env?.VITE_PARSE_CATALOGUE_AI_URL) ||
+      "https://us-central1-stockpilotv1.cloudfunctions.net/parseCatalogueWithAI";
+
+    const allRows = [];
+    for (const entry of importFiles) {
+      try {
+        const b64 = await toBase64(entry.file);
+        const isPdf = entry.file.type === "application/pdf";
+        const body = isPdf
+          ? { pdfBase64: b64, mimeType: "application/pdf" }
+          : { imageBase64: b64 };
+        body.menuHint = importHint.trim() || "restaurant menu — extract dish name, price, veg or non-veg type, category";
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 130000);
+        const resp = await fetch(aiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        clearTimeout(tid);
+        const data = await resp.json();
+        const products = data?.products || [];
+        products.forEach((p) => {
+          const rawType = String(p.type || p.brand || "").toLowerCase();
+          const isNonVeg = rawType.includes("nonveg") || rawType.includes("non-veg") || rawType.includes("nonvegetarian") || rawType.includes("chicken") || rawType.includes("mutton") || rawType.includes("fish") || rawType.includes("egg") || rawType.includes("meat");
+          allRows.push({
+            _id: Math.random().toString(36).slice(2),
+            name: p.name || p.productName || "",
+            price: String(p.price || p.sellingPrice || ""),
+            tax: String(p.tax || "5"),
+            type: isNonVeg ? "nonveg" : "veg",
+            categoryId: (p.category || "").toLowerCase().replace(/\s+/g, "") || "general",
+            categoryName: p.category || "General",
+            available: true,
+          });
+        });
+      } catch (err) {
+        console.error("Import scan error for", entry.file.name, err);
+      }
+    }
+
+    if (!allRows.length) {
+      showImportToast("No items found. Try a clearer image or add a hint.", "error");
+    } else {
+      setImportResults(allRows);
+      showImportToast(`✅ Found ${allRows.length} items — review and save`, "success");
+    }
+    setImportScanning(false);
+  };
+
+  const updateImportRow = (id, field, value) => {
+    setImportResults((prev) => prev.map((r) => r._id === id ? { ...r, [field]: value } : r));
+  };
+
+  const removeImportRow = (id) => {
+    setImportResults((prev) => prev.filter((r) => r._id !== id));
+  };
+
+  const handleImportSave = async () => {
+    if (!importResults.length) return;
+    setImportSaving(true);
+    try {
+      const uniqueCats = [...new Map(
+        importResults.map((r) => [r.categoryId, { id: r.categoryId, name: r.categoryName || r.categoryId }])
+      ).values()];
+      await ensureCategoriesExist(uniqueCats);
+      await seedItemsBulk(
+        importResults
+          .filter((r) => r.name.trim())
+          .map((r) => ({
+            name: r.name.trim(),
+            price: parseFloat(r.price) || 0,
+            tax: parseFloat(r.tax) || 5,
+            type: normalizeType(r.type),
+            categoryId: r.categoryId,
+            available: r.available !== false,
+            image: "",
+          }))
+      );
+      if (uniqueCats[0]) setSelectedCategoryId(uniqueCats[0].id);
+      setImportResults([]);
+      setImportFiles([]);
+      setActiveTab("manual");
+      showImportToast(`✅ ${importResults.length} items saved to menu!`, "success");
+    } catch (e) {
+      console.error("Import save error:", e);
+      showImportToast("Failed to save items", "error");
+    }
+    setImportSaving(false);
+  };
+
   // Fetch items on mount
   useEffect(() => {
     (async () => {
@@ -552,6 +909,15 @@ const CreateMenu = ({ onBack }) => {
 
   const [previewCategoryId, setPreviewCategoryId] = useState(selectedCategoryId);
   useEffect(() => setPreviewCategoryId(selectedCategoryId), [selectedCategoryId]);
+
+  // Auto-detect image category when switching to photos tab
+  useEffect(() => {
+    if (itemModalTab === "images") {
+      setImgPickCat(autoDetectImgCat(itemModalValue.name));
+      setImgPickSearch("");
+      setImgSubTab("pick");
+    }
+  }, [itemModalTab]); // eslint-disable-line
 
   const isAvailable = (it) => it.available !== false;
 
@@ -640,22 +1006,36 @@ const CreateMenu = ({ onBack }) => {
   // ---------- Item handlers ----------
   const handleAddItem = () => {
     setItemModalMode("add");
+    setItemModalTab("basic");
+    setAiDescKeywords("");
     setItemModalValue({
       id: "",
       name: "",
       price: "",
-      tax: "",
+      tax: "5",
       type: "veg",
       image: "",
+      images: [],
       categoryId: selectedCategoryId,
       available: true,
+      description: "",
+      ingredients: "",
+      calories: "",
     });
     setShowItemModal(true);
   };
 
   const handleEditItem = (item) => {
     setItemModalMode("edit");
-    setItemModalValue({ ...item });
+    setItemModalTab("basic");
+    setAiDescKeywords("");
+    setItemModalValue({
+      ...item,
+      images: item.images || [],
+      description: item.description || "",
+      ingredients: item.ingredients || "",
+      calories: item.calories || "",
+    });
     setShowItemModal(true);
   };
 
@@ -718,30 +1098,15 @@ const CreateMenu = ({ onBack }) => {
   });
 
   return (
-    <div className="relative w-full min-h-screen bg-transparent">
-      {/* Aurora / noise backdrop */}
-      <div className="pointer-events-none fixed inset-0 opacity-[0.9]">
-        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/20" />
-        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/20" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_rgba(16,185,129,0.08),_transparent_50%),radial-gradient(ellipse_at_top,_rgba(6,182,212,0.05),_transparent_40%)]" />
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_45%,rgba(0,0,0,0.28))]" />
-      </div>
-
-      {/* Particles */}
-      <div className="pointer-events-none fixed inset-0 z-0">
-        {particles.map((p) => (
-          <motion.span
-            key={p.id}
-            className="absolute rounded-full bg-white"
-            style={{ top: `${p.top}%`, left: `${p.left}%`, width: p.size, height: p.size, opacity: p.opacity }}
-            animate={{ opacity: [0, p.opacity, 0] }}
-            transition={{ repeat: Infinity, duration: 6 + p.delay, ease: "easeInOut", delay: p.delay }}
-          />
-        ))}
+    <div className="relative w-full h-full min-h-screen bg-slate-900 overflow-y-auto">
+      {/* Aurora */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/15" />
+        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/15" />
       </div>
 
       {/* Top Bar */}
-      <div className="sticky top-0 z-30 bg-transparent backdrop-blur-sm">
+      <div className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-sm border-b border-white/10">
         <div className="px-4 py-3 flex items-center gap-3">
           {onBack && (
             <button
@@ -755,15 +1120,19 @@ const CreateMenu = ({ onBack }) => {
           <div className="flex-1" />
           {/* Tab Bar */}
           <div className="flex items-center gap-2">
-            {["manual", "quick", "ai"].map((t) => (
+            {["manual", "quick", "import"].map((t) => (
               <button
                 key={t}
                 onClick={() => setActiveTab(t)}
-                className={`px-3 py-2 rounded-lg text-sm capitalize ${
-                  activeTab === t ? "bg-emerald-500 text-slate-900 font-semibold shadow" : "text-white/80 hover:bg-white/5"
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  activeTab === t
+                    ? t === "import"
+                      ? "bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/25"
+                      : "bg-emerald-500 text-slate-900 font-semibold shadow"
+                    : "text-white/60 hover:text-white hover:bg-white/5"
                 }`}
               >
-                {t === "manual" ? "Manual" : t === "quick" ? "Quick Start" : "AI"}
+                {t === "manual" ? "✏️ Manual" : t === "quick" ? "⚡ Quick Start" : "🤖 Smart Import"}
               </button>
             ))}
           </div>
@@ -854,11 +1223,10 @@ const CreateMenu = ({ onBack }) => {
               {categories.map((cat) => (
                 <motion.div
                   key={cat.id}
-                  layout
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ type: "spring", damping: 22, stiffness: 200 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.12 }}
                   className={`group flex items-center mb-2 last:mb-0 rounded-lg px-3 py-2 cursor-pointer transition ${
                     selectedCategoryId === cat.id ? "ring-2 ring-emerald-400/60 bg-white/10" : "hover:bg-white/5"
                   }`}
@@ -921,14 +1289,15 @@ const CreateMenu = ({ onBack }) => {
             <div className="flex-1 overflow-y-auto p-6 bg-[radial-gradient(1200px_600px_at_60%_20%,rgba(16,185,129,0.06),transparent),radial-gradient(1000px_500px_at_80%_80%,rgba(6,182,212,0.05),transparent)]">
               {selectedCategory ? (
                 viewMode === "grid" ? (
-                  <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-                    <AnimatePresence>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <AnimatePresence mode="popLayout">
                       {itemsInCategoryFiltered.length === 0 && (
                         <motion.div
                           key="no-items"
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
+                          transition={{ duration: 0.15 }}
                           className="col-span-full text-center text-white/40 mt-8"
                         >
                           No items match your filters.
@@ -937,54 +1306,88 @@ const CreateMenu = ({ onBack }) => {
                       {itemsInCategoryFiltered.map((item) => (
                         <motion.div
                           key={item.id}
-                          layout
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 20 }}
-                          transition={{ type: "spring", damping: 18, stiffness: 160 }}
-                          className={`relative flex flex-col rounded-2xl p-4 group border border-white/10 bg-white/5 text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur transition transform hover:-translate-y-1 hover:shadow-[0_18px_46px_rgba(20,184,166,0.35)] ${
-                            item.available === false ? "opacity-60" : ""
+                          initial={{ opacity: 0, scale: 0.97 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.97 }}
+                          transition={{ duration: 0.15 }}
+                          className={`relative flex flex-col rounded-2xl overflow-hidden group border transition-all ${
+                            item.available === false
+                              ? "border-white/5 bg-slate-800/40 opacity-60"
+                              : "border-white/10 bg-slate-800/70 hover:border-emerald-400/30 hover:shadow-[0_8px_24px_rgba(16,185,129,0.12)] hover:bg-slate-800/90"
                           }`}
                         >
-                          <div className="flex items-center gap-2 mb-2">
-                            {normalizeType(item.type) === "veg" ? (
-                              <span className="w-3 h-3 bg-emerald-400 rounded-full border border-emerald-600" title="Veg"></span>
+                          {/* Image area */}
+                          <div className="relative w-full h-28 bg-slate-700/50 overflow-hidden">
+                            {item.image ? (
+                              <img src={item.image} alt={item.name} className="w-full h-full object-cover transition group-hover:scale-105" onError={e => e.currentTarget.style.display="none"} />
                             ) : (
-                              <span className="w-3 h-3 bg-red-400 rounded-full border border-red-600" title="Non-Veg"></span>
+                              <div className="w-full h-full flex items-center justify-center text-4xl opacity-20">🍽️</div>
                             )}
-                            <span className="text-sm font-semibold truncate">{item.name}</span>
+                            {/* Veg/NonVeg badge */}
+                            <div className={`absolute top-2 left-2 w-4 h-4 rounded-sm border-2 flex items-center justify-center ${normalizeType(item.type) === "veg" ? "border-emerald-400 bg-emerald-900/70" : "border-red-400 bg-red-900/70"}`}>
+                              <div className={`w-2 h-2 rounded-full ${normalizeType(item.type) === "veg" ? "bg-emerald-400" : "bg-red-400"}`} />
+                            </div>
+                            {/* Move to category menu */}
+                            <div className="absolute top-1 right-1">
+                              <div className="relative">
+                                <button
+                                  onClick={e => { e.stopPropagation(); setItemContextMenu(itemContextMenu?.itemId === item.id ? null : { itemId: item.id }); }}
+                                  className="w-6 h-6 rounded-md bg-black/60 text-white/70 hover:text-white flex items-center justify-center text-xs backdrop-blur"
+                                >⋯</button>
+                                {itemContextMenu?.itemId === item.id && (
+                                  <div className="absolute right-0 top-7 z-50 w-44 rounded-xl border border-white/15 bg-slate-900/95 backdrop-blur shadow-2xl overflow-hidden text-xs">
+                                    <div className="px-3 py-2 text-white/40 font-semibold uppercase tracking-wider text-[10px] border-b border-white/8">Move to Category</div>
+                                    {categories.filter(c => c.id !== item.categoryId).map(c => (
+                                      <button key={c.id} onClick={() => handleMoveItemToCategory(item.id, c.id)} className="w-full px-3 py-2 text-left text-white/70 hover:bg-white/8 hover:text-white transition flex items-center gap-2">
+                                        <Icon token={c.icon || mapCategoryIdToIcon(c.id)} fallback={fallbackEmojiById(c.id)} className="w-3.5 h-3.5" />
+                                        {c.name}
+                                      </button>
+                                    ))}
+                                    <div className="border-t border-white/8">
+                                      <button onClick={() => { handleEditItem(item); setItemContextMenu(null); }} className="w-full px-3 py-2 text-left text-emerald-300/80 hover:bg-emerald-500/10 transition">✏️ Edit item</button>
+                                      <button onClick={() => { handleDeleteItem(item.id); setItemContextMenu(null); }} className="w-full px-3 py-2 text-left text-red-400/80 hover:bg-red-500/10 transition">🗑️ Delete</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {/* Unavailable overlay */}
+                            {item.available === false && (
+                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                                <span className="px-2 py-0.5 rounded bg-black/60 text-white/60 text-[10px] font-semibold uppercase tracking-wide">Unavailable</span>
+                              </div>
+                            )}
                           </div>
-                          {item.image && (
-                            <img
-                              src={item.image}
-                              alt={item.name}
-                              className="w-full h-28 object-cover rounded-lg mb-2 border border-white/10"
-                              onError={(e) => (e.currentTarget.style.display = "none")}
-                            />
-                          )}
-                          <div className="flex-1" />
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-base font-bold">₹{item.price}</span>
-                            <span className="text-xs text-white/60">Tax: {item.tax}%</span>
-                          </div>
-                          <div className="mt-3 flex items-center justify-between">
-                            <label className="flex items-center gap-2 text-xs text-white/70">
-                              <input type="checkbox" checked={item.available !== false} onChange={() => toggleAvailability(item)} />
-                              Available
-                            </label>
-                            <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                              <button className="text-xs text-white/60 hover:text-emerald-300 p-1" onClick={() => handleEditItem(item)} title="Edit">
-                                ✏️
+
+                          {/* Card body */}
+                          <div className="p-3 flex flex-col gap-1.5">
+                            <span className="text-sm font-semibold leading-tight text-white/90 line-clamp-1">{item.name}</span>
+                            {item.description && <p className="text-[10px] text-white/40 line-clamp-1">{item.description}</p>}
+                            <div className="flex items-center justify-between mt-0.5">
+                              <span className="text-base font-bold text-white">₹{item.price}</span>
+                              <div className="flex items-center gap-1.5">
+                                {item.calories && <span className="text-[10px] text-amber-300/60">{item.calories}kcal</span>}
+                                <span className="text-[10px] text-white/30">{item.tax}% GST</span>
+                              </div>
+                            </div>
+                            {/* Available toggle + quick actions */}
+                            <div className="flex items-center justify-between pt-1 border-t border-white/6">
+                              <button
+                                onClick={() => toggleAvailability(item)}
+                                className={`flex items-center gap-1.5 text-[10px] font-semibold transition ${item.available !== false ? "text-emerald-300" : "text-white/30"}`}
+                              >
+                                <span className={`w-6 h-3 rounded-full transition-colors relative inline-block ${item.available !== false ? "bg-emerald-500" : "bg-white/15"}`}>
+                                  <span className={`absolute top-0.5 w-2 h-2 rounded-full bg-white transition-all ${item.available !== false ? "left-3.5" : "left-0.5"}`} />
+                                </span>
+                                {item.available !== false ? "Available" : "Off"}
                               </button>
-                              <button className="text-xs text-white/60 hover:text-red-400 p-1" onClick={() => handleDeleteItem(item.id)} title="Delete">
-                                🗑️
-                              </button>
+                              <button onClick={() => handleEditItem(item)} className="text-white/30 hover:text-emerald-300 transition text-[11px] px-1.5 py-0.5 rounded hover:bg-white/8">✏️ Edit</button>
                             </div>
                           </div>
                         </motion.div>
                       ))}
                     </AnimatePresence>
-                  </motion.div>
+                  </div>
                 ) : (
                   <div className="divide-y rounded-xl border border-white/10">
                     {itemsInCategoryFiltered.map((item) => (
@@ -1019,132 +1422,506 @@ const CreateMenu = ({ onBack }) => {
 
       {/* Quick Start Panel */}
       {activeTab === "quick" && (
-        <div className="relative z-20 mx-4 md:mx-6 mb-4">
-          <div className="rounded-2xl border border-white/10 bg-slate-950/80 text-white shadow-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-white/10 bg-slate-900/60 backdrop-blur flex items-center gap-3">
-              <h3 className="text-lg font-semibold">Quick Start</h3>
-              <span className="text-white/60 text-sm">Create your menu in minutes</span>
+        <div className="relative z-20 mx-4 md:mx-6 mb-6 space-y-6">
+          {/* Header */}
+          <div className="flex items-center gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-white">⚡ Quick Start</h2>
+              <p className="text-white/50 text-sm mt-0.5">Pick a template and be ready in under 60 seconds</p>
             </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Templates */}
-              <div>
-                <div className="mb-3 text-white/80 font-medium">Use a template</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {Object.entries(MENU_TEMPLATES).map(([key, tpl]) => (
-                    <button
+            <div className="ml-auto flex gap-2">
+              <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={e => handleCSVUpload(e.target.files?.[0])} />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-2 rounded-xl text-sm font-semibold border border-white/15 text-white/70 hover:bg-white/8 hover:text-white transition flex items-center gap-2"
+              >📊 Import CSV</button>
+              <button
+                onClick={() => setActiveTab("import")}
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-500/20 to-indigo-500/20 border border-violet-500/30 text-violet-300 hover:from-violet-500/30 hover:to-indigo-500/30 transition flex items-center gap-2"
+              >🤖 Import from Photo/PDF</button>
+            </div>
+          </div>
+
+          {/* Template Cards */}
+          {(() => {
+            const TEMPLATE_META = {
+              cafe:     { emoji: "☕", gradient: "from-amber-500/20 via-orange-500/10 to-transparent", border: "border-amber-500/25", accent: "text-amber-300", badge: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+              north:    { emoji: "🍛", gradient: "from-orange-500/20 via-red-500/10 to-transparent", border: "border-orange-500/25", accent: "text-orange-300", badge: "bg-orange-500/15 text-orange-300 border-orange-500/30" },
+              south:    { emoji: "🥥", gradient: "from-green-500/20 via-emerald-500/10 to-transparent", border: "border-green-500/25", accent: "text-green-300", badge: "bg-green-500/15 text-green-300 border-green-500/30" },
+              pizzeria: { emoji: "🍕", gradient: "from-red-500/20 via-rose-500/10 to-transparent", border: "border-red-500/25", accent: "text-red-300", badge: "bg-red-500/15 text-red-300 border-red-500/30" },
+              fastfood: { emoji: "🍔", gradient: "from-yellow-500/20 via-amber-500/10 to-transparent", border: "border-yellow-500/25", accent: "text-yellow-300", badge: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" },
+              bar:      { emoji: "🍹", gradient: "from-purple-500/20 via-indigo-500/10 to-transparent", border: "border-purple-500/25", accent: "text-purple-300", badge: "bg-purple-500/15 text-purple-300 border-purple-500/30" },
+              bakery:   { emoji: "🎂", gradient: "from-pink-500/20 via-rose-500/10 to-transparent", border: "border-pink-500/25", accent: "text-pink-300", badge: "bg-pink-500/15 text-pink-300 border-pink-500/30" },
+            };
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {Object.entries(MENU_TEMPLATES).map(([key, tpl]) => {
+                  const meta = TEMPLATE_META[key] || TEMPLATE_META.cafe;
+                  return (
+                    <motion.button
                       key={key}
-                      onClick={() => applyTemplate(key)}
-                      className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition p-4 w-full"
+                      whileHover={{ scale: 1.02, y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => setShowTemplatePreview(key)}
+                      className={`relative text-left rounded-2xl border ${meta.border} bg-gradient-to-br ${meta.gradient} bg-slate-900/80 backdrop-blur overflow-hidden p-5 group transition-all hover:shadow-xl`}
                     >
-                      <div className="text-base font-semibold mb-1">{tpl.label}</div>
-                      <div className="text-sm text-white/70">{tpl.description}</div>
-                      <div className="mt-3 text-xs text-white/50">
-                        {tpl.categories.length} categories • {tpl.items.length} items
+                      {/* Glow */}
+                      <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-br from-white/5 to-transparent" />
+
+                      <div className="text-4xl mb-3 select-none">{meta.emoji}</div>
+                      <div className="font-bold text-white text-sm mb-1">{tpl.label}</div>
+                      <div className="text-[11px] text-white/50 mb-3 leading-relaxed">{tpl.description}</div>
+
+                      {/* Sample items */}
+                      <div className="space-y-0.5 mb-3">
+                        {tpl.items.slice(0, 3).map((item, i) => (
+                          <div key={i} className="flex items-center gap-1.5 text-[10px] text-white/40">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${normalizeType(item.type) === "veg" ? "bg-emerald-400" : "bg-red-400"}`} />
+                            <span className="truncate">{item.name}</span>
+                            <span className="ml-auto shrink-0 text-white/25">₹{item.price}</span>
+                          </div>
+                        ))}
+                        {tpl.items.length > 3 && <div className="text-[10px] text-white/25">+{tpl.items.length - 3} more</div>}
                       </div>
-                    </button>
-                  ))}
-                </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${meta.badge}`}>
+                          {tpl.categories.length} cats · {tpl.items.length} items
+                        </span>
+                        <span className={`text-xs font-bold ${meta.accent} opacity-0 group-hover:opacity-100 transition-opacity`}>Apply →</span>
+                      </div>
+                    </motion.button>
+                  );
+                })}
+
+                {/* Start empty card */}
+                <motion.button
+                  whileHover={{ scale: 1.02, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setActiveTab("manual")}
+                  className="text-left rounded-2xl border border-white/8 bg-white/3 hover:bg-white/5 hover:border-white/15 backdrop-blur p-5 transition-all group"
+                >
+                  <div className="text-4xl mb-3 select-none opacity-30">✏️</div>
+                  <div className="font-bold text-white/40 text-sm mb-1">Start Empty</div>
+                  <div className="text-[11px] text-white/25 mb-3">Add categories and items manually at your own pace.</div>
+                  <span className="text-[10px] font-semibold text-white/20 group-hover:text-white/40 transition">Go to Manual →</span>
+                </motion.button>
               </div>
-              {/* Import */}
-              <div>
-                <div className="mb-3 text-white/80 font-medium">Import from CSV / Sheet</div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-sm text-white/70">Upload a CSV with columns:</p>
-                  <pre className="mt-2 text-xs text-white/60 bg-black/30 rounded p-3 overflow-x-auto">
-                    name,categoryId,price,tax,type,image,available{"\n"}Idli,veg,40,5,veg,,true
-                  </pre>
-                  <div className="mt-3 flex items-center gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".csv"
-                      className="hidden"
-                      onChange={(e) => handleCSVUpload(e.target.files?.[0])}
-                    />
-                    <button
-                      className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-3 py-2 text-sm font-semibold shadow hover:shadow-lg"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      Upload CSV
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
-                  <div className="mb-2 text-white/80 font-medium">Start empty</div>
-                  <p className="text-sm text-white/70 mb-3">
-                    Add categories and items manually. You can always open Quick Start later.
-                  </p>
-                </div>
+            );
+          })()}
+
+          {/* CSV Import info */}
+          <div className="rounded-2xl border border-white/8 bg-white/3 p-5">
+            <div className="flex items-start gap-4">
+              <div className="text-2xl shrink-0">📊</div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-white/70 mb-1">Import from Google Sheets / Excel / CSV</p>
+                <p className="text-xs text-white/40 mb-3">Export your existing menu as CSV with these columns and upload:</p>
+                <pre className="text-[11px] text-emerald-300/60 bg-black/30 rounded-xl px-4 py-2.5 overflow-x-auto font-mono border border-white/5">
+{`name,categoryId,price,tax,type,image,available
+Paneer Butter Masala,veg,220,5,veg,,true
+Chicken Curry,nonveg,260,5,nonveg,,true`}
+                </pre>
               </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="shrink-0 px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-emerald-500/30"
+              >Upload CSV</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* AI Generator */}
-      {activeTab === "ai" && (
-        <div className="relative z-20 mx-4 md:mx-6 mb-4">
-          <div className="rounded-2xl border border-white/10 bg-slate-950/80 text-white shadow-xl overflow-hidden p-6">
-            <h3 className="text-lg font-semibold mb-4">✨ AI Menu Generator</h3>
-            <p className="text-sm text-white/70 mb-4">Describe your place and we’ll scaffold categories and items for you.</p>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <label className="block text-white/70 text-xs mb-1">Industry</label>
-                <select
-                  className="w-full border border-white/10 bg-white/5 text-white rounded px-2 py-2 text-sm"
-                  value={aiForm.industry}
-                  onChange={(e) => setAiForm((v) => ({ ...v, industry: e.target.value }))}
-                >
-                  <option value="restaurant">Restaurant</option>
-                  <option value="cafe">Café</option>
-                  <option value="pizzeria">Pizzeria</option>
-                  <option value="fastfood">Fast Food</option>
-                  <option value="bar">Bar</option>
-                </select>
+      {/* Smart Import Tab — WOW redesign */}
+      {activeTab === "import" && (
+        <div className="relative z-20 mx-4 md:mx-6 mb-6">
+          {/* Toast */}
+          <AnimatePresence>
+            {importToast && (
+              <motion.div
+                initial={{ opacity: 0, y: -16, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.96 }}
+                className={`fixed top-20 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-semibold backdrop-blur border flex items-center gap-2 ${
+                  importToast.type === "error" ? "bg-red-600/90 border-red-500/50 text-white" :
+                  importToast.type === "success" ? "bg-emerald-600/90 border-emerald-500/50 text-white" :
+                  "bg-slate-800/90 border-white/15 text-white"
+                }`}
+              >{importToast.msg}</motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── HERO ── */}
+          <div className="relative rounded-3xl overflow-hidden mb-6 border border-violet-500/20">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-900/60 via-indigo-900/40 to-slate-900/80" />
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-3xl bg-violet-500/15" />
+              <div className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-3xl bg-indigo-500/10" />
+            </div>
+            <div className="relative p-7 flex flex-col md:flex-row items-start md:items-center gap-6">
+              <motion.div
+                animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.05, 1] }}
+                transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
+                className="text-6xl select-none shrink-0"
+              >🤖</motion.div>
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                  <h2 className="text-2xl font-black text-white tracking-tight">Smart Import</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-violet-500 text-white uppercase tracking-wider">AI Powered</span>
+                </div>
+                <p className="text-white/60 text-sm max-w-lg leading-relaxed">
+                  Upload any menu — photo, PDF, handwritten card, or even a <strong className="text-white/90">Zomato/Swiggy screenshot</strong>. Our AI extracts every dish instantly. Zero typing.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {[["📸","Menu Photo"],["📄","PDF Menu"],["🗒️","Handwritten"],["📋","Price List"],["📱","Zomato Screenshot"]].map(([ic,lb]) => (
+                    <span key={lb} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-white/8 border border-white/12 text-white/70">
+                      <span>{ic}</span>{lb}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div>
-                <label className="block text-white/70 text-xs mb-1">Cuisine</label>
-                <select
-                  className="w-full border border-white/10 bg-white/5 text-white rounded px-2 py-2 text-sm"
-                  value={aiForm.cuisine}
-                  onChange={(e) => setAiForm((v) => ({ ...v, cuisine: e.target.value }))}
-                >
-                  <option value="north">North Indian</option>
-                  <option value="south">South Indian</option>
-                  <option value="continental">Continental</option>
-                  <option value="mixed">Mixed</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-white/70 text-xs mb-1">Price band</label>
-                <select
-                  className="w-full border border-white/10 bg-white/5 text-white rounded px-2 py-2 text-sm"
-                  value={aiForm.priceBand}
-                  onChange={(e) => setAiForm((v) => ({ ...v, priceBand: e.target.value }))}
-                >
-                  <option value="low">Low</option>
-                  <option value="mid">Mid</option>
-                  <option value="high">High</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-white/70 text-xs mb-1">Veg ratio (%)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  className="w-full border border-white/10 bg-white/5 text-white rounded px-2 py-2 text-sm"
-                  value={aiForm.vegRatio}
-                  onChange={(e) => setAiForm((v) => ({ ...v, vegRatio: e.target.value }))}
-                />
+              {/* Step flow */}
+              <div className="shrink-0 hidden lg:flex flex-col gap-1.5">
+                {[
+                  [importFiles.length > 0 ? "✓" : "1", "Upload files", importFiles.length > 0],
+                  [importHint ? "✓" : "2", "Add hint", !!importHint],
+                  [importScanning ? "…" : importResults.length > 0 ? "✓" : "3", "AI scans", importResults.length > 0 || importScanning],
+                  [importResults.length > 0 ? "4" : "4", "Review & save", false],
+                ].map(([num, label, done], i) => (
+                  <div key={i} className={`flex items-center gap-2 text-xs ${done ? "text-emerald-300" : "text-white/30"}`}>
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border ${done ? "bg-emerald-500 border-emerald-400 text-white" : "border-white/15 bg-white/5"}`}>{num}</span>
+                    {label}
+                  </div>
+                ))}
               </div>
             </div>
-            <button
-              className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-3 py-2 text-sm font-semibold shadow hover:shadow-lg"
-              onClick={handleAIGenerate}
-            >
-              Generate Menu
-            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+            {/* ── LEFT PANEL (upload + controls) ── */}
+            <div className="xl:col-span-2 space-y-4">
+
+              {/* Upload zone */}
+              <div
+                ref={importDropRef}
+                onDragOver={e => { e.preventDefault(); setImportDragging(true); }}
+                onDragLeave={() => setImportDragging(false)}
+                onDrop={e => { e.preventDefault(); setImportDragging(false); handleImportFiles(e.dataTransfer.files); }}
+                onClick={() => document.getElementById("import-file-input")?.click()}
+                className={`relative rounded-2xl border-2 transition-all duration-300 flex flex-col items-center justify-center p-8 min-h-[180px] cursor-pointer select-none overflow-hidden group ${
+                  importDragging
+                    ? "border-violet-400 bg-violet-500/15 shadow-[0_0_40px_rgba(139,92,246,0.3)]"
+                    : importFiles.length > 0
+                      ? "border-violet-500/40 bg-violet-500/8 hover:border-violet-400/60"
+                      : "border-white/10 bg-white/3 hover:border-violet-400/40 hover:bg-violet-500/5"
+                }`}
+              >
+                <input id="import-file-input" type="file" accept="image/*,.pdf" multiple className="hidden" onChange={e => handleImportFiles(e.target.files)} />
+                {/* Animated corner pulse when files added */}
+                {importFiles.length > 0 && (
+                  <motion.div
+                    animate={{ opacity: [0.3, 0.7, 0.3] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="absolute inset-0 rounded-2xl border-2 border-violet-400/30 pointer-events-none"
+                  />
+                )}
+                <AnimatePresence mode="wait">
+                  {importDragging ? (
+                    <motion.div key="drop" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="flex flex-col items-center gap-2">
+                      <div className="text-5xl">📂</div>
+                      <p className="text-violet-300 font-bold text-sm">Drop to add files</p>
+                    </motion.div>
+                  ) : importFiles.length > 0 ? (
+                    <motion.div key="has-files" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-1">
+                      <div className="text-3xl mb-1">✅</div>
+                      <p className="text-emerald-300 font-bold text-sm">{importFiles.length} file{importFiles.length > 1 ? "s" : ""} ready</p>
+                      <p className="text-white/40 text-xs">Click to add more</p>
+                    </motion.div>
+                  ) : (
+                    <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-2">
+                      <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }} className="text-4xl">📤</motion.div>
+                      <p className="text-white/70 font-semibold text-sm text-center">Drag & drop or click to upload</p>
+                      <p className="text-white/35 text-xs text-center">Images (JPG, PNG, WEBP) · PDF · Up to 10MB · Multiple OK</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* File thumbnails */}
+              <AnimatePresence>
+                {importFiles.length > 0 && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="grid grid-cols-3 gap-2">
+                    {importFiles.map((entry) => (
+                      <motion.div key={entry.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative rounded-xl overflow-hidden border border-white/10 bg-white/5 group">
+                        {entry.preview
+                          ? <img src={entry.preview} alt={entry.file.name} className="w-full h-20 object-cover" />
+                          : <div className="w-full h-20 flex items-center justify-center text-3xl bg-slate-800">📄</div>
+                        }
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all rounded-xl" />
+                        <button
+                          onClick={e => { e.stopPropagation(); setImportFiles(p => p.filter(f => f.id !== entry.id)); }}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                        >×</button>
+                        <div className="absolute bottom-0 inset-x-0 px-1.5 py-0.5 bg-black/60 backdrop-blur-sm">
+                          <p className="text-[9px] text-white/60 truncate">{entry.file.name}</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                    <button
+                      onClick={() => document.getElementById("import-file-input")?.click()}
+                      className="rounded-xl border-2 border-dashed border-white/10 hover:border-violet-400/50 h-24 flex flex-col items-center justify-center text-white/25 hover:text-violet-300 transition gap-1"
+                    >
+                      <span className="text-xl">+</span>
+                      <span className="text-[9px]">Add more</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Hint input */}
+              <div>
+                <label className="block text-xs text-white/50 mb-1.5 font-medium">
+                  Restaurant hint <span className="text-white/25 font-normal">(helps AI categorize better)</span>
+                </label>
+                <input
+                  value={importHint}
+                  onChange={e => setImportHint(e.target.value)}
+                  placeholder="e.g. North Indian, South Indian café, Fast food, Pizzeria…"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-violet-400/50 transition"
+                />
+              </div>
+
+              {/* Scan button */}
+              <motion.button
+                whileHover={{ scale: importScanning || !importFiles.length ? 1 : 1.01 }}
+                whileTap={{ scale: importScanning || !importFiles.length ? 1 : 0.98 }}
+                onClick={handleImportScan}
+                disabled={importScanning || !importFiles.length}
+                className="relative w-full py-3.5 rounded-2xl font-black text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed overflow-hidden"
+                style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5, #7c3aed)", backgroundSize: "200% 200%" }}
+              >
+                {/* Animated shimmer */}
+                {!importScanning && importFiles.length > 0 && (
+                  <motion.div
+                    animate={{ x: ["-100%", "200%"] }}
+                    transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none"
+                  />
+                )}
+                <span className="relative flex items-center justify-center gap-2 text-white">
+                  {importScanning ? (
+                    <>
+                      <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }} className="inline-block text-base">⚙️</motion.span>
+                      AI is reading your menu…
+                    </>
+                  ) : (
+                    <><span className="text-base">🤖</span> Scan & Extract All Dishes</>
+                  )}
+                </span>
+              </motion.button>
+              {importScanning && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="rounded-xl border border-violet-500/20 bg-violet-900/15 p-3 text-center"
+                >
+                  <div className="flex justify-center gap-1 mb-1.5">
+                    {[0,1,2,3,4].map(i => (
+                      <motion.div key={i} animate={{ scaleY: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 0.8, delay: i * 0.12 }} className="w-1 h-4 rounded-full bg-violet-400" />
+                    ))}
+                  </div>
+                  <p className="text-violet-300 text-xs font-semibold">Analyzing {importFiles.length} image{importFiles.length > 1 ? "s" : ""}…</p>
+                  <p className="text-white/30 text-[10px] mt-0.5">Detecting dishes, prices, categories & veg markers</p>
+                </motion.div>
+              )}
+
+              {/* Other sources */}
+              <div className="rounded-2xl border border-white/8 bg-white/3 p-4">
+                <p className="text-[11px] font-bold text-white/40 uppercase tracking-widest mb-3">💡 Also works with</p>
+                <div className="space-y-2.5">
+                  {[
+                    ["📱", "Zomato / Swiggy screenshot", "Screenshot the full menu page"],
+                    ["📦", "Old POS export PDF", "Most POS systems can export to PDF"],
+                    ["🖼️", "Physical menu card photo", "Just snap a photo with your phone"],
+                    ["⚡", "Quick Start templates", "Pre-built menus ready in 1 click"],
+                  ].map(([ic, title, sub]) => (
+                    <div key={title} className="flex items-start gap-2.5">
+                      <span className="text-base shrink-0 mt-0.5">{ic}</span>
+                      <div>
+                        <p className="text-xs text-white/60 font-medium">{title}</p>
+                        <p className="text-[10px] text-white/30">{sub}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ── RIGHT PANEL (results) ── */}
+            <div className="xl:col-span-3">
+              <AnimatePresence mode="wait">
+                {/* Empty state */}
+                {importResults.length === 0 && !importScanning && (
+                  <motion.div key="empty-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="rounded-2xl border border-white/8 bg-white/3 min-h-[420px] flex flex-col items-center justify-center text-center p-10"
+                  >
+                    <div className="w-20 h-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center text-4xl mb-4 mx-auto">🍽️</div>
+                    <p className="text-white/30 font-semibold text-sm mb-1">No items yet</p>
+                    <p className="text-white/20 text-xs max-w-xs">Upload your menu photos or PDF and click Scan — AI will extract all dishes here for review.</p>
+                    <div className="mt-6 flex gap-2 flex-wrap justify-center">
+                      {["Dishes detected automatically", "Prices extracted", "Auto veg/non-veg detection", "Editable before saving"].map(t => (
+                        <span key={t} className="px-2.5 py-1 rounded-full text-[10px] font-medium bg-white/5 border border-white/8 text-white/30">{t}</span>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Scanning state */}
+                {importScanning && (
+                  <motion.div key="scanning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-900/20 to-indigo-900/20 min-h-[420px] flex flex-col items-center justify-center text-center p-10"
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                      className="text-7xl mb-6 select-none"
+                    >🤖</motion.div>
+                    <p className="text-violet-300 font-black text-lg mb-2">Reading your menu…</p>
+                    <p className="text-white/40 text-sm mb-6">Detecting every dish, price and ingredient</p>
+                    {/* Fake progress bars */}
+                    <div className="w-full max-w-xs space-y-2">
+                      {["Parsing text content", "Detecting dish names", "Extracting prices", "Classifying veg/non-veg"].map((label, i) => (
+                        <div key={label} className="flex items-center gap-2">
+                          <motion.div
+                            animate={{ opacity: [0.3, 1, 0.3] }}
+                            transition={{ repeat: Infinity, duration: 1.5, delay: i * 0.3 }}
+                            className="flex-1"
+                          >
+                            <div className="flex items-center justify-between text-[10px] text-white/30 mb-0.5">
+                              <span>{label}</span>
+                            </div>
+                            <div className="h-1 rounded-full bg-white/8 overflow-hidden">
+                              <motion.div
+                                animate={{ width: ["0%", "100%", "100%"] }}
+                                transition={{ repeat: Infinity, duration: 2, delay: i * 0.4 }}
+                                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-400"
+                              />
+                            </div>
+                          </motion.div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Results */}
+                {importResults.length > 0 && (
+                  <motion.div key="results" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 backdrop-blur overflow-hidden"
+                  >
+                    {/* Results header */}
+                    <div className="px-5 py-4 bg-gradient-to-r from-emerald-900/30 to-teal-900/20 border-b border-emerald-500/15 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center text-base">✅</div>
+                      <div>
+                        <p className="text-sm font-bold text-white">AI extracted {importResults.length} items</p>
+                        <p className="text-[11px] text-white/40">Review and edit before saving to your menu</p>
+                      </div>
+                      <button onClick={() => setImportResults([])} className="ml-auto text-white/20 hover:text-white/50 text-xs transition px-2 py-1 rounded-lg hover:bg-white/8">✕ Clear</button>
+                    </div>
+
+                    {/* Table */}
+                    <div className="max-h-[400px] overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-slate-900/95 backdrop-blur border-b border-white/8">
+                          <tr>
+                            <th className="px-4 py-2.5 text-left text-white/40 font-semibold">Dish Name</th>
+                            <th className="px-2 py-2.5 text-left text-white/40 font-semibold">₹ Price</th>
+                            <th className="px-2 py-2.5 text-left text-white/40 font-semibold">Tax</th>
+                            <th className="px-2 py-2.5 text-left text-white/40 font-semibold">Category</th>
+                            <th className="px-2 py-2.5 text-center text-white/40 font-semibold">Type</th>
+                            <th className="px-2 py-2.5 text-center text-white/40 font-semibold">On</th>
+                            <th className="px-2 py-2.5" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importResults.map((row, idx) => (
+                            <motion.tr
+                              key={row._id}
+                              initial={{ opacity: 0, x: -8 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: idx * 0.03 }}
+                              className="border-b border-white/5 hover:bg-white/3 group transition"
+                            >
+                              <td className="px-4 py-2">
+                                <input value={row.name} onChange={e => updateImportRow(row._id, "name", e.target.value)}
+                                  className="w-full bg-transparent focus:bg-white/5 border-b border-transparent focus:border-violet-400/60 outline-none text-white/85 py-0.5 px-0.5 rounded transition text-xs" />
+                              </td>
+                              <td className="px-2 py-2">
+                                <div className="flex items-center gap-0.5">
+                                  <span className="text-white/25 text-[10px]">₹</span>
+                                  <input type="number" value={row.price} onChange={e => updateImportRow(row._id, "price", e.target.value)}
+                                    className="w-16 bg-transparent focus:bg-white/5 border-b border-transparent focus:border-violet-400/60 outline-none text-white/85 py-0.5 px-0.5 rounded transition text-xs" />
+                                </div>
+                              </td>
+                              <td className="px-2 py-2">
+                                <div className="flex items-center gap-0.5">
+                                  <input type="number" value={row.tax} onChange={e => updateImportRow(row._id, "tax", e.target.value)}
+                                    className="w-8 bg-transparent focus:bg-white/5 border-b border-transparent focus:border-violet-400/60 outline-none text-white/60 py-0.5 px-0.5 rounded transition text-xs" />
+                                  <span className="text-white/20 text-[10px]">%</span>
+                                </div>
+                              </td>
+                              <td className="px-2 py-2">
+                                <input value={row.categoryName} onChange={e => updateImportRow(row._id, "categoryName", e.target.value)}
+                                  className="w-24 bg-transparent focus:bg-white/5 border-b border-transparent focus:border-violet-400/60 outline-none text-white/50 py-0.5 px-0.5 rounded transition text-xs" />
+                              </td>
+                              <td className="px-2 py-2 text-center">
+                                <button
+                                  onClick={() => updateImportRow(row._id, "type", row.type === "veg" ? "nonveg" : "veg")}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-black border transition ${
+                                    row.type === "veg"
+                                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
+                                      : "bg-red-500/15 text-red-300 border-red-500/30 hover:bg-red-500/25"
+                                  }`}
+                                >{row.type === "veg" ? "🌿 V" : "🍗 NV"}</button>
+                              </td>
+                              <td className="px-2 py-2 text-center">
+                                <button
+                                  onClick={() => updateImportRow(row._id, "available", !row.available)}
+                                  className={`w-8 h-4 rounded-full transition-all relative ${row.available ? "bg-emerald-500" : "bg-white/15"}`}
+                                >
+                                  <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all ${row.available ? "left-4.5" : "left-0.5"}`} />
+                                </button>
+                              </td>
+                              <td className="px-2 py-2 text-center">
+                                <button onClick={() => removeImportRow(row._id)} className="w-5 h-5 rounded-full text-white/15 hover:text-red-400 hover:bg-red-500/10 transition flex items-center justify-center text-base leading-none">×</button>
+                              </td>
+                            </motion.tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="px-5 py-4 border-t border-white/8 flex items-center justify-between gap-3 bg-slate-900/40">
+                      <div>
+                        <p className="text-xs text-white/40">All fields editable · Categories auto-created</p>
+                        <p className="text-[10px] text-white/25 mt-0.5">{importResults.filter(r => r.available).length} available · {importResults.filter(r => !r.available).length} unavailable</p>
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleImportSave}
+                        disabled={importSaving}
+                        className="px-6 py-2.5 rounded-xl text-sm font-black bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-lg shadow-emerald-500/25 transition disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {importSaving ? (
+                          <><motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}>⏳</motion.span> Saving…</>
+                        ) : (
+                          <><span>💾</span> Save {importResults.length} items to Menu</>
+                        )}
+                      </motion.button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       )}
@@ -1234,124 +2011,492 @@ const CreateMenu = ({ onBack }) => {
         )}
       </AnimatePresence>
 
-      {/* Item Modal */}
+      {/* Item Modal — full redesign */}
       <AnimatePresence>
         {showItemModal && (
           <motion.div
-            className="fixed inset-0 z-40 flex items-center justify-center bg-black/60"
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={() => setShowItemModal(false)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 200, damping: 24 }}
-              className="bg-slate-900 text-white border border-white/10 rounded-2xl shadow-2xl w-96 p-7"
+              initial={{ scale: 0.93, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.93, opacity: 0, y: 20 }}
+              transition={{ type: "spring", stiffness: 260, damping: 26 }}
+              className="relative w-full max-w-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-white border border-white/10 rounded-3xl shadow-[0_32px_80px_rgba(0,0,0,0.6)] overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold mb-4">
-                {itemModalMode === "add" ? "Add Item" : "Edit Item"}
-              </h3>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleItemModalSave();
-                }}
-              >
-                <div className="mb-3">
-                  <label className="block text-white/70 text-sm mb-1">Name</label>
-                  <input
-                    type="text"
-                    className="w-full border border-white/10 bg-white/5 text-white placeholder:text-white/40 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
-                    placeholder="Item name"
-                    value={itemModalValue.name}
-                    onChange={(e) => setItemModalValue((v) => ({ ...v, name: e.target.value }))}
-                    required
-                  />
+              {/* Glow accent */}
+              <div className="pointer-events-none absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl bg-emerald-500/10" />
+              <div className="pointer-events-none absolute -bottom-20 -left-20 w-64 h-64 rounded-full blur-3xl bg-cyan-500/8" />
+
+              {/* Header */}
+              <div className="relative flex items-center gap-3 px-6 py-4 border-b border-white/8 bg-white/3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
+                  normalizeType(itemModalValue.type) === "veg"
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "bg-red-500/20 text-red-300"
+                }`}>
+                  {normalizeType(itemModalValue.type) === "veg" ? "🌿" : "🍗"}
                 </div>
-                <div className="mb-3 flex gap-3">
-                  <div className="flex-1">
-                    <label className="block text-white/70 text-sm mb-1">Price (₹)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-full border border-white/10 bg-white/5 text-white placeholder:text-white/40 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
-                      placeholder="Price"
-                      value={itemModalValue.price}
-                      onChange={(e) =>
-                        setItemModalValue((v) => ({ ...v, price: e.target.value.replace(/^0+(?!\.)/, "") }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="w-24">
-                    <label className="block text-white/70 text-sm mb-1">Tax %</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-full border border-white/10 bg-white/5 text-white placeholder:text-white/40 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
-                      placeholder="Tax"
-                      value={itemModalValue.tax}
-                      onChange={(e) =>
-                        setItemModalValue((v) => ({ ...v, tax: e.target.value.replace(/^0+(?!\.)/, "") }))
-                      }
-                    />
-                  </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">{itemModalMode === "add" ? "Add New Item" : "Edit Item"}</h3>
+                  <p className="text-[11px] text-white/40">Fill in details to create a rich menu card</p>
                 </div>
-                <div className="mb-3 flex gap-3">
-                  <div className="flex-1">
-                    <label className="block text-white/70 text-sm mb-1">Type</label>
-                    <select
-                      className="w-full border border-white/10 bg-white/5 text-white placeholder:text-white/40 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
-                      value={itemModalValue.type}
-                      onChange={(e) => setItemModalValue((v) => ({ ...v, type: e.target.value }))}
+                <div className="ml-auto flex items-center gap-3">
+                  {/* Available toggle */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-white/50">Available</span>
+                    <button
+                      type="button"
+                      onClick={() => setItemModalValue(v => ({ ...v, available: !v.available }))}
+                      className={`w-10 h-5 rounded-full transition-colors relative ${itemModalValue.available ? "bg-emerald-500" : "bg-white/20"}`}
                     >
-                      <option value="veg">Veg</option>
-                      <option value="nonveg">Non-Veg</option>
-                    </select>
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${itemModalValue.available ? "left-5.5 translate-x-0.5" : "left-0.5"}`} />
+                    </button>
                   </div>
-                  <div className="flex-1">
-                    <label className="block text-white/70 text-sm mb-1">Image URL</label>
-                    <input
-                      type="url"
-                      className="w-full border border-white/10 bg-white/5 text-white placeholder:text-white/40 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
-                      placeholder="https://..."
-                      value={itemModalValue.image}
-                      onChange={(e) => setItemModalValue((v) => ({ ...v, image: e.target.value }))}
-                    />
-                  </div>
+                  <button onClick={() => setShowItemModal(false)} className="w-8 h-8 rounded-lg hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition">✕</button>
                 </div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="flex items-center gap-2 text-xs text-white/70">
-                    <input
-                      type="checkbox"
-                      checked={itemModalValue.available !== false}
-                      onChange={(e) => setItemModalValue((v) => ({ ...v, available: e.target.checked }))}
-                    />
-                    Available
-                  </label>
-                  <div className="text-xs text-white/50">Category: {selectedCategory?.name || "—"}</div>
-                </div>
-                <div className="flex justify-end gap-2 mt-1">
+              </div>
+
+              {/* Tabs */}
+              <div className="flex gap-1 px-6 pt-4 pb-0">
+                {[["basic","✏️ Basic Info"],["details","✨ Description & Nutrition"],["images","🖼️ Photos"]].map(([t,label]) => (
                   <button
+                    key={t}
                     type="button"
-                    className="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-white/80"
-                    onClick={() => setShowItemModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <motion.button
-                    whileHover={{ scale: 1.04 }}
-                    whileTap={{ scale: 0.96 }}
-                    type="submit"
-                    className="px-4 py-2 rounded bg-emerald-500 hover:bg-emerald-600 text-white font-medium"
-                  >
-                    {itemModalMode === "add" ? "Add" : "Save"}
-                  </motion.button>
+                    onClick={() => setItemModalTab(t)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                      itemModalTab === t
+                        ? "bg-white/10 text-white border border-white/15"
+                        : "text-white/40 hover:text-white/70 hover:bg-white/5"
+                    }`}
+                  >{label}</button>
+                ))}
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleItemModalSave(); }} className="p-6">
+
+                {/* ── Tab: Basic Info ── */}
+                {itemModalTab === "basic" && (
+                  <div className="space-y-4">
+                    {/* Name + Type row */}
+                    <div className="flex gap-3 items-end">
+                      <div className="flex-1">
+                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Dish Name *</label>
+                        <input
+                          autoFocus
+                          type="text"
+                          required
+                          value={itemModalValue.name}
+                          onChange={e => setItemModalValue(v => ({ ...v, name: e.target.value }))}
+                          placeholder="e.g. Paneer Butter Masala"
+                          className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                        />
+                      </div>
+                      {/* Veg / Non-Veg pill toggle */}
+                      <div className="shrink-0">
+                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Type</label>
+                        <div className="flex rounded-xl overflow-hidden border border-white/10">
+                          <button type="button"
+                            onClick={() => setItemModalValue(v => ({ ...v, type: "veg" }))}
+                            className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-500 text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}
+                          ><span className="w-2.5 h-2.5 rounded-full bg-current opacity-70" />VEG</button>
+                          <button type="button"
+                            onClick={() => setItemModalValue(v => ({ ...v, type: "nonveg" }))}
+                            className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "nonveg" ? "bg-red-500 text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}
+                          ><span className="w-2.5 h-2.5 rounded-full bg-current opacity-70" />NON-VEG</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Price + Tax + Category */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Price (₹) *</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-sm">₹</span>
+                          <input
+                            type="number" min="0" step="0.01" required
+                            value={itemModalValue.price}
+                            onChange={e => setItemModalValue(v => ({ ...v, price: e.target.value.replace(/^0+(?!\.)/, "") }))}
+                            placeholder="0"
+                            className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/50 mb-1.5 font-medium">GST Tax % <span className="text-white/25 font-normal">(optional)</span></label>
+                        <input
+                          type="number" min="0" step="0.01"
+                          value={itemModalValue.tax}
+                          onChange={e => setItemModalValue(v => ({ ...v, tax: e.target.value.replace(/^0+(?!\.)/, "") }))}
+                          placeholder="5"
+                          className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Category</label>
+                        <select
+                          value={itemModalValue.categoryId}
+                          onChange={e => setItemModalValue(v => ({ ...v, categoryId: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                        >
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Quick image URL */}
+                    <div>
+                      <label className="block text-xs text-white/50 mb-1.5 font-medium">Main Image URL <span className="text-white/25 font-normal">(or use Photos tab for upload)</span></label>
+                      <input
+                        type="url"
+                        value={itemModalValue.image}
+                        onChange={e => setItemModalValue(v => ({ ...v, image: e.target.value }))}
+                        placeholder="https://example.com/dish.jpg"
+                        className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                      />
+                    </div>
+
+                    {/* Price preview */}
+                    {itemModalValue.price && (
+                      <div className="rounded-xl bg-emerald-500/8 border border-emerald-500/20 px-4 py-3 flex items-center gap-4">
+                        <div>
+                          <p className="text-[10px] text-emerald-300/70 font-medium uppercase tracking-wider">Base Price</p>
+                          <p className="text-lg font-bold text-emerald-300">₹{parseFloat(itemModalValue.price || 0).toFixed(0)}</p>
+                        </div>
+                        {itemModalValue.tax > 0 && (
+                          <>
+                            <span className="text-white/20">+</span>
+                            <div>
+                              <p className="text-[10px] text-white/40 font-medium uppercase tracking-wider">GST ({itemModalValue.tax}%)</p>
+                              <p className="text-sm font-semibold text-white/60">₹{(parseFloat(itemModalValue.price || 0) * parseFloat(itemModalValue.tax || 0) / 100).toFixed(2)}</p>
+                            </div>
+                            <span className="text-white/20">=</span>
+                            <div>
+                              <p className="text-[10px] text-white/40 font-medium uppercase tracking-wider">Total</p>
+                              <p className="text-lg font-bold text-white">₹{(parseFloat(itemModalValue.price || 0) * (1 + parseFloat(itemModalValue.tax || 0) / 100)).toFixed(0)}</p>
+                            </div>
+                          </>
+                        )}
+                        <div className="ml-auto">
+                          <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${itemModalValue.available ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/40"}`}>
+                            {itemModalValue.available ? "● Available" : "○ Unavailable"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Tab: Description & Nutrition ── */}
+                {itemModalTab === "details" && (
+                  <div className="space-y-4">
+                    {/* AI Description */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs text-white/50 font-medium">Description</label>
+                        <span className="text-[10px] text-violet-300/70 font-medium">✨ AI powered</span>
+                      </div>
+                      {/* Keywords input */}
+                      <div className="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={aiDescKeywords}
+                          onChange={e => setAiDescKeywords(e.target.value)}
+                          placeholder="Type keywords: spicy, creamy, tomato, cheese…"
+                          className="flex-1 px-3 py-2 rounded-xl border border-violet-500/40 bg-slate-800 text-white text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-violet-400/50"
+                        />
+                        <button
+                          type="button"
+                          onClick={generateAIDescription}
+                          disabled={aiDescGenerating}
+                          className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-violet-500 to-indigo-500 text-white disabled:opacity-60 flex items-center gap-1.5 transition hover:shadow-lg hover:shadow-violet-500/25 whitespace-nowrap"
+                        >
+                          {aiDescGenerating ? (
+                            <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}>⏳</motion.span>
+                          ) : "✨"} Generate
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-white/30 mb-2">e.g. "spicy, creamy, paneer, cashew gravy" → AI writes a rich description</p>
+                      <textarea
+                        rows={4}
+                        value={itemModalValue.description}
+                        onChange={e => setItemModalValue(v => ({ ...v, description: e.target.value }))}
+                        placeholder="Describe how it's made, the flavors, the story behind it…"
+                        className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 resize-none leading-relaxed"
+                      />
+                    </div>
+
+                    {/* Ingredients */}
+                    <div>
+                      <label className="block text-xs text-white/50 mb-1.5 font-medium">Ingredients <span className="text-white/25 font-normal">(comma-separated)</span></label>
+                      <input
+                        type="text"
+                        value={itemModalValue.ingredients}
+                        onChange={e => setItemModalValue(v => ({ ...v, ingredients: e.target.value }))}
+                        placeholder="Paneer, Butter, Tomatoes, Cream, Spices…"
+                        className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                      />
+                      {/* Tag preview */}
+                      {itemModalValue.ingredients && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {itemModalValue.ingredients.split(",").map((ing, i) => ing.trim() && (
+                            <span key={i} className="px-2 py-0.5 rounded-full bg-white/8 border border-white/10 text-[11px] text-white/70">{ing.trim()}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Calories + serving */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs text-white/50 font-medium">Calories (kcal)</label>
+                        <button
+                          type="button"
+                          onClick={suggestAICalories}
+                          disabled={aiCalorieGenerating || (!itemModalValue.name && !itemModalValue.ingredients)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition disabled:opacity-40"
+                        >
+                          {aiCalorieGenerating ? (
+                            <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7, ease: "linear" }} className="inline-block">⏳</motion.span>
+                          ) : "🔥"} Suggest from ingredients
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="relative">
+                          <input
+                            type="number" min="0"
+                            value={itemModalValue.calories}
+                            onChange={e => setItemModalValue(v => ({ ...v, calories: e.target.value }))}
+                            placeholder="e.g. 350"
+                            className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-slate-800 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400/40 text-sm"
+                          />
+                          {itemModalValue.calories && (
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 text-xs">kcal</span>
+                          )}
+                        </div>
+                        <div className="rounded-xl bg-amber-500/5 border border-amber-500/15 p-3 flex flex-col justify-center">
+                          {itemModalValue.calories ? (
+                            <div>
+                              <p className="text-[10px] text-amber-300/60 uppercase tracking-wider font-medium">Energy</p>
+                              <p className="text-xl font-black text-amber-300">{itemModalValue.calories} <span className="text-xs font-normal opacity-60">kcal</span></p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-white/20 text-center">AI will estimate →</p>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-amber-300/40 mt-1.5 flex items-center gap-1">⚠️ AI estimated — please follow ideal nutritional guidelines. For reference only.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Tab: Photos ── */}
+                {itemModalTab === "images" && (
+                  <div className="space-y-3">
+
+                    {/* ── Quick controls: Veg/NonVeg + Available ── */}
+                    <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-white/3 border border-white/8">
+                      <span className="text-xs text-white/40 font-medium shrink-0">Quick:</span>
+                      <div className="flex rounded-xl overflow-hidden border border-white/10 shrink-0">
+                        <button type="button" onClick={() => setItemModalValue(v => ({ ...v, type: "veg" }))}
+                          className={`px-3 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-500 text-white" : "bg-white/5 text-white/40 hover:bg-white/8"}`}
+                        ><span className="w-2 h-2 rounded-full bg-current opacity-80" />VEG</button>
+                        <button type="button" onClick={() => setItemModalValue(v => ({ ...v, type: "nonveg" }))}
+                          className={`px-3 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "nonveg" ? "bg-red-500 text-white" : "bg-white/5 text-white/40 hover:bg-white/8"}`}
+                        ><span className="w-2 h-2 rounded-full bg-current opacity-80" />NON-VEG</button>
+                      </div>
+                      <div className="ml-auto flex items-center gap-2">
+                        <span className="text-xs text-white/40">Available</span>
+                        <button type="button" onClick={() => setItemModalValue(v => ({ ...v, available: !v.available }))}
+                          className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${itemModalValue.available ? "bg-emerald-500" : "bg-white/15"}`}
+                        >
+                          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${itemModalValue.available ? "left-4" : "left-0.5"}`} />
+                        </button>
+                        <span className={`text-xs font-bold ${itemModalValue.available ? "text-emerald-300" : "text-white/25"}`}>{itemModalValue.available ? "On" : "Off"}</span>
+                      </div>
+                    </div>
+
+                    {/* ── Sub-tabs ── */}
+                    <div className="flex gap-1 p-1 rounded-xl bg-white/4 border border-white/8">
+                      {[["pick","🔍 Find Image"],["upload","📷 Upload"],["url","🔗 URL"]].map(([t, label]) => (
+                        <button key={t} type="button" onClick={() => setImgSubTab(t)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${imgSubTab === t ? "bg-white/10 text-white border border-white/15" : "text-white/40 hover:text-white/70"}`}
+                        >{label}</button>
+                      ))}
+                    </div>
+
+                    {/* ── Sub-tab: Find Image (inline picker) ── */}
+                    {imgSubTab === "pick" && (() => {
+                      const q = imgPickSearch.toLowerCase().trim();
+                      const scoreImg = (img) => {
+                        const combined = (img.label + " " + img.tags).toLowerCase();
+                        const name = (itemModalValue.name || "").toLowerCase();
+                        const allQ = (q + " " + name).trim();
+                        if (!allQ) return 0;
+                        return allQ.split(/\s+/).filter(Boolean).reduce((s, w) => s + (combined.includes(w) ? 1 : 0), 0);
+                      };
+                      const filtered = FOOD_IMG_DB
+                        .filter(img => imgPickCat === "all" || img.cat === imgPickCat)
+                        .filter(img => !q || scoreImg(img) > 0 || (img.label + " " + img.tags).toLowerCase().includes(q))
+                        .sort((a, b) => scoreImg(b) - scoreImg(a));
+                      const isSelected = (url) => itemModalValue.image === url || (itemModalValue.images || []).includes(url);
+                      const pickImage = (url) => {
+                        if (isSelected(url)) return;
+                        setItemModalValue(v => ({
+                          ...v,
+                          image: v.image || url,
+                          images: [...(v.images || []), url],
+                        }));
+                      };
+                      return (
+                        <div className="space-y-2.5">
+                          {/* Search */}
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25 text-sm">🔍</span>
+                            <input
+                              type="text"
+                              value={imgPickSearch}
+                              onChange={e => setImgPickSearch(e.target.value)}
+                              placeholder={`Search images for "${itemModalValue.name || "your dish"}"…`}
+                              className="w-full pl-9 pr-8 py-2 rounded-xl border border-white/10 bg-slate-800 text-white text-sm placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                            />
+                            {imgPickSearch && <button type="button" onClick={() => setImgPickSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/50 transition text-xs">✕</button>}
+                          </div>
+
+                          {/* Category filter chips */}
+                          <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{scrollbarWidth:"none"}}>
+                            {[["all","🍽️ All"],["beverages","☕ Beverages"],["indian","🍛 Indian"],["fastfood","🍔 Fast Food"],["desserts","🎂 Desserts"],["healthy","🥗 Healthy"],["aesthetic","✨ Aesthetic"]].map(([c,label]) => (
+                              <button key={c} type="button" onClick={() => setImgPickCat(c)}
+                                className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-bold transition border ${imgPickCat === c ? "bg-emerald-500 border-emerald-400 text-white" : "border-white/10 bg-white/4 text-white/45 hover:bg-white/8 hover:text-white/70"}`}
+                              >{label}</button>
+                            ))}
+                          </div>
+
+                          {/* Image grid */}
+                          {filtered.length === 0 ? (
+                            <p className="text-xs text-white/30 text-center py-4">No images found for "{imgPickSearch}"</p>
+                          ) : (
+                            <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-0.5">
+                              {filtered.map(img => {
+                                const sel = isSelected(img.url);
+                                const score = scoreImg(img);
+                                return (
+                                  <button key={img.id} type="button" onClick={() => pickImage(img.url)}
+                                    className={`relative rounded-xl overflow-hidden border-2 transition group ${sel ? "border-emerald-400 ring-2 ring-emerald-400/40" : "border-white/8 hover:border-emerald-400/50"}`}
+                                  >
+                                    <img src={img.url} alt={img.label} className="w-full h-16 object-cover group-hover:scale-105 transition-transform duration-200" onError={e => { e.currentTarget.style.display="none"; e.currentTarget.parentElement.querySelector(".fallback")?.style.setProperty("display","flex"); }} />
+                                    <div className="fallback hidden w-full h-16 bg-slate-700 items-center justify-center text-2xl opacity-30">🍽️</div>
+                                    {sel && <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center"><span className="text-lg text-emerald-300">✓</span></div>}
+                                    {score > 1 && !sel && <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-violet-500/80 border border-violet-400/60" title="AI match" />}
+                                    <div className="absolute bottom-0 left-0 right-0 px-1 py-0.5 bg-black/60 text-[8px] text-white/70 truncate">{img.label}</div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* License badge */}
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+                            <span className="text-emerald-300/60 text-xs">✅</span>
+                            <p className="text-[10px] text-emerald-300/50 font-medium">All images are <strong>watermark-free</strong>, <strong>trademark-safe</strong> &amp; free to use commercially · Unsplash License</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ── Sub-tab: Upload ── */}
+                    {imgSubTab === "upload" && (
+                      <div
+                        className="rounded-2xl border-2 border-dashed border-white/12 hover:border-emerald-400/40 bg-white/3 hover:bg-emerald-500/5 transition-all cursor-pointer flex flex-col items-center justify-center py-8 gap-2"
+                        onClick={() => document.getElementById("item-img-input")?.click()}
+                      >
+                        <input id="item-img-input" type="file" accept="image/*" multiple className="hidden" onChange={e => handleItemImageUpload(e.target.files)} />
+                        {itemImageUploading ? (
+                          <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} className="text-3xl">🔄</motion.div><p className="text-sm text-white/50">Uploading to Firebase…</p></>
+                        ) : (
+                          <><div className="text-4xl">📷</div><p className="text-sm text-white/70 font-semibold">Drop photos here or click to browse</p><p className="text-xs text-white/30">JPG · PNG · WEBP · Max 8MB each · Multiple allowed</p></>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── Sub-tab: URL ── */}
+                    {imgSubTab === "url" && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-white/40">Paste any image URL directly</p>
+                        <div className="flex gap-2">
+                          <input type="url" id="photo-url-paste" placeholder="https://example.com/dish-photo.jpg"
+                            className="flex-1 px-3 py-2.5 rounded-xl border border-white/10 bg-slate-800 text-white text-sm placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                          />
+                          <button type="button"
+                            onClick={() => { const url = document.getElementById("photo-url-paste")?.value?.trim(); if (url) { setItemModalValue(v => ({ ...v, image: v.image || url, images: [...(v.images||[]), url] })); document.getElementById("photo-url-paste").value = ""; }}}
+                            className="px-4 py-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-sm font-bold hover:bg-emerald-500/30 transition"
+                          >Add</button>
+                        </div>
+                        <p className="text-[10px] text-white/25">Tip: right-click any food image on the web → "Copy image address" then paste here</p>
+                      </div>
+                    )}
+
+                    {/* ── Gallery: always shown ── */}
+                    {(itemModalValue.images?.length > 0 || itemModalValue.image) && (
+                      <div>
+                        <p className="text-xs text-white/40 mb-2 flex items-center gap-1.5">
+                          <span>📁</span> Selected photos
+                          <span className="text-white/20">—</span>
+                          <span className="text-white/25">first = main card image</span>
+                        </p>
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {itemModalValue.image && !itemModalValue.images?.includes(itemModalValue.image) && (
+                            <div className="relative group rounded-lg overflow-hidden border-2 border-emerald-400/50">
+                              <img src={itemModalValue.image} alt="main" className="w-full h-14 object-cover" onError={e => e.currentTarget.style.display="none"} />
+                              <div className="absolute inset-0 bg-emerald-500/25 flex items-end p-0.5"><span className="text-[8px] font-black text-emerald-200 bg-black/50 px-1 rounded">MAIN</span></div>
+                            </div>
+                          )}
+                          {itemModalValue.images?.map((url, i) => (
+                            <div key={i} className={`relative group rounded-lg overflow-hidden border-2 transition ${i === 0 ? "border-emerald-400/50" : "border-white/10 hover:border-white/25"}`}>
+                              <img src={url} alt={`img-${i}`} className="w-full h-14 object-cover" />
+                              {i === 0 && <div className="absolute inset-0 bg-emerald-500/15 flex items-end p-0.5 pointer-events-none"><span className="text-[8px] font-black text-emerald-200 bg-black/50 px-1 rounded">MAIN</span></div>}
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/55 transition flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100">
+                                {i !== 0 && <button type="button" onClick={() => setItemModalValue(v => ({ ...v, images: [url, ...v.images.filter((_,j)=>j!==i)], image: url }))} className="px-1 py-0.5 rounded bg-white/90 text-slate-900 text-[8px] font-black">★</button>}
+                                <button type="button" onClick={() => setItemModalValue(v => { const imgs = v.images.filter((_,j)=>j!==i); return { ...v, images: imgs, image: i===0?(imgs[0]||""):v.image }; })} className="w-4 h-4 rounded bg-red-500 text-white text-[10px] flex items-center justify-center leading-none">×</button>
+                              </div>
+                            </div>
+                          ))}
+                          <button type="button" onClick={() => setImgSubTab("pick")} className="rounded-lg border-2 border-dashed border-white/10 hover:border-emerald-400/40 h-14 flex flex-col items-center justify-center text-white/20 hover:text-emerald-300 transition gap-0.5">
+                            <span className="text-base">+</span><span className="text-[8px]">More</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Footer actions */}
+                <div className="flex items-center justify-between mt-6 pt-5 border-t border-white/8">
+                  <div className="flex gap-2">
+                    {itemModalTab !== "basic" && (
+                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "details" ? "basic" : "details")} className="px-3 py-2 rounded-xl text-xs font-medium text-white/50 hover:text-white hover:bg-white/8 transition">← Back</button>
+                    )}
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <button type="button" onClick={() => setShowItemModal(false)} className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white hover:bg-white/8 transition">Cancel</button>
+                    {itemModalTab !== "images" ? (
+                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "basic" ? "details" : "images")} className="px-4 py-2 rounded-xl text-sm font-semibold border border-white/15 text-white/70 hover:bg-white/8 transition">Next →</button>
+                    ) : null}
+                    <motion.button
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      type="submit"
+                      className="px-5 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-lg shadow-emerald-500/20 transition"
+                    >
+                      {itemModalMode === "add" ? "✓ Add Item" : "✓ Save Changes"}
+                    </motion.button>
+                  </div>
                 </div>
               </form>
             </motion.div>
@@ -1359,108 +2504,248 @@ const CreateMenu = ({ onBack }) => {
         )}
       </AnimatePresence>
 
-      {/* Preview Modal */}
+      {/* Preview Modal — Next-Gen Restaurant App Style */}
       <AnimatePresence>
         {showPreview && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+            className="fixed inset-0 z-50 flex items-end justify-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={() => setShowPreview(false)}
           >
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
             <motion.div
-              initial={{ y: 30, opacity: 0 }}
+              initial={{ y: "100%", opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 30, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 220, damping: 24 }}
-              className="relative w-[92vw] max-w-6xl max-h-[86vh] overflow-hidden rounded-2xl border border-white/10 bg-slate-950 text-white shadow-2xl"
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ type: "spring", stiffness: 280, damping: 32 }}
+              className="relative w-full max-w-5xl h-[92vh] rounded-t-3xl overflow-hidden shadow-[0_-20px_80px_rgba(0,0,0,0.8)] flex flex-col"
+              style={{ background: "linear-gradient(180deg, #0a0a0f 0%, #0f0f18 100%)" }}
+              onClick={e => e.stopPropagation()}
             >
-              {/* header */}
-              <div className="flex items-center gap-3 px-5 py-3 border-b border-white/10 bg-slate-900/60 backdrop-blur">
-                <h3 className="text-lg font-semibold">Live Menu Preview</h3>
-                <span className="text-white/50 text-sm">(what your staff/guests see)</span>
-                <div className="flex-1" />
-                <button onClick={() => setShowPreview(false)} className="rounded-lg px-3 py-2 text-sm bg-white/10 hover:bg-white/15">Close</button>
+              {/* Drag handle */}
+              <div className="flex justify-center pt-3 pb-1 shrink-0">
+                <div className="w-10 h-1 rounded-full bg-white/15" />
               </div>
 
-              {/* body */}
-              <div className="flex h-[72vh]">
-                {/* categories chips */}
-                <div className="w-56 border-r border-white/10 p-4 bg-white/5">
-                  <div className="space-y-2">
-                    {categories.map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => setPreviewCategoryId(c.id)}
-                        className={`w-full text-left px-3 py-2 rounded-lg transition border ${
-                          previewCategoryId === c.id ? 'bg-emerald-500/15 border-emerald-300/30' : 'bg-white/5 border-white/10 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon token={c.icon || mapCategoryIdToIcon(c.id)} fallback={fallbackEmojiById(c.id)} />
-                          <span className="truncate">{c.name}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* items grid */}
-                <div className="flex-1 p-5 overflow-y-auto bg-[radial-gradient(1200px_600px_at_60%_20%,rgba(16,185,129,0.06),transparent),radial-gradient(1000px_500px_at_80%_80%,rgba(6,182,212,0.05),transparent)]">
-                  <div className="mb-4 flex items-center gap-3">
-                    <div className="relative max-w-sm w-full">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">🔍</span>
-                      <input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search items…"
-                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/10 bg-white/5 text-white/90 placeholder:text-white/40 backdrop-blur outline-none text-sm focus:ring-2 focus:ring-emerald-300/40"
-                      />
+              {/* Restaurant header */}
+              <div className="px-5 pt-2 pb-4 shrink-0">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-2xl">🍽️</span>
+                      <h2 className="text-xl font-black text-white tracking-tight">Live Menu Preview</h2>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">Live</span>
                     </div>
-                    <div className="text-white/60 text-sm">{items.filter(i=>i.categoryId===previewCategoryId && (showUnavailable || isAvailable(i))).length} items</div>
-                    <div className="flex-1" />
-                    <label className="flex items-center gap-2 text-sm text-white/80">
-                      <input type="checkbox" className="accent-emerald-400" checked={showUnavailable} onChange={(e)=>setShowUnavailable(e.target.checked)} />
+                    <p className="text-white/40 text-xs">What your customers see · {items.filter(i => showUnavailable || isAvailable(i)).length} items across {categories.length} categories</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-white/50 cursor-pointer">
+                      <input type="checkbox" className="accent-emerald-400 w-3 h-3" checked={showUnavailable} onChange={e => setShowUnavailable(e.target.checked)} />
                       Show unavailable
                     </label>
-                    <button onClick={handleAddItem} className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-3 py-2 text-sm font-semibold shadow hover:shadow-lg">+ Item</button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-                    {items
-                      .filter(i=>i.categoryId===previewCategoryId)
-                      .filter(i=> showUnavailable || isAvailable(i))
-                      .filter(i=> !search.trim() || i.name.toLowerCase().includes(search.toLowerCase()))
-                      .map((item)=> (
-                        <div key={item.id} className={`relative rounded-2xl p-4 border border-white/10 bg-white/5 backdrop-blur shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${isAvailable(item)?'':'opacity-60'}`}>
-                          {item.image && <img src={item.image} alt={item.name} className="w-full h-28 object-cover rounded-lg mb-2 border border-white/10" onError={(e)=> (e.target.style.display='none')} />}
-                          <div className="flex items-center gap-2">
-                            {item.type === 'veg' ? (
-                              <span className="w-3 h-3 bg-emerald-400 rounded-full border border-emerald-600" />
-                            ) : (
-                              <span className="w-3 h-3 bg-red-400 rounded-full border border-red-600" />
-                            )}
-                            <div className="font-medium truncate">{item.name}</div>
-                            <div className="ml-auto font-semibold">₹{item.price}</div>
-                          </div>
-                          <div className="mt-3 flex items-center justify-between">
-                            <label className="flex items-center gap-2 text-xs text-white/70">
-                              <input type="checkbox" checked={isAvailable(item)} onChange={()=>toggleAvailability(item)} />
-                              Available
-                            </label>
-                            <div className="flex gap-2 text-xs">
-                              <button className="text-white/60 hover:text-emerald-300" onClick={()=>handleEditItem(item)}>Edit</button>
-                              <button className="text-white/60 hover:text-red-400" onClick={()=>handleDeleteItem(item.id)}>Delete</button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                    <button onClick={() => setShowPreview(false)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white flex items-center justify-center text-sm transition">✕</button>
                   </div>
                 </div>
+
+                {/* Search bar */}
+                <div className="relative mt-3">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30 text-sm">🔍</span>
+                  <input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search dishes, drinks, desserts…"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-white/8 bg-white/5 text-white/90 placeholder:text-white/25 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 transition"
+                  />
+                  {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition">✕</button>}
+                </div>
+
+                {/* Category pills — horizontal scroll */}
+                <div className="flex gap-2 mt-3 overflow-x-auto pb-1 scrollbar-none" style={{ scrollbarWidth: "none" }}>
+                  <button
+                    onClick={() => setPreviewCategoryId("")}
+                    className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition border ${
+                      previewCategoryId === "" ? "bg-emerald-500 border-emerald-400 text-white shadow-[0_0_16px_rgba(16,185,129,0.4)]" : "border-white/10 bg-white/5 text-white/50 hover:bg-white/8 hover:text-white/80"
+                    }`}
+                  >🍽️ All</button>
+                  {categories.map(c => {
+                    const count = items.filter(i => i.categoryId === c.id && (showUnavailable || isAvailable(i))).length;
+                    return (
+                      <button key={c.id} onClick={() => setPreviewCategoryId(c.id)}
+                        className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition border ${
+                          previewCategoryId === c.id ? "bg-emerald-500 border-emerald-400 text-white shadow-[0_0_16px_rgba(16,185,129,0.4)]" : "border-white/10 bg-white/5 text-white/50 hover:bg-white/8 hover:text-white/80"
+                        }`}
+                      >
+                        <Icon token={c.icon || mapCategoryIdToIcon(c.id)} fallback={fallbackEmojiById(c.id)} />
+                        {c.name}
+                        {count > 0 && <span className="ml-0.5 text-[9px] opacity-60">{count}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Items scroll area */}
+              <div className="flex-1 overflow-y-auto px-5 pb-6">
+                {(() => {
+                  const visibleItems = items
+                    .filter(i => !previewCategoryId || i.categoryId === previewCategoryId)
+                    .filter(i => showUnavailable || isAvailable(i))
+                    .filter(i => !search.trim() || i.name.toLowerCase().includes(search.toLowerCase()));
+
+                  if (visibleItems.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center h-48 text-center">
+                        <div className="text-4xl mb-3 opacity-20">🍽️</div>
+                        <p className="text-white/30 text-sm">{search ? "No items match your search" : "No items in this category"}</p>
+                      </div>
+                    );
+                  }
+
+                  // Group by category when "All" is selected
+                  if (!previewCategoryId && !search.trim()) {
+                    return categories.map(cat => {
+                      const catItems = visibleItems.filter(i => i.categoryId === cat.id);
+                      if (!catItems.length) return null;
+                      return (
+                        <div key={cat.id} className="mb-8">
+                          <div className="flex items-center gap-2 mb-4">
+                            <span className="text-xl"><Icon token={cat.icon || mapCategoryIdToIcon(cat.id)} fallback={fallbackEmojiById(cat.id)} /></span>
+                            <h3 className="text-base font-black text-white">{cat.name}</h3>
+                            <div className="flex-1 h-px bg-white/8 ml-2" />
+                            <span className="text-[11px] text-white/30">{catItems.length} items</span>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                            {catItems.map(item => <PreviewItemCard key={item.id} item={item} onEdit={() => { setShowPreview(false); handleEditItem(item); }} onToggle={() => toggleAvailability(item)} />)}
+                          </div>
+                        </div>
+                      );
+                    });
+                  }
+
+                  return (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pt-1">
+                      {visibleItems.map(item => <PreviewItemCard key={item.id} item={item} onEdit={() => { setShowPreview(false); handleEditItem(item); }} onToggle={() => toggleAvailability(item)} />)}
+                    </div>
+                  );
+                })()}
               </div>
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+      {/* Template Preview Modal */}
+      <AnimatePresence>
+        {showTemplatePreview && MENU_TEMPLATES[showTemplatePreview] && (() => {
+          const tpl = MENU_TEMPLATES[showTemplatePreview];
+          const TEMPLATE_META = {
+            cafe:     { emoji: "☕", gradient: "from-amber-500/20 to-transparent", border: "border-amber-500/25", accent: "bg-amber-500", badge: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+            north:    { emoji: "🍛", gradient: "from-orange-500/20 to-transparent", border: "border-orange-500/25", accent: "bg-orange-500", badge: "bg-orange-500/15 text-orange-300 border-orange-500/30" },
+            south:    { emoji: "🥥", gradient: "from-green-500/20 to-transparent", border: "border-green-500/25", accent: "bg-green-500", badge: "bg-green-500/15 text-green-300 border-green-500/30" },
+            pizzeria: { emoji: "🍕", gradient: "from-red-500/20 to-transparent", border: "border-red-500/25", accent: "bg-red-500", badge: "bg-red-500/15 text-red-300 border-red-500/30" },
+            fastfood: { emoji: "🍔", gradient: "from-yellow-500/20 to-transparent", border: "border-yellow-500/25", accent: "bg-yellow-500", badge: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" },
+            bar:      { emoji: "🍹", gradient: "from-purple-500/20 to-transparent", border: "border-purple-500/25", accent: "bg-purple-500", badge: "bg-purple-500/15 text-purple-300 border-purple-500/30" },
+            bakery:   { emoji: "🎂", gradient: "from-pink-500/20 to-transparent", border: "border-pink-500/25", accent: "bg-pink-500", badge: "bg-pink-500/15 text-pink-300 border-pink-500/30" },
+          };
+          const meta = TEMPLATE_META[showTemplatePreview] || TEMPLATE_META.cafe;
+          const grouped = tpl.categories.map(cat => ({
+            ...cat,
+            items: tpl.items.filter(i => i.categoryId === cat.id),
+          }));
+          return (
+            <motion.div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setShowTemplatePreview(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.93, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.93, opacity: 0, y: 20 }}
+                transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                className={`relative w-full max-w-3xl max-h-[88vh] rounded-3xl border ${meta.border} bg-gradient-to-br ${meta.gradient} bg-slate-900 text-white shadow-[0_32px_80px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col`}
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="px-6 pt-6 pb-4 shrink-0">
+                  <div className="flex items-start gap-4">
+                    <div className="text-5xl shrink-0">{meta.emoji}</div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h2 className="text-xl font-black text-white">{tpl.label}</h2>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${meta.badge}`}>{tpl.categories.length} categories · {tpl.items.length} items</span>
+                      </div>
+                      <p className="text-white/50 text-sm">{tpl.description}</p>
+                    </div>
+                    <button onClick={() => setShowTemplatePreview(null)} className="w-8 h-8 rounded-full bg-white/8 hover:bg-white/15 text-white/50 hover:text-white flex items-center justify-center text-sm transition shrink-0">✕</button>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="flex gap-3 mt-4">
+                    {[
+                      ["📂", `${tpl.categories.length} Categories`],
+                      ["🍽️", `${tpl.items.length} Menu Items`],
+                      ["🌿", `${tpl.items.filter(i => (i.type||"veg").toLowerCase()==="veg").length} Veg`],
+                      ["🍗", `${tpl.items.filter(i => (i.type||"").toLowerCase()==="nonveg").length} Non-Veg`],
+                    ].map(([ic, lb]) => (
+                      <div key={lb} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/8 text-xs text-white/60">
+                        <span>{ic}</span><span>{lb}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Warning if existing menu */}
+                {(categories.length > 0 || items.length > 0) && (
+                  <div className="mx-6 mb-3 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center gap-2 shrink-0">
+                    <span className="text-amber-300 text-sm">⚠️</span>
+                    <p className="text-amber-300/80 text-xs"><strong className="font-bold">Heads up:</strong> You already have {categories.length} categories and {items.length} items. Applying this template will add on top — it won't delete your existing menu.</p>
+                  </div>
+                )}
+
+                {/* Item list scrollable */}
+                <div className="flex-1 overflow-y-auto px-6 pb-4">
+                  <div className="space-y-5">
+                    {grouped.map(cat => (
+                      <div key={cat.id}>
+                        <div className="flex items-center gap-2 mb-2.5">
+                          <div className="font-bold text-white/80 text-sm">{cat.name}</div>
+                          <span className="text-[10px] text-white/30 px-1.5 py-0.5 rounded-full bg-white/5 border border-white/8">{cat.items.length} items</span>
+                          <div className="flex-1 h-px bg-white/6" />
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {cat.items.map((item, i) => (
+                            <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/4 border border-white/6">
+                              <div className={`w-3 h-3 rounded-sm border-2 flex items-center justify-center shrink-0 ${(item.type||"veg").toLowerCase()==="veg" ? "border-emerald-400" : "border-red-400"}`}>
+                                <div className={`w-1.5 h-1.5 rounded-full ${(item.type||"veg").toLowerCase()==="veg" ? "bg-emerald-400" : "bg-red-400"}`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-white/80 font-medium truncate">{item.name}</p>
+                              </div>
+                              <span className="text-xs font-bold text-white/60 shrink-0">₹{item.price}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-white/8 flex items-center gap-3 shrink-0 bg-slate-900/60 backdrop-blur">
+                  <p className="text-xs text-white/35 flex-1">You can edit, delete or add items after applying.</p>
+                  <button onClick={() => setShowTemplatePreview(null)} className="px-4 py-2.5 rounded-xl text-sm text-white/50 hover:text-white hover:bg-white/8 transition">Cancel</button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                    onClick={() => { applyTemplate(showTemplatePreview); setShowTemplatePreview(null); }}
+                    className={`px-6 py-2.5 rounded-xl text-sm font-black text-white shadow-lg transition flex items-center gap-2 ${meta.accent} hover:opacity-90`}
+                  >
+                    ⚡ Apply This Template
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
     </div>
   );

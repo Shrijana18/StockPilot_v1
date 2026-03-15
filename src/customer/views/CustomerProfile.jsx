@@ -10,7 +10,7 @@ import {
   FaChevronRight, FaPlus, FaEdit, FaTrash, FaShieldAlt,
   FaQuestionCircle, FaInfoCircle, FaCreditCard, FaBell,
   FaGift, FaLock, FaLanguage, FaUserEdit, FaCamera,
-  FaCheck, FaTimes, FaCopy, FaStar, FaWallet, FaCoins, FaUserTimes, FaClock
+  FaCheck, FaTimes, FaCopy, FaStar, FaWallet, FaCoins, FaUserTimes, FaClock, FaChartBar
 } from 'react-icons/fa';
 import { useCustomerAuth } from '../context/CustomerAuthContext';
 import { getCustomerOrders } from '../services/orderService';
@@ -304,7 +304,7 @@ const CustomerProfile = ({ onBack }) => {
   const handleNotificationToggle = async (key) => {
     const updated = { ...notificationSettings, [key]: !notificationSettings[key] };
     setNotificationSettings(updated);
-    await updateProfile({ 
+    await updateProfile({
       settings: {
         ...customerData?.settings,
         ...updated
@@ -863,6 +863,19 @@ const CustomerProfile = ({ onBack }) => {
             label="About FLYP"
             onClick={() => alert('FLYP - Your trusted delivery partner')}
           />
+          <button
+            onClick={() => { window.location.hash = '#internal'; }}
+            className="w-full flex items-center gap-4 px-4 py-3 text-white/40 hover:bg-white/5 transition-colors"
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-slate-700 border border-slate-600">
+              <FaChartBar className="text-slate-500" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="font-medium text-white/50">Internal Analytics</p>
+              <p className="text-xs text-white/30">Order flow & payment</p>
+            </div>
+            <FaChevronRight className="text-white/20" />
+          </button>
         </div>
 
         {/* Logout */}

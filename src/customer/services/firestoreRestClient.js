@@ -4,7 +4,7 @@ const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
 const PROJECT_ID = 'stockpilotv1';
 const API_KEY = 'AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE';
 const BASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 10000;
 
 const withTimeout = async (promise, ms = DEFAULT_TIMEOUT_MS) =>
   Promise.race([

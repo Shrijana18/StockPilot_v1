@@ -55,6 +55,12 @@ const PrivateRoute = ({ requireRole }) => {
         return <Outlet />;
       }
 
+      // Role still loading (null) - wait instead of redirecting to wrong dashboard
+      // Prevents distributor/product-owner landing on retailer dashboard on first login
+      if (!roleNorm && user) {
+        return <div className="text-center mt-20 text-gray-500">Loading...</div>;
+      }
+
       // Otherwise redirect user to their actual dashboard
       let redirectTo = '/dashboard';
       if (roleNorm === 'distributor') redirectTo = '/distributor-dashboard';

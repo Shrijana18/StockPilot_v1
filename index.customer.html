@@ -9,6 +9,49 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="description" content="FLYP Shop - Order groceries and essentials from nearby stores. Fast delivery from local retailers." />
     
+    <!-- Content-Security-Policy: required for Razorpay and Firebase in WebView -->
+    <meta http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self' data: blob: capacitor: https:;
+        script-src  'self' 'unsafe-inline' 'unsafe-eval'
+                    https://www.gstatic.com
+                    https://www.google.com
+                    https://apis.google.com
+                    https://maps.googleapis.com
+                    https://checkout.razorpay.com
+                    https://secure.payu.in
+                    https://test.payu.in;
+        worker-src  'self' blob:;
+        style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src    'self' https://fonts.gstatic.com;
+        img-src     'self' data: blob: https:;
+        frame-src   'self'
+                    https://accounts.google.com
+                    https://www.google.com
+                    https://apis.google.com
+                    https://*.firebaseapp.com
+                    https://api.razorpay.com
+                    https://checkout.razorpay.com
+                    https://secure.payu.in
+                    https://test.payu.in;
+        connect-src 'self' data: blob: ws: wss:
+                    https://asia-south1-stockpilotv1.cloudfunctions.net
+                    https://us-central1-stockpilotv1.cloudfunctions.net
+                    https://identitytoolkit.googleapis.com
+                    https://securetoken.googleapis.com
+                    https://content-firebaseappcheck.googleapis.com
+                    https://firebaseinstallations.googleapis.com
+                    https://firestore.googleapis.com
+                    https://firebasestorage.googleapis.com
+                    https://www.googleapis.com
+                    https://maps.googleapis.com
+                    https://api.razorpay.com
+                    https://checkout.razorpay.com
+                    https://secure.payu.in
+                    https://test.payu.in
+                    ws://localhost:* wss://localhost:*;
+      ">
+    
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.customer.json" />
     
@@ -128,6 +171,7 @@
     </div>
     
     <div id="root"></div>
+    <!-- Razorpay Checkout - loaded on demand by razorpayPaymentService.js -->
     <script type="module" src="/src/customer-main.jsx"></script>
   </body>
 </html>

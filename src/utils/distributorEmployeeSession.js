@@ -1,3 +1,5 @@
+import { getCurrentPath } from './routePath';
+
 const DISTRIBUTOR_EMPLOYEE_SESSION_KEY = 'flyp_distributor_employee_session';
 // Use sessionStorage for one-time redirect guard (avoid persisting across browser restarts)
 const DISTRIBUTOR_EMPLOYEE_REDIRECT_KEY = 'flyp_distributor_employee_redirect';
@@ -57,7 +59,7 @@ export const clearDistributorEmployeeRedirect = () => {
 
 export const isDistributorEmployeePath = () => {
   try {
-    const path = window.location.pathname;
+    const path = getCurrentPath();
     return path === '/distributor-employee-dashboard' || path === '/distributor-employee-login';
   } catch (e) {
     return false;

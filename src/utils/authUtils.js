@@ -47,6 +47,7 @@ export const logoutUser = async (userType = 'all') => {
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.removeItem('postSignupRole');
+        sessionStorage.removeItem('freshLoginRole');
         sessionStorage.removeItem('employeeRedirect');
         sessionStorage.removeItem('flyp_distributor_employee_redirect');
         console.log('[AuthUtils] Session storage cleared');

@@ -4,14 +4,14 @@ import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
 import { useNavigate } from 'react-router-dom';
 import { logoutUser } from '../utils/authUtils';
-import OTPVerification from './OTPVerification';
+import FirebaseOTPVerification from './FirebaseOTPVerification';
 import { usePlatform } from '../hooks/usePlatform.js';
 import { shouldUseRestFallback, getDocumentRest, upsertDocumentRest } from '../customer/services/firestoreRestClient';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Feature flag: Set to true to enable OTP verification (requires MSG91 DLT ID setup)
+// Feature flag: Firebase Phone Auth OTP (paused until DLT approved)
 const ENABLE_OTP_VERIFICATION = false;
 
 const Login = () => {
@@ -24,6 +24,8 @@ const Login = () => {
   const [userPhone, setUserPhone] = useState(null);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const withTimeout = (promise, ms, label = 'Operation') =>
     Promise.race([
       promise,
@@ -215,6 +217,12 @@ const Login = () => {
       targetPath = '/dashboard';
     }
     
+    // Set fresh login role so AuthContext/PrivateRoute see correct role immediately
+    // Prevents wrong dashboard redirect when AuthContext's Firestore fetch is still pending
+    try {
+      sessionStorage.setItem('freshLoginRole', role);
+    } catch (_) {}
+
     // On native: AuthContext's onAuthStateChanged updates async; yield so PrivateRoute sees user
     if (platform === 'ios' || platform === 'android') {
       await new Promise((r) => setTimeout(r, 150));
@@ -223,17 +231,30 @@ const Login = () => {
   };
 
   const handleForgotPassword = async () => {
-    if (!formData.email) {
-      alert("Please enter your email first.");
+    const email = (formData.email || '').trim();
+    if (!email) {
+      setError('Enter your email address above, then click Forgot password?');
       return;
     }
-
+    setResetLoading(true);
+    setError('');
     try {
-      await sendPasswordResetEmail(auth, formData.email);
-      alert("Password reset email sent. Please check your inbox.");
-    } catch (error) {
-      console.error("Reset error:", error.message);
-      setError("Failed to send reset email. Check your email and try again.");
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+      setTimeout(() => setResetSent(false), 6000);
+    } catch (err) {
+      const code = err?.code || '';
+      if (code === 'auth/user-not-found') {
+        setError('No account found with this email address.');
+      } else if (code === 'auth/invalid-email') {
+        setError('Invalid email address.');
+      } else if (code === 'auth/too-many-requests') {
+        setError('Too many requests. Please wait a minute and try again.');
+      } else {
+        setError('Failed to send reset email. Please try again.');
+      }
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -392,6 +413,10 @@ const Login = () => {
     let targetPath = '/dashboard';
     if (role.includes('distributor')) targetPath = '/distributor-dashboard';
     else if (role.includes('productowner') || role.includes('product-owner')) targetPath = '/product-owner-dashboard';
+    // Set fresh login role so AuthContext/PrivateRoute see correct role immediately (same as email login)
+    try {
+      sessionStorage.setItem('freshLoginRole', role);
+    } catch (_) {}
     // On native: yield so AuthContext sees user, avoid window.location (reload loses in-memory auth)
     if (platform === 'ios' || platform === 'android') {
       await new Promise((r) => setTimeout(r, 150));
@@ -449,6 +474,12 @@ const Login = () => {
           {error && (
             <div className="mx-4 sm:mx-7 md:mx-8 mb-3 text-rose-300 text-xs sm:text-sm bg-rose-900/30 border border-rose-500/30 rounded-lg px-3 py-2">
               {error}
+            </div>
+          )}
+          {resetSent && (
+            <div className="mx-4 sm:mx-7 md:mx-8 mb-3 flex items-start gap-2 text-emerald-300 text-xs sm:text-sm bg-emerald-900/25 border border-emerald-500/30 rounded-lg px-3 py-2.5">
+              <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+              <span>Reset link sent to <strong>{formData.email}</strong>. Check your inbox (and spam folder).</span>
             </div>
           )}
           <div className="px-4 sm:px-7 md:px-8 pb-2 space-y-3">
@@ -510,9 +541,16 @@ const Login = () => {
                 <button
                   type="button"
                   onClick={handleForgotPassword}
-                  className="text-xs text-emerald-300/90 hover:text-emerald-200 underline underline-offset-4"
+                  disabled={resetLoading}
+                  className="inline-flex items-center gap-1.5 text-xs text-emerald-300/90 hover:text-emerald-200 underline underline-offset-4 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Forgot password?
+                  {resetLoading && (
+                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                  )}
+                  {resetLoading ? 'Sending…' : 'Forgot password?'}
                 </button>
               </div>
             </div>
@@ -579,7 +617,7 @@ const Login = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              <OTPVerification
+              <FirebaseOTPVerification
                 phone={userPhone}
                 onVerified={handleOtpVerified}
                 onError={(err) => {
@@ -591,8 +629,6 @@ const Login = () => {
                   setPendingUser(null);
                   auth.signOut();
                 }}
-                autoSend={true}
-                themeColor="rgb(16, 185, 129)"
               />
             </div>
           </div>

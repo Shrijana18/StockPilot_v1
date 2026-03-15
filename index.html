@@ -56,7 +56,8 @@
                     https://www.googletagmanager.com
                     https://www.gstatic.cn
                     https://connect.facebook.net
-                    https://control.msg91.com;
+                    https://control.msg91.com
+                    https://checkout.razorpay.com;
         worker-src  'self' blob:;
         style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
         font-src    'self' https://fonts.gstatic.com;
@@ -69,12 +70,15 @@
                     https://*.firebaseapp.com
                     https://www.facebook.com
                     https://business.facebook.com
-                    https://control.msg91.com;
+                    https://control.msg91.com
+                    https://api.razorpay.com
+                    https://checkout.razorpay.com;
         connect-src 'self' data: blob: ws: wss:
                     https://asia-south1-stockpilotv1.cloudfunctions.net
                     https://us-central1-stockpilotv1.cloudfunctions.net
                     https://identitytoolkit.googleapis.com
                     https://securetoken.googleapis.com
+                    https://recaptchaenterprise.googleapis.com
                     https://content-firebaseappcheck.googleapis.com
                     https://firebaseinstallations.googleapis.com
                     https://firestore.googleapis.com
@@ -90,6 +94,8 @@
                     https://india-location-hub.in
                     https://control.msg91.com
                     https://api.msg91.com
+                    https://api.razorpay.com
+                    https://checkout.razorpay.com
                     wss://flyp-voice-streamer-30934537475.asia-south1.run.app
                     ws://localhost:* wss://localhost:*;
       ">
@@ -97,12 +103,7 @@
       html, body, #root { background: #020617; color: #e2e8f0; min-height: 100%; }
       body { margin: 0; }
     </style>
-    <!--
-      NOTE:
-      Do NOT include any manual reCAPTCHA script here.
-      Firebase Auth injects the correct reCAPTCHA (v2 Invisible) script when using RecaptchaVerifier.
-      Manual inclusion (v3 or enterprise) can cause auth/invalid-app-credential or "already been rendered" errors.
-    -->
+    <!-- reCAPTCHA not needed: phoneEnforcementState is OFF, REST API sends OTP without token -->
     
     <!-- Facebook JavaScript SDK for WhatsApp Embedded Signup -->
     <!-- App ID: 1902565950686087 (FLYP Tech Provider) -->

@@ -24,6 +24,22 @@ import { shouldUseRestFallback, listDocumentsRest, getDocumentRest, createDocume
 
 const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
 
+/**
+ * Sanitize deliveryAddress for Firestore - plain objects with latitude/longitude
+ * are rejected as "custom GeoPoint". Use Firestore GeoPoint or store lat/lng as numbers.
+ */
+function sanitizeDeliveryAddress(addr) {
+  if (!addr) return null;
+  const { latitude, longitude, ...rest } = addr;
+  const sanitized = { ...rest };
+  // Store coordinates as plain numbers (Firestore accepts these) for delivery/ETA
+  if (typeof latitude === 'number' && typeof longitude === 'number') {
+    sanitized.deliveryLat = latitude;
+    sanitized.deliveryLng = longitude;
+  }
+  return sanitized;
+}
+
 const parseCreatedAt = (value) => {
   if (!value) return new Date(0);
   if (typeof value?.toDate === 'function') return value.toDate();
@@ -31,10 +47,33 @@ const parseCreatedAt = (value) => {
   return Number.isNaN(date.getTime()) ? new Date(0) : date;
 };
 
+// Pay Online methods - require payment confirmation before order is "placed"
+const PAY_ONLINE_METHODS = ['PAY_NOW_UPI', 'PAY_NOW_CARD', 'PAY_NOW_NETBANKING', 'PAY_NOW_MORE'];
+
 /**
- * Place a new order
+ * Check if payment method requires online payment confirmation (Razorpay)
  */
-export const placeOrder = async (orderData) => {
+export const isPayOnlineMethod = (paymentMethod) => 
+  paymentMethod && PAY_ONLINE_METHODS.includes(paymentMethod);
+
+/**
+ * Create an order DRAFT for Pay Online - status awaiting_payment.
+ * Order is NOT counted in totalOrders until payment succeeds.
+ * Use confirmOrderAfterPayment on success, markOrderPaymentCancelled on cancel.
+ */
+export const createOrderDraft = async (orderData) => {
+  const result = await placeOrderInternal(orderData, { 
+    status: 'awaiting_payment', 
+    skipTotalOrdersIncrement: true 
+  });
+  return result;
+};
+
+/**
+ * Internal: Create order with optional status and totalOrders skip
+ */
+async function placeOrderInternal(orderData, options = {}) {
+  const { status: orderStatus = 'pending', skipTotalOrdersIncrement = false } = options;
   try {
     const {
       customerId,
@@ -79,8 +118,10 @@ export const placeOrder = async (orderData) => {
 
     // Determine payment status
     let paymentStatus = 'pending';
-    if (paymentMethod === 'UPI') {
-      paymentStatus = 'paid';
+    if (paymentMethod === 'PAY_NOW') {
+      paymentStatus = 'pending'; // Razorpay will update via webhook on success
+    } else if (paymentMethod === 'UPI') {
+      paymentStatus = 'pending'; // UPI on delivery - pay at doorstep
     } else if (paymentMethod === 'PAY_LATER') {
       paymentStatus = 'pay_later';
     } else if (paymentMethod === 'PARTIAL') {
@@ -105,8 +146,8 @@ export const placeOrder = async (orderData) => {
       total,
       // Order type
       orderType,
-      // Delivery info (if delivery)
-      deliveryAddress: orderType === 'delivery' ? deliveryAddress : null,
+      // Delivery info (if delivery) - sanitize to avoid Firestore "custom GeoPoint" rejection
+      deliveryAddress: orderType === 'delivery' ? sanitizeDeliveryAddress(deliveryAddress) : null,
       deliverySlot: orderType === 'delivery' ? deliverySlot : null,
       // Customer distance from store (for ETA calculation)
       customerDistance: orderType === 'delivery' ? customerDistance : null,
@@ -129,9 +170,9 @@ export const placeOrder = async (orderData) => {
       amountPaid: paymentMethod === 'PAY_LATER' ? 0 : payNow,
       amountDue: payLater,
       // Status
-      status: 'pending',
+      status: orderStatus,
       statusHistory: {
-        pending: shouldUseRestFallback() ? timestamp : serverTimestamp()
+        [orderStatus]: shouldUseRestFallback() ? timestamp : serverTimestamp()
       },
       specialInstructions: specialInstructions || '',
       deliveryPartner: null,
@@ -155,22 +196,24 @@ export const placeOrder = async (orderData) => {
         orderId
       });
       
-      // Update customer's totalOrders count
-      try {
-        const customerDoc = await getDocumentRest(`customers/${customerId}`);
-        if (customerDoc) {
-          await upsertDocumentRest(`customers/${customerId}`, {
-            totalOrders: (customerDoc.totalOrders || 0) + 1,
-            updatedAt: timestamp
-          });
-        } else {
-          await upsertDocumentRest(`customers/${customerId}`, {
-            totalOrders: 1,
-            updatedAt: timestamp
-          });
+      // Update customer's totalOrders count (skip for awaiting_payment drafts)
+      if (!skipTotalOrdersIncrement) {
+        try {
+          const customerDoc = await getDocumentRest(`customers/${customerId}`);
+          if (customerDoc) {
+            await upsertDocumentRest(`customers/${customerId}`, {
+              totalOrders: (customerDoc.totalOrders || 0) + 1,
+              updatedAt: timestamp
+            });
+          } else {
+            await upsertDocumentRest(`customers/${customerId}`, {
+              totalOrders: 1,
+              updatedAt: timestamp
+            });
+          }
+        } catch (error) {
+          console.error('Error updating customer order count:', error);
         }
-      } catch (error) {
-        console.error('Error updating customer order count:', error);
       }
     } else {
       // Use SDK for web
@@ -183,23 +226,25 @@ export const placeOrder = async (orderData) => {
         orderId
       });
 
-      // Update customer's totalOrders count
-      try {
-        const customerRef = doc(db, 'customers', customerId);
-        const customerDoc = await getDoc(customerRef);
-        if (customerDoc.exists()) {
-          await updateDoc(customerRef, {
-            totalOrders: increment(1),
-            updatedAt: serverTimestamp()
-          });
-        } else {
-          await setDoc(customerRef, {
-            totalOrders: 1,
-            updatedAt: serverTimestamp()
-          }, { merge: true });
+      // Update customer's totalOrders count (skip for awaiting_payment drafts)
+      if (!skipTotalOrdersIncrement) {
+        try {
+          const customerRef = doc(db, 'customers', customerId);
+          const customerDoc = await getDoc(customerRef);
+          if (customerDoc.exists()) {
+            await updateDoc(customerRef, {
+              totalOrders: increment(1),
+              updatedAt: serverTimestamp()
+            });
+          } else {
+            await setDoc(customerRef, {
+              totalOrders: 1,
+              updatedAt: serverTimestamp()
+            }, { merge: true });
+          }
+        } catch (error) {
+          console.error('Error updating customer order count:', error);
         }
-      } catch (error) {
-        console.error('Error updating customer order count:', error);
       }
     }
 
@@ -210,6 +255,144 @@ export const placeOrder = async (orderData) => {
     };
   } catch (error) {
     console.error('Error placing order:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Place order (for COD, UPI on delivery, Pay Later, Partial - no online payment)
+ */
+export const placeOrder = async (orderData) => {
+  return placeOrderInternal(orderData, { status: 'pending', skipTotalOrdersIncrement: false });
+};
+
+/**
+ * Confirm order after successful Razorpay payment - moves awaiting_payment → pending, increments totalOrders
+ */
+export const confirmOrderAfterPayment = async (orderId) => {
+  try {
+    if (shouldUseRestFallback() && IS_NATIVE) {
+      const order = await getDocumentRest(`customerOrders/${orderId}`);
+      if (!order) return { success: false, error: 'Order not found' };
+      if (order.status !== 'awaiting_payment') {
+        return { success: true }; // Already confirmed (e.g. by webhook)
+      }
+      const timestamp = new Date().toISOString();
+      await upsertDocumentRest(`customerOrders/${orderId}`, {
+        status: 'pending',
+        'statusHistory.pending': timestamp,
+        updatedAt: timestamp
+      });
+      try {
+        const customerDoc = await getDocumentRest(`customers/${order.customerId}`);
+        if (customerDoc) {
+          await upsertDocumentRest(`customers/${order.customerId}`, {
+            totalOrders: (customerDoc.totalOrders || 0) + 1,
+            updatedAt: timestamp
+          });
+        } else {
+          await upsertDocumentRest(`customers/${order.customerId}`, {
+            totalOrders: 1,
+            updatedAt: timestamp
+          });
+        }
+      } catch (e) {
+        console.error('Error updating customer order count:', e);
+      }
+      return { success: true };
+    }
+
+    const orderRef = doc(db, 'customerOrders', orderId);
+    const orderDoc = await getDoc(orderRef);
+    if (!orderDoc.exists()) return { success: false, error: 'Order not found' };
+    const order = orderDoc.data();
+    if (order.status !== 'awaiting_payment') return { success: true };
+
+    await updateDoc(orderRef, {
+      status: 'pending',
+      'statusHistory.pending': serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    try {
+      const customerRef = doc(db, 'customers', order.customerId);
+      const customerDoc = await getDoc(customerRef);
+      if (customerDoc.exists()) {
+        await updateDoc(customerRef, {
+          totalOrders: increment(1),
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await setDoc(customerRef, {
+          totalOrders: 1,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+    } catch (e) {
+      console.error('Error updating customer order count:', e);
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error confirming order after payment:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Mark order as payment cancelled - user closed Razorpay without paying
+ */
+export const markOrderPaymentCancelled = async (orderId) => {
+  try {
+    const timestamp = new Date().toISOString();
+    const updates = {
+      status: 'payment_cancelled',
+      'statusHistory.payment_cancelled': timestamp,
+      paymentCancelledAt: timestamp,
+      updatedAt: timestamp
+    };
+    if (shouldUseRestFallback() && IS_NATIVE) {
+      await upsertDocumentRest(`customerOrders/${orderId}`, updates);
+    } else {
+      await updateDoc(doc(db, 'customerOrders', orderId), {
+        ...updates,
+        'statusHistory.payment_cancelled': serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error marking order payment cancelled:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Reset payment_cancelled order for retry - no new order created
+ */
+export const retryPaymentOrder = async (orderId) => {
+  try {
+    if (shouldUseRestFallback() && IS_NATIVE) {
+      const order = await getDocumentRest(`customerOrders/${orderId}`);
+      if (!order || order.status !== 'payment_cancelled') return { success: false, error: 'Cannot retry' };
+      const timestamp = new Date().toISOString();
+      await upsertDocumentRest(`customerOrders/${orderId}`, {
+        status: 'awaiting_payment',
+        'statusHistory.awaiting_payment': timestamp,
+        updatedAt: timestamp
+      });
+      return { success: true };
+    }
+    const orderRef = doc(db, 'customerOrders', orderId);
+    const orderDoc = await getDoc(orderRef);
+    if (!orderDoc.exists()) return { success: false, error: 'Order not found' };
+    if (orderDoc.data().status !== 'payment_cancelled') return { success: false, error: 'Cannot retry' };
+    await updateDoc(orderRef, {
+      status: 'awaiting_payment',
+      'statusHistory.awaiting_payment': serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error retrying payment order:', error);
     return { success: false, error: error.message };
   }
 };
@@ -252,6 +435,37 @@ export const getCustomerOrders = async (customerId, limitCount = 20) => {
     return orders.slice(0, limitCount);
   } catch (error) {
     console.error('Error fetching orders:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get recent orders for internal analytics (no customer filter)
+ * Used by /internal view - requires Firestore rules to allow read
+ */
+export const getOrdersForAnalytics = async (limitCount = 100) => {
+  try {
+    if (shouldUseRestFallback() && IS_NATIVE) {
+      const docs = await listDocumentsRest('customerOrders', limitCount);
+      return docs
+        .map((d) => ({
+          ...d,
+          createdAt: parseCreatedAt(d.createdAt),
+        }))
+        .sort((a, b) => b.createdAt - a.createdAt);
+    }
+    const ordersRef = collection(db, 'customerOrders');
+    const q = query(ordersRef, limit(limitCount));
+    const snapshot = await getDocs(q);
+    const orders = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: parseCreatedAt(doc.data().createdAt),
+    }));
+    orders.sort((a, b) => b.createdAt - a.createdAt);
+    return orders;
+  } catch (error) {
+    console.error('Error fetching orders for analytics:', error);
     throw error;
   }
 };
@@ -341,6 +555,24 @@ export const subscribeToOrder = (orderId, callback) => {
  */
 export const cancelOrder = async (orderId, reason) => {
   try {
+    if (shouldUseRestFallback() && IS_NATIVE) {
+      const order = await getDocumentRest(`customerOrders/${orderId}`);
+      if (!order) return { success: false, error: 'Order not found' };
+      const cancellable = ['pending', 'awaiting_payment', 'payment_cancelled'];
+      if (!cancellable.includes(order.status)) {
+        return { success: false, error: 'Cannot cancel order. It has already been accepted by the store.' };
+      }
+      const timestamp = new Date().toISOString();
+      await upsertDocumentRest(`customerOrders/${orderId}`, {
+        status: 'cancelled',
+        'statusHistory.cancelled': timestamp,
+        cancellationReason: reason,
+        cancelledBy: 'customer',
+        updatedAt: timestamp
+      });
+      return { success: true };
+    }
+
     const orderRef = doc(db, 'customerOrders', orderId);
     const orderDoc = await getDoc(orderRef);
     
@@ -350,8 +582,8 @@ export const cancelOrder = async (orderId, reason) => {
 
     const order = orderDoc.data();
     
-    // Can only cancel if status is 'pending'
-    if (order.status !== 'pending') {
+    const cancellable = ['pending', 'awaiting_payment', 'payment_cancelled'];
+    if (!cancellable.includes(order.status)) {
       return { 
         success: false, 
         error: 'Cannot cancel order. It has already been accepted by the store.' 
@@ -460,6 +692,22 @@ export const getOrderStatusInfo = (status, orderType = 'delivery') => {
   const isPickup = orderType === 'pickup';
   
   const statusMap = {
+    'awaiting_payment': {
+      label: 'Complete Payment',
+      description: 'Complete payment to place order',
+      color: 'text-amber-500',
+      bgColor: 'bg-amber-500/20',
+      icon: '💳',
+      step: 0
+    },
+    'payment_cancelled': {
+      label: 'Payment Cancelled',
+      description: 'Transaction was cancelled. Try again.',
+      color: 'text-orange-500',
+      bgColor: 'bg-orange-500/20',
+      icon: '⚠️',
+      step: 0
+    },
     'pending': {
       label: 'Order Placed',
       description: 'Waiting for store to accept',

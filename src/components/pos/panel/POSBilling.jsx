@@ -1599,10 +1599,12 @@ return {
       {/* ... (Top Bar and other JSX remains the same) ... */}
       <div className="sticky top-0 z-30 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
         <div className="px-4 py-3 flex gap-2 items-center">
-          <button
-            onClick={onBack}
-            className="rounded-lg px-4 py-2 text-sm font-semibold border border-white/10 bg-white/5 hover:bg-white/10"
-          >← Back</button>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-4 py-2 text-sm font-semibold shadow hover:shadow-lg transition"
+            >← Back</button>
+          )}
           <button
             onClick={() => setScanOpen(true)}
             className="rounded-lg px-4 py-2 text-sm font-semibold border border-white/10 bg-white/5 hover:bg-white/10"

@@ -23,6 +23,12 @@ service cloud.firestore {
     function isValidPhoneFormat(phone) {
       return phone is string && phone.matches('^\\+91[0-9]{10}$');
     }
+    // Allow empty phone or valid format for profile updates (retailers often enter 10-digit without +91)
+    function isPhoneValidOrEmpty(phone) {
+      return phone == '' || phone == null
+        || (phone is string && phone.matches('^\\+91[0-9]{10}$'))
+        || (phone is string && phone.matches('^[0-9]{10}$'));
+    }
 
     // Email cannot be changed after creation
     function emailUnchanged(data) {
@@ -85,6 +91,9 @@ service cloud.firestore {
 
       // READ own doc
       allow read: if isAuthed() && isSelf(userId);
+
+      // QR ORDER: Allow unauthenticated get for business name/info (for customer-facing QR menu page)
+      allow get: if true;
       
       // READ: Allow product owners to read distributor businesses for connection purposes
       // This allows product owners to search and verify distributors by FLYP ID, view connected distributors, or view distributors with pending orders
@@ -125,14 +134,14 @@ service cloud.firestore {
         && isSelf(userId)
         && isEmailVerified()
         && (
-          // ownerId must equal userId (user can only update their own doc)
-          // This handles both: setting ownerId on legacy docs AND keeping it unchanged
+          // ownerId must equal userId (ProfileSettings always sends ownerId)
           request.resource.data.ownerId == userId
         )
         && emailUnchanged(request.resource.data)
         && (
+          // Phone: allow not changing, or empty, or valid format (include 10-digit Indian)
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['phone'])
-          || isValidPhoneFormat(request.resource.data.phone)
+          || isPhoneValidOrEmpty(request.resource.data.phone)
         );
 
       // Allow territory management (add/update/remove) - distributors can manage their territories at any time
@@ -172,6 +181,12 @@ service cloud.firestore {
       // --- Billing Settings (preferences subcollection) ---
       match /preferences/{docId} {
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
+      // FCM tokens for push notifications (retailer devices)
+      // Path: businesses/{userId}/fcmTokens/{deviceId}
+      match /fcmTokens/{deviceId} {
+        allow read, write: if isAuthed() && isSelf(userId);
       }
 
       // --- Store Layout (for location management) ---
@@ -373,6 +388,8 @@ service cloud.firestore {
           isConnectedRetailer(userId) || 
           isDistributorEmployee(userId)
         );
+        // QR ORDER: Allow unauthenticated read for customer menu browsing
+        allow read: if true;
 
         allow write: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
@@ -387,6 +404,8 @@ service cloud.firestore {
           isConnectedRetailer(userId) || 
           isDistributorEmployee(userId)
         );
+        // QR ORDER: Allow unauthenticated read for customer menu browsing
+        allow read: if true;
 
         allow write: if isAuthed() && (
           (isSelf(userId) && isEmailVerified()) || 
@@ -400,6 +419,8 @@ service cloud.firestore {
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
         );
+        // QR ORDER: Allow unauthenticated get for table info
+        allow get: if true;
       }
 
       // --- KITCHEN ORDERS ---
@@ -408,6 +429,11 @@ service cloud.firestore {
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
         );
+        // QR ORDER: Allow unauthenticated customers to place orders and track their own order
+        allow create: if request.resource.data.source == "qr-order"
+          && request.resource.data.tableId is string
+          && request.resource.data.tableId.size() > 0;
+        allow get: if true;
       }
       match /menuCategories/{categoryId} {
         allow read: if isAuthed() && (
@@ -1401,6 +1427,10 @@ service cloud.firestore {
       allow update: if true; // Allow any client to update customer documents
       // Apple Guideline 5.1.1(v): Allow account deletion (customer deletes own doc by ID)
       allow delete: if true; // Allow any client to delete customer documents
+      // FCM tokens for push notifications (order status updates)
+      match /fcmTokens/{deviceId} {
+        allow read, write: if true;
+      }
     }
     
     // Stores visible to customers (synced from businesses)

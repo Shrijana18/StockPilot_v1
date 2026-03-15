@@ -34,5 +34,7 @@ export default defineConfig({
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production'),
     'process.env.VITE_APP_TYPE': JSON.stringify('customer'),
+    // Razorpay (default). Set VITE_USE_PAYU=true for PayU.
+    'import.meta.env.VITE_USE_PAYU': JSON.stringify(process.env.VITE_USE_PAYU ?? 'false'),
   },
 });

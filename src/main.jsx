@@ -13,15 +13,20 @@ import 'firebaseui/dist/firebaseui.css';
 import './i18n/config';
 
 import { AuthProvider } from './context/AuthContext';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, HashRouter } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
+
+// Use HashRouter on native (iOS/Android) - BrowserRouter causes blank screens after navigate
+// because WebViews handle History API unreliably
+const Router = Capacitor?.isNativePlatform?.() ? HashRouter : BrowserRouter;
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     {/* Global routing handled here */}
-    <BrowserRouter>
+    <Router>
       <AuthProvider>
         <App />
       </AuthProvider>
-    </BrowserRouter>
+    </Router>
   </React.StrictMode>
 );

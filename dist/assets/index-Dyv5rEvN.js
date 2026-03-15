@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-x3PDbYud.js","assets/index-CjSJ5y56.js","assets/router-0IH_jsSi.js","assets/firebase-CrPAx79r.js","assets/index.esm-BXakCC1z.js","assets/index-dbv7ONOq.css"])))=>i.map(i=>d[i]);
+import{A as r,_ as t}from"./index-CjSJ5y56.js";import"./router-0IH_jsSi.js";import"./firebase-CrPAx79r.js";import"./index.esm-BXakCC1z.js";const s=r("Preferences",{web:()=>t(()=>import("./web-x3PDbYud.js"),__vite__mapDeps([0,1,2,3,4,5])).then(e=>new e.PreferencesWeb)});export{s as Preferences};

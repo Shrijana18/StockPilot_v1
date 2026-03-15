@@ -137,15 +137,18 @@ const MobileBottomNav = ({
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar - sits lower to use space; minimal bottom cushion */}
-      <nav 
-        className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/5 relative"
-        style={{ 
+      {/* Bottom Navigation Bar - edge-to-edge, flush with screen bottom */}
+      <nav
+        className="fixed left-0 right-0 bottom-0 z-30"
+        style={{
           background: '#0B0F14',
-          paddingBottom: 'max(6px, calc(env(safe-area-inset-bottom) * 0.6))',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          paddingLeft: 'env(safe-area-inset-left, 0px)',
+          paddingRight: 'env(safe-area-inset-right, 0px)',
+          boxShadow: '0 -1px 0 rgba(255,255,255,0.05)',
         }}
       >
-        <div className="flex items-center justify-around px-1 py-1.5 relative">
+        <div className="flex items-center justify-around px-1 py-3 min-h-[56px]">
           {navItems.map((item, index) => {
             const isActive = activeTab === item.id;
             const isCenter = userRole === 'distributor' && index === Math.floor(navItems.length / 2);
@@ -208,15 +211,6 @@ const MobileBottomNav = ({
             );
           })}
         </div>
-        {/* Fill to screen bottom so no visible strip; matches reduced padding */}
-        <div 
-          className="absolute bottom-0 left-0 right-0 pointer-events-none"
-          style={{ 
-            height: 'max(6px, calc(env(safe-area-inset-bottom) * 0.6))', 
-            background: '#0B0F14',
-          }}
-          aria-hidden
-        />
       </nav>
     </>
   );

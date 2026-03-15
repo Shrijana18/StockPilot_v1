@@ -23,7 +23,10 @@ import Cart from './views/Cart';
 import Checkout from './views/Checkout';
 import OrderTracking from './views/OrderTracking';
 import MyOrders from './views/MyOrders';
+import InternalOrderAnalytics from './views/InternalOrderAnalytics';
 import CustomerProfile from './views/CustomerProfile';
+import PaymentCallback from './views/PaymentCallback';
+import { initCustomerPushNotifications, isCustomerPushSupported } from './services/customerPushNotificationService';
 
 // Order Success Modal - Premium animation with bag + checkmark
 const OrderSuccessModal = ({ orderNumber, onTrack, onHome }) => (
@@ -124,7 +127,7 @@ const OrderSuccessModal = ({ orderNumber, onTrack, onHome }) => (
 
 // Main App Content (inside providers)
 const CustomerAppContent = () => {
-  const { isLoggedIn, loading: authLoading } = useCustomerAuth();
+  const { isLoggedIn, loading: authLoading, customer, customerData } = useCustomerAuth();
   
   // Navigation state
   const [activeTab, setActiveTab] = useState('home');
@@ -141,6 +144,7 @@ const CustomerAppContent = () => {
   const [successOrderNumber, setSuccessOrderNumber] = useState('');
   const [successOrderId, setSuccessOrderId] = useState('');
   const [pendingCheckout, setPendingCheckout] = useState(false);
+  const [paymentCallbackData, setPaymentCallbackData] = useState(null);
 
   // Get user location on mount (for both guest and logged-in — required for store browsing)
   useEffect(() => {
@@ -172,11 +176,46 @@ const CustomerAppContent = () => {
     );
   }, []);
 
+  // Payment callback: #/payment/success?orderId=xxx or #/payment/failure?orderId=xxx (PayU redirect)
+  useEffect(() => {
+    const checkPaymentCallback = () => {
+      const hash = window.location.hash || '';
+      const match = hash.match(/#\/payment\/(success|failure)(?:\?(.*)|$)/);
+      if (!match) return;
+      const success = match[1] === 'success';
+      const query = match[2] || '';
+      const params = new URLSearchParams(query);
+      const orderId = params.get('orderId') || null;
+      setCurrentView('paymentCallback');
+      setPaymentCallbackData({ success, orderId });
+      setActiveTab('orders');
+    };
+    checkPaymentCallback();
+    window.addEventListener('hashchange', checkPaymentCallback);
+    return () => window.removeEventListener('hashchange', checkPaymentCallback);
+  }, []);
+
+  // Internal view: /internal or #internal
+  useEffect(() => {
+    const checkInternal = () => {
+      const path = window.location.pathname || '';
+      const hash = window.location.hash || '';
+      if (path.includes('internal') || hash.includes('internal')) {
+        setCurrentView('internal');
+        setActiveTab('orders');
+      }
+    };
+    checkInternal();
+    window.addEventListener('hashchange', checkInternal);
+    return () => window.removeEventListener('hashchange', checkInternal);
+  }, []);
+
   // Apple Guideline 5.1.1: Guests must be able to browse without signing in. Never show login as first screen.
   const hasInitializedGuestView = React.useRef(false);
   useEffect(() => {
     if (authLoading || isLoggedIn) return;
     if (hasInitializedGuestView.current) return;
+    if (window.location.pathname?.includes('internal') || window.location.hash?.includes('internal')) return;
     hasInitializedGuestView.current = true;
     setCurrentView('home');
     setActiveTab('home');
@@ -317,6 +356,33 @@ const CustomerAppContent = () => {
     setShowOrderSuccess(true);
   };
 
+  // Handle payment cancelled - navigate to order tracking so user can retry payment
+  const handlePaymentCancelled = (orderId) => {
+    setActiveTab('orders');
+    navigateTo('tracking', { orderId });
+  };
+
+  // Initialize push notifications for order status updates (native only)
+  const customerPushInitialized = React.useRef(false);
+  useEffect(() => {
+    if (!isCustomerPushSupported() || !customer?.uid) return;
+    const enabled = customerData?.settings?.pushNotifications !== false;
+    if (!enabled) {
+      customerPushInitialized.current = false;
+      import('./services/customerPushNotificationService').then(({ removeCustomerTokenFromFirestore }) =>
+        removeCustomerTokenFromFirestore(customer.uid)
+      );
+      return;
+    }
+    if (customerPushInitialized.current) return;
+    customerPushInitialized.current = true;
+    initCustomerPushNotifications(customer.uid, (data) => {
+      if (data?.type === 'order_status_update' && data?.orderId) {
+        navigateTo('tracking', { orderId: data.orderId });
+      }
+    });
+  }, [customer?.uid, customerData?.settings?.pushNotifications]);
+
   // Show auth loading - FLYP Brand
   if (authLoading) {
     return (
@@ -424,6 +490,7 @@ const CustomerAppContent = () => {
             <Checkout
               onBack={goBack}
               onOrderPlaced={handleOrderPlaced}
+              onPaymentCancelled={handlePaymentCancelled}
             />
           </div>
         )}
@@ -445,6 +512,35 @@ const CustomerAppContent = () => {
               onBack={() => handleTabChange('home')}
               onOrderClick={(orderId) => navigateTo('tracking', { orderId })}
             />
+          </div>
+        )}
+
+        {/* Payment Callback - PayU redirect landing */}
+        {currentView === 'paymentCallback' && paymentCallbackData && (
+          <div className="bg-transparent w-full h-full min-h-0">
+            <PaymentCallback
+              success={paymentCallbackData.success}
+              orderId={paymentCallbackData.orderId}
+              onTrackOrder={(id) => {
+                setPaymentCallbackData(null);
+                navigateTo('tracking', { orderId: id });
+              }}
+              onRetry={(id) => {
+                setPaymentCallbackData(null);
+                navigateTo('tracking', { orderId: id });
+              }}
+              onHome={() => {
+                setPaymentCallbackData(null);
+                handleTabChange('home');
+              }}
+            />
+          </div>
+        )}
+
+        {/* Internal Analytics - /internal or #internal */}
+        {currentView === 'internal' && (
+          <div className="bg-transparent w-full h-full min-h-0">
+            <InternalOrderAnalytics onBack={() => { setCurrentView('orders'); setActiveTab('orders'); }} />
           </div>
         )}
 

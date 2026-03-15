@@ -4,9 +4,19 @@
  * POS and other advanced features are on web only.
  */
 
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, db } from '../../firebase/firebaseConfig';
+import { useAuth } from '../../context/AuthContext';
+import { onAuthStateChanged } from 'firebase/auth';
+import { initPushNotifications, isPushSupported, clearAppBadge } from '../../services/pushNotificationService';
+import {
+  getNotificationActivity,
+  getUnreadNotificationActivityCount,
+  markAllNotificationActivityRead,
+  clearNotificationActivity,
+  markNotificationActivityRead,
+} from '../../utils/notificationActivity';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { shouldUseRestFallback, getDocumentRest, listDocumentsRest } from '../../customer/services/firestoreRestClient';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -43,15 +53,91 @@ const TAB_CONFIG = {
 };
 
 const MobileRetailerDashboard = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
   const [previousTab, setPreviousTab] = useState(null);
   const [userData, setUserData] = useState(null);
   const [stats, setStats] = useState({ products: 0, orders: 0, revenue: 0, employees: 0 });
+  const [notificationCount, setNotificationCount] = useState(0); // Pending marketplace orders
+  const [pendingOrders, setPendingOrders] = useState([]); // For synthetic notification items
+  const [notificationItems, setNotificationItems] = useState(() => getNotificationActivity('retailer'));
   const [marketplaceTab, setMarketplaceTab] = useState('orders');
   const [inventoryTab, setInventoryTab] = useState('view');
   const [addMethod, setAddMethod] = useState('manual');
 
-  const retailerId = auth.currentUser?.uid;
+  const retailerId = user?.uid || auth.currentUser?.uid;
+
+  const fetchData = useCallback(async (uid) => {
+    if (!uid) return;
+    try {
+      let businessSnap, productsSnap, employeesSnap, invoicesSnap, marketplaceOrdersList;
+
+      if (shouldUseRestFallback()) {
+        const idToken = await auth.currentUser?.getIdToken?.(false);
+        if (!idToken) return;
+        const [bizDoc, productsList, employeesList, invoicesList, ordersList] = await Promise.all([
+          getDocumentRest(`businesses/${uid}`, idToken),
+          listDocumentsRest(`businesses/${uid}/products`, 500, idToken).catch(() => []),
+          listDocumentsRest(`businesses/${uid}/employees`, 500, idToken).catch(() => []),
+          listDocumentsRest(`businesses/${uid}/invoices`, 500, idToken).catch(() => []),
+          listDocumentsRest(`stores/${uid}/customerOrders`, 200, idToken).catch(() => []),
+        ]);
+        const toSnap = (d) => ({
+          exists: () => !!d,
+          data: () => (d ? (() => { const { id: _id, ...rest } = d; return rest; })() : undefined),
+        });
+        const toQuerySnap = (arr) => ({
+          size: (arr || []).length,
+          docs: (arr || []).map((d) => ({ data: () => (() => { const { id: _id, ...rest } = d; return rest; })() })),
+        });
+        businessSnap = toSnap(bizDoc);
+        productsSnap = toQuerySnap(productsList);
+        employeesSnap = toQuerySnap(employeesList);
+        invoicesSnap = toQuerySnap(invoicesList);
+        marketplaceOrdersList = ordersList || [];
+      } else {
+        [businessSnap, productsSnap, employeesSnap] = await Promise.all([
+          getDoc(doc(db, 'businesses', uid)),
+          getDocs(collection(db, 'businesses', uid, 'products')),
+          getDocs(collection(db, 'businesses', uid, 'employees')),
+        ]);
+        try {
+          invoicesSnap = await getDocs(collection(db, 'businesses', uid, 'invoices'));
+        } catch (_) {
+          invoicesSnap = { size: 0, docs: [] };
+        }
+      }
+
+      if (businessSnap?.exists?.()) {
+        setUserData(businessSnap.data());
+      }
+
+      let orders = 0;
+      let revenue = 0;
+      invoicesSnap?.docs?.forEach((d) => {
+        const data = typeof d.data === 'function' ? d.data() : d;
+        const amt = data?.paidAmount ?? data?.total ?? 0;
+        revenue += Number(amt);
+      });
+      orders = invoicesSnap?.size ?? 0;
+
+      setStats({
+        products: productsSnap?.size ?? 0,
+        orders,
+        revenue,
+        employees: employeesSnap?.size ?? 0,
+      });
+
+      // Pending marketplace orders = notification count for bell (REST path only; web uses CustomerOrders subscription)
+      if (typeof marketplaceOrdersList !== 'undefined' && Array.isArray(marketplaceOrdersList)) {
+        const pending = marketplaceOrdersList.filter((o) => (o?.status || '').toLowerCase() === 'pending');
+        setNotificationCount(pending.length);
+        setPendingOrders(pending);
+      }
+    } catch (err) {
+      console.error('Error fetching retailer data:', err);
+    }
+  }, []);
 
   // Lock body scroll and match app background so no colour mismatch at top/bottom
   useEffect(() => {
@@ -75,78 +161,74 @@ const MobileRetailerDashboard = () => {
     };
   }, []);
 
+  // Fetch data as soon as auth user is available (avoids waiting for React re-render)
   useEffect(() => {
-    if (!retailerId) return;
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user?.uid) fetchData(user.uid);
+    });
+    return () => unsub();
+  }, [fetchData]);
 
-    const fetchData = async () => {
-      try {
-        let businessSnap, productsSnap, employeesSnap, invoicesSnap;
+  // Also fetch when retailerId becomes available (e.g. after navigation)
+  useEffect(() => {
+    if (retailerId) fetchData(retailerId);
+  }, [retailerId, fetchData]);
 
-        if (shouldUseRestFallback()) {
-          const idToken = await auth.currentUser?.getIdToken?.();
-          if (!idToken) return;
-          const [bizDoc, productsList, employeesList, invoicesList] = await Promise.all([
-            getDocumentRest(`businesses/${retailerId}`, idToken),
-            listDocumentsRest(`businesses/${retailerId}/products`, 500, idToken).catch(() => []),
-            listDocumentsRest(`businesses/${retailerId}/employees`, 500, idToken).catch(() => []),
-            listDocumentsRest(`businesses/${retailerId}/invoices`, 500, idToken).catch(() => []),
-          ]);
-          const toSnap = (doc) => ({
-            exists: () => !!doc,
-            data: () => doc ? (() => { const { id: _id, ...d } = doc; return d; })() : undefined,
-          });
-          const toQuerySnap = (arr) => ({
-            size: (arr || []).length,
-            docs: (arr || []).map((d) => ({ data: () => (() => { const { id: _id, ...rest } = d; return rest; })() })),
-          });
-          businessSnap = toSnap(bizDoc);
-          productsSnap = toQuerySnap(productsList);
-          employeesSnap = toQuerySnap(employeesList);
-          invoicesSnap = toQuerySnap(invoicesList);
-        } else {
-          [businessSnap, productsSnap, employeesSnap] = await Promise.all([
-            getDoc(doc(db, 'businesses', retailerId)),
-            getDocs(collection(db, 'businesses', retailerId, 'products')),
-            getDocs(collection(db, 'businesses', retailerId, 'employees')),
-          ]);
-          try {
-            invoicesSnap = await getDocs(collection(db, 'businesses', retailerId, 'invoices'));
-          } catch (_) {
-            invoicesSnap = { size: 0, docs: [] };
-          }
-        }
+  // Preload critical tab chunks so they load instantly when switching
+  useEffect(() => {
+    import('../../components/inventory/ViewInventory');
+    import('../../pages/Billing');
+    import('../../components/retailer/marketplace/CustomerOrders');
+  }, []);
 
-        if (businessSnap.exists()) {
-          setUserData(businessSnap.data());
-        }
+  // Refresh notification activity feed on mount and when bell opens
+  useEffect(() => {
+    setNotificationItems(getNotificationActivity('retailer'));
+  }, []);
 
-        let orders = 0;
-        let revenue = 0;
-        invoicesSnap?.docs?.forEach((d) => {
-          const data = typeof d.data === 'function' ? d.data() : d;
-          const amt = data?.paidAmount ?? data?.total ?? 0;
-          revenue += Number(amt);
-        });
-        orders = invoicesSnap?.size ?? 0;
+  // Merge activity items with synthetic items from pending orders so bell count matches panel content
+  const mergedNotificationItems = React.useMemo(() => {
+    const activity = notificationItems;
+    const orderIdsInActivity = new Set(
+      activity.map((a) => a?.data?.orderId || a?.data?.order_id || a?.data?.id).filter(Boolean)
+    );
+    const synthetic = pendingOrders
+      .filter((o) => o?.id && !orderIdsInActivity.has(o.id))
+      .map((o) => ({
+        id: `order_${o.id}`,
+        title: 'New order received',
+        body: `${o?.customerName || o?.customer?.name || 'Customer'} · ${o?.items?.length || 0} item(s)`,
+        type: 'new_order',
+        data: { orderId: o.id, ...o },
+        createdAt: o?.createdAt || o?.orderDate || new Date().toISOString(),
+        read: false,
+      }));
+    return [...synthetic, ...activity];
+  }, [notificationItems, pendingOrders]);
 
-        setStats({
-          products: productsSnap?.size ?? 0,
-          orders,
-          revenue,
-          employees: employeesSnap?.size ?? 0,
-        });
-      } catch (err) {
-        console.error('Error fetching retailer data:', err);
-      }
-    };
-
-    fetchData();
-  }, [retailerId]);
-
-  const handleTabChange = (tabId) => {
-    setPreviousTab(activeTab);
+  // Define handleTabChange and activeTabRef BEFORE any useEffect that uses them (fixes blank screen crash)
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const handleTabChange = useCallback((tabId) => {
+    setPreviousTab(activeTabRef.current);
     setActiveTab(tabId);
-  };
+    if (tabId === 'marketplace') clearAppBadge();
+  }, []);
+
+  // Initialize push notifications when user has enabled them (native only)
+  const pushInitialized = useRef(false);
+  useEffect(() => {
+    if (!isPushSupported() || !retailerId || !userData?.pushNotifications || pushInitialized.current) return;
+    pushInitialized.current = true;
+    initPushNotifications(retailerId, (data) => {
+      const type = data?.type || data?.notificationType;
+      if (type === 'new_order' || type === 'packing_reminder' || type === 'due_reminder') {
+        handleTabChange('marketplace');
+      } else if (type === 'low_stock') {
+        handleTabChange('inventory');
+      }
+    });
+  }, [retailerId, userData?.pushNotifications, handleTabChange]);
 
   const handleBack = () => {
     if (previousTab) {
@@ -279,13 +361,31 @@ const MobileRetailerDashboard = () => {
         showBack={currentConfig.showBack}
         onBackPress={handleBack}
         showSearch={activeTab === 'inventory'}
+        notificationCount={Math.max(notificationCount, getUnreadNotificationActivityCount('retailer'), mergedNotificationItems.filter((i) => !i.read).length)}
+        notificationItems={mergedNotificationItems}
+        onNotificationPress={() => setNotificationItems(getNotificationActivity('retailer'))}
+        onNotificationItemPress={(item) => {
+          if (!item.id.startsWith('order_')) {
+            setNotificationItems(markNotificationActivityRead('retailer', item.id));
+          }
+          const type = item?.type || item?.data?.type;
+          if (type === 'new_order' || type === 'packing_reminder' || type === 'due_reminder') {
+            handleTabChange('marketplace');
+          } else if (type === 'low_stock') {
+            handleTabChange('inventory');
+          } else {
+            handleTabChange('marketplace');
+          }
+        }}
+        onNotificationMarkAllRead={() => setNotificationItems(markAllNotificationActivityRead('retailer'))}
+        onNotificationClearAll={() => setNotificationItems(clearNotificationActivity('retailer'))}
       />
 
       <main
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain"
         style={{
           paddingTop: 'calc(62px + max(env(safe-area-inset-top) - 12px, 2px))',
-          paddingBottom: 'calc(64px + env(safe-area-inset-bottom))',
+          paddingBottom: 'calc(72px + env(safe-area-inset-bottom))',
           WebkitOverflowScrolling: 'touch',
         }}
       >

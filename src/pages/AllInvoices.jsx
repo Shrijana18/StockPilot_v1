@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { getFirestore, collection, getDocs } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getFirestore, collection, getDocs, query, orderBy } from "firebase/firestore";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import InvoiceCard from "../components/InvoiceCard";
 import InvoicePreview from "../components/InvoicePreview";
 
@@ -10,37 +10,54 @@ const AllInvoices = () => {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [dateRange, setDateRange] = useState({ from: "", to: "" });
+  const [loading, setLoading] = useState(true);
 
+  // Fix auth race: wait for auth state before fetching
   useEffect(() => {
-    const fetchInvoices = async () => {
-      const currentUser = getAuth().currentUser;
-      if (!currentUser) return;
-      const invoicesRef = collection(getFirestore(), `businesses/${currentUser.uid}/finalizedInvoices`);
-      const snapshot = await getDocs(invoicesRef);
-      const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setInvoices(fetched);
-      setFilteredInvoices(fetched);
-    };
-
-    fetchInvoices();
+    const unsubscribe = onAuthStateChanged(getAuth(), async (user) => {
+      if (!user) { setLoading(false); return; }
+      try {
+        const invoicesRef = collection(getFirestore(), `businesses/${user.uid}/finalizedInvoices`);
+        const snapshot = await getDocs(invoicesRef);
+        const fetched = snapshot.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        setInvoices(fetched);
+        setFilteredInvoices(fetched);
+      } catch (e) {
+        console.error("Failed to load invoices:", e);
+      } finally {
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const lowerSearch = searchTerm.toLowerCase();
+    const lowerSearch = searchTerm.toLowerCase().trim();
 
     const filtered = invoices.filter(inv => {
-      const matchName = inv.customerInfo?.name?.toLowerCase().includes(lowerSearch);
-      const matchEmail = inv.customerInfo?.email?.toLowerCase().includes(lowerSearch);
+      // Support both billing POS (customerInfo) and restaurant POS (customer) formats
+      const custName  = (inv.customerInfo?.name  || inv.customer?.name  || "").toLowerCase();
+      const custEmail = (inv.customerInfo?.email || inv.customer?.email || "").toLowerCase();
+      const custPhone = (inv.customerInfo?.phone || inv.customer?.phone || "").toLowerCase();
+      const tableInfo = (inv.meta?.tableName || "").toLowerCase();
+
+      const matchSearch = lowerSearch === ""
+        || custName.includes(lowerSearch)
+        || custEmail.includes(lowerSearch)
+        || custPhone.includes(lowerSearch)
+        || tableInfo.includes(lowerSearch);
 
       const invoiceDate = new Date(inv.createdAt);
       const fromDate = dateRange.from ? new Date(dateRange.from) : null;
-      const toDate = dateRange.to ? new Date(dateRange.to) : null;
+      const toDate   = dateRange.to   ? new Date(new Date(dateRange.to).setHours(23,59,59,999)) : null;
 
       const matchDate =
         (!fromDate || invoiceDate >= fromDate) &&
-        (!toDate || invoiceDate <= toDate);
+        (!toDate   || invoiceDate <= toDate);
 
-      return (matchName || matchEmail) && matchDate;
+      return matchSearch && matchDate;
     });
 
     setFilteredInvoices(filtered);
@@ -75,7 +92,9 @@ const AllInvoices = () => {
         />
       </div>
 
-      {filteredInvoices.length === 0 ? (
+      {loading ? (
+        <p className="text-white/50">Loading invoices...</p>
+      ) : filteredInvoices.length === 0 ? (
         <p>No invoices found.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

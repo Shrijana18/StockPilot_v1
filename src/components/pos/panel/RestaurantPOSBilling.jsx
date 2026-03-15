@@ -47,17 +47,19 @@ const money = (n) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits:
 
 // Status colors
 const statusColors = {
-  pending: "bg-blue-500/20 text-blue-300 border-blue-500/50",
+  pending:   "bg-blue-500/20 text-blue-300 border-blue-500/50",
+  accepted:  "bg-green-500/20 text-green-300 border-green-500/50",
   preparing: "bg-amber-500/20 text-amber-300 border-amber-500/50",
-  ready: "bg-emerald-500/20 text-emerald-300 border-emerald-500/50",
-  served: "bg-slate-500/20 text-slate-300 border-slate-500/50",
+  ready:     "bg-emerald-500/20 text-emerald-300 border-emerald-500/50",
+  served:    "bg-slate-500/20 text-slate-300 border-slate-500/50",
 };
 
 const statusLabels = {
-  pending: "Pending",
+  pending:   "Pending",
+  accepted:  "Accepted",
   preparing: "Preparing",
-  ready: "Ready",
-  served: "Served",
+  ready:     "Ready",
+  served:    "Served",
 };
 
 // Modal component
@@ -105,7 +107,33 @@ export default function RestaurantPOSBilling({
   const [saving, setSaving] = React.useState(false);
   const [tableData, setTableData] = React.useState(table || {});
   const [activeOrderId, setActiveOrderId] = React.useState(null); // Track current active order for consolidation
-  const [statusExpanded, setStatusExpanded] = React.useState(false); // Track status section expand/collapse
+  const [toasts, setToasts] = React.useState([]);
+  const [showConfirmClose, setShowConfirmClose] = React.useState(false);
+  const [showPreCheckout, setShowPreCheckout] = React.useState(false);
+  const [showReceipt, setShowReceipt] = React.useState(false);
+  const [receiptData, setReceiptData] = React.useState(null);
+  // Checkout form state
+  const [coPayment, setCoPayment]         = React.useState("cash"); // cash|card|upi|other
+  const [coCustomer, setCoCustomer]       = React.useState({ name: "", phone: "" });
+  const [coTaxMode, setCoTaxMode]         = React.useState("auto"); // auto|manual
+  const [coTaxPct, setCoTaxPct]           = React.useState("18");   // manual GST %
+  const [coTaxLocked, setCoTaxLocked]     = React.useState(false);
+  const [coExtraLabel, setCoExtraLabel]   = React.useState("Service Charge");
+  const [coExtraAmt, setCoExtraAmt]       = React.useState("");
+  const [coDiscount, setCoDiscount]       = React.useState("");
+
+  const [collapsedRounds, setCollapsedRounds] = React.useState(new Set());
+  const [footerMinimized, setFooterMinimized] = React.useState(false);
+  const [itemNotes, setItemNotes] = React.useState({});
+  const [showNoteFor, setShowNoteFor] = React.useState(null);
+  const [rushMode, setRushMode] = React.useState(false);
+  const [posNow, setPosNow] = React.useState(Date.now());
+
+  const showToast = React.useCallback((message, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+  }, []);
 
   // Load categories and items (from CreateMenu)
   React.useEffect(() => {
@@ -175,7 +203,7 @@ export default function RestaurantPOSBilling({
       snap.forEach((docSnap) => {
         const data = docSnap.data();
         // Filter out completed orders in client if composite query failed
-        if (data.status !== "completed" && data.status !== "served") {
+        if (data.status !== "completed") {
           orders.push({ id: docSnap.id, ...data });
         }
       });
@@ -195,7 +223,7 @@ export default function RestaurantPOSBilling({
           const orders = [];
           snap.forEach((docSnap) => {
             const data = docSnap.data();
-            if (data.status !== "completed" && data.status !== "served") {
+            if (data.status !== "completed") {
               orders.push({ id: docSnap.id, ...data });
             }
           });
@@ -209,6 +237,12 @@ export default function RestaurantPOSBilling({
 
     return () => unsubscribe();
   }, [table?.id]);
+
+  // Live 30-second clock for table occupation timer
+  React.useEffect(() => {
+    const t = setInterval(() => setPosNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   // Filter items by category and search
   const filteredItems = React.useMemo(() => {
@@ -246,6 +280,33 @@ export default function RestaurantPOSBilling({
     setCart(prev => prev.filter(line => line.product.id !== itemId));
   }, []);
 
+  // Toggle collapse for a round in the right panel
+  const toggleRoundCollapse = React.useCallback((orderId) => {
+    setCollapsedRounds(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
+      return next;
+    });
+  }, []);
+
+  // Repeat last round — add all items from latest kitchen order back to cart
+  const repeatLastRound = React.useCallback(() => {
+    if (kitchenOrders.length === 0) return;
+    const lastOrder = kitchenOrders[kitchenOrders.length - 1];
+    const lastItems = lastOrder.items || lastOrder.lines || [];
+    lastItems.forEach(line => {
+      if (line.product) addToCart(line.product, line.qty || 1);
+    });
+    showToast("🔁 Last round added to cart!");
+  }, [kitchenOrders, showToast, addToCart]);
+
+  // Table occupation timer
+  const tableOccupiedSince = kitchenOrders.length > 0 ? kitchenOrders[0].createdAt : null;
+  const tableElapsedMins = tableOccupiedSince ? Math.floor((posNow - tableOccupiedSince) / 60000) : 0;
+  const tableElapsedStr = tableElapsedMins < 60
+    ? `${tableElapsedMins}m`
+    : `${Math.floor(tableElapsedMins / 60)}h ${tableElapsedMins % 60}m`;
+
   // Update quantity
   const updateQty = React.useCallback((itemId, newQty) => {
     if (newQty <= 0) {
@@ -259,22 +320,53 @@ export default function RestaurantPOSBilling({
 
   // Calculate totals
   const totals = React.useMemo(() => {
-    let subTotal = 0;
-    let tax = 0;
-
+    let subTotal = 0, tax = 0;
     cart.forEach(line => {
       const price = Number(line.product.price || 0);
       const qty = line.qty || 1;
       const taxRate = Number(line.product.tax || 0) / 100;
       const lineSubTotal = price * qty;
-      const lineTax = lineSubTotal * taxRate;
       subTotal += lineSubTotal;
-      tax += lineTax;
+      tax += lineSubTotal * taxRate;
     });
-
-    const grandTotal = subTotal + tax;
-    return { subTotal: +subTotal.toFixed(2), tax: +tax.toFixed(2), grandTotal: +grandTotal.toFixed(2) };
+    return { subTotal: +subTotal.toFixed(2), tax: +tax.toFixed(2), grandTotal: +(subTotal + tax).toFixed(2) };
   }, [cart]);
+
+  // Total from already-sent kitchen orders
+  const kitchenOrdersTotals = React.useMemo(() => {
+    let subTotal = 0, tax = 0;
+    kitchenOrders.forEach(order => {
+      (order.items || order.lines || []).forEach(line => {
+        const price = Number(line.product?.price || 0);
+        const qty = line.qty || 1;
+        const taxRate = Number(line.product?.tax || 0) / 100;
+        const lineSubTotal = price * qty;
+        subTotal += lineSubTotal;
+        tax += lineSubTotal * taxRate;
+      });
+    });
+    return { subTotal: +subTotal.toFixed(2), tax: +tax.toFixed(2), grandTotal: +(subTotal + tax).toFixed(2) };
+  }, [kitchenOrders]);
+
+  // Combined total: cart new items + kitchen orders already placed
+  const checkoutTotal = React.useMemo(() => {
+    const sub = totals.subTotal + kitchenOrdersTotals.subTotal;
+    const tx  = totals.tax     + kitchenOrdersTotals.tax;
+    return { subTotal: +sub.toFixed(2), tax: +tx.toFixed(2), grandTotal: +(sub + tx).toFixed(2) };
+  }, [totals, kitchenOrdersTotals]);
+
+  // Final tax (auto from items or manual override) — must be before executeCheckout
+  const finalTax = React.useMemo(() => {
+    if (coTaxMode === "manual") {
+      const pct = Number(coTaxPct);
+      return isNaN(pct) ? checkoutTotal.tax : +(checkoutTotal.subTotal * pct / 100).toFixed(2);
+    }
+    return checkoutTotal.tax;
+  }, [coTaxMode, coTaxPct, checkoutTotal]);
+
+  const finalExtra    = Number(coExtraAmt) || 0;
+  const finalDiscount = Number(coDiscount) || 0;
+  const finalGrand    = +(checkoutTotal.subTotal + finalTax + finalExtra - finalDiscount).toFixed(2);
 
   // Save table changes
   const handleSaveTable = React.useCallback(async () => {
@@ -296,101 +388,47 @@ export default function RestaurantPOSBilling({
       if (onTableUpdate) onTableUpdate();
     } catch (error) {
       console.error("Error updating table:", error);
-      alert("Failed to update table");
+      showToast("Failed to update table", "error");
     } finally {
       setSaving(false);
     }
   }, [table?.id, tableData, onTableUpdate]);
 
-  // Send order to kitchen (with consolidation)
+  // Send order to kitchen — always creates a new order document (new round/batch)
   const sendToKitchen = React.useCallback(async () => {
     if (cart.length === 0) {
-      alert("Cart is empty");
+      showToast("Cart is empty", "error");
       return;
     }
 
     const uid = getUid();
     if (!uid) {
-      alert("Not authenticated");
+      showToast("Not authenticated", "error");
       return;
     }
 
     setSaving(true);
     try {
       const kitchenOrdersRef = collection(db, "businesses", uid, "kitchenOrders");
-      
-      // Check if there's an active order we can add to
-      if (activeOrderId) {
-        const activeOrder = kitchenOrders.find(o => o.id === activeOrderId);
-        if (activeOrder && ["pending", "preparing", "ready"].includes(activeOrder.status)) {
-          // Add to existing order
-          const existingItems = activeOrder.items || activeOrder.lines || [];
-          const newItems = cart.map(line => ({
-            product: line.product,
-            qty: line.qty,
-          }));
-          
-          // Merge items (combine quantities if same product)
-          const mergedItems = [...existingItems];
-          newItems.forEach(newItem => {
-            const existingIndex = mergedItems.findIndex(
-              item => item.product?.id === newItem.product?.id
-            );
-            if (existingIndex >= 0) {
-              mergedItems[existingIndex] = {
-                ...mergedItems[existingIndex],
-                qty: (mergedItems[existingIndex].qty || 1) + (newItem.qty || 1),
-              };
-            } else {
-              mergedItems.push(newItem);
-            }
-          });
-          
-          // Recalculate totals
-          let newSubTotal = 0;
-          let newTax = 0;
-          mergedItems.forEach(line => {
-            const price = Number(line.product?.price || 0);
-            const qty = line.qty || 1;
-            const taxRate = Number(line.product?.tax || 0) / 100;
-            const lineSubTotal = price * qty;
-            const lineTax = lineSubTotal * taxRate;
-            newSubTotal += lineSubTotal;
-            newTax += lineTax;
-          });
-          const newGrandTotal = newSubTotal + newTax;
-          
-          const orderRef = doc(kitchenOrdersRef, activeOrderId);
-          await updateDoc(orderRef, {
-            items: mergedItems,
-            lines: mergedItems.map(item => ({ product: item.product, qty: item.qty })),
-            totals: {
-              subTotal: +newSubTotal.toFixed(2),
-              tax: +newTax.toFixed(2),
-              grandTotal: +newGrandTotal.toFixed(2),
-            },
-            updatedAt: Date.now(),
-            lastAddedAt: Date.now(),
-          });
-          
-          setCart([]);
-          alert("Items added to existing order!");
-          return;
-        }
-      }
-      
-      // Create new order if no active order exists
+
+      // Always create a new order document so each send is a distinct round
+      const roundNumber = kitchenOrders.length + 1;
       const orderData = {
         items: cart.map(line => ({
           product: line.product,
           qty: line.qty,
+          note: itemNotes[line.product.id] || "",
         })),
         lines: cart,
         totals,
         tableId: table?.id || null,
+        tableName: table?.name || (table?.number ? `Table ${table.number}` : null),
+        tableZone: table?.zone || null,
         customerId: customerData?.id || null,
         customerName: customerData?.name || table?.name || "Walk-in",
         status: "pending",
+        roundNumber,
+        isRush: rushMode,
         createdAt: Date.now(),
         sentAt: Date.now(),
       };
@@ -401,120 +439,129 @@ export default function RestaurantPOSBilling({
         await onOrderSentToKitchen(orderData);
       }
 
-      // Clear cart after sending
       setCart([]);
-      
-      alert("Order sent to kitchen!");
+      setItemNotes({});
+      setShowNoteFor(null);
+      setRushMode(false);
+      showToast(rushMode ? `🚨 RUSH Round ${roundNumber} sent!` : `🍳 Round ${roundNumber} sent to kitchen!`);
     } catch (error) {
       console.error("Error sending order to kitchen:", error);
-      alert("Failed to send order to kitchen");
+      showToast("Failed to send order to kitchen", "error");
     } finally {
       setSaving(false);
     }
-  }, [cart, totals, table, customerData, onOrderSentToKitchen, activeOrderId, kitchenOrders]);
+  }, [cart, totals, table, customerData, onOrderSentToKitchen, kitchenOrders, itemNotes, rushMode]);
 
   // Close/Complete all orders for this table
-  const handleCloseOrders = React.useCallback(async () => {
+  const handleCloseOrders = React.useCallback(() => {
     if (!table?.id || kitchenOrders.length === 0) return;
-    
+    setShowConfirmClose(true);
+  }, [table?.id, kitchenOrders.length]);
+
+  const executeCloseOrders = React.useCallback(async () => {
+    setShowConfirmClose(false);
     const uid = getUid();
     if (!uid) return;
 
-    if (!confirm(`Close all orders for ${tableData.name || `Table ${tableData.number}`}?`)) {
-      return;
-    }
+    // Capture items before clearing
+    const closedItems = [];
+    kitchenOrders.forEach(order => {
+      (order.items || order.lines || []).forEach(line => {
+        const id = line.product?.id || line.name;
+        const existing = closedItems.findIndex(i => (i.product?.id || i.name) === id);
+        if (existing >= 0) closedItems[existing].qty = (closedItems[existing].qty || 1) + (line.qty || 1);
+        else closedItems.push({ ...line });
+      });
+    });
 
     setSaving(true);
     try {
-      const updates = kitchenOrders.map(order => {
-        const orderRef = doc(db, "businesses", uid, "kitchenOrders", order.id);
-        return updateDoc(orderRef, {
-          status: "completed",
-          completedAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+      await Promise.all(kitchenOrders.map(order =>
+        updateDoc(doc(db, "businesses", uid, "kitchenOrders", order.id), {
+          status: "completed", completedAt: Date.now(), updatedAt: Date.now(),
+        })
+      ));
+      await updateDoc(doc(db, "businesses", uid, "tables", table.id), {
+        status: "available", updatedAt: Date.now(),
       });
-      
-      await Promise.all(updates);
-      
-      // Update table status
-      const tableRef = doc(db, "businesses", uid, "tables", table.id);
-      await updateDoc(tableRef, {
-        status: "available",
-        updatedAt: Date.now(),
+
+      setReceiptData({
+        invoiceId: null,
+        tableName: tableData.name || `Table ${tableData.number}`,
+        tableZone: tableData.zone || "Main",
+        tableCapacity: tableData.capacity || 4,
+        customerName: customerData?.name || "Walk-in",
+        items: closedItems,
+        totals: kitchenOrdersTotals,
+        timestamp: Date.now(),
+        type: "close",
       });
-      
-      alert("All orders closed. Table is now available.");
-      if (onBack) onBack();
+      setShowReceipt(true);
     } catch (error) {
       console.error("Error closing orders:", error);
-      alert("Failed to close orders");
+      showToast("Failed to close orders", "error");
+      if (onBack) onBack();
     } finally {
       setSaving(false);
     }
-  }, [table?.id, tableData, kitchenOrders, onBack]);
+  }, [table?.id, tableData, customerData, kitchenOrders, kitchenOrdersTotals, onBack, showToast]);
 
-  // Checkout (create invoice and optionally send to kitchen)
-  const handleCheckout = React.useCallback(async () => {
+  // Open pre-checkout summary
+  const handleCheckout = React.useCallback(() => {
     if (cart.length === 0 && kitchenOrders.length === 0) {
-      alert("No items to checkout");
+      showToast("No items to checkout", "error");
       return;
     }
+    setShowPreCheckout(true);
+  }, [cart.length, kitchenOrders.length, showToast]);
 
+  // Actually create the invoice
+  const executeCheckout = React.useCallback(async () => {
+    setShowPreCheckout(false);
     if (!billing?.createInvoice) {
-      alert("Billing service not available");
+      showToast("Billing service not available", "error");
       return;
     }
 
     setSaving(true);
     try {
-      // Combine cart items with all active kitchen orders for invoice
+      // Merge cart + kitchen order items
       const allItems = [...cart];
       kitchenOrders.forEach(order => {
         (order.items || order.lines || []).forEach(line => {
-          const existing = allItems.findIndex(item => item.product?.id === line.product?.id);
+          const existing = allItems.findIndex(i => i.product?.id === line.product?.id);
           if (existing >= 0) {
-            allItems[existing] = {
-              ...allItems[existing],
-              qty: (allItems[existing].qty || 1) + (line.qty || 1),
-            };
+            allItems[existing] = { ...allItems[existing], qty: (allItems[existing].qty || 1) + (line.qty || 1) };
           } else {
-            allItems.push({
-              product: line.product,
-              qty: line.qty || 1,
-            });
+            allItems.push({ product: line.product, qty: line.qty || 1 });
           }
         });
       });
-      
-      // Calculate totals for all items
-      let subTotal = 0;
-      let tax = 0;
-      allItems.forEach(line => {
-        const price = Number(line.product?.price || 0);
-        const qty = line.qty || 1;
-        const taxRate = Number(line.product?.tax || 0) / 100;
-        const lineSubTotal = price * qty;
-        const lineTax = lineSubTotal * taxRate;
-        subTotal += lineSubTotal;
-        tax += lineTax;
-      });
-      const grandTotal = subTotal + tax;
+
+      const payMethodLabel = { cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment] || "Cash";
+      const mergedCustomer = coCustomer.name || coCustomer.phone
+        ? { name: coCustomer.name || customerData?.name || "Guest", phone: coCustomer.phone || customerData?.phone || "" }
+        : customerData || { name: "Guest" };
 
       const invoiceData = {
         lines: allItems,
         totals: {
-          subTotal: +subTotal.toFixed(2),
-          tax: +tax.toFixed(2),
-          grandTotal: +grandTotal.toFixed(2),
+          subTotal: checkoutTotal.subTotal,
+          tax: finalTax,
+          extraCharge: finalExtra,
+          discount: finalDiscount,
+          grandTotal: finalGrand,
         },
-        customer: customerData,
-        payments: [{ method: "Cash", amount: +grandTotal.toFixed(2) }],
+        customer: mergedCustomer,
+        payments: [{ method: payMethodLabel, amount: finalGrand }],
         mode: "POS",
         meta: {
           source: "restaurant-pos",
           tableId: table?.id,
-          tableName: tableData.name || table?.name,
+          tableName: tableData.name || `Table ${tableData.number}`,
+          tableZone: tableData.zone || "Main",
+          tableCapacity: tableData.capacity,
+          paymentMethod: payMethodLabel,
           businessName: billing?.businessInfo?.name || "",
           businessAddress: billing?.businessInfo?.address || "",
           gstNumber: billing?.businessInfo?.gstNumber || "",
@@ -523,58 +570,108 @@ export default function RestaurantPOSBilling({
 
       const { id: invoiceId } = await billing.createInvoice(invoiceData);
 
-      // Mark all kitchen orders as completed
+      // Mark all kitchen orders completed
+      const uid = getUid();
       if (kitchenOrders.length > 0) {
-        const uid = getUid();
-        const updates = kitchenOrders.map(order => {
-          const orderRef = doc(db, "businesses", uid, "kitchenOrders", order.id);
-          return updateDoc(orderRef, {
-            status: "completed",
-            invoiceId,
-            completedAt: Date.now(),
-            updatedAt: Date.now(),
-          });
-        });
-        await Promise.all(updates);
+        await Promise.all(kitchenOrders.map(order =>
+          updateDoc(doc(db, "businesses", uid, "kitchenOrders", order.id), {
+            status: "completed", invoiceId, completedAt: Date.now(), updatedAt: Date.now(),
+          })
+        ));
       }
 
-      // Update table status to available
+      // Free the table
       if (table?.id) {
-        const uid = getUid();
-        const tableRef = doc(db, "businesses", uid, "tables", table.id);
-        await updateDoc(tableRef, {
-          status: "available",
-          updatedAt: Date.now(),
+        await updateDoc(doc(db, "businesses", uid, "tables", table.id), {
+          status: "available", updatedAt: Date.now(),
         });
       }
 
-      // Clear cart
       setCart([]);
-      
-      alert(`Invoice ${invoiceId} created successfully!`);
-      if (onBack) onBack();
+
+      // Show receipt
+      const payMethodLabel2 = { cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment] || "Cash";
+      setReceiptData({
+        invoiceId,
+        tableName: tableData.name || `Table ${tableData.number}`,
+        tableZone: tableData.zone || "Main",
+        tableCapacity: tableData.capacity || 4,
+        customerName: (coCustomer.name || customerData?.name) || "Guest",
+        customerPhone: coCustomer.phone || customerData?.phone || "",
+        paymentMethod: payMethodLabel2,
+        items: allItems,
+        totals: { subTotal: checkoutTotal.subTotal, tax: finalTax, extraCharge: finalExtra, discount: finalDiscount, grandTotal: finalGrand },
+        timestamp: Date.now(),
+        type: "checkout",
+      });
+      setShowReceipt(true);
     } catch (error) {
       console.error("Error during checkout:", error);
-      alert("Failed to create invoice");
+      showToast("Failed to create invoice", "error");
     } finally {
       setSaving(false);
     }
-  }, [cart, customerData, table, tableData, billing, onBack, kitchenOrders]);
+  }, [cart, customerData, table, tableData, billing, kitchenOrders, checkoutTotal, finalTax, finalExtra, finalDiscount, finalGrand, coPayment, coCustomer, showToast]);
 
   const selectedCategory = categories.find(c => c.id === selectedCategoryId);
   const hasActiveOrders = kitchenOrders.length > 0;
   const activeOrder = kitchenOrders.find(o => o.id === activeOrderId);
 
+  // Compile all items ordered across all kitchen orders for the summary
+  const allOrderedItems = React.useMemo(() => {
+    const map = {};
+    kitchenOrders.forEach(order => {
+      (order.items || order.lines || []).forEach(line => {
+        const id = line.product?.id || line.name || line.product?.name;
+        const name = line.product?.name || line.product?.productName || line.name || "Item";
+        const price = Number(line.product?.price || 0);
+        const qty = line.qty || line.quantity || 1;
+        if (map[id]) {
+          map[id].qty += qty;
+        } else {
+          map[id] = { name, price, qty };
+        }
+      });
+    });
+    return Object.values(map);
+  }, [kitchenOrders]);
+
+  const orderSummaryTotal = allOrderedItems.reduce((sum, it) => sum + it.price * it.qty, 0);
+
+  // Build combined item list for pre-checkout preview
+  const preCheckoutItems = React.useMemo(() => {
+    const map = {};
+    kitchenOrders.forEach(order => {
+      (order.items || order.lines || []).forEach(line => {
+        const id = line.product?.id || line.name;
+        const name = line.product?.name || line.product?.productName || line.name || "Item";
+        const price = Number(line.product?.price || 0);
+        const qty = line.qty || 1;
+        if (map[id]) map[id].qty += qty;
+        else map[id] = { name, price, qty, source: "kitchen" };
+      });
+    });
+    cart.forEach(line => {
+      const id = line.product?.id;
+      const name = line.product?.name;
+      const price = Number(line.product?.price || 0);
+      const qty = line.qty || 1;
+      if (map[id]) map[id].qty += qty;
+      else map[id] = { name, price, qty, source: "cart" };
+    });
+    return Object.values(map);
+  }, [kitchenOrders, cart]);
+
   return (
-    <div className="relative w-full min-h-screen bg-transparent">
-      {/* Background */}
-      <div className="pointer-events-none fixed inset-0 opacity-[0.9]">
-        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-orange-500/20" />
-        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-red-500/20" />
+    <div className="relative w-full h-full flex flex-col bg-slate-900 overflow-hidden">
+      {/* Aurora */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/15" />
+        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/15" />
       </div>
 
       {/* Top Bar */}
-      <div className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-sm border-b border-white/10">
+      <div className="shrink-0 z-30 bg-slate-900/90 backdrop-blur-sm border-b border-white/10">
         <div className="px-4 py-3 flex items-center gap-3">
           <button
             onClick={onBack}
@@ -600,7 +697,18 @@ export default function RestaurantPOSBilling({
                     ✏️
                   </button>
                 </div>
-                <div className="text-xs text-white/70">Capacity: {tableData.capacity || 4} • Zone: {tableData.zone || "Main"}</div>
+                <div className="text-xs text-white/70 flex items-center gap-2">
+                  Capacity: {tableData.capacity || 4} • Zone: {tableData.zone || "Main"}
+                  {tableOccupiedSince && (
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      tableElapsedMins >= 60 ? "bg-red-500/20 text-red-300" :
+                      tableElapsedMins >= 30 ? "bg-amber-500/20 text-amber-300" :
+                      "bg-emerald-500/20 text-emerald-300"
+                    }`}>
+                      ⏱ {tableElapsedStr}
+                    </span>
+                  )}
+                </div>
               </div>
               {hasActiveOrders && (
                 <button
@@ -632,7 +740,7 @@ export default function RestaurantPOSBilling({
       </div>
 
       {/* Main Content */}
-      <div className="relative z-10 flex h-[calc(100vh-64px)]">
+      <div className="relative z-10 flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Menu Items */}
         <div className="flex-1 flex flex-col border-r border-white/10 overflow-hidden">
           {/* Categories */}
@@ -740,174 +848,220 @@ export default function RestaurantPOSBilling({
           </div>
         </div>
 
-        {/* Right: Cart & Actions */}
-        <div className="w-[420px] bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-xl border-l border-white/10 flex flex-col">
-          {/* Status Section - Collapsible, compact */}
-          {hasActiveOrders && (
-            <div className="border-b border-white/10 bg-white/5">
-              <button
-                onClick={() => setStatusExpanded(prev => !prev)}
-                className="w-full p-3 flex items-center justify-between hover:bg-white/5 transition"
+        {/* Right Panel: Active Orders + New Cart + Actions */}
+        <div className="w-[360px] flex-none flex flex-col bg-slate-900/60 border-l border-white/10 overflow-hidden">
+
+          {/* ── ORDER READY banner ────────────────────────────────── */}
+          <AnimatePresence>
+            {kitchenOrders.some(o => o.status === "ready") && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mx-3 mt-3 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center gap-2.5 shrink-0"
               >
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-semibold text-white">Order Status</div>
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-orange-500/20 text-orange-300">
-                    {kitchenOrders.length}
-                  </span>
+                <span className="text-lg animate-bounce">🔔</span>
+                <div>
+                  <div className="text-xs font-bold text-emerald-300">Order Ready to Serve!</div>
+                  <div className="text-[10px] text-emerald-400/70">Kitchen has completed an order</div>
                 </div>
-                <svg
-                  className={`w-4 h-4 text-white/60 transition-transform ${statusExpanded ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              <AnimatePresence>
-                {statusExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Active kitchen orders ── */}
+          {hasActiveOrders && (
+            <div className="shrink-0 border-b border-white/10">
+              <div className="px-3 pt-3 pb-1 flex items-center gap-2">
+                <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">Orders on Table</span>
+                <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-red-500/20 text-red-300 font-bold">{kitchenOrders.length}</span>
+                {kitchenOrders.length > 1 && (
+                  <button
+                    onClick={repeatLastRound}
+                    className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 transition"
+                    title="Add last round's items to cart again"
                   >
-                    <div className="px-3 pb-3 space-y-2 max-h-48 overflow-y-auto">
-                      {kitchenOrders.map(order => (
-                        <div
-                          key={order.id}
-                          className={`rounded-lg border p-2 ${statusColors[order.status] || statusColors.pending} ${
-                            order.id === activeOrderId ? "ring-2 ring-orange-500/50" : ""
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-semibold">{statusLabels[order.status] || "Pending"}</span>
-                            {order.id === activeOrderId && (
-                              <span className="text-[10px] text-orange-300 bg-orange-500/20 px-1.5 py-0.5 rounded">Active</span>
-                            )}
-                          </div>
-                          <div className="text-xs opacity-80 mb-1">
-                            {order.items?.length || order.lines?.length || 0} items
-                          </div>
-                          <div className="text-[10px] opacity-70">
-                            {new Date(order.createdAt).toLocaleTimeString()}
-                            {order.lastAddedAt && order.lastAddedAt !== order.createdAt && (
-                              <span> • Updated {new Date(order.lastAddedAt).toLocaleTimeString()}</span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {activeOrder && (
-                      <div className="px-3 pb-3 text-xs text-orange-300 bg-orange-500/10 px-2 py-1 rounded border border-orange-500/30 mx-3 mb-3">
-                        New items will be added to the active order
-                      </div>
-                    )}
-                  </motion.div>
+                    🔁 Repeat last
+                  </button>
                 )}
-              </AnimatePresence>
+              </div>
+              <div className="px-3 pb-3 space-y-1.5 max-h-[220px] overflow-y-auto">
+                {kitchenOrders.map((order, rIdx) => {
+                  const orderItems = order.items || order.lines || [];
+                  const isCollapsed = collapsedRounds.has(order.id);
+                  const statusColor = {
+                    pending:   "border-amber-500/40 bg-amber-500/10 text-amber-300",
+                    accepted:  "border-green-500/40 bg-green-500/10 text-green-300",
+                    preparing: "border-blue-500/40 bg-blue-500/10 text-blue-300",
+                    ready:     "border-emerald-500/50 bg-emerald-500/15 text-emerald-300",
+                    served:    "border-purple-500/30 bg-purple-500/10 text-purple-300",
+                  }[order.status] || "border-white/10 bg-white/5 text-white/60";
+                  return (
+                    <div key={order.id} className={`rounded-xl border ${statusColor}`}>
+                      <div
+                        className="flex items-center justify-between px-2.5 py-2 cursor-pointer select-none"
+                        onClick={() => toggleRoundCollapse(order.id)}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wide">Round {rIdx + 1}</span>
+                          {order.isRush && <span className="text-[9px] font-black bg-red-500 text-white px-1 rounded animate-pulse">🚨 RUSH</span>}
+                          <span className="text-[10px] opacity-60">{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold opacity-80">{statusLabels[order.status] || order.status}</span>
+                          <span className="text-white/25 text-[9px]" style={{ display:"inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▼</span>
+                        </div>
+                      </div>
+                      {!isCollapsed && orderItems.length > 0 && (
+                        <div className="px-2.5 pb-2 space-y-0.5 border-t border-white/10">
+                          {orderItems.map((line, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-[11px] py-0.5">
+                              <span className="opacity-80 truncate flex-1">{line.product?.name || line.name || "Item"}</span>
+                              {line.note && <span className="text-orange-300/70 italic text-[10px] mx-1 truncate max-w-[60px]">{line.note}</span>}
+                              <span className="opacity-60 ml-2 flex-none">×{line.qty || 1}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          {/* Cart Header */}
-          <div className="p-4 border-b border-white/10 bg-white/5">
-            <div className="text-lg font-semibold text-white mb-1">Order Cart</div>
-            <div className="text-sm text-white/60">{cart.length} items</div>
+          {/* ── Cart header ── */}
+          <div className="px-3 pt-2.5 pb-1 shrink-0 flex items-center gap-2">
+            <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
+              {hasActiveOrders ? "Add More Items" : "Order Cart"}
+            </span>
+            {cart.length > 0 && (
+              <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-orange-500/25 text-orange-300 font-bold">{cart.length}</span>
+            )}
+            {hasActiveOrders && cart.length > 0 && (
+              <span className="text-[10px] text-orange-300/70 ml-auto">New round</span>
+            )}
           </div>
 
-          {/* Cart Items */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* ── Cart items with inline notes ── */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2 space-y-2">
             {cart.map(line => (
-              <div
-                key={line.product.id}
-                className="rounded-lg border border-white/10 bg-white/5 p-3"
-              >
-                <div className="flex items-start gap-3">
+              <div key={line.product.id} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+                <div className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-white truncate">{line.product.name}</div>
-                    <div className="text-xs text-white/60 mt-1">₹{line.product.price} each</div>
+                    <div className="text-xs font-semibold text-white truncate">{line.product.name}</div>
+                    <div className="text-[11px] text-white/50">₹{line.product.price} × {line.qty} = ₹{(line.product.price * line.qty).toFixed(2)}</div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 flex-none">
                     <button
-                      onClick={() => updateQty(line.product.id, line.qty - 1)}
-                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center transition"
-                    >
-                      −
-                    </button>
-                    <span className="w-8 text-center font-bold text-white">{line.qty}</span>
-                    <button
-                      onClick={() => updateQty(line.product.id, line.qty + 1)}
-                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center transition"
-                    >
-                      +
-                    </button>
+                      onClick={() => setShowNoteFor(n => n === line.product.id ? null : line.product.id)}
+                      className={`w-6 h-6 rounded-md text-[11px] flex items-center justify-center transition ${
+                        itemNotes[line.product.id] ? "bg-orange-500/25 text-orange-300" : "bg-white/10 hover:bg-white/20 text-white/40 hover:text-white/70"
+                      }`}
+                      title="Add note"
+                    >📝</button>
+                    <button onClick={() => updateQty(line.product.id, line.qty - 1)}
+                      className="w-6 h-6 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center transition">−</button>
+                    <span className="w-6 text-center text-sm font-bold text-white">{line.qty}</span>
+                    <button onClick={() => updateQty(line.product.id, line.qty + 1)}
+                      className="w-6 h-6 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center transition">+</button>
+                    <button onClick={() => removeFromCart(line.product.id)}
+                      className="w-6 h-6 rounded-md bg-red-500/20 hover:bg-red-500/35 text-red-400 text-sm font-bold flex items-center justify-center transition ml-0.5">×</button>
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-white">₹{(line.product.price * line.qty).toFixed(2)}</div>
-                  </div>
-                  <button
-                    onClick={() => removeFromCart(line.product.id)}
-                    className="w-7 h-7 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 font-bold flex items-center justify-center transition"
-                  >
-                    ×
-                  </button>
                 </div>
+                {showNoteFor === line.product.id && (
+                  <input
+                    autoFocus
+                    value={itemNotes[line.product.id] || ""}
+                    onChange={e => setItemNotes(n => ({ ...n, [line.product.id]: e.target.value }))}
+                    placeholder="e.g. No onion, extra spicy..."
+                    className="mt-1.5 w-full px-2 py-1 rounded-lg border border-orange-500/30 bg-orange-500/10 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
+                    onKeyDown={e => e.key === "Enter" && setShowNoteFor(null)}
+                  />
+                )}
+                {itemNotes[line.product.id] && showNoteFor !== line.product.id && (
+                  <div className="mt-1 text-[10px] text-orange-300/80 italic pl-1">📝 {itemNotes[line.product.id]}</div>
+                )}
               </div>
             ))}
             {cart.length === 0 && (
-              <div className="text-center py-12 text-white/60">
-                <div className="text-4xl mb-3">🛒</div>
-                <div>Cart is empty</div>
-                <div className="text-xs mt-2">Add items from the menu</div>
+              <div className="flex flex-col items-center justify-center py-10 text-white/30">
+                <div className="text-3xl mb-2">🛒</div>
+                <div className="text-xs">Tap an item to add</div>
               </div>
             )}
           </div>
 
-          {/* Totals & Actions */}
-          <div className="p-4 border-t border-white/10 bg-gradient-to-t from-slate-900/95 to-slate-800/95 backdrop-blur-xl space-y-3">
-            <div className="space-y-1">
-              <div className="flex justify-between text-sm text-white/80">
-                <span>Subtotal</span>
-                <span>₹{money(totals.subTotal)}</span>
+          {/* ── Footer ── */}
+          <div className="shrink-0 border-t border-white/10 bg-slate-900/90 backdrop-blur-sm">
+            {/* Minimize/maximize toggle row */}
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Checkout Total</span>
+                <span className="text-sm font-bold text-emerald-400">₹{money(checkoutTotal.grandTotal)}</span>
               </div>
-              {totals.tax > 0 && (
-                <div className="flex justify-between text-sm text-white/80">
-                  <span>Tax</span>
-                  <span>₹{money(totals.tax)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-lg font-bold text-white pt-2 border-t border-white/10">
-                <span>Total</span>
-                <span className="bg-gradient-to-r from-orange-400 to-red-400 bg-clip-text text-transparent">
-                  ₹{money(totals.grandTotal)}
-                </span>
-              </div>
+              <button
+                onClick={() => setFooterMinimized(m => !m)}
+                className="text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/50 hover:text-white transition"
+              >{footerMinimized ? "▲ Expand" : "▼ Collapse"}</button>
             </div>
 
-            <div className="flex gap-2">
-              <button
-                onClick={sendToKitchen}
-                disabled={cart.length === 0 || saving}
-                className="flex-1 py-3 rounded-lg bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                {saving ? "Sending..." : activeOrderId ? "Add to Order" : "Send to Kitchen"}
-              </button>
-              <button
-                onClick={handleCheckout}
-                disabled={cart.length === 0 && !hasActiveOrders || saving}
-                className="flex-1 py-3 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                {saving ? "Processing..." : "Checkout"}
-              </button>
+            {/* Expandable breakdown */}
+            {!footerMinimized && (
+              <div className="px-3 pt-2 pb-1 space-y-0.5">
+                {kitchenOrdersTotals.grandTotal > 0 && (
+                  <div className="flex justify-between text-xs text-white/45"><span>Orders placed</span><span>₹{money(kitchenOrdersTotals.grandTotal)}</span></div>
+                )}
+                {totals.grandTotal > 0 && (
+                  <div className="flex justify-between text-xs text-white/45"><span>New items</span><span>₹{money(totals.grandTotal)}</span></div>
+                )}
+                {checkoutTotal.tax > 0 && (
+                  <div className="flex justify-between text-xs text-white/45"><span>Tax</span><span>₹{money(checkoutTotal.tax)}</span></div>
+                )}
+              </div>
+            )}
+
+            {/* Rush toggle + action row */}
+            <div className="px-3 py-2 space-y-2">
+              <div className="flex gap-2">
+                {/* Rush toggle */}
+                <button
+                  onClick={() => setRushMode(r => !r)}
+                  className={`px-3 py-2.5 rounded-xl text-xs font-bold border transition ${
+                    rushMode
+                      ? "bg-red-500/25 border-red-500/50 text-red-300"
+                      : "bg-white/5 border-white/10 text-white/40 hover:text-white/70"
+                  }`}
+                  title="Mark order as Rush/Priority"
+                >
+                  🚨
+                </button>
+                <button
+                  onClick={sendToKitchen}
+                  disabled={cart.length === 0 || saving}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition ${
+                    rushMode
+                      ? "bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-400 hover:to-orange-400 text-white"
+                      : "bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-400 hover:to-red-400 text-white"
+                  }`}
+                >
+                  {saving ? "⏳" : rushMode ? "🚨 RUSH" : hasActiveOrders ? "➕ New Round" : "🍳 Send to Kitchen"}
+                </button>
+                <button
+                  onClick={handleCheckout}
+                  disabled={(cart.length === 0 && !hasActiveOrders) || saving}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  {saving ? "⏳" : "💳 Checkout"}
+                </button>
+              </div>
+              {cart.length > 0 && (
+                <button
+                  onClick={() => { setCart([]); setItemNotes({}); setShowNoteFor(null); }}
+                  className="w-full py-1.5 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] text-white/45 hover:text-white/75 text-xs transition"
+                >Clear cart</button>
+              )}
             </div>
-            <button
-              onClick={() => setCart([])}
-              disabled={cart.length === 0}
-              className="w-full py-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/80 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              Clear Cart
-            </button>
           </div>
         </div>
       </div>
@@ -991,6 +1145,401 @@ export default function RestaurantPOSBilling({
           </motion.div>
         </div>
       )}
+
+      {/* ── Smart Checkout Sheet ── */}
+      {showPreCheckout && (
+        <div className="fixed inset-0 z-[99999] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border border-white/10 bg-slate-900 shadow-2xl flex flex-col max-h-[92vh]"
+          >
+            {/* ── Header ── */}
+            <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between shrink-0">
+              <div>
+                <div className="text-sm font-bold text-white">Checkout — {tableData.name || `Table ${tableData.number}`}</div>
+                <div className="text-xs text-white/40 mt-0.5">Zone: {tableData.zone || "Main"} · {preCheckoutItems.length} item{preCheckoutItems.length !== 1 ? "s" : ""}</div>
+              </div>
+              <button onClick={() => setShowPreCheckout(false)} className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-sm">✕</button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto">
+
+              {/* ── Customer ── */}
+              <div className="px-5 py-3 border-b border-white/[0.07]">
+                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Customer</div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    value={coCustomer.name}
+                    onChange={e => setCoCustomer(p => ({ ...p, name: e.target.value }))}
+                    placeholder="Name (optional)"
+                    className="flex-1 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                  />
+                  <input
+                    value={coCustomer.phone}
+                    onChange={e => setCoCustomer(p => ({ ...p, phone: e.target.value }))}
+                    placeholder="Phone (optional)"
+                    type="tel"
+                    className="flex-1 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                  />
+                  <button
+                    onClick={() => setCoCustomer({ name: "Guest", phone: "" })}
+                    className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition whitespace-nowrap"
+                  >👤 Guest</button>
+                </div>
+              </div>
+
+              {/* ── Items delivered ── */}
+              <div className="px-5 py-3 border-b border-white/[0.07]">
+                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Items Delivered</div>
+                <div className="space-y-1.5">
+                  {preCheckoutItems.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-5 h-5 rounded bg-white/[0.08] text-[10px] font-bold text-white/60 flex items-center justify-center flex-none">{item.qty}</span>
+                        <span className="text-xs text-white/80 truncate">{item.name}</span>
+                        <span className="text-[10px] text-white/30 flex-none">× ₹{item.price}</span>
+                      </div>
+                      <span className="text-xs font-medium text-white/70 flex-none ml-3">₹{(item.price * item.qty).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  {preCheckoutItems.length === 0 && (
+                    <div className="text-xs text-white/30 text-center py-2">No items</div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Tax / GST ── */}
+              <div className="px-5 py-3 border-b border-white/[0.07]">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Tax / GST</div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => !coTaxLocked && setCoTaxMode(m => m === "auto" ? "manual" : "auto")}
+                      disabled={coTaxLocked}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${coTaxMode === "auto" ? "bg-blue-500/20 text-blue-300" : "bg-amber-500/20 text-amber-300"} disabled:opacity-50`}
+                    >{coTaxMode === "auto" ? "Auto (from menu)" : "Manual override"}</button>
+                    <button
+                      onClick={() => setCoTaxLocked(l => !l)}
+                      className={`w-6 h-6 rounded flex items-center justify-center text-xs transition ${coTaxLocked ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/50 hover:text-white"}`}
+                      title={coTaxLocked ? "Unlock tax" : "Lock tax"}
+                    >{coTaxLocked ? "🔒" : "🔓"}</button>
+                  </div>
+                </div>
+                {coTaxMode === "manual" && !coTaxLocked && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 relative">
+                      <input
+                        value={coTaxPct}
+                        onChange={e => setCoTaxPct(e.target.value)}
+                        type="number"
+                        min="0"
+                        max="100"
+                        placeholder="18"
+                        className="w-full px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-amber-500/50 pr-10"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-amber-400">%</span>
+                    </div>
+                    <div className="flex gap-1">
+                      {["5","12","18","28"].map(v => (
+                        <button key={v} onClick={() => setCoTaxPct(v)}
+                          className={`px-2 py-1.5 rounded text-[10px] font-semibold transition ${coTaxPct === v ? "bg-amber-500 text-white" : "bg-white/10 text-white/60 hover:bg-white/15"}`}
+                        >{v}%</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-2 flex justify-between text-xs">
+                  <span className="text-white/40">{coTaxMode === "auto" ? "Calculated from item rates" : `GST @ ${coTaxPct || 0}% on ₹${money(checkoutTotal.subTotal)}`}</span>
+                  <span className="text-white/70 font-medium">₹{money(finalTax)}</span>
+                </div>
+              </div>
+
+              {/* ── Extra Charge & Discount ── */}
+              <div className="px-5 py-3 border-b border-white/[0.07]">
+                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Adjustments (optional)</div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <div className="text-[10px] text-white/40 mb-1">Extra charge label</div>
+                    <input
+                      value={coExtraLabel}
+                      onChange={e => setCoExtraLabel(e.target.value)}
+                      placeholder="Service Charge"
+                      className="w-full px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none"
+                    />
+                  </div>
+                  <div className="w-24">
+                    <div className="text-[10px] text-white/40 mb-1">Amount (₹)</div>
+                    <input
+                      value={coExtraAmt}
+                      onChange={e => setCoExtraAmt(e.target.value)}
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      className="w-full px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none"
+                    />
+                  </div>
+                  <div className="w-24">
+                    <div className="text-[10px] text-white/40 mb-1">Discount (₹)</div>
+                    <input
+                      value={coDiscount}
+                      onChange={e => setCoDiscount(e.target.value)}
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      className="w-full px-3 py-2 rounded-lg border border-white/10 bg-red-500/5 text-xs text-red-300 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-red-500/30"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Payment method ── */}
+              <div className="px-5 py-3 border-b border-white/[0.07]">
+                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Payment Method</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { key: "cash", icon: "💵", label: "Cash" },
+                    { key: "card", icon: "💳", label: "Card / POS" },
+                    { key: "upi",  icon: "📲", label: "UPI" },
+                    { key: "other",icon: "🔄", label: "Other" },
+                  ].map(pm => (
+                    <button
+                      key={pm.key}
+                      onClick={() => setCoPayment(pm.key)}
+                      className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border text-center transition ${
+                        coPayment === pm.key
+                          ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300"
+                          : "border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.07] hover:text-white/80"
+                      }`}
+                    >
+                      <span className="text-lg">{pm.icon}</span>
+                      <span className="text-[10px] font-semibold">{pm.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Bill summary ── */}
+              <div className="px-5 py-3">
+                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Bill Summary</div>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-white/50"><span>Subtotal</span><span>₹{money(checkoutTotal.subTotal)}</span></div>
+                  <div className="flex justify-between text-xs text-white/50"><span>Tax / GST</span><span>₹{money(finalTax)}</span></div>
+                  {finalExtra > 0 && <div className="flex justify-between text-xs text-white/50"><span>{coExtraLabel || "Extra"}</span><span>₹{money(finalExtra)}</span></div>}
+                  {finalDiscount > 0 && <div className="flex justify-between text-xs text-red-400/70"><span>Discount</span><span>−₹{money(finalDiscount)}</span></div>}
+                  <div className="flex justify-between text-sm font-bold text-white pt-2 border-t border-white/10 mt-1">
+                    <span>Grand Total</span>
+                    <span className="text-emerald-400 text-base">₹{money(finalGrand)}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-white/30 mt-1">
+                    <span>Paying via</span>
+                    <span>{{ cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment]}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Confirm ── */}
+            <div className="px-5 py-4 border-t border-white/10 flex gap-3 shrink-0">
+              <button
+                onClick={() => setShowPreCheckout(false)}
+                className="flex-1 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm transition"
+                disabled={saving}
+              >Cancel</button>
+              <button
+                onClick={executeCheckout}
+                className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white text-sm font-bold shadow-lg transition disabled:opacity-50"
+                disabled={saving}
+              >{saving ? "⏳ Processing..." : `💳 Confirm — ₹${money(finalGrand)}`}</button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── Receipt Modal (after checkout) ── */}
+      {showReceipt && receiptData && (
+        <div className="fixed inset-0 z-[99999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900/98 shadow-2xl overflow-hidden"
+          >
+            {/* Receipt header */}
+            <div className={`px-5 py-5 text-center border-b border-white/10 ${receiptData.type === "checkout" ? "bg-emerald-500/[0.08]" : "bg-slate-700/40"}`}>
+              <div className="text-2xl mb-1">{receiptData.type === "checkout" ? "✅" : "🪑"}</div>
+              <div className="text-base font-bold text-white">
+                {receiptData.type === "checkout" ? "Invoice Created" : "Table Freed"}
+              </div>
+              {receiptData.invoiceId ? (
+                <div className="text-xs text-emerald-400 mt-1 font-mono"># {receiptData.invoiceId}</div>
+              ) : (
+                <div className="text-xs text-white/40 mt-1">Orders closed · No invoice</div>
+              )}
+            </div>
+            {/* Table + Customer + Payment */}
+            <div className="px-5 py-3 border-b border-white/[0.07] bg-white/[0.02] space-y-2">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-[10px] text-white/40 uppercase">Table</div>
+                  <div className="text-xs font-semibold text-white">{receiptData.tableName}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-white/40 uppercase">Zone</div>
+                  <div className="text-xs font-semibold text-white">{receiptData.tableZone}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-white/40 uppercase">Time</div>
+                  <div className="text-xs font-semibold text-white">{new Date(receiptData.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
+                </div>
+              </div>
+              {(receiptData.customerName || receiptData.customerPhone) && (
+                <div className="flex items-center justify-between pt-1 border-t border-white/[0.06]">
+                  <div className="text-[10px] text-white/40">Customer</div>
+                  <div className="text-xs text-white/70 text-right">
+                    {receiptData.customerName || "Guest"}
+                    {receiptData.customerPhone && <span className="ml-2 text-white/40">{receiptData.customerPhone}</span>}
+                  </div>
+                </div>
+              )}
+              {receiptData.paymentMethod && (
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] text-white/40">Payment</div>
+                  <div className="text-xs font-semibold text-emerald-400">{receiptData.paymentMethod}</div>
+                </div>
+              )}
+            </div>
+            {/* Items */}
+            <div className="px-5 py-3 max-h-44 overflow-y-auto space-y-1.5">
+              {receiptData.items.map((item, idx) => {
+                const name  = item.product?.name || item.name;
+                const price = Number(item.product?.price || item.price || 0);
+                const qty   = item.qty || 1;
+                return (
+                  <div key={idx} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 h-5 rounded bg-white/10 text-[10px] font-bold text-white/70 flex items-center justify-center flex-none">{qty}</span>
+                      <span className="text-xs text-white/80 truncate">{name}</span>
+                      <span className="text-[10px] text-white/30 flex-none">× ₹{price}</span>
+                    </div>
+                    <span className="text-xs text-white/60 flex-none ml-2">₹{(price * qty).toFixed(2)}</span>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Bill breakdown */}
+            <div className="px-5 py-3 border-t border-white/[0.07] bg-white/[0.02] space-y-1">
+              <div className="flex justify-between text-xs text-white/40"><span>Subtotal</span><span>₹{money(receiptData.totals.subTotal)}</span></div>
+              {receiptData.totals.tax > 0 && <div className="flex justify-between text-xs text-white/40"><span>Tax / GST</span><span>₹{money(receiptData.totals.tax)}</span></div>}
+              {receiptData.totals.extraCharge > 0 && <div className="flex justify-between text-xs text-white/40"><span>Extra charge</span><span>₹{money(receiptData.totals.extraCharge)}</span></div>}
+              {receiptData.totals.discount > 0 && <div className="flex justify-between text-xs text-red-400/60"><span>Discount</span><span>−₹{money(receiptData.totals.discount)}</span></div>}
+              <div className="flex justify-between text-sm font-bold text-white pt-1 border-t border-white/10 mt-1">
+                <span>Total Charged</span>
+                <span className="text-emerald-400">₹{money(receiptData.totals.grandTotal)}</span>
+              </div>
+            </div>
+            {/* Done */}
+            <div className="px-5 py-4">
+              <button
+                onClick={() => { setShowReceipt(false); if (onBack) onBack(); }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-bold transition hover:from-emerald-400"
+              >Done — Back to Tables</button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Confirm Close Orders — Full Order Summary */}
+      {showConfirmClose && (
+        <div className="fixed inset-0 z-[99999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/98 backdrop-blur-xl shadow-2xl overflow-hidden"
+          >
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-white/10 bg-white/[0.03]">
+              <div className="text-base font-bold text-white">Close Orders — {tableData.name || `Table ${tableData.number}`}</div>
+              <div className="text-xs text-white/50 mt-0.5">
+                {kitchenOrders.length} order batch · {allOrderedItems.length} item type{allOrderedItems.length !== 1 ? "s" : ""} delivered
+              </div>
+            </div>
+
+            {/* Order summary */}
+            <div className="px-5 py-3 max-h-64 overflow-y-auto">
+              {allOrderedItems.length === 0 ? (
+                <div className="text-sm text-white/40 py-4 text-center">No items in orders</div>
+              ) : (
+                <div className="space-y-2">
+                  {allOrderedItems.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="w-6 h-6 rounded-md bg-white/10 flex items-center justify-center text-xs font-bold text-white/70 flex-none">
+                          {item.qty}
+                        </span>
+                        <span className="text-sm text-white/80 truncate">{item.name}</span>
+                      </div>
+                      <span className="text-sm text-white/60 flex-none">₹{(item.price * item.qty).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Total */}
+            {allOrderedItems.length > 0 && (
+              <div className="px-5 py-3 border-t border-white/[0.07] bg-white/[0.02] flex items-center justify-between">
+                <span className="text-xs text-white/50 uppercase tracking-wide font-semibold">Total Delivered</span>
+                <span className="text-base font-bold text-white">₹{orderSummaryTotal.toFixed(2)}</span>
+              </div>
+            )}
+
+            {/* Warning */}
+            <div className="px-5 py-3 bg-red-500/10 border-t border-red-500/20">
+              <p className="text-xs text-red-300/80">
+                ⚠️ Closing orders will free the table without generating an invoice. Use <strong>Checkout</strong> instead to create a bill.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="px-5 py-4 flex gap-3 border-t border-white/10">
+              <button
+                onClick={() => setShowConfirmClose(false)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm transition"
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeCloseOrders}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-50"
+                disabled={saving}
+              >
+                {saving ? "Closing..." : "Close & Free Table"}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Toast Notifications */}
+      <div className="fixed top-4 right-4 z-[99999] flex flex-col gap-2 pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 50 }}
+              className={`px-4 py-3 rounded-xl shadow-2xl border text-sm font-medium pointer-events-auto max-w-xs ${
+                toast.type === 'error' ? 'bg-red-600/95 border-red-500 text-white' :
+                'bg-emerald-600/95 border-emerald-500 text-white'
+              }`}
+            >
+              {toast.message}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

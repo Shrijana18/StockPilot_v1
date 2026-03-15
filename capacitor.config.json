@@ -24,22 +24,32 @@
     "cleartext": true
   },
   "android": {
-    "backgroundColor": "#0a0f1c",
+    "backgroundColor": "#0B0F14",
     "allowMixedContent": true,
     "captureInput": true,
     "webContentsDebuggingEnabled": false
   },
   "ios": {
-    "backgroundColor": "#0a0f1c",
-    "contentInset": "automatic",
+    "backgroundColor": "#0B0F14",
+    "contentInset": "never",
     "allowsLinkPreview": true,
     "scrollEnabled": true
   },
   "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "FirebaseMessaging": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "Badge": {
+      "persist": true,
+      "autoClear": false
+    },
     "SplashScreen": {
       "launchShowDuration": 2000,
       "launchAutoHide": true,
-      "backgroundColor": "#0a0f1c",
+      "backgroundColor": "#0B0F14",
       "androidSplashResourceName": "splash",
       "androidScaleType": "CENTER_CROP",
       "showSpinner": false,
@@ -48,7 +58,7 @@
     },
     "StatusBar": {
       "style": "DARK",
-      "backgroundColor": "#0a0f1c"
+      "backgroundColor": "#0B0F14"
     },
     "Keyboard": {
       "resize": "body",

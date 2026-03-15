@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, setPersistence, inMemoryPersistence, indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence } from "firebase/auth";
+import { getAuth, initializeAuth, setPersistence, inMemoryPersistence, indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence } from "firebase/auth";
 import { getFirestore, initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
@@ -45,25 +45,31 @@ const configForPlatform = firebaseConfig;
 
 // --- Default Firebase App (for Retailer/Distributor) ---
 export const app = getApps().length ? getApp() : initializeApp(configForPlatform);
-export const auth = getAuth(app);
-(async () => {
-  try {
-    if (IS_NATIVE) {
-      await setPersistence(auth, inMemoryPersistence);
-      console.info('[Firebase] Using in-memory persistence on native WebView');
-    } else {
-      // Explicit web persistence with safe fallbacks
+// On native (Capacitor iOS/Android), use browserLocalPersistence (localStorage).
+// IndexedDB can be cleared by iOS when app is backgrounded; localStorage persists more reliably in WKWebView.
+export const auth = IS_NATIVE
+  ? (() => {
       try {
-        await setPersistence(auth, indexedDBLocalPersistence);
-        console.info('[Firebase] Using IndexedDB persistence (web)');
+        return initializeAuth(app, { persistence: browserLocalPersistence });
+      } catch (e) {
+        // App may have been re-initialized; fall back to getAuth
+        return getAuth(app);
+      }
+    })()
+  : getAuth(app);
+(async () => {
+  if (IS_NATIVE) return; // Persistence already set via initializeAuth
+  try {
+    try {
+      await setPersistence(auth, indexedDBLocalPersistence);
+      console.info('[Firebase] Using IndexedDB persistence (web)');
+    } catch {
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+        console.info('[Firebase] Using localStorage persistence (web)');
       } catch {
-        try {
-          await setPersistence(auth, browserLocalPersistence);
-          console.info('[Firebase] Using localStorage persistence (web)');
-        } catch {
-          await setPersistence(auth, browserSessionPersistence);
-          console.info('[Firebase] Using sessionStorage persistence (web)');
-        }
+        await setPersistence(auth, browserSessionPersistence);
+        console.info('[Firebase] Using sessionStorage persistence (web)');
       }
     }
   } catch (e) {

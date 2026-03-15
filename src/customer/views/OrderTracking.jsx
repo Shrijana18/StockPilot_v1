@@ -10,7 +10,9 @@ import {
   FaDirections, FaCheckCircle, FaCreditCard, FaExclamationTriangle,
   FaStar, FaUser, FaQuestionCircle, FaChevronRight
 } from 'react-icons/fa';
-import { subscribeToOrder, getOrderStatusInfo, rateOrder } from '../services/orderService';
+import { subscribeToOrder, getOrderStatusInfo, rateOrder, retryPaymentOrder, confirmOrderAfterPayment } from '../services/orderService';
+import { openRazorpayCheckout } from '../services/razorpayPaymentService';
+import { useCustomerAuth } from '../context/CustomerAuthContext';
 import DeliveryChat from '../components/DeliveryChat';
 import SupportFlow from '../components/SupportFlow';
 
@@ -83,11 +85,13 @@ const StatusStep = ({ step, currentStep, label, time, isLast, icon: Icon }) => {
 };
 
 const OrderTracking = ({ orderId, onBack }) => {
+  const { customer, customerData } = useCustomerAuth();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [showSupportFlow, setShowSupportFlow] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
   // Subscribe to order updates
   useEffect(() => {
@@ -240,8 +244,62 @@ const OrderTracking = ({ orderId, onBack }) => {
           </div>
         </div>
         
+        {/* Payment Pending / Cancelled - Try Again or Complete Payment */}
+        {(order.status === 'awaiting_payment' || order.status === 'payment_cancelled') && (
+          <div className="mt-4">
+            <button
+              onClick={async () => {
+                if (paymentLoading || !order?.payNow) return;
+                setPaymentLoading(true);
+                try {
+                  if (order.status === 'payment_cancelled') {
+                    const retry = await retryPaymentOrder(order.id);
+                    if (!retry.success) {
+                      alert(retry.error || 'Could not retry');
+                      return;
+                    }
+                  }
+                  await openRazorpayCheckout({
+                    orderId: order.id,
+                    amount: order.payNow || order.total,
+                    orderNumber: order.orderNumber,
+                    customerName: customerData?.name || 'Customer',
+                    customerEmail: customerData?.email || '',
+                    customerPhone: customer?.phoneNumber || customerData?.phone || '',
+                    storeName: order.storeName || 'Store',
+                  });
+                  await confirmOrderAfterPayment(order.id);
+                  setOrder(prev => prev ? { ...prev, status: 'pending' } : null);
+                } catch (err) {
+                  console.error('Payment error:', err);
+                  const isCancelled = err?.message?.toLowerCase?.().includes('cancelled');
+                  if (!isCancelled) {
+                    alert(err?.message || 'Payment failed. Please try again.');
+                  }
+                } finally {
+                  setPaymentLoading(false);
+                }
+              }}
+              disabled={paymentLoading}
+              className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-900 font-semibold rounded-xl flex items-center justify-center gap-2"
+            >
+              {paymentLoading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                  Opening payment...
+                </>
+              ) : (
+                <>
+                  <FaCreditCard />
+                  {order.status === 'payment_cancelled' ? 'Try Again' : 'Pay Now'}
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Estimated Time / Pickup Time */}
-        {order.status !== 'delivered' && order.status !== 'cancelled' && (
+        {!['delivered', 'cancelled', 'awaiting_payment', 'payment_cancelled'].includes(order.status) && (
           <div className="mt-3 pt-3 border-t border-white/[0.08] flex items-center gap-2">
             <FaClock className="text-white/40" />
             {isPickup ? (
@@ -259,8 +317,8 @@ const OrderTracking = ({ orderId, onBack }) => {
         )}
       </div>
 
-      {/* Order Progress */}
-      {order.status !== 'cancelled' && (
+      {/* Order Progress - hide for payment states */}
+      {!['cancelled', 'awaiting_payment', 'payment_cancelled'].includes(order.status) && (
         <div className="mx-4 mt-4 bg-slate-800 rounded-2xl border border-white/[0.06] p-4">
           <h3 className="font-semibold text-white mb-4">Order Progress</h3>
           <div>

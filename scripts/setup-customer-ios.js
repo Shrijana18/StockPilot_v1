@@ -54,7 +54,7 @@ try {
     : null;
 
   const customerConfig = {
-    appId: "com.flypnow.shop",
+    appId: "com.flypnow.ordernow",
     appName: "FLYP Shop",
     webDir: "dist",
     bundledWebRuntime: false,
@@ -125,7 +125,7 @@ try {
         if (fs.existsSync(testFile)) {
           const infoPlist = fs.readFileSync(testFile, 'utf8');
           // If it has the customer bundle ID, we're good
-          if (infoPlist.includes('com.flypnow.shop')) {
+          if (infoPlist.includes('com.flypnow.ordernow')) {
             console.log('   ✓ iOS project created with customer bundle ID');
           } else {
             // We need to create ios-customer manually
@@ -138,7 +138,7 @@ try {
             const pbxprojPath = path.join(iosCustomerDir, 'App', 'App.xcodeproj', 'project.pbxproj');
             if (fs.existsSync(pbxprojPath)) {
               let pbxproj = fs.readFileSync(pbxprojPath, 'utf8');
-              pbxproj = pbxproj.replace(/com\.flypnow\.ios/g, 'com.flypnow.shop');
+              pbxproj = pbxproj.replace(/com\.flypnow\.ios/g, 'com.flypnow.ordernow');
               fs.writeFileSync(pbxprojPath, pbxproj);
               console.log('   ✓ Updated bundle ID in Xcode project');
             }
@@ -163,7 +163,7 @@ try {
       console.log('   3. Rename ios to ios-customer');
       console.log('   4. Rename ios-backup back to ios');
       console.log('   5. Update ios-customer/App/App.xcodeproj/project.pbxproj');
-      console.log('      Replace com.flypnow.ios with com.flypnow.shop');
+      console.log('      Replace com.flypnow.ios with com.flypnow.ordernow');
       console.log('   6. Update ios-customer/App/App/Info.plist');
       console.log('      Replace FLYP with FLYP Shop');
       process.exit(1);

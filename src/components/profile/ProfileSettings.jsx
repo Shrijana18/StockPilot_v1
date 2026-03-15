@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getAuth, deleteUser, reauthenticateWithPopup, reauthenticateWithCredential, GoogleAuthProvider, OAuthProvider, EmailAuthProvider } from "firebase/auth";
+import { initPushNotifications, removeTokenFromFirestore, isPushSupported } from "../../services/pushNotificationService";
 import { usePlatform } from "../../hooks/usePlatform.js";
 import { doc, getDoc, updateDoc, setDoc, deleteDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
@@ -52,6 +53,7 @@ const ProfileSettings = () => {
     whatsappAlerts: false,
     emailNotifications: true,
     smsNotifications: false,
+    pushNotifications: false,
     profileVersion: 0,
     lastUpdated: "",
     businessMode: "Online",
@@ -155,6 +157,7 @@ const ProfileSettings = () => {
             gstNumber: data.gstNumber ? String(data.gstNumber) : "",
             emailNotifications: data.emailNotifications !== undefined ? data.emailNotifications : true,
             smsNotifications: data.smsNotifications || false,
+            pushNotifications: data.pushNotifications === true,
             // WhatsApp fields
             whatsappBusinessAccountId: data.whatsappBusinessAccountId || "",
             whatsappPhoneNumberId: data.whatsappPhoneNumberId || "",
@@ -230,13 +233,20 @@ const ProfileSettings = () => {
         logoUrl = downloadURL;
       }
 
+      // Normalize phone to +91 format for Firestore rules (rules allow empty, +91XXXXXXXXXX, or 10-digit)
+      const rawPhone = (formData.phone || "").trim().replace(/\D/g, "");
+      const phone = rawPhone.length === 10
+        ? `+91${rawPhone}`
+        : rawPhone.length === 12 && rawPhone.startsWith("91")
+          ? `+${rawPhone}`
+          : formData.phone || "";
+
       // Only update allowed fields - explicitly list what can be updated
-      // This ensures we don't accidentally overwrite protected fields like ownerId, role, etc.
       const updatedData = {
         // Basic info
         ownerName: formData.ownerName || "",
         businessName: formData.businessName || "",
-        phone: formData.phone || "",
+        phone,
         address: formData.address || "",
         city: formData.city || "",
         state: formData.state || "",
@@ -258,6 +268,7 @@ const ProfileSettings = () => {
         whatsappAlerts: formData.whatsappAlerts || false,
         emailNotifications: formData.emailNotifications !== undefined ? formData.emailNotifications : true,
         smsNotifications: formData.smsNotifications || false,
+        pushNotifications: formData.pushNotifications || false,
         // Profile metadata
         profileVersion: (formData.profileVersion || 0) + 1,
         lastUpdated: new Date().toISOString(),
@@ -265,10 +276,8 @@ const ProfileSettings = () => {
         name: formData.ownerName || "",
       };
       
-      // Preserve ownerId (required by Firestore rules)
-      if (currentData.ownerId) {
-        updatedData.ownerId = currentData.ownerId;
-      }
+      // Always set ownerId (required by Firestore rules; handles legacy docs without it)
+      updatedData.ownerId = currentData.ownerId || user.uid;
       
       // Preserve email if it exists (should not change per rules)
       if (currentData.email) {
@@ -304,6 +313,18 @@ const ProfileSettings = () => {
       }));
 
       toast.success("Profile updated successfully!");
+
+      // Push notifications: init or remove token based on setting
+      if (isPushSupported()) {
+        if (formData.pushNotifications) {
+          const result = await initPushNotifications(user.uid);
+          if (!result.success) {
+            toast.warning("Push notifications: " + (result.error || "Could not register"));
+          }
+        } else {
+          await removeTokenFromFirestore(user.uid);
+        }
+      }
 
       // Fire-and-forget resync
       try {
@@ -1250,6 +1271,31 @@ const ProfileSettings = () => {
                     </label>
                   </div>
                 </div>
+
+                    {isPushSupported() && (
+                    <div className="bg-slate-800/60 rounded-xl p-4 border border-white/10">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-gray-300 mb-1">Push Notifications</p>
+                          <p className="text-xs text-gray-400">New orders, packing reminders, due dates</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={formData.pushNotifications}
+                            onChange={(e) =>
+                              setFormData(prev => ({ ...prev, pushNotifications: e.target.checked }))
+                            }
+                          />
+                          <div className="w-14 h-7 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:bg-emerald-500 transition-all"></div>
+                          <span className="ml-3 text-sm font-medium text-white">
+                            {formData.pushNotifications ? "Enabled" : "Disabled"}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                    )}
                   </div>
 
                   <div className="flex justify-end pt-4 border-t border-white/10">

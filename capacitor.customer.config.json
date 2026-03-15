@@ -1,5 +1,5 @@
 {
-  "appId": "com.flypnow.shop",
+  "appId": "com.flypnow.ordernow",
   "appName": "FLYP Shop",
   "webDir": "dist",
   "bundledWebRuntime": false,
@@ -17,7 +17,12 @@
       "firebasestorage.googleapis.com",
       "securetoken.googleapis.com",
       "identitytoolkit.googleapis.com",
-      "maps.googleapis.com"
+      "maps.googleapis.com",
+      "checkout.razorpay.com",
+      "api.razorpay.com",
+      "secure.payu.in",
+      "test.payu.in",
+      "*.payu.in"
     ],
     "cleartext": true
   },

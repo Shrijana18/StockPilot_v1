@@ -495,3 +495,49 @@ button, a {
 .h-22 {
   height: 5.5rem;
 }
+
+/* ============================================
+   CHECKOUT REDESIGN - Blinkit/Zepto style
+   ============================================ */
+
+.checkout-page {
+  --checkout-bg: #0c0f14;
+  --checkout-card: rgba(255, 255, 255, 0.03);
+  --checkout-card-hover: rgba(255, 255, 255, 0.05);
+  --checkout-border: rgba(255, 255, 255, 0.06);
+  --checkout-border-active: rgba(16, 185, 129, 0.4);
+  --checkout-text: #f8fafc;
+  --checkout-text-muted: rgba(255, 255, 255, 0.5);
+  --checkout-accent: #10b981;
+  --checkout-accent-soft: rgba(16, 185, 129, 0.12);
+  --checkout-section-title: #94a3b8;
+}
+
+.checkout-section {
+  animation: checkoutFadeIn 0.4s ease-out backwards;
+}
+
+@keyframes checkoutFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.checkout-card-selectable {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.checkout-card-selectable:active {
+  transform: scale(0.98);
+}
+
+.checkout-sticky-bar {
+  background: linear-gradient(to top, #0c0f14 85%, transparent);
+  padding-top: 24px;
+  margin-top: -24px;
+}

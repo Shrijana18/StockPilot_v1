@@ -25,6 +25,7 @@ const ProductOwnerDashboard = lazy(() => import('./components/ProductOwnerDashbo
 const Inventory = lazy(() => import('./pages/Inventory.jsx'));
 const Billing = lazy(() => import('./pages/Billing.jsx'));
 const AllInvoices = lazy(() => import('./pages/AllInvoices.jsx'));
+const QROrderPage = lazy(() => import('./pages/QROrderPage.jsx'));
 const LeadManagement = lazy(() => import('./pages/LeadManagement.jsx'));
 const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
 const PublicInvoiceView = lazy(() => import('./pages/PublicInvoiceView.jsx'));
@@ -37,6 +38,9 @@ const WhatsAppConnectError = lazy(() => import('./pages/WhatsAppConnectError.jsx
 
 // Customer Marketplace App
 const CustomerApp = lazy(() => import('./customer/CustomerApp.jsx'));
+
+// Standalone POS App (Restaurant / Cafe / Hotel)
+const POSApp = lazy(() => import('./components/pos/POSApp.jsx'));
 
 const PageFallback = () => <LoadingScreen />;
 
@@ -83,6 +87,9 @@ const App = () => {
             <Routes>
               {/* Customer Marketplace App - Separate app for end customers */}
               <Route path="/shop/*" element={<CustomerApp />} />
+
+              {/* Standalone POS App - Restaurant / Cafe / Hotel */}
+              <Route path="/pos/*" element={<POSApp />} />
               
               {/* Public Routes */}
               <Route path="/" element={<AppLanding />} />
@@ -92,6 +99,7 @@ const App = () => {
               <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
               <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
               <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
+              <Route path="/qr-order" element={<QROrderPage />} />
               <Route path="/leads" element={<LeadManagement />} />
               <Route path="/employee-login" element={<EmployeeLogin />} />
               <Route element={<EmployeeRoute kind="retailer" />}>
@@ -143,6 +151,9 @@ const App = () => {
             <Routes>
               {/* Customer Marketplace App - Separate app for end customers */}
               <Route path="/shop/*" element={<CustomerApp />} />
+
+              {/* Standalone POS App - Restaurant / Cafe / Hotel */}
+              <Route path="/pos/*" element={<POSApp />} />
               
               {/* Public Routes */}
               <Route path="/" element={<LandingPage />} />
@@ -152,6 +163,7 @@ const App = () => {
               <Route path="/invoice/:distributorId/:invoiceId" element={<PublicInvoiceView />} />
               <Route path="/whatsapp/connect/success" element={<WhatsAppConnectSuccess />} />
               <Route path="/whatsapp/connect/error" element={<WhatsAppConnectError />} />
+              <Route path="/qr-order" element={<QROrderPage />} />
               <Route path="/leads" element={<LeadManagement />} />
               <Route path="/employee-login" element={<EmployeeLogin />} />
               <Route element={<EmployeeRoute kind="retailer" />}>

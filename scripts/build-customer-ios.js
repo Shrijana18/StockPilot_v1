@@ -80,7 +80,7 @@ try {
     : null;
   
   const capacitorConfig = {
-    appId: "com.flypnow.shop",
+    appId: "com.flypnow.ordernow",
     appName: "FLYP Shop",
     webDir: "dist",
     bundledWebRuntime: false,
@@ -100,7 +100,9 @@ try {
         "identitytoolkit.googleapis.com",
         "maps.googleapis.com",
         "graph.facebook.com",
-        "*.whatsapp.com"
+        "*.whatsapp.com",
+        "checkout.razorpay.com",
+        "api.razorpay.com"
       ],
       cleartext: true
     },
@@ -117,6 +119,12 @@ try {
       scrollEnabled: false
     },
     plugins: {
+      PushNotifications: {
+        presentationOptions: ["badge", "sound", "alert"]
+      },
+      FirebaseMessaging: {
+        presentationOptions: ["badge", "sound", "alert"]
+      },
       SplashScreen: {
         launchShowDuration: 2000,
         launchAutoHide: true,
@@ -199,6 +207,17 @@ try {
         console.log('   ✓ Restored ios directory name');
       } else if (fs.existsSync(iosDir)) {
         console.log('   ℹ️  ios already present, skip backup restore rename');
+      }
+    }
+
+    // Re-run pod install after restoring ios-customer path so Xcode refs stay valid
+    const iosCustomerAppDir = path.join(rootDir, 'ios-customer', 'App');
+    if (fs.existsSync(iosCustomerAppDir)) {
+      console.log('\n🔧 Step 4b: Refreshing CocoaPods in ios-customer...');
+      if (!run('pod install', { cwd: iosCustomerAppDir })) {
+        console.log('   ⚠ pod install failed in ios-customer/App. You may need to run it manually.');
+      } else {
+        console.log('   ✓ Refreshed Pods for ios-customer');
       }
     }
   }

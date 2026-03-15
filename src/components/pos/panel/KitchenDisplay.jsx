@@ -12,7 +12,7 @@ import KitchenOrderBoard from "./KitchenOrderBoard";
  * - Settings (coming soon)
  */
 export default function KitchenDisplay({ onBack }) {
-  const [mode, setMode] = React.useState("home"); // 'home' | 'menu' | 'orders'
+  const [mode, setMode] = React.useState("orders"); // 'home' | 'menu' | 'orders'
 
   if (mode === "menu") {
     return <CreateMenu onBack={() => setMode("home")} />;
@@ -23,121 +23,72 @@ export default function KitchenDisplay({ onBack }) {
   }
 
   return (
-    <div className="relative w-full min-h-screen bg-transparent">
-      {/* Aurora backdrop */}
-      <div className="pointer-events-none fixed inset-0 opacity-[0.9]">
-        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-orange-500/20" />
-        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-red-500/20" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_rgba(249,115,22,0.08),_transparent_50%),radial-gradient(ellipse_at_top,_rgba(239,68,68,0.05),_transparent_40%)]" />
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_45%,rgba(0,0,0,0.32))]" />
-
-        {/* floating particles */}
-        <div className="absolute inset-0">
-          {[...Array(24)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-1 h-1 rounded-full bg-white/20"
-              style={{
-                top: `${(i * 37) % 100}%`,
-                left: `${(i * 53) % 100}%`,
-                opacity: 0.5,
-                transform: `scale(${0.6 + (i % 5) * 0.1})`,
-              }}
-            />
-          ))}
-        </div>
+    <div className="relative w-full h-full min-h-screen bg-slate-900 overflow-y-auto">
+      {/* Aurora */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/15" />
+        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/15" />
       </div>
 
       {/* Top Bar */}
-      <div className="sticky top-0 z-20 bg-transparent backdrop-blur-sm border-b border-white/10">
-        <div className="px-4 py-3 flex items-center gap-3">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="rounded-lg bg-gradient-to-r from-orange-400 via-red-300 to-pink-400 text-slate-900 px-4 py-2 text-sm font-semibold shadow hover:shadow-lg transition"
-            >
-              ← Back to POS
-            </button>
-          )}
+      <div className="sticky top-0 z-20 bg-slate-900/85 backdrop-blur-sm border-b border-white/10">
+        <div className="px-5 py-3.5 flex items-center gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-white/90">Kitchen Display System</h1>
-            <p className="text-xs text-white/60">Manage menus and kitchen orders</p>
+            <h1 className="text-sm font-bold text-white">Kitchen Display System</h1>
+            <p className="text-[11px] text-white/50">Manage menus and kitchen orders</p>
           </div>
-          <div className="flex-1" />
         </div>
       </div>
 
-      {/* Content */}
-      <div className="relative z-10 min-h-[calc(100vh-128px)] flex items-start justify-center p-6">
-        <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Menu Builder Card */}
+      {/* Cards grid */}
+      <div className="relative z-10 p-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl">
+          {/* Order Board */}
           <motion.button
-            whileHover={{ scale: 1.02, y: -2 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setMode("menu")}
-            className="group relative text-left rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/60 to-slate-800/40 backdrop-blur-xl p-6 shadow-lg hover:shadow-orange-500/30 transition min-h-[140px]"
-          >
-            {/* Glow accent */}
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-orange-400/10 via-red-400/10 to-transparent opacity-0 group-hover:opacity-100 blur-xl transition" />
-            <div className="relative z-10">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-3xl">📜</span>
-                <div className="text-white">
-                  <div className="text-lg font-semibold">Menu Builder</div>
-                  <div className="text-sm text-white/70">Create & manage categories and items, toggle availability, preview live menu.</div>
-                </div>
-              </div>
-              <div className="mt-4 inline-flex items-center gap-2 text-orange-300 font-medium">
-                Open <span>→</span>
-              </div>
-            </div>
-          </motion.button>
-
-          {/* Orders Board */}
-          <motion.button
-            whileHover={{ scale: 1.02, y: -2 }}
+            whileHover={{ y: -3 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => setMode("orders")}
-            className="group relative text-left rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/60 to-slate-800/40 backdrop-blur-xl p-6 shadow-lg hover:shadow-red-500/30 transition min-h-[140px]"
+            className="group relative text-left rounded-2xl border border-white/10 bg-slate-800/50 backdrop-blur-xl p-5 hover:border-emerald-500/40 hover:bg-slate-800/70 transition-all duration-200"
           >
-            {/* Glow accent */}
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-red-400/10 via-pink-400/10 to-transparent opacity-0 group-hover:opacity-100 blur-xl transition" />
-            <div className="relative z-10">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-3xl">👨‍🍳</span>
-                <div className="text-white">
-                  <div className="text-lg font-semibold">Kitchen Order Board</div>
-                  <div className="text-sm text-white/70">View and manage orders in real-time. Track status: Pending → Preparing → Ready → Served.</div>
-                </div>
-              </div>
-              <div className="mt-4 inline-flex items-center gap-2 text-red-300 font-medium">
-                Open <span>→</span>
-              </div>
+            <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl bg-gradient-to-r from-emerald-500 to-teal-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="text-3xl mb-3">�‍🍳</div>
+            <div className="text-base font-semibold text-white mb-1">Kitchen Order Board</div>
+            <div className="text-xs text-white/55 leading-relaxed mb-4">View and manage live orders. Track Pending → Preparing → Ready → Served.</div>
+            <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400 group-hover:gap-2.5 transition-all">
+              Open <span>→</span>
             </div>
           </motion.button>
 
-          {/* Stations (placeholder for future) */}
-          <div className="relative rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/40 to-slate-900/60 backdrop-blur-xl p-6 text-white/70 shadow-inner min-h-[140px]">
-            <span className="absolute top-4 right-4 text-xs px-2 py-1 rounded-full bg-white/10 text-white/60">Coming Soon</span>
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-2xl">🏭</span>
-              <div>
-                <div className="text-lg font-semibold text-white/90">Kitchen Stations</div>
-                <div className="text-sm">Assign categories to stations (Tandoor, Fry, Grill) for ticket routing.</div>
-              </div>
+          {/* Menu Builder */}
+          <motion.button
+            whileHover={{ y: -3 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setMode("menu")}
+            className="group relative text-left rounded-2xl border border-white/10 bg-slate-800/50 backdrop-blur-xl p-5 hover:border-teal-500/40 hover:bg-slate-800/70 transition-all duration-200"
+          >
+            <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl bg-gradient-to-r from-teal-500 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="text-3xl mb-3">�</div>
+            <div className="text-base font-semibold text-white mb-1">Menu Builder</div>
+            <div className="text-xs text-white/55 leading-relaxed mb-4">Create & manage categories, items and availability. Preview live menu.</div>
+            <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-400 group-hover:gap-2.5 transition-all">
+              Open <span>→</span>
             </div>
+          </motion.button>
+
+          {/* Coming soon: Stations */}
+          <div className="relative rounded-2xl border border-white/[0.07] bg-slate-800/30 p-5 opacity-50">
+            <span className="absolute top-3.5 right-3.5 text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">Soon</span>
+            <div className="text-2xl mb-3">🏭</div>
+            <div className="text-sm font-semibold text-white/80">Kitchen Stations</div>
+            <div className="text-xs text-white/40 mt-1">Assign categories to stations for ticket routing.</div>
           </div>
 
-          {/* Settings (placeholder for future) */}
-          <div className="relative rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/40 to-slate-900/60 backdrop-blur-xl p-6 text-white/70 shadow-inner min-h-[140px]">
-            <span className="absolute top-4 right-4 text-xs px-2 py-1 rounded-full bg-white/10 text-white/60">Coming Soon</span>
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-2xl">⚙️</span>
-              <div>
-                <div className="text-lg font-semibold text-white/90">KDS Settings</div>
-                <div className="text-sm">Theme, tax defaults, printers and shortcuts.</div>
-              </div>
-            </div>
+          {/* Coming soon: Settings */}
+          <div className="relative rounded-2xl border border-white/[0.07] bg-slate-800/30 p-5 opacity-50">
+            <span className="absolute top-3.5 right-3.5 text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">Soon</span>
+            <div className="text-2xl mb-3">⚙️</div>
+            <div className="text-sm font-semibold text-white/80">KDS Settings</div>
+            <div className="text-xs text-white/40 mt-1">Tax defaults, display theme, printers.</div>
           </div>
         </div>
       </div>

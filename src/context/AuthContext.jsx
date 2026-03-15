@@ -18,6 +18,7 @@ import {
   isDistributorEmployeeRedirect,
   clearDistributorEmployeeRedirect
 } from '../utils/distributorEmployeeSession';
+import { getCurrentPath } from '../utils/routePath';
 
 export const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
@@ -37,7 +38,7 @@ export const AuthProvider = ({ children }) => {
       new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
     ]);
 
-  // --- One-time: ensure persistence for primary app auth only (skip on native - firebaseConfig uses inMemoryPersistence)
+  // --- One-time: ensure persistence for primary app auth only (skip on native - firebaseConfig sets persistence via initializeAuth)
   useEffect(() => {
     if (Capacitor?.isNativePlatform?.()) return;
     try { setPersistence(auth, indexedDBLocalPersistence); } catch (_) {}
@@ -73,9 +74,20 @@ export const AuthProvider = ({ children }) => {
   // --- Core selector + role resolver
   useEffect(() => {
     (async () => {
-      const path = typeof window !== 'undefined' ? window.location.pathname : '';
+      const path = getCurrentPath();
       const inEmpArea = isEmployeePath(path);
       const inDistEmpArea = isDistributorEmployeePath(path);
+
+      // Clear stale role immediately when primary user changes (prevents wrong dashboard redirect)
+      // Without this, role from previous user persists until Firestore fetch completes
+      if (!inEmpArea && !inDistEmpArea) {
+        if (!primaryUser) {
+          setRole(null);
+        } else {
+          // User changed (e.g. re-login with different account) - clear stale role while we fetch
+          setRole(null);
+        }
+      }
 
       // Handle one-time redirect guards (same behavior you had)
       if (isEmployeeRedirect()) {
@@ -127,6 +139,14 @@ export const AuthProvider = ({ children }) => {
         effectiveUser = primaryUser ?? null;
 
         if (primaryUser) {
+          // Use fresh login role immediately if set by Login.jsx (avoids wrong dashboard redirect)
+          const fresh = typeof window !== 'undefined' && sessionStorage.getItem('freshLoginRole');
+          if (fresh) {
+            const freshNorm = fresh.toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
+            setRole(freshNorm === 'distributoremployee' ? 'distributor' : freshNorm);
+            try { sessionStorage.removeItem('freshLoginRole'); } catch (_) {}
+          }
+
           // refresh token once to keep claims fresh for CF calls
           try {
             await withTimeout(primaryUser.getIdToken(true), 10000, 'Auth token refresh');
@@ -164,7 +184,7 @@ export const AuthProvider = ({ children }) => {
             // if a main user somehow has 'distributor-employee' in doc (shouldn't), treat as distributor
             effectiveRole = normalizedRole === 'distributoremployee' ? 'distributor' : normalizedRole;
 
-            // fallback to post-signup hint if firestore hasn't populated yet
+            // fallback: post-signup hint (freshLoginRole is consumed at start of effect)
             if (!effectiveRole && typeof window !== 'undefined') {
               const pending = sessionStorage.getItem('postSignupRole');
               if (pending) effectiveRole = pending.toLowerCase().replace(/\s+/g, '');
@@ -189,7 +209,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = useMemo(() => {
     // Recompute the effective user synchronously for consumers
-    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    const path = getCurrentPath();
     const inEmpArea = isEmployeePath(path);
     const inDistEmpArea = isDistributorEmployeePath(path);
 

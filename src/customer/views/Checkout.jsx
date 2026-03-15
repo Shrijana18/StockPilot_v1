@@ -9,12 +9,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaArrowLeft, FaMapMarkerAlt, FaPlus, FaClock, FaCheck,
   FaMoneyBillWave, FaCreditCard, FaWallet, FaTruck, FaStore,
-  FaShoppingBag, FaInfoCircle, FaSearchLocation, FaCrosshairs, FaEdit, FaTag
+  FaShoppingBag, FaInfoCircle, FaSearchLocation, FaCrosshairs, FaEdit, FaTag,
+  FaUniversity, FaLock
 } from 'react-icons/fa';
 import { useCart } from '../context/CartContext';
 import { useCustomerAuth } from '../context/CustomerAuthContext';
-import { placeOrder } from '../services/orderService';
+import { placeOrder, cancelOrder, createOrderDraft, confirmOrderAfterPayment, markOrderPaymentCancelled } from '../services/orderService';
 import { getStoreById } from '../services/storeService';
+import { openRazorpayCheckout } from '../services/razorpayPaymentService';
+import { openPayUCheckout } from '../services/payuPaymentService';
 import { computeStoreOfferDiscount } from '../../constants/marketplaceOffers';
 import { GoogleMap, useJsApiLoader, Marker, Autocomplete } from '@react-google-maps/api';
 
@@ -135,196 +138,194 @@ const getNextDays = (count = 7) => {
   return days;
 };
 
-// Delivery Type Option - Dark Theme
+// Delivery Type Option - Clean minimal card
 const DeliveryTypeOption = ({ type, icon: Icon, label, description, isSelected, onSelect, disabled }) => (
-  <button
+  <motion.button
     onClick={() => !disabled && onSelect(type)}
     disabled={disabled}
-    className={`flex-1 p-4 rounded-xl border-2 transition-all ${
+    whileTap={!disabled ? { scale: 0.97 } : {}}
+    className={`flex-1 p-4 rounded-2xl border transition-all duration-200 checkout-card-selectable ${
       disabled 
-        ? 'border-white/10 bg-white/5/50 opacity-50 cursor-not-allowed'
+        ? 'border-white/[0.04] bg-white/[0.02] opacity-50 cursor-not-allowed'
         : isSelected 
-          ? 'border-[#05E06C]500 bg-[#05E06C]/10' 
-          : 'border-white/10 bg-white/5/50 hover:border-white/10'
+          ? 'border-emerald-500/50 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.3)]' 
+          : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] active:bg-white/[0.03]'
     }`}
   >
     <div className="flex flex-col items-center gap-2">
-      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-        isSelected ? 'bg-[#05E06C]' : 'bg-slate-700'
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
+        isSelected ? 'bg-emerald-500' : 'bg-white/[0.06]'
       }`}>
-        <Icon className={`text-xl ${isSelected ? 'text-white' : 'text-white/60'}`} />
+        <Icon className={`text-lg ${isSelected ? 'text-white' : 'text-white/50'}`} />
       </div>
       <div className="text-center">
-        <p className={`font-semibold ${isSelected ? 'text-[#05E06C]400' : 'text-white'}`}>
+        <p className={`text-sm font-semibold ${isSelected ? 'text-emerald-400' : 'text-slate-200'}`}>
           {label}
         </p>
-        <p className="text-xs text-white/40">{description}</p>
+        <p className="text-[11px] text-white/40 mt-0.5">{description}</p>
       </div>
     </div>
-  </button>
+  </motion.button>
 );
 
-// Time Slot Option - Dark Theme
+// Time Slot Option - Pill style
 const TimeSlot = ({ slot, isSelected, onSelect }) => (
-  <button
+  <motion.button
     onClick={() => onSelect(slot)}
-    className={`flex-1 p-3 rounded-xl border-2 transition-all ${
+    whileTap={{ scale: 0.97 }}
+    className={`flex-1 py-3 px-4 rounded-xl border transition-all duration-200 ${
       isSelected 
-        ? 'border-[#05E06C]500 bg-[#05E06C]/10' 
-        : 'border-white/10 bg-white/5/50'
+        ? 'border-emerald-500/40 bg-emerald-500/10' 
+        : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
     }`}
   >
-    <div className="flex items-center gap-2 mb-1">
-      <FaClock className={isSelected ? 'text-[#05E06C]400' : 'text-white/40'} />
-      <span className={`font-medium ${isSelected ? 'text-[#05E06C]400' : 'text-white'}`}>
+    <div className="flex items-center justify-center gap-2">
+      <FaClock className={`text-sm ${isSelected ? 'text-emerald-400' : 'text-white/40'}`} />
+      <span className={`font-medium text-sm ${isSelected ? 'text-emerald-400' : 'text-slate-200'}`}>
         {slot.label}
       </span>
     </div>
-    <p className="text-xs text-white/40">{slot.description}</p>
-  </button>
+    <p className="text-[10px] text-white/40 mt-1 text-center">{slot.description}</p>
+  </motion.button>
 );
 
-// Pickup Slot Option - Dark Theme
+// Pickup Slot Option - Clean list item
 const PickupSlot = ({ slot, isSelected, onSelect }) => (
-  <button
+  <motion.button
     onClick={() => onSelect(slot)}
-    className={`w-full p-3 rounded-xl border-2 flex items-center justify-between transition-all ${
+    whileTap={{ scale: 0.99 }}
+    className={`w-full py-3.5 px-4 rounded-xl border flex items-center justify-between transition-all duration-200 ${
       isSelected 
-        ? 'border-emerald-500 bg-emerald-500/10' 
-        : 'border-white/10 bg-white/5/50 hover:border-white/20'
+        ? 'border-emerald-500/40 bg-emerald-500/10' 
+        : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
     }`}
   >
     <div className="flex items-center gap-3">
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
         isSelected ? 'bg-emerald-500' : 'bg-white/[0.06]'
       }`}>
         <FaClock className={isSelected ? 'text-white text-sm' : 'text-white/40 text-sm'} />
       </div>
-      <span className={`font-medium ${isSelected ? 'text-emerald-400' : 'text-white'}`}>
+      <span className={`font-medium text-sm ${isSelected ? 'text-emerald-400' : 'text-slate-200'}`}>
         {slot.time}
       </span>
     </div>
-    {isSelected && <FaCheck className="text-emerald-400" />}
-  </button>
+    {isSelected && <FaCheck className="text-emerald-400 text-sm" />}
+  </motion.button>
 );
 
-// Date Selector for Pickup Scheduling
+// Date Selector - Horizontal pill scroll
 const DateSelector = ({ days, selectedDate, onSelect }) => (
-  <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-    {days.map((day, idx) => (
-      <button
-        key={idx}
-        onClick={() => onSelect(day.date)}
-        className={`flex-shrink-0 w-16 py-2 px-1 rounded-xl border-2 transition-all ${
-          selectedDate?.toDateString() === day.date.toDateString()
-            ? 'border-emerald-500 bg-emerald-500/10'
-            : 'border-white/10 bg-white/5/50 hover:border-white/20'
-        }`}
-      >
-        <div className="text-center">
+  <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+    {days.map((day, idx) => {
+      const isSelected = selectedDate?.toDateString() === day.date.toDateString();
+      return (
+        <motion.button
+          key={idx}
+          onClick={() => onSelect(day.date)}
+          whileTap={{ scale: 0.95 }}
+          className={`flex-shrink-0 w-14 py-2.5 px-2 rounded-xl border transition-all duration-200 ${
+            isSelected ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+          }`}
+        >
           <p className={`text-[10px] font-medium ${
-            selectedDate?.toDateString() === day.date.toDateString() 
-              ? 'text-emerald-400' 
-              : day.isToday ? 'text-amber-400' : 'text-white/50'
+            isSelected ? 'text-emerald-400' : day.isToday ? 'text-amber-400' : 'text-white/50'
           }`}>
             {day.isToday ? 'Today' : day.isTomorrow ? 'Tmrw' : day.dayName}
           </p>
-          <p className={`text-lg font-bold ${
-            selectedDate?.toDateString() === day.date.toDateString() 
-              ? 'text-emerald-400' 
-              : 'text-white'
-          }`}>
+          <p className={`text-base font-bold mt-0.5 ${isSelected ? 'text-emerald-400' : 'text-slate-200'}`}>
             {day.dayNum}
           </p>
-        </div>
-      </button>
-    ))}
+        </motion.button>
+      );
+    })}
   </div>
 );
 
-// Payment Method Option - Dark Theme
+// Payment Method Option - Clean minimal row
 const PaymentMethod = ({ method, isSelected, onSelect, badge }) => {
   const icons = {
     COD: FaMoneyBillWave,
     UPI: FaWallet,
-    CARD: FaCreditCard,
+    PAY_NOW_UPI: FaWallet,
+    PAY_NOW_CARD: FaCreditCard,
+    PAY_NOW_NETBANKING: FaUniversity,
+    PAY_NOW_MORE: FaWallet,
     PAY_LATER: FaClock,
     PARTIAL: FaWallet
   };
   const Icon = icons[method.id] || FaMoneyBillWave;
 
-  const colorClasses = {
-    emerald: { border: 'border-[#05E06C]500', bg: 'bg-[#05E06C]/10', icon: 'bg-[#05E06C]', text: 'text-[#05E06C]400', check: 'text-[#05E06C]400' },
-    amber: { border: 'border-amber-500', bg: 'bg-amber-500/10', icon: 'bg-amber-500', text: 'text-amber-400', check: 'text-amber-400' },
-    purple: { border: 'border-purple-500', bg: 'bg-purple-500/10', icon: 'bg-purple-500', text: 'text-purple-400', check: 'text-purple-400' }
+  const colorMap = {
+    emerald: { border: 'border-emerald-500/40', bg: 'bg-emerald-500/10', icon: 'bg-emerald-500', text: 'text-emerald-400', check: 'text-emerald-400' },
+    amber: { border: 'border-amber-500/40', bg: 'bg-amber-500/10', icon: 'bg-amber-500', text: 'text-amber-400', check: 'text-amber-400' },
+    purple: { border: 'border-purple-500/40', bg: 'bg-purple-500/10', icon: 'bg-purple-500', text: 'text-purple-400', check: 'text-purple-400' }
   };
-  const colors = colorClasses[method.color || 'emerald'];
+  const colors = colorMap[method.color || 'emerald'];
 
   return (
-    <button
+    <motion.button
       onClick={() => onSelect(method)}
-      className={`w-full p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${
-        isSelected 
-          ? `${colors.border} ${colors.bg}` 
-          : 'border-white/10 bg-white/5/50'
+      whileTap={{ scale: 0.99 }}
+      className={`w-full p-4 rounded-xl border flex items-center gap-3 transition-all duration-200 ${
+        isSelected ? `${colors.border} ${colors.bg}` : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
       }`}
     >
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-        isSelected ? colors.icon : 'bg-slate-700'
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+        isSelected ? colors.icon : 'bg-white/[0.06]'
       }`}>
-        <Icon className={isSelected ? 'text-white' : 'text-white/60'} />
+        <Icon className={`text-base ${isSelected ? 'text-white' : 'text-white/50'}`} />
       </div>
-      <div className="flex-1 text-left">
-        <div className="flex items-center gap-2">
-          <p className={`font-medium ${isSelected ? colors.text : 'text-white'}`}>
+      <div className="flex-1 text-left min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className={`text-sm font-medium ${isSelected ? colors.text : 'text-slate-200'}`}>
             {method.label}
           </p>
           {badge && (
-            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${badge.color}`}>
+            <span className={`px-2 py-0.5 text-[9px] font-bold rounded-md ${badge.color}`}>
               {badge.text}
             </span>
           )}
         </div>
-        <p className="text-xs text-white/40">{method.description}</p>
+        <p className="text-xs text-white/45 mt-0.5">{method.description}</p>
       </div>
-      {isSelected && <FaCheck className={colors.check} />}
-    </button>
+      {isSelected && <FaCheck className={`${colors.check} text-sm flex-shrink-0`} />}
+    </motion.button>
   );
 };
 
-// Address Card - Dark Theme with location indicator
+// Address Card - Clean minimal
 const AddressCard = ({ address, isSelected, onSelect }) => (
-  <button
+  <motion.button
     onClick={() => onSelect(address)}
-    className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
-      isSelected 
-        ? 'border-emerald-500 bg-emerald-500/10' 
-        : 'border-white/10 bg-white/5/50'
+    whileTap={{ scale: 0.99 }}
+    className={`w-full p-4 rounded-xl border text-left transition-all duration-200 ${
+      isSelected ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
     }`}
   >
     <div className="flex items-start gap-3">
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-        isSelected ? 'bg-emerald-500' : 'bg-slate-700'
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+        isSelected ? 'bg-emerald-500' : 'bg-white/[0.06]'
       }`}>
-        <FaMapMarkerAlt className={isSelected ? 'text-white' : 'text-white/60'} />
+        <FaMapMarkerAlt className={`text-sm ${isSelected ? 'text-white' : 'text-white/50'}`} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="font-medium text-white">{address.label}</p>
+          <p className="font-medium text-sm text-slate-200">{address.label}</p>
           {address.latitude && address.longitude && (
-            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[9px] rounded font-medium">
-              📍 Pinned
+            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[9px] rounded-md font-medium">
+              Pinned
             </span>
           )}
         </div>
-        <p className="text-sm text-white/60 mt-1 line-clamp-2">{address.address}</p>
+        <p className="text-xs text-white/50 mt-1 line-clamp-2">{address.address}</p>
       </div>
-      {isSelected && <FaCheck className="text-emerald-400 flex-shrink-0" />}
+      {isSelected && <FaCheck className="text-emerald-400 text-sm flex-shrink-0" />}
     </div>
-  </button>
+  </motion.button>
 );
 
-const Checkout = ({ onBack, onOrderPlaced }) => {
+const Checkout = ({ onBack, onOrderPlaced, onPaymentCancelled }) => {
   const { cartItems, cartStore, getCartTotals, clearCart } = useCart();
   const { customer, customerData, addAddress } = useCustomerAuth();
   const totals = getCartTotals();
@@ -345,6 +346,8 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
   const [selectedPickupSlot, setSelectedPickupSlot] = useState(null);
   const [selectedPickupDate, setSelectedPickupDate] = useState(new Date()); // Default to today
   const [selectedPayment, setSelectedPayment] = useState('COD');
+  const [selectedUpiApp, setSelectedUpiApp] = useState('phonepe');
+  const [upiId, setUpiId] = useState('');
   
   // Available dates for scheduling (delivery & pickup)
   const scheduleDays = getNextDays(7);
@@ -682,19 +685,53 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
     { time: '6:00 PM - 9:00 PM', enabled: true },
   ];
 
-  // Build payment methods based on store settings
-  const getPaymentMethods = () => {
-    const methods = [];
-    const payOpts = storeSettings?.paymentOptions || { cod: true, upi: true };
+  // Pay Online - includes UPI shortcuts, Cards, Net Banking, More options
+  const isPayOnline = (id) => ['PAY_NOW_UPI', 'PAY_NOW_CARD', 'PAY_NOW_NETBANKING', 'PAY_NOW_MORE'].includes(id);
+  const USE_PAYU = import.meta.env.VITE_USE_PAYU === 'true';
 
+  // UPI app shortcuts (Astrotalk-style) - all map to PAY_NOW_UPI
+  const UPI_SHORTCUTS = [
+    { id: 'phonepe', label: 'PhonePe', icon: '/assets/payment/phonepe-icon.svg', bgColor: '#5F259F' },
+    { id: 'gpay', label: 'GPay', icon: '/assets/payment/google-pay-icon.svg', bgColor: '#1A73E8' },
+    { id: 'paytm', label: 'Paytm', icon: '/assets/payment/paytm-icon.svg', bgColor: '#002970' },
+    { id: 'bhim', label: 'BHIM', icon: '/assets/payment/upi-payment-icon.svg', bgColor: '#00857D' },
+  ];
+
+  // Build payment methods grouped by section
+  const getPaymentMethods = () => {
+    const payOpts = storeSettings?.paymentOptions || { cod: true, upi: true, payNow: true };
+    const sections = [];
+
+    // Pay Online - UPI shortcuts + Cards, Net Banking, More options
+    if (payOpts.payNow !== false) {
+      sections.push({
+        title: 'Pay Online',
+        subtitle: USE_PAYU ? 'Secured by PayU' : 'Secured by Razorpay',
+        hasUpiShortcuts: true,
+        methods: [
+          { id: 'PAY_NOW_CARD', label: 'Cards', description: 'Credit & Debit cards', color: 'emerald' },
+          { id: 'PAY_NOW_NETBANKING', label: 'Net Banking', description: 'All major banks', color: 'emerald' },
+          { id: 'PAY_NOW_MORE', label: 'More payment options', description: 'View all methods', color: 'emerald' },
+        ],
+      });
+    }
+
+    // Pay on Delivery
+    const deliveryMethods = [];
     if (payOpts.cod !== false) {
-      methods.push({ id: 'COD', label: 'Cash on Delivery', description: 'Pay when you receive', color: 'emerald' });
+      deliveryMethods.push({ id: 'COD', label: 'Cash on Delivery', description: 'Pay when you receive', color: 'emerald' });
     }
     if (payOpts.upi !== false) {
-      methods.push({ id: 'UPI', label: 'UPI Payment', description: 'GPay, PhonePe, Paytm', color: 'emerald' });
+      deliveryMethods.push({ id: 'UPI', label: 'UPI on Delivery', description: 'GPay, PhonePe at doorstep', color: 'emerald' });
     }
+    if (deliveryMethods.length) {
+      sections.push({ title: 'Pay on Delivery', subtitle: null, methods: deliveryMethods });
+    }
+
+    // Pay Later, Partial
+    const otherMethods = [];
     if (payOpts.payLater) {
-      methods.push({ 
+      otherMethods.push({ 
         id: 'PAY_LATER', 
         label: 'Pay Later', 
         description: `Pay within ${storeSettings?.payLaterDays || 7} days`, 
@@ -703,7 +740,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
       });
     }
     if (payOpts.partialPayment) {
-      methods.push({ 
+      otherMethods.push({ 
         id: 'PARTIAL', 
         label: 'Pay Advance + Later', 
         description: `Min ${storeSettings?.minAdvancePercent || 50}% now, rest on delivery`, 
@@ -711,11 +748,14 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
         badge: { text: 'SPLIT', color: 'bg-purple-500/20 text-purple-400' }
       });
     }
+    if (otherMethods.length) {
+      sections.push({ title: 'Other', subtitle: null, methods: otherMethods });
+    }
 
-    return methods;
+    return sections;
   };
 
-  const paymentMethods = getPaymentMethods();
+  const paymentSections = getPaymentMethods();
 
   // Handle add new address
   const handleAddAddress = async () => {
@@ -763,6 +803,9 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
     } else if (selectedPayment === 'PARTIAL') {
       payNow = advanceAmount;
       payLater = finalTotal - advanceAmount;
+    } else if (isPayOnline(selectedPayment)) {
+      payNow = finalTotal;
+      payLater = 0;
     }
 
     return { deliveryFee, finalTotal, payNow, payLater, discountAmount, appliedOffer };
@@ -870,15 +913,79 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
         specialInstructions
       };
 
-      const result = await placeOrder(orderData);
-
-      if (result.success) {
-        await triggerHaptic('success');
-        clearCart();
-        onOrderPlaced?.(result.orderId, result.orderNumber);
+      let result;
+      if (isPayOnline(selectedPayment)) {
+        // Pay Online: create DRAFT first - order only confirms after payment succeeds
+        result = await createOrderDraft(orderData);
       } else {
-        alert(result.error || 'Failed to place order');
+        result = await placeOrder(orderData);
       }
+
+      if (!result.success) {
+        alert(result.error || 'Failed to place order');
+        return;
+      }
+
+      // Pay Online: Open payment gateway (PayU or Razorpay)
+      if (isPayOnline(selectedPayment)) {
+        const payOpts = {
+          orderId: result.orderId,
+          amount: amounts.payNow,
+          orderNumber: result.orderNumber,
+          customerName: customerData?.name || 'Customer',
+          customerEmail: customerData?.email || '',
+          customerPhone: customer.phoneNumber || customerData?.phone || '',
+          storeName: cartStore?.name || cartStore?.businessName || 'Store',
+        };
+        if (USE_PAYU) {
+          payOpts.enforcePaymethod = selectedPayment === 'PAY_NOW_UPI' ? 'UPI' : '';
+        } else {
+          if (selectedPayment === 'PAY_NOW_UPI') {
+            payOpts.preferredUpiApp = selectedUpiApp;
+            if (selectedUpiApp === 'manual' && upiId.trim()) {
+              payOpts.upiId = upiId.trim();
+            }
+          }
+        }
+        try {
+          if (USE_PAYU) {
+            await openPayUCheckout(payOpts);
+            // PayU redirects - user lands on payment callback. Webhook updates order.
+            return;
+          }
+          await openRazorpayCheckout(payOpts);
+          await confirmOrderAfterPayment(result.orderId);
+          await triggerHaptic('success');
+          clearCart();
+          onOrderPlaced?.(result.orderId, result.orderNumber);
+        } catch (payError) {
+          console.error('Razorpay error:', payError);
+          const msg = payError?.message || 'Payment failed';
+          const isCancelled = msg.toLowerCase().includes('cancelled');
+          if (isCancelled) {
+            // User closed Razorpay - mark payment cancelled, allow retry from My Orders
+            await markOrderPaymentCancelled(result.orderId);
+            clearCart(); // Avoid duplicate order if user taps Place Order again
+            alert('Transaction cancelled. Go to My Orders and tap your order to try again.');
+            onPaymentCancelled?.(result.orderId, result.orderNumber);
+          } else {
+            // Payment setup or other failure - cancel the draft
+            try {
+              await cancelOrder(result.orderId, 'Payment setup failed');
+            } catch (cancelErr) {
+              console.warn('Could not cancel order:', cancelErr);
+            }
+            alert('Payment could not be started. Please try again or choose another payment method.');
+          }
+          return;
+        }
+        return;
+      }
+
+      // COD, UPI on delivery, PAY_LATER, PARTIAL: Order placed, show success
+      await triggerHaptic('success');
+      clearCart();
+      onOrderPlaced?.(result.orderId, result.orderNumber);
     } catch (error) {
       console.error('Order error:', error);
       alert('Something went wrong. Please try again.');
@@ -889,8 +996,12 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
 
   if (loadingSettings) {
     return (
-      <div className="customer-screen bg-[#0B0F14] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#05E06C]500 border-t-transparent rounded-full animate-spin" />
+      <div className="customer-screen bg-[#0c0f14] flex items-center justify-center">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+          className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-400 rounded-full"
+        />
       </div>
     );
   }
@@ -898,38 +1009,42 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
   const pickupEnabled = storeSettings?.pickupEnabled && storeSettings?.pickupTimeSlots?.some(s => s.enabled);
 
   return (
-    <div className="customer-screen bg-[#0B0F14]">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl z-10 border-b border-white/10 flex-shrink-0">
-        <div className="px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}>
-          <button
+    <div className="customer-screen checkout-page bg-[#0c0f14]">
+      {/* Header - Minimal clean */}
+      <div className="sticky top-0 z-20 bg-[#0c0f14]/80 backdrop-blur-xl border-b border-white/[0.06] flex-shrink-0">
+        <div className="px-4 h-14 flex items-center gap-3" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
+          <motion.button
             onClick={onBack}
-            className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center"
+            whileTap={{ scale: 0.92 }}
+            className="w-9 h-9 rounded-full bg-white/[0.06] flex items-center justify-center active:bg-white/[0.08]"
           >
-            <FaArrowLeft className="text-white/60" />
-          </button>
-          <h1 className="font-bold text-white text-lg">Checkout</h1>
+            <FaArrowLeft className="text-slate-400 text-sm" />
+          </motion.button>
+          <h1 className="font-semibold text-slate-100 text-base tracking-tight">Checkout</h1>
         </div>
       </div>
 
       <div className="customer-scroll">
-      <div className="px-4 py-4 space-y-6 customer-bottom-spacer">
+      <div className="px-4 py-5 space-y-8 customer-bottom-spacer">
         {/* Delivery Type Selection */}
-        <div>
-          <h3 className="font-semibold text-white mb-3">How would you like to receive?</h3>
+        <motion.div className="checkout-section" style={{ animationDelay: '0.03s' }}>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">Delivery option</p>
           
-          {/* Out of Range Notice - Show when only pickup available */}
+          {/* Out of Range Notice */}
           {!storeDeliveryAvailable && pickupEnabled && (
-            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2">
-              <FaMapMarkerAlt className="text-amber-400 mt-0.5 flex-shrink-0" />
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3"
+            >
+              <FaMapMarkerAlt className="text-amber-400 mt-0.5 flex-shrink-0 text-sm" />
               <div>
-                <p className="text-amber-400 text-xs font-semibold">Store Pickup Only</p>
-                <p className="text-amber-400/70 text-[11px] mt-0.5">
-                  You are {customerDistance} km away from this store. Delivery is only available within {storeSettings?.deliveryRadius || 10} km.
-                  Please pick up your order from the store.
+                <p className="text-amber-400 text-sm font-medium">Store Pickup Only</p>
+                <p className="text-amber-400/80 text-xs mt-1">
+                  You are {customerDistance} km away. Delivery available within {storeSettings?.deliveryRadius || 10} km. Pick up from store.
                 </p>
               </div>
-            </div>
+            </motion.div>
           )}
           
           <div className="flex gap-3">
@@ -956,45 +1071,43 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
               disabled={!pickupEnabled}
             />
             
-            {/* Show disabled delivery card to explain why it's not available */}
             {!storeDeliveryAvailable && (
-              <div className="flex-1 p-4 rounded-xl border-2 border-white/5 bg-white/5/30 opacity-50 cursor-not-allowed">
+              <div className="flex-1 p-4 rounded-2xl border border-white/[0.04] bg-white/[0.02] opacity-60 cursor-not-allowed">
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center bg-slate-700/50">
-                    <FaTruck className="text-xl text-white/30" />
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-white/[0.04]">
+                    <FaTruck className="text-lg text-white/30" />
                   </div>
-                  <div className="text-center">
-                    <p className="font-semibold text-white/40">Delivery</p>
-                    <p className="text-xs text-red-400/60">Out of range</p>
-                  </div>
+                  <p className="font-medium text-slate-500 text-sm">Delivery</p>
+                  <p className="text-[10px] text-red-400/70">Out of range</p>
                 </div>
               </div>
             )}
           </div>
           
           {!pickupEnabled && storeDeliveryAvailable && (
-            <p className="text-xs text-white/40 mt-2 flex items-center gap-1">
-              <FaInfoCircle />
+            <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+              <FaInfoCircle className="text-slate-400" />
               Pickup not available for this store
             </p>
           )}
-        </div>
+        </motion.div>
 
-        {/* Delivery Address (only for delivery and when delivery is available) */}
+        {/* Delivery Address */}
         <AnimatePresence>
           {deliveryType === 'delivery' && storeDeliveryAvailable && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
+              className="checkout-section"
             >
-              <h3 className="font-semibold text-white mb-3">Delivery Address</h3>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">Delivery address</p>
               
               {showAddAddress ? (
-                <div className="bg-white/5/50 backdrop-blur-xl rounded-2xl p-5 border border-white/10">
-                  <h4 className="font-medium text-white mb-4 flex items-center gap-2">
-                    <FaMapMarkerAlt className="text-emerald-400" />
-                    Add Delivery Address
+                <div className="rounded-2xl p-5 border border-white/[0.06] bg-white/[0.02]">
+                  <h4 className="font-medium text-slate-200 text-sm mb-4 flex items-center gap-2">
+                    <FaMapMarkerAlt className="text-emerald-400 text-sm" />
+                    Add delivery address
                   </h4>
                   
                   {/* Google Maps Section */}
@@ -1008,11 +1121,11 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                           restrictions={{ country: 'in' }}
                         >
                           <div className="relative">
-                            <FaSearchLocation className="absolute left-3 top-1/2 transform -translate-y-1/2 text-emerald-400" />
+                            <FaSearchLocation className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400/80 text-sm" />
                             <input
                               type="text"
-                              placeholder="Search your location..."
-                              className="w-full pl-10 pr-4 py-3 bg-slate-700 border border-white/10 rounded-xl text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              placeholder="Search location..."
+                              className="w-full pl-10 pr-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/30"
                             />
                           </div>
                         </Autocomplete>
@@ -1020,7 +1133,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                     )}
                     
                     {/* Map Container */}
-                    <div className="relative rounded-xl overflow-hidden border border-white/10">
+                    <div className="relative rounded-xl overflow-hidden border border-white/[0.08]">
                       {mapsError && (
                         <div className="h-[200px] flex items-center justify-center bg-red-500/10 text-red-400 text-sm">
                           <p>Error loading map</p>
@@ -1073,7 +1186,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                     <button
                       onClick={getCurrentLocation}
                       disabled={gettingLocation || !mapsLoaded}
-                      className="w-full mt-3 py-2.5 bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                      className="w-full mt-3 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
                     >
                       {gettingLocation ? (
                         <>
@@ -1091,16 +1204,16 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                   
                   {/* Address Type */}
                   <div className="mb-4">
-                    <label className="block text-xs font-medium text-slate-400 mb-2">Save as</label>
+                    <label className="block text-xs font-medium text-slate-500 mb-2">Save as</label>
                     <div className="flex gap-2">
                       {['Home', 'Office', 'Other'].map((type) => (
                         <button
                           key={type}
                           onClick={() => setNewAddress({ ...newAddress, label: type })}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                             newAddress.label === type
-                              ? 'bg-emerald-500 text-slate-900'
-                              : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                              ? 'bg-emerald-500 text-white'
+                              : 'bg-white/[0.06] text-slate-400 hover:bg-white/[0.08]'
                           }`}
                         >
                           {type}
@@ -1112,56 +1225,54 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                   {/* Address Fields */}
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">Full Address *</label>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Full address *</label>
                       <textarea
                         rows={2}
                         placeholder="House/Flat No., Building, Street"
                         value={newAddress.address}
                         onChange={(e) => setNewAddress({ ...newAddress, address: e.target.value })}
-                        className="w-full px-4 py-3 bg-slate-700 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                        className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 resize-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">Landmark (Optional)</label>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Landmark (optional)</label>
                       <input
                         type="text"
-                        placeholder="Near temple, opposite park, etc."
+                        placeholder="Near temple, park, etc."
                         value={newAddress.landmark}
                         onChange={(e) => setNewAddress({ ...newAddress, landmark: e.target.value })}
-                        className="w-full px-4 py-3 bg-slate-700 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">City *</label>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">City *</label>
                         <input
                           type="text"
                           placeholder="City"
                           value={newAddress.city}
                           onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
-                          className="w-full px-4 py-3 bg-slate-700 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">Pincode *</label>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Pincode *</label>
                         <input
                           type="text"
                           placeholder="Pincode"
                           value={newAddress.pincode}
                           onChange={(e) => setNewAddress({ ...newAddress, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) })}
-                          className="w-full px-4 py-3 bg-slate-700 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                         />
                       </div>
                     </div>
                   </div>
                   
-                  {/* Location Coordinates Badge */}
+                  {/* Location Badge */}
                   {newAddress.latitude && newAddress.longitude && (
-                    <div className="mt-3 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center gap-2">
+                    <div className="mt-3 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-2">
                       <FaMapMarkerAlt className="text-emerald-400 text-xs" />
-                      <span className="text-xs text-emerald-400">
-                        Location pinned • Lat: {newAddress.latitude.toFixed(4)}, Lng: {newAddress.longitude.toFixed(4)}
-                      </span>
+                      <span className="text-xs text-emerald-400">Location pinned</span>
                     </div>
                   )}
 
@@ -1173,7 +1284,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                           setMarkerPosition(null);
                           setNewAddress({ label: 'Home', address: '', landmark: '', city: '', pincode: '', latitude: null, longitude: null });
                         }}
-                        className="flex-1 py-3 border border-white/10 rounded-xl text-white/60 font-medium"
+                        className="flex-1 py-3 border border-white/[0.08] rounded-xl text-slate-400 font-medium text-sm active:scale-[0.98]"
                       >
                         Cancel
                       </button>
@@ -1181,9 +1292,9 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                     <button
                       onClick={handleAddAddress}
                       disabled={!newAddress.address || !newAddress.city || !newAddress.pincode}
-                      className="flex-1 py-3 bg-emerald-500 text-slate-900 rounded-xl font-medium hover:bg-emerald-400 transition disabled:bg-slate-700 disabled:text-white/40"
+                      className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-medium text-sm disabled:bg-white/[0.06] disabled:text-slate-500 active:scale-[0.98]"
                     >
-                      Save Address
+                      Save address
                     </button>
                   </div>
                 </div>
@@ -1197,13 +1308,14 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                       onSelect={setSelectedAddress}
                     />
                   ))}
-                  <button
+                  <motion.button
                     onClick={() => setShowAddAddress(true)}
-                    className="w-full p-4 rounded-xl border-2 border-dashed border-[#05E06C]500/30 bg-[#05E06C]/5 flex items-center justify-center gap-2 text-[#05E06C]400 font-medium"
+                    whileTap={{ scale: 0.98 }}
+                    className="w-full py-4 rounded-xl border border-dashed border-emerald-500/30 bg-emerald-500/5 flex items-center justify-center gap-2 text-emerald-400 font-medium text-sm"
                   >
                     <FaPlus className="text-sm" />
-                    Add New Address
-                  </button>
+                    Add new address
+                  </motion.button>
                 </div>
               )}
             </motion.div>
@@ -1211,51 +1323,43 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
         </AnimatePresence>
 
         {/* Time Selection */}
-        <div>
-          <h3 className="font-semibold text-white mb-3">
-            {deliveryType === 'delivery' ? 'Delivery Time' : 'Pickup Time'}
-          </h3>
+        <motion.div className="checkout-section" style={{ animationDelay: '0.06s' }}>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">
+            {deliveryType === 'delivery' ? 'Delivery time' : 'Pickup time'}
+          </p>
           
           {deliveryType === 'delivery' ? (
             <div className="space-y-4">
-              {/* Quick Delivery vs Schedule Toggle */}
+              {/* Quick vs Schedule Toggle */}
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setIsScheduledDelivery(false);
-                    setSelectedTimeSlot('asap');
-                  }}
-                  className={`flex-1 p-3 rounded-xl border-2 transition-all ${
-                    !isScheduledDelivery
-                      ? 'border-emerald-500 bg-emerald-500/10'
-                      : 'border-white/10 bg-white/5/50'
+                <motion.button
+                  onClick={() => { setIsScheduledDelivery(false); setSelectedTimeSlot('asap'); }}
+                  whileTap={{ scale: 0.97 }}
+                  className={`flex-1 p-3 rounded-xl border transition-all duration-200 ${
+                    !isScheduledDelivery ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/[0.06] bg-white/[0.02]'
                   }`}
                 >
                   <div className="flex items-center justify-center gap-2">
-                    <FaTruck className={!isScheduledDelivery ? 'text-emerald-400' : 'text-white/40'} />
-                    <span className={`font-medium ${!isScheduledDelivery ? 'text-emerald-400' : 'text-white'}`}>
-                      Quick Delivery
+                    <FaTruck className={`text-sm ${!isScheduledDelivery ? 'text-emerald-400' : 'text-white/40'}`} />
+                    <span className={`font-medium text-sm ${!isScheduledDelivery ? 'text-emerald-400' : 'text-slate-300'}`}>
+                      Quick
                     </span>
                   </div>
-                </button>
-                <button
-                  onClick={() => {
-                    setIsScheduledDelivery(true);
-                    setSelectedTimeSlot('scheduled');
-                  }}
-                  className={`flex-1 p-3 rounded-xl border-2 transition-all ${
-                    isScheduledDelivery
-                      ? 'border-emerald-500 bg-emerald-500/10'
-                      : 'border-white/10 bg-white/5/50'
+                </motion.button>
+                <motion.button
+                  onClick={() => { setIsScheduledDelivery(true); setSelectedTimeSlot('scheduled'); }}
+                  whileTap={{ scale: 0.97 }}
+                  className={`flex-1 p-3 rounded-xl border transition-all duration-200 ${
+                    isScheduledDelivery ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/[0.06] bg-white/[0.02]'
                   }`}
                 >
                   <div className="flex items-center justify-center gap-2">
-                    <FaClock className={isScheduledDelivery ? 'text-emerald-400' : 'text-white/40'} />
-                    <span className={`font-medium ${isScheduledDelivery ? 'text-emerald-400' : 'text-white'}`}>
+                    <FaClock className={`text-sm ${isScheduledDelivery ? 'text-emerald-400' : 'text-white/40'}`} />
+                    <span className={`font-medium text-sm ${isScheduledDelivery ? 'text-emerald-400' : 'text-slate-300'}`}>
                       Schedule
                     </span>
                   </div>
-                </button>
+                </motion.button>
               </div>
 
               {/* Quick Delivery Options */}
@@ -1272,9 +1376,9 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                 </div>
               )}
 
-              {/* Scheduled Delivery - Date & Time Selection */}
+              {/* Scheduled Delivery */}
               {isScheduledDelivery && (
-                <div className="space-y-4 p-4 bg-white/5/50 rounded-xl border border-white/10">
+                <div className="space-y-4 p-4 rounded-xl border border-white/[0.06] bg-white/[0.02]">
                   {/* Date Selector */}
                   <div>
                     <p className="text-xs text-white/50 mb-2">Select Delivery Date</p>
@@ -1301,7 +1405,7 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                         if (availableSlots.length === 0) {
                           return (
                             <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm text-amber-400 flex items-center gap-2">
-                              <FaInfoCircle />
+                              <FaInfoCircle className="flex-shrink-0" />
                               <span>
                                 {selectedDeliveryDate.toDateString() === new Date().toDateString()
                                   ? 'No more slots available today. Please select another date.'
@@ -1312,13 +1416,14 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                         }
                         
                         return availableSlots.map((slot, idx) => (
-                          <button
+                          <motion.button
                             key={idx}
                             onClick={() => setSelectedDeliverySlot(slot)}
-                            className={`w-full p-3 rounded-xl border-2 flex items-center justify-between transition-all ${
+                            whileTap={{ scale: 0.99 }}
+                            className={`w-full p-3 rounded-xl border flex items-center justify-between transition-all ${
                               selectedDeliverySlot?.time === slot.time
-                                ? 'border-emerald-500 bg-emerald-500/10'
-                                : 'border-white/10 bg-white/5/50 hover:border-white/20'
+                                ? 'border-emerald-500/40 bg-emerald-500/10'
+                                : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
                             }`}
                           >
                             <div className="flex items-center gap-3">
@@ -1331,8 +1436,8 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                                 {slot.time}
                               </span>
                             </div>
-                            {selectedDeliverySlot?.time === slot.time && <FaCheck className="text-emerald-400" />}
-                          </button>
+                            {selectedDeliverySlot?.time === slot.time && <FaCheck className="text-emerald-400 text-sm" />}
+                          </motion.button>
                         ));
                       })()}
                     </div>
@@ -1410,83 +1515,337 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
               )}
             </div>
           )}
-        </div>
+        </motion.div>
 
         {/* Payment Method */}
-        <div>
-          <h3 className="font-semibold text-white mb-3">Payment Method</h3>
-          <div className="space-y-2">
-            {paymentMethods.map((method) => (
-              <PaymentMethod
-                key={method.id}
-                method={method}
-                isSelected={selectedPayment === method.id}
-                onSelect={() => setSelectedPayment(method.id)}
-                badge={method.badge}
-              />
-            ))}
+        <motion.div className="checkout-section" style={{ animationDelay: '0.09s' }}>
+          {/* Header with security badge */}
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Payment method</p>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+              <FaLock className="text-emerald-400 text-[9px]" />
+              <span className="text-[10px] text-emerald-400 font-semibold tracking-wide">100% Secure</span>
+            </div>
           </div>
 
-          {/* Partial Payment Amount */}
-          {selectedPayment === 'PARTIAL' && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="mt-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl"
-            >
-              <label className="block text-sm font-medium text-purple-400 mb-2">
-                Advance Amount (Min: ₹{Math.ceil((amounts.finalTotal * (storeSettings?.minAdvancePercent || 50)) / 100)})
-              </label>
-              <input
-                type="number"
-                value={advanceAmount}
-                onChange={(e) => {
-                  const min = Math.ceil((amounts.finalTotal * (storeSettings?.minAdvancePercent || 50)) / 100);
-                  const val = Math.max(min, Math.min(amounts.finalTotal, parseInt(e.target.value) || 0));
-                  setAdvanceAmount(val);
-                }}
-                className="w-full px-4 py-3 bg-white/5 border border-purple-500/30 rounded-xl text-lg font-bold text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-              <p className="text-xs text-purple-400 mt-2">
-                Remaining ₹{amounts.finalTotal - advanceAmount} to be paid on {deliveryType === 'delivery' ? 'delivery' : 'pickup'}
-              </p>
-            </motion.div>
-          )}
+          <div className="space-y-3">
 
-          {/* Pay Later Info */}
-          {selectedPayment === 'PAY_LATER' && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl"
-            >
-              <p className="text-sm text-amber-400">
-                <strong>Pay Later:</strong> Full payment of ₹{amounts.finalTotal.toFixed(2)} due within {storeSettings?.payLaterDays || 7} days
-              </p>
-            </motion.div>
-          )}
-        </div>
+            {/* ── Pay Online Card ── */}
+            {(storeSettings?.paymentOptions?.payNow !== false) && (
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                {/* Card Header */}
+                <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-white/[0.05]">
+                  <p className="text-sm font-bold text-slate-100 tracking-tight">Pay Online</p>
+                  <span className="text-[10px] text-slate-500 bg-white/[0.06] px-2 py-0.5 rounded-full font-medium">
+                    {USE_PAYU ? 'Secured by PayU' : 'Secured by Razorpay'}
+                  </span>
+                </div>
+
+                <div className="p-4 space-y-4">
+                  {/* UPI section label */}
+                  <div className="flex items-center gap-2">
+                    <img src="/assets/payment/upi-payment-icon.svg" alt="UPI" className="w-5 h-5 opacity-90" />
+                    <p className="text-xs font-semibold text-slate-300 uppercase tracking-widest">UPI</p>
+                    <span className="ml-auto text-[9px] font-bold bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-md tracking-wide">
+                      RECOMMENDED
+                    </span>
+                  </div>
+
+                  {/* 4 UPI App tiles — Zepto / Blinkit style */}
+                  <div className="grid grid-cols-4 gap-2">
+                    {UPI_SHORTCUTS.map((app) => {
+                      const isSelected = selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === app.id;
+                      return (
+                        <motion.button
+                          key={app.id}
+                          type="button"
+                          onClick={() => { setSelectedPayment('PAY_NOW_UPI'); setSelectedUpiApp(app.id); }}
+                          whileTap={{ scale: 0.90 }}
+                          className={`relative flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl border-2 transition-all duration-200 ${
+                            isSelected
+                              ? 'border-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.22)]'
+                              : 'border-white/[0.08] active:border-white/[0.18]'
+                          }`}
+                          style={{ background: isSelected ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.025)' }}
+                        >
+                          {isSelected && (
+                            <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg z-10">
+                              <FaCheck className="text-white text-[7px]" />
+                            </span>
+                          )}
+                          <div
+                            className="w-11 h-11 rounded-xl flex items-center justify-center overflow-hidden shadow-sm"
+                            style={{
+                              background: app.bgColor + '28',
+                              border: `1.5px solid ${app.bgColor}55`,
+                            }}
+                          >
+                            <img src={app.icon} alt={app.label} className="w-7 h-7 object-contain" />
+                          </div>
+                          <span className={`text-[10px] font-semibold leading-tight text-center w-full truncate px-0.5 ${isSelected ? 'text-emerald-400' : 'text-slate-400'}`}>
+                            {app.label}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Enter UPI ID row */}
+                  <motion.button
+                    type="button"
+                    onClick={() => { setSelectedPayment('PAY_NOW_UPI'); setSelectedUpiApp('manual'); }}
+                    whileTap={{ scale: 0.99 }}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all duration-200 ${
+                      selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === 'manual'
+                        ? 'border-emerald-500/50 bg-emerald-500/8'
+                        : 'border-white/[0.07] bg-white/[0.02] active:bg-white/[0.05]'
+                    }`}
+                  >
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                      selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === 'manual' ? 'bg-emerald-500' : 'bg-white/[0.07]'
+                    }`}>
+                      <FaWallet className={`text-sm ${selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === 'manual' ? 'text-white' : 'text-white/40'}`} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className={`text-sm font-medium ${selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === 'manual' ? 'text-emerald-400' : 'text-slate-300'}`}>
+                        Enter UPI ID
+                      </p>
+                      <p className="text-xs text-white/35 mt-0.5">Any UPI app · e.g. name@upi</p>
+                    </div>
+                    <span className={`text-base flex-shrink-0 ${selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === 'manual' ? 'text-emerald-400' : 'text-white/25'}`}>
+                      {selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === 'manual' ? <FaCheck className="text-sm" /> : '›'}
+                    </span>
+                  </motion.button>
+
+                  {/* Inline UPI ID input — expands when manual is selected */}
+                  <AnimatePresence>
+                    {selectedPayment === 'PAY_NOW_UPI' && selectedUpiApp === 'manual' && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="yourname@paytm  /  @okaxis  /  @ybl"
+                            value={upiId}
+                            onChange={(e) => setUpiId(e.target.value)}
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            className="w-full pl-4 pr-16 py-3.5 bg-white/[0.05] border border-emerald-500/35 rounded-xl text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/50"
+                          />
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            <img src="/assets/payment/upi-payment-icon.svg" alt="UPI" className="h-5 w-auto opacity-45" />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-white/30 mt-1.5 pl-1">
+                          Works with PhonePe, GPay, Paytm, BHIM & all UPI apps
+                        </p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* ── OR divider ── */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-white/[0.07]" />
+                    <span className="text-[11px] text-white/25 font-semibold tracking-widest">OR</span>
+                    <div className="flex-1 h-px bg-white/[0.07]" />
+                  </div>
+
+                  {/* Cards / NetBanking / More */}
+                  <div className="space-y-2">
+                    {[
+                      { id: 'PAY_NOW_CARD', label: 'Credit / Debit Card', sub: 'Visa · Mastercard · RuPay', imgSrc: '/assets/payment/credit-card-color-icon.svg' },
+                      { id: 'PAY_NOW_NETBANKING', label: 'Net Banking', sub: 'All major banks', Icon: FaUniversity },
+                      { id: 'PAY_NOW_MORE', label: 'More payment options', sub: 'Wallets · EMI · & more', Icon: FaWallet },
+                    ].map((item) => {
+                      const isSel = selectedPayment === item.id;
+                      return (
+                        <motion.button
+                          key={item.id}
+                          onClick={() => setSelectedPayment(item.id)}
+                          whileTap={{ scale: 0.99 }}
+                          className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-all duration-200 ${
+                            isSel
+                              ? 'border-emerald-500/40 bg-emerald-500/8'
+                              : 'border-white/[0.06] bg-white/[0.015] active:bg-white/[0.05]'
+                          }`}
+                        >
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${isSel ? 'bg-emerald-500' : 'bg-white/[0.07]'}`}>
+                            {item.imgSrc
+                              ? <img src={item.imgSrc} alt={item.label} className="w-5 h-5 object-contain" />
+                              : <item.Icon className={`text-sm ${isSel ? 'text-white' : 'text-white/40'}`} />
+                            }
+                          </div>
+                          <div className="flex-1 text-left min-w-0">
+                            <p className={`text-sm font-medium ${isSel ? 'text-emerald-400' : 'text-slate-200'}`}>{item.label}</p>
+                            <p className="text-xs text-white/35 mt-0.5">{item.sub}</p>
+                          </div>
+                          <span className={`text-base flex-shrink-0 ${isSel ? 'text-emerald-400' : 'text-white/25'}`}>
+                            {isSel ? <FaCheck className="text-sm" /> : '›'}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Pay on Delivery Card ── */}
+            {(() => {
+              const pOpts = storeSettings?.paymentOptions || { cod: true, upi: true };
+              const deliveryMethods = [];
+              if (pOpts.cod !== false) deliveryMethods.push({ id: 'COD', label: 'Cash on Delivery', description: 'Pay when you receive', color: 'emerald' });
+              if (pOpts.upi !== false) deliveryMethods.push({ id: 'UPI', label: 'UPI on Delivery', description: 'GPay, PhonePe at doorstep', color: 'emerald' });
+              if (!deliveryMethods.length) return null;
+              return (
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 pt-4 pb-3 border-b border-white/[0.05]">
+                    <p className="text-sm font-bold text-slate-100 tracking-tight">Pay on Delivery</p>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    {deliveryMethods.map((method, i) => (
+                      <motion.div key={method.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
+                        <PaymentMethod
+                          method={method}
+                          isSelected={selectedPayment === method.id}
+                          onSelect={() => setSelectedPayment(method.id)}
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Other Options Card (Pay Later / Partial) ── */}
+            {(() => {
+              const pOpts = storeSettings?.paymentOptions || {};
+              const otherMethods = [];
+              if (pOpts.payLater) otherMethods.push({
+                id: 'PAY_LATER', label: 'Pay Later',
+                description: `Pay within ${storeSettings?.payLaterDays || 7} days`,
+                color: 'amber', badge: { text: 'CREDIT', color: 'bg-amber-500/20 text-amber-400' }
+              });
+              if (pOpts.partialPayment) otherMethods.push({
+                id: 'PARTIAL', label: 'Pay Advance + Later',
+                description: `Min ${storeSettings?.minAdvancePercent || 50}% now, rest on delivery`,
+                color: 'purple', badge: { text: 'SPLIT', color: 'bg-purple-500/20 text-purple-400' }
+              });
+              if (!otherMethods.length) return null;
+              return (
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 pt-4 pb-3 border-b border-white/[0.05]">
+                    <p className="text-sm font-bold text-slate-100 tracking-tight">Other Options</p>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    {otherMethods.map((method, i) => (
+                      <motion.div key={method.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
+                        <PaymentMethod
+                          method={method}
+                          isSelected={selectedPayment === method.id}
+                          onSelect={() => setSelectedPayment(method.id)}
+                          badge={method.badge}
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ── Context info based on current selection ── */}
+          <AnimatePresence mode="wait">
+            {selectedPayment === 'PARTIAL' && (
+              <motion.div
+                key="partial-info"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl"
+              >
+                <label className="block text-sm font-medium text-purple-400 mb-2">
+                  Advance Amount (Min: ₹{Math.ceil((amounts.finalTotal * (storeSettings?.minAdvancePercent || 50)) / 100)})
+                </label>
+                <input
+                  type="number"
+                  value={advanceAmount}
+                  onChange={(e) => {
+                    const min = Math.ceil((amounts.finalTotal * (storeSettings?.minAdvancePercent || 50)) / 100);
+                    const val = Math.max(min, Math.min(amounts.finalTotal, parseInt(e.target.value) || 0));
+                    setAdvanceAmount(val);
+                  }}
+                  className="w-full px-4 py-3 bg-white/5 border border-purple-500/30 rounded-xl text-lg font-bold text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-xs text-purple-400 mt-2">
+                  Remaining ₹{amounts.finalTotal - advanceAmount} to be paid on {deliveryType === 'delivery' ? 'delivery' : 'pickup'}
+                </p>
+              </motion.div>
+            )}
+
+            {isPayOnline(selectedPayment) && (
+              <motion.div
+                key="secure-info"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="mt-3 flex items-center gap-3 p-3.5 bg-emerald-500/8 border border-emerald-500/20 rounded-xl"
+              >
+                <FaLock className="text-emerald-400 text-sm flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-emerald-400 font-semibold">Secure Checkout</p>
+                  <p className="text-xs text-white/40 mt-0.5">256-bit encrypted · Order confirmed only after payment</p>
+                </div>
+                <span className="text-[11px] text-emerald-400/70 font-bold flex-shrink-0">
+                  {USE_PAYU ? 'PayU' : 'Razorpay'}
+                </span>
+              </motion.div>
+            )}
+
+            {selectedPayment === 'PAY_LATER' && (
+              <motion.div
+                key="pay-later-info"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="mt-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl"
+              >
+                <p className="text-sm text-amber-400">
+                  Full payment ₹{amounts.finalTotal.toFixed(2)} due within {storeSettings?.payLaterDays || 7} days
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
 
         {/* Special Instructions */}
-        <div>
-          <h3 className="font-semibold text-white mb-3">Special Instructions (Optional)</h3>
+        <motion.div className="checkout-section" style={{ animationDelay: '0.12s' }}>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Special instructions (optional)</p>
           <textarea
             placeholder="Any special requests..."
             value={specialInstructions}
             onChange={(e) => setSpecialInstructions(e.target.value)}
             rows={2}
-            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           />
-        </div>
+        </motion.div>
 
-        {/* Store offers banner */}
+        {/* Store offers */}
         {storeSettings?.storeOffers?.length > 0 && storeSettings.storeOffers.some(o => o.enabled) && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-              <FaTag className="text-amber-400" />
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 flex items-center gap-3"
+          >
+            <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <FaTag className="text-amber-400 text-sm" />
             </div>
             <div>
-              <p className="font-medium text-amber-300 text-sm">Store offers applied at checkout</p>
+              <p className="font-medium text-amber-400 text-sm">Offers applied</p>
               <p className="text-white/50 text-xs mt-0.5">
                 {storeSettings.storeOffers.filter(o => o.enabled).map(o =>
                   o.type === 'percent_all'
@@ -1497,16 +1856,19 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
                 ).filter(Boolean).join(' • ')}
               </p>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Order Summary */}
-        <div className="bg-white/5/50 backdrop-blur-xl rounded-2xl border border-white/10 p-5">
-          <h3 className="font-semibold text-white mb-4">Order Summary</h3>
+        <motion.div
+          className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 checkout-section"
+          style={{ animationDelay: '0.15s' }}
+        >
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-4">Order summary</p>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-white/60">Items ({totals.itemCount})</span>
-              <span className="font-medium text-white">₹{totals.subtotal.toFixed(2)}</span>
+              <span className="text-slate-400">Items ({totals.itemCount})</span>
+              <span className="font-medium text-slate-200">₹{totals.subtotal.toFixed(2)}</span>
             </div>
             {amounts.discountAmount > 0 && (
               <div className="flex justify-between">
@@ -1521,42 +1883,40 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-white/60">
-                {deliveryType === 'delivery' ? 'Delivery Fee' : 'Pickup'}
-              </span>
-              <span className={`font-medium ${amounts.deliveryFee === 0 ? 'text-emerald-400' : 'text-white'}`}>
+              <span className="text-slate-400">{deliveryType === 'delivery' ? 'Delivery' : 'Pickup'}</span>
+              <span className={`font-medium ${amounts.deliveryFee === 0 ? 'text-emerald-400' : 'text-slate-200'}`}>
                 {amounts.deliveryFee === 0 ? 'FREE' : `₹${amounts.deliveryFee}`}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-white/60">Platform Fee</span>
-              <span className="font-medium text-white">₹{totals.platformFee}</span>
+              <span className="text-slate-400">Platform</span>
+              <span className="font-medium text-slate-200">₹{totals.platformFee}</span>
             </div>
             
-            <div className="border-t border-white/10 pt-3 mt-3">
+            <div className="border-t border-white/[0.06] pt-3 mt-3">
               <div className="flex justify-between font-bold text-base">
-                <span className="text-white">Total</span>
+                <span className="text-slate-200">Total</span>
                 <span className="text-emerald-400">₹{amounts.finalTotal.toFixed(2)}</span>
               </div>
               
               {(selectedPayment === 'PARTIAL' || selectedPayment === 'PAY_LATER') && (
-                <div className="mt-2 space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/60">Pay Now</span>
+                <div className="mt-2 space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Pay now</span>
                     <span className="font-semibold text-emerald-400">₹{amounts.payNow.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/60">Pay Later</span>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Pay later</span>
                     <span className="font-semibold text-amber-400">₹{amounts.payLater.toFixed(2)}</span>
                   </div>
                 </div>
               )}
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        {/* Place Order Button */}
-        <button
+        {/* Place Order Button - Clean CTA */}
+        <motion.button
           onClick={handlePlaceOrder}
           disabled={
             loading || 
@@ -1564,27 +1924,36 @@ const Checkout = ({ onBack, onOrderPlaced }) => {
             (deliveryType === 'delivery' && isScheduledDelivery && !selectedDeliverySlot) ||
             (deliveryType === 'pickup' && !selectedPickupSlot)
           }
-          className={`w-full py-4 rounded-xl font-semibold text-lg flex items-center justify-center gap-2 transition-all ${
+          whileTap={!(loading || (deliveryType === 'delivery' && !selectedAddress) || (deliveryType === 'delivery' && isScheduledDelivery && !selectedDeliverySlot) || (deliveryType === 'pickup' && !selectedPickupSlot)) ? { scale: 0.98 } : {}}
+          className={`w-full py-4 rounded-2xl font-semibold text-base flex items-center justify-center gap-2 transition-all duration-200 ${
             loading || 
             (deliveryType === 'delivery' && !selectedAddress) || 
             (deliveryType === 'delivery' && isScheduledDelivery && !selectedDeliverySlot) ||
             (deliveryType === 'pickup' && !selectedPickupSlot)
-              ? 'bg-white/5 text-white/40 cursor-not-allowed'
-              : 'bg-emerald-500 text-slate-900 hover:bg-emerald-400 transition'
+              ? 'bg-white/[0.06] text-slate-500 cursor-not-allowed'
+              : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 active:bg-emerald-600'
           }`}
         >
           {loading ? (
             <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Placing Order...
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 0.7, repeat: Infinity, ease: 'linear' }}
+                className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full"
+              />
+              <span>{isPayOnline(selectedPayment) ? 'Opening payment...' : 'Placing order...'}</span>
             </>
           ) : (
             <>
-              Place Order • ₹{amounts.payNow > 0 ? amounts.payNow.toFixed(2) : amounts.finalTotal.toFixed(2)}
-              {amounts.payLater > 0 && <span className="text-white/70 text-sm ml-1">(+₹{amounts.payLater.toFixed(2)} later)</span>}
+              {isPayOnline(selectedPayment)
+                ? `Pay ₹${amounts.payNow.toFixed(2)}`
+                : `Place order · ₹${amounts.payNow > 0 ? amounts.payNow.toFixed(2) : amounts.finalTotal.toFixed(2)}`}
+              {!isPayOnline(selectedPayment) && amounts.payLater > 0 && (
+                <span className="text-white/80 text-sm">(+₹{amounts.payLater.toFixed(2)} later)</span>
+              )}
             </>
           )}
-        </button>
+        </motion.button>
       </div>
       </div>
     </div>

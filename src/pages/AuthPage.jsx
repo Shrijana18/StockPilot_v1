@@ -4,7 +4,8 @@ import { AuthContext } from '/src/context/AuthContext';
 import Register from "../components/Register";
 import Login from "../components/Login";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../firebase/firebaseConfig";
+import { db, auth } from "../firebase/firebaseConfig";
+import { verifyPasswordResetCode, confirmPasswordReset } from "firebase/auth";
 
 const AuthPage = () => {
   const { user } = useContext(AuthContext);
@@ -15,6 +16,46 @@ const AuthPage = () => {
 
   const [selectedRole, setSelectedRole] = useState("");
   const [isLoadingUser, setIsLoadingUser] = useState(true);
+
+  // ── Password reset action handler ──────────────────────────────────────────
+  // Firebase sends reset links to the app URL with ?mode=resetPassword&oobCode=...
+  // We read these params here and show the "Set new password" form.
+  const mode = searchParams.get('mode');
+  const oobCode = searchParams.get('oobCode');
+  const [rpEmail, setRpEmail] = useState('');
+  const [rpPassword, setRpPassword] = useState('');
+  const [rpConfirm, setRpConfirm] = useState('');
+  const [rpLoading, setRpLoading] = useState(false);
+  const [rpError, setRpError] = useState('');
+  const [rpDone, setRpDone] = useState(false);
+  const [rpCodeValid, setRpCodeValid] = useState(null); // null=checking, true=ok, false=expired
+
+  useEffect(() => {
+    if (mode !== 'resetPassword' || !oobCode) return;
+    verifyPasswordResetCode(auth, oobCode)
+      .then((email) => { setRpEmail(email); setRpCodeValid(true); })
+      .catch(() => setRpCodeValid(false));
+  }, [mode, oobCode]);
+
+  const handleConfirmReset = async (e) => {
+    e.preventDefault();
+    if (rpPassword !== rpConfirm) { setRpError('Passwords do not match.'); return; }
+    if (rpPassword.length < 8) { setRpError('Password must be at least 8 characters.'); return; }
+    setRpLoading(true);
+    setRpError('');
+    try {
+      await confirmPasswordReset(auth, oobCode, rpPassword);
+      setRpDone(true);
+    } catch (err) {
+      const code = err?.code || '';
+      if (code === 'auth/expired-action-code') setRpError('This reset link has expired. Please request a new one.');
+      else if (code === 'auth/invalid-action-code') setRpError('Invalid reset link. Please request a new one.');
+      else if (code === 'auth/weak-password') setRpError('Password is too weak. Use at least 8 characters.');
+      else setRpError('Failed to reset password. Please try again.');
+    } finally {
+      setRpLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!type) {
@@ -166,6 +207,111 @@ const AuthPage = () => {
   const handleRoleSelect = (role) => {
     setSelectedRole(role);
   };
+
+  // ── Render reset password form when mode=resetPassword ─────────────────────
+  if (mode === 'resetPassword') {
+    return (
+      <div className="min-h-[100dvh] w-full relative overflow-hidden bg-[#0B0F14] flex items-center justify-center px-4 py-10">
+        <div className="pointer-events-none absolute inset-0 opacity-40">
+          <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
+          <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
+        </div>
+        <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.4)] px-6 sm:px-8 py-8">
+          <div className="text-center mb-6">
+            <img src="/assets/flyp_logo.png" alt="FLYP" className="h-12 w-12 mx-auto mb-3 object-contain" onError={(e) => e.target.style.display='none'} />
+            <h2 className="text-xl font-bold text-white">Set new password</h2>
+            {rpEmail && <p className="text-sm text-white/50 mt-1">{rpEmail}</p>}
+          </div>
+
+          {/* Checking code validity */}
+          {rpCodeValid === null && (
+            <p className="text-center text-white/60 text-sm animate-pulse py-6">Verifying reset link…</p>
+          )}
+
+          {/* Expired / invalid code */}
+          {rpCodeValid === false && (
+            <div className="text-center py-6 space-y-4">
+              <div className="text-rose-400 text-sm bg-rose-900/30 border border-rose-500/30 rounded-xl px-4 py-3">
+                This reset link has expired or already been used.
+              </div>
+              <button
+                onClick={() => navigate('/auth?type=login')}
+                className="text-sm text-emerald-400 underline underline-offset-4 hover:text-emerald-300"
+              >
+                Back to sign in — request a new link
+              </button>
+            </div>
+          )}
+
+          {/* Success */}
+          {rpDone && (
+            <div className="text-center py-6 space-y-4">
+              <div className="flex items-center gap-2 justify-center text-emerald-400 text-sm bg-emerald-900/25 border border-emerald-500/30 rounded-xl px-4 py-3">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                Password updated successfully!
+              </div>
+              <button
+                onClick={() => navigate('/auth?type=login')}
+                className="w-full py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:opacity-90 transition mt-2"
+              >
+                Sign in with new password
+              </button>
+            </div>
+          )}
+
+          {/* Set new password form */}
+          {rpCodeValid === true && !rpDone && (
+            <form onSubmit={handleConfirmReset} className="space-y-4">
+              {rpError && (
+                <div className="text-rose-300 text-sm bg-rose-900/30 border border-rose-500/30 rounded-xl px-3 py-2.5">{rpError}</div>
+              )}
+              <div>
+                <label className="block text-xs text-white/50 mb-1.5 font-medium">New password</label>
+                <input
+                  type="password"
+                  value={rpPassword}
+                  onChange={(e) => setRpPassword(e.target.value)}
+                  placeholder="Min. 8 characters"
+                  required
+                  autoComplete="new-password"
+                  className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-white/50 mb-1.5 font-medium">Confirm new password</label>
+                <input
+                  type="password"
+                  value={rpConfirm}
+                  onChange={(e) => setRpConfirm(e.target.value)}
+                  placeholder="Re-enter password"
+                  required
+                  autoComplete="new-password"
+                  className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 text-sm"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={rpLoading}
+                className="w-full py-3.5 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:opacity-90 disabled:opacity-60 transition mt-1"
+              >
+                {rpLoading ? (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                    Updating…
+                  </span>
+                ) : 'Update password'}
+              </button>
+              <p className="text-center">
+                <button type="button" onClick={() => navigate('/auth?type=login')} className="text-xs text-white/40 hover:text-white/70 underline underline-offset-4">
+                  Cancel
+                </button>
+              </p>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center safe-top safe-bottom">

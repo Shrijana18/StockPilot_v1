@@ -1,7 +1,7 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db, auth } from "../../../firebase/firebaseConfig";
-import { collection, doc, getDocs, setDoc, query, where, orderBy, addDoc, updateDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDocs, setDoc, query, where, orderBy, updateDoc, onSnapshot } from "firebase/firestore";
 import RestaurantPOSBilling from "./RestaurantPOSBilling";
 import TableManager from "./TableManager";
 
@@ -13,7 +13,7 @@ import TableManager from "./TableManager";
  * - Send orders to kitchen
  * - Real-time order tracking per table
  */
-export default function RestaurantPOS({ onBack }) {
+export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
   const [mode, setMode] = React.useState("select"); // 'select' | 'billing' | 'tables'
   const [selectedTable, setSelectedTable] = React.useState(null);
   const [selectedCustomer, setSelectedCustomer] = React.useState(null);
@@ -54,7 +54,7 @@ export default function RestaurantPOS({ onBack }) {
       const orders = [];
       snap.forEach((docSnap) => {
         const data = docSnap.data();
-        if (data.status !== "completed" && data.status !== "served") {
+        if (data.status !== "completed") {
           orders.push({ id: docSnap.id, ...data });
         }
       });
@@ -67,7 +67,7 @@ export default function RestaurantPOS({ onBack }) {
         const orders = [];
         snap.forEach((docSnap) => {
           const data = docSnap.data();
-          if (data.status !== "completed" && data.status !== "served") {
+          if (data.status !== "completed") {
             orders.push({ id: docSnap.id, ...data });
           }
         });
@@ -78,17 +78,22 @@ export default function RestaurantPOS({ onBack }) {
     return () => unsubscribe();
   }, []);
 
-  // Get table status based on orders
+  // Get table status based on orders — show most urgent status
   const getTableStatus = (tableId) => {
     const tableOrders = kitchenOrders.filter(o => o.tableId === tableId);
     if (tableOrders.length === 0) return { status: "available", orderCount: 0, latestOrder: null };
-    
-    const latestOrder = tableOrders[0];
+
+    const statusPriority = { pending: 0, preparing: 1, ready: 2, served: 3 };
+    const mostUrgent = tableOrders.reduce((best, order) =>
+      (statusPriority[order.status] ?? 99) < (statusPriority[best.status] ?? 99) ? order : best,
+      tableOrders[0]
+    );
+
     return {
       status: "occupied",
       orderCount: tableOrders.length,
-      latestOrder,
-      orderStatus: latestOrder.status, // pending | preparing | ready
+      latestOrder: mostUrgent,
+      orderStatus: mostUrgent.status, // pending | preparing | ready | served
     };
   };
 
@@ -198,6 +203,21 @@ export default function RestaurantPOS({ onBack }) {
     };
   }, []);
 
+  // ── Zone grouping (must be before any early return — Rules of Hooks) ──────
+  const ZONE_DISPLAY = { main: "Main Dining", outdoor: "Outdoor", vip: "VIP", bar: "Bar", private: "Private Room", terrace: "Terrace", rooftop: "Rooftop", garden: "Garden" };
+  const getZoneLabel = (z) => ZONE_DISPLAY[z?.toLowerCase()] || (z ? z.charAt(0).toUpperCase() + z.slice(1) : "Main");
+  const ZONE_ORDER = ["main", "outdoor", "vip", "bar", "private", "terrace", "rooftop", "garden"];
+
+  const zoneGroups = React.useMemo(() => {
+    const groups = {};
+    tables.forEach(t => {
+      const z = (t.zone || "main").toLowerCase();
+      if (!groups[z]) groups[z] = [];
+      groups[z].push(t);
+    });
+    return groups;
+  }, [tables]);
+
   if (mode === "billing") {
     return (
       <RestaurantPOSBilling
@@ -214,281 +234,252 @@ export default function RestaurantPOS({ onBack }) {
         }}
         table={selectedTable}
         customer={selectedCustomer}
-        onOrderSentToKitchen={async (orderData) => {
-          // Send order to kitchen
+        onOrderSentToKitchen={async () => {
+          // RestaurantPOSBilling already created the kitchenOrder doc.
+          // Only update the table status here.
+          if (!selectedTable?.id) return;
           const uid = getUid();
           if (!uid) return;
-
           try {
-            const kitchenOrdersRef = collection(db, "businesses", uid, "kitchenOrders");
-            await addDoc(kitchenOrdersRef, {
-              invoiceId: orderData.invoiceId || null,
-              items: orderData.lines || orderData.items || [],
-              lines: orderData.lines || [],
-              totals: orderData.totals || {},
-              tableId: selectedTable?.id || null,
-              customerId: selectedCustomer?.id || null,
-              customerName: selectedCustomer?.name || selectedTable?.name || "Walk-in",
-              status: "pending", // pending | preparing | ready | served | completed
-              createdAt: Date.now(),
-              sentAt: Date.now(),
+            const tableRef = doc(db, "businesses", uid, "tables", selectedTable.id);
+            await updateDoc(tableRef, {
+              status: "occupied",
+              lastOrderAt: Date.now(),
             });
-
-            // Update table status to occupied if it's a table order
-            if (selectedTable?.id) {
-              const tableRef = doc(db, "businesses", uid, "tables", selectedTable.id);
-              await updateDoc(tableRef, {
-                status: "occupied",
-                lastOrderAt: Date.now(),
-              });
-            }
           } catch (e) {
-            console.error("Error sending order to kitchen:", e);
-            alert("Failed to send order to kitchen");
+            console.error("Error updating table status:", e);
           }
         }}
       />
     );
   }
 
-  const zones = ["all", ...new Set(tables.map(t => t.zone).filter(Boolean))];
-  const filteredTables = filterZone === "all" 
-    ? tables 
-    : tables.filter(t => t.zone === filterZone);
+  const zones = ["all", ...new Set(tables.map(t => (t.zone || "main").toLowerCase()).filter(Boolean))];
+  const filteredTables = filterZone === "all"
+    ? tables
+    : tables.filter(t => (t.zone || "main").toLowerCase() === filterZone);
 
-  const availableCount = filteredTables.filter(t => getTableStatus(t.id).status === "available").length;
-  const occupiedCount = filteredTables.filter(t => getTableStatus(t.id).status === "occupied").length;
+  const availableCount = tables.filter(t => getTableStatus(t.id).status === "available").length;
+  const occupiedCount  = tables.filter(t => getTableStatus(t.id).status === "occupied").length;
+
+  const sortedZones = Object.keys(zoneGroups).sort((a, b) => {
+    const ai = ZONE_ORDER.indexOf(a), bi = ZONE_ORDER.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1; if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  // ── Status helpers ──────────────────────────────────────────────────────
+  const getStatusMeta = (tableStatus, isOccupied, isReserved, isCleaning) => {
+    if (isCleaning)  return { bar: "bg-slate-500",  badge: "bg-slate-500/20 text-slate-400", label: "Cleaning",  cardBorder: "border-slate-600/30 bg-slate-500/[0.04] opacity-50" };
+    if (isReserved)  return { bar: "bg-amber-400",  badge: "bg-amber-500/20 text-amber-300", label: "Reserved",  cardBorder: "border-amber-500/25 bg-amber-500/[0.05] hover:border-amber-400/40" };
+    if (!isOccupied) return { bar: null,             badge: null,                              label: "Available", cardBorder: "border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.14]" };
+    // All occupied states → RED card; sub-status in badge
+    const s = tableStatus.orderStatus;
+    const sub = s === "ready"     ? { b: "bg-emerald-500/25 text-emerald-300 animate-pulse", t: "🔔 Ready" }
+              : s === "served"    ? { b: "bg-purple-500/20 text-purple-300",                 t: "Served" }
+              : s === "preparing" ? { b: "bg-blue-500/20 text-blue-300",                     t: "Preparing" }
+              :                     { b: "bg-red-500/20 text-red-300",                        t: "Occupied" };
+    return { bar: "bg-red-500", badge: sub.b, label: sub.t, cardBorder: "border-red-500/40 bg-red-500/[0.06] hover:bg-red-500/[0.11]" };
+  };
+
+  const nameColor = (tableStatus, isOccupied, isReserved) => {
+    if (!isOccupied && !isReserved) return "text-white";
+    if (isReserved) return "text-amber-300";
+    return "text-red-300";
+  };
+
+  const renderTableCard = (table) => {
+    const tableStatus = getTableStatus(table.id);
+    const isOccupied = tableStatus.status === "occupied";
+    const isReserved = table.status === "reserved";
+    const isCleaning = table.status === "cleaning";
+    const meta = getStatusMeta(tableStatus, isOccupied, isReserved, isCleaning);
+
+    return (
+      <motion.button
+        key={table.id}
+        initial={{ opacity: 0, scale: 0.92 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.92 }}
+        whileHover={!isCleaning ? { y: -3 } : {}}
+        whileTap={!isCleaning ? { scale: 0.97 } : {}}
+        onClick={() => !isCleaning && handleTableSelect(table)}
+        disabled={isCleaning}
+        className={`relative group rounded-2xl border p-4 text-left transition-all duration-200 ${meta.cardBorder}`}
+      >
+        {/* Red occupied top bar */}
+        {meta.bar && (
+          <div className={`absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl ${meta.bar}`} />
+        )}
+
+        {/* Name + edit */}
+        <div className="flex items-start justify-between mb-2.5">
+          <div className={`text-sm font-bold leading-tight ${nameColor(tableStatus, isOccupied, isReserved)}`}>
+            {table.name || `Table ${table.number}`}
+          </div>
+          <button
+            onClick={(e) => handleEditTable(e, table)}
+            className="opacity-0 group-hover:opacity-100 w-5 h-5 rounded-md bg-white/10 hover:bg-white/20 flex items-center justify-center text-[10px] text-white/60 transition-all flex-none ml-1"
+            title="Edit / Delete table"
+          >
+            ✏️
+          </button>
+        </div>
+
+        {/* Status badge */}
+        {(isOccupied || isReserved) && meta.badge && (
+          <div className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold mb-2.5 ${meta.badge}`}>
+            {meta.label}
+          </div>
+        )}
+
+        {/* Capacity + order count */}
+        <div className="flex items-center gap-2 text-[11px] text-white/35">
+          <span>🪑 {table.capacity || 4}</span>
+          {isOccupied && tableStatus.orderCount > 0 && (
+            <span>· {tableStatus.orderCount} order{tableStatus.orderCount > 1 ? "s" : ""}</span>
+          )}
+        </div>
+      </motion.button>
+    );
+  };
 
   return (
-    <div className="relative w-full min-h-screen bg-transparent">
-      {/* Background */}
-      <div className="pointer-events-none fixed inset-0 opacity-[0.9]">
-        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/20" />
-        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/20" />
+    <div className="relative flex flex-col w-full h-full overflow-y-auto bg-slate-900">
+      {/* Original aurora blobs */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/15" />
+        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/15" />
+      </div>
+      {/* ── Top bar ─────────────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-20 bg-slate-900/85 backdrop-blur-sm border-b border-white/10">
+        <div className="px-5 py-3.5 flex items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-white">Tables & Orders</div>
+            <div className="flex items-center gap-4 mt-0.5">
+              <span className="text-[11px] text-white/40 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                {availableCount} Available
+              </span>
+              <span className="text-[11px] text-white/40 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block" />
+                {occupiedCount} Occupied
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => onOpenMenuBuilder && onOpenMenuBuilder()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] text-white/65 hover:text-white text-xs font-medium transition"
+          >
+            📜 <span>Menu Builder</span>
+          </button>
+          <button
+            onClick={() => setIsTableManagerOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold transition shadow-lg shadow-emerald-500/20"
+          >
+            + Add Table
+          </button>
+        </div>
       </div>
 
-      {/* Top Bar */}
-      <div className="sticky top-0 z-20 bg-slate-900/80 backdrop-blur-sm border-b border-white/10">
-        <div className="px-4 py-3 flex items-center gap-3">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-4 py-2 text-sm font-semibold shadow hover:shadow-lg transition"
-            >
-              ← Back
-            </button>
-          )}
-          <div className="flex-1">
-            <h1 className="text-lg font-semibold text-white/90">Restaurant POS</h1>
-            <p className="text-xs text-white/60">Select table or customer to start</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                <span className="text-white/80">{availableCount} Available</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                <span className="text-white/80">{occupiedCount} Occupied</span>
-              </div>
+      {/* ── Content ─────────────────────────────────────────────────────── */}
+      <div className="relative z-10 flex-1 p-5">
+        {/* Walk-in Customer */}
+        <motion.button
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.99 }}
+          onClick={handleCustomerSelect}
+          className="w-full mb-5 group relative text-left rounded-2xl border border-white/[0.07] bg-white/[0.025] hover:border-white/[0.14] hover:bg-white/[0.045] p-4 transition-all duration-200"
+        >
+          <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl bg-gradient-to-r from-emerald-500 to-teal-400 opacity-0 group-hover:opacity-80 transition-opacity" />
+          <div className="flex items-center gap-3.5">
+            <div className="w-9 h-9 rounded-xl border border-white/[0.08] bg-white/[0.04] flex items-center justify-center text-lg flex-none">
+              👤
             </div>
-            <button
-              onClick={() => {
-                // Open Menu Builder by navigating to KDS menu mode
-                // This will be handled by the parent POSView component
-                if (window.location.href.includes('dashboard')) {
-                  window.location.href = window.location.href.split('?')[0] + '?mode=pos&view=kds&tab=menu';
-                } else {
-                  // Fallback: could use a callback prop if needed
-                  alert('Menu Builder: Navigate to POS > Kitchen Display > Menu Builder');
-                }
-              }}
-              className="rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-sm font-medium text-white/90 transition"
-              title="Open Menu Builder to create/edit menu items"
-            >
-              📜 Menu Builder
-            </button>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-white">Walk-in Customer</div>
+              <div className="text-[11px] text-white/35 mt-0.5">No table — start an order immediately</div>
+            </div>
+            <div className="w-7 h-7 rounded-lg bg-white/[0.04] group-hover:bg-white/[0.08] flex items-center justify-center text-white/35 group-hover:text-white/70 text-sm transition flex-none">
+              →
+            </div>
+          </div>
+        </motion.button>
+
+        {/* Zone filter pills — compact, single row */}
+        {zones.length > 2 && (
+          <div className="flex gap-1.5 mb-5 flex-wrap">
+            {zones.map((zone) => (
+              <button
+                key={zone}
+                onClick={() => setFilterZone(zone)}
+                className={`px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-all ${
+                  filterZone === zone
+                    ? "bg-white/15 text-white"
+                    : "text-white/35 hover:text-white/60 hover:bg-white/[0.06]"
+                }`}
+              >
+                {zone === "all" ? "All Zones" : getZoneLabel(zone)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Tables — grouped by zone when showing all, single section when filtered */}
+        {tables.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="text-5xl mb-4 opacity-30">🪑</div>
+            <div className="text-sm text-white/40 mb-4">No tables yet</div>
             <button
               onClick={() => setIsTableManagerOpen(true)}
-              className="rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:shadow-emerald-500/25 transition"
+              className="px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] text-xs text-white/60 hover:text-white transition"
             >
-              + Add Table
+              Create First Table
             </button>
           </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="relative z-10 min-h-[calc(100vh-128px)] p-6">
-        <div className="max-w-7xl mx-auto">
-          {/* Walk-in Customer Card */}
-          <motion.button
-            whileHover={{ scale: 1.01, y: -2 }}
-            whileTap={{ scale: 0.99 }}
-            onClick={handleCustomerSelect}
-            className="w-full mb-6 group relative text-left rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/80 to-slate-800/60 backdrop-blur-xl p-6 shadow-lg hover:shadow-emerald-500/30 transition"
-          >
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-400/10 via-cyan-400/10 to-transparent opacity-0 group-hover:opacity-100 blur-xl transition" />
-            <div className="relative z-10 flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center text-3xl">
-                👤
-              </div>
-              <div className="flex-1">
-                <div className="text-xl font-semibold text-white">Walk-in Customer</div>
-                <div className="text-sm text-white/70 mt-1">Start order for a walk-in customer</div>
-              </div>
-              <span className="text-2xl text-emerald-300">→</span>
-            </div>
-          </motion.button>
-
-          {/* Zone Filters */}
-          {zones.length > 2 && (
-            <div className="flex gap-2 mb-4 flex-wrap">
-              {zones.map((zone) => (
-                <button
-                  key={zone}
-                  onClick={() => setFilterZone(zone)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    filterZone === zone
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/50"
-                      : "bg-white/5 text-white/60 hover:bg-white/10 border border-white/10"
-                  }`}
-                >
-                  {zone === "all" ? "All Zones" : zone.charAt(0).toUpperCase() + zone.slice(1)}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Tables Grid */}
+        ) : filterZone !== "all" ? (
+          // Single zone view
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">Tables</h2>
-              <div className="text-sm text-white/60">{filteredTables.length} tables</div>
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">{getZoneLabel(filterZone)}</span>
+              <div className="flex-1 h-px bg-white/[0.07]" />
+              <span className="text-[10px] text-white/25">{filteredTables.length} table{filteredTables.length !== 1 ? "s" : ""}</span>
             </div>
-            {filteredTables.length === 0 ? (
-              <div className="text-center py-12 text-white/60">
-                <div className="text-4xl mb-3">🪑</div>
-                <div>No tables created yet</div>
-                <button
-                  onClick={() => setIsTableManagerOpen(true)}
-                  className="mt-4 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-sm text-white transition"
-                >
-                  Create First Table
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                <AnimatePresence>
-                  {filteredTables.map((table) => {
-                    const tableStatus = getTableStatus(table.id);
-                    const isOccupied = tableStatus.status === "occupied";
-                    const isReserved = table.status === "reserved";
-                    const isCleaning = table.status === "cleaning";
-                    
-                    return (
-                      <motion.button
-                        key={table.id}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        whileHover={{ scale: 1.05, y: -2 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleTableSelect(table)}
-                        disabled={isCleaning}
-                        className={`relative rounded-xl border p-4 text-left transition-all ${
-                          isOccupied
-                            ? "border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/20 shadow-lg shadow-orange-500/10"
-                            : isReserved
-                            ? "border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20"
-                            : isCleaning
-                            ? "border-slate-500/50 bg-slate-500/10 opacity-50 cursor-not-allowed"
-                            : "border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 hover:border-emerald-500/50"
-                        }`}
-                      >
-                        {/* Status Badge */}
-                        {isOccupied && (
-                          <div className="absolute top-2 right-2">
-                            <div className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                              tableStatus.orderStatus === "pending" 
-                                ? "bg-amber-500/20 text-amber-300"
-                                : tableStatus.orderStatus === "preparing"
-                                ? "bg-blue-500/20 text-blue-300"
-                                : "bg-emerald-500/20 text-emerald-300"
-                            }`}>
-                              {tableStatus.orderStatus === "pending" ? "Pending" :
-                               tableStatus.orderStatus === "preparing" ? "Preparing" :
-                               tableStatus.orderStatus === "ready" ? "Ready" : "Active"}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between mb-2 group">
-                          <div className={`text-lg font-bold ${
-                            isOccupied ? "text-orange-300" : 
-                            isReserved ? "text-amber-300" : 
-                            "text-emerald-300"
-                          }`}>
-                            {table.name || `Table ${table.number}`}
-                          </div>
-                          <button
-                            onClick={(e) => handleEditTable(e, table)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/80 hover:text-white text-xs"
-                            title="Edit table"
-                          >
-                            ✏️
-                          </button>
-                        </div>
-                        
-                        <div className="flex items-center gap-3 text-sm text-white/60 mb-2">
-                          <div className="flex items-center gap-1">
-                            <span>👥</span>
-                            <span>{table.capacity || 4}</span>
-                          </div>
-                          {isOccupied && tableStatus.orderCount > 0 && (
-                            <div className="flex items-center gap-1">
-                              <span>📋</span>
-                              <span>{tableStatus.orderCount}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {table.zone && (
-                          <div className="text-xs text-white/40 mt-1">Zone: {table.zone}</div>
-                        )}
-
-                        {/* Status Indicator */}
-                        <div className="absolute bottom-2 right-2">
-                          <div className={`w-2 h-2 rounded-full ${
-                            isOccupied ? "bg-orange-500" :
-                            isReserved ? "bg-amber-500" :
-                            isCleaning ? "bg-slate-500" :
-                            "bg-emerald-500"
-                          }`}></div>
-                        </div>
-                      </motion.button>
-                    );
-                  })}
-                </AnimatePresence>
-              </div>
-            )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              <AnimatePresence>
+                {filteredTables.map((table) => renderTableCard(table))}
+              </AnimatePresence>
+            </div>
           </div>
-        </div>
+        ) : (
+          // All zones — grouped sections
+          <div className="space-y-6">
+            {sortedZones.map((zone) => (
+              <div key={zone}>
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">{getZoneLabel(zone)}</span>
+                  <div className="flex-1 h-px bg-white/[0.07]" />
+                  <span className="text-[10px] text-white/25">{zoneGroups[zone].length} table{zoneGroups[zone].length !== 1 ? "s" : ""}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                  <AnimatePresence>
+                    {zoneGroups[zone].map((table) => renderTableCard(table))}
+                  </AnimatePresence>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Table Manager Modal */}
       <TableManager
         open={isTableManagerOpen}
-        onClose={() => {
-          setIsTableManagerOpen(false);
-          setEditingTable(null);
-        }}
+        onClose={() => { setIsTableManagerOpen(false); setEditingTable(null); }}
         editingTable={editingTable}
-        onTableCreated={() => {
-          setIsTableManagerOpen(false);
-          setEditingTable(null);
-        }}
+        existingTables={tables}
+        onTableCreated={() => { setIsTableManagerOpen(false); setEditingTable(null); }}
       />
     </div>
   );

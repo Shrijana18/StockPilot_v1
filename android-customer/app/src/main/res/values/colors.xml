@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+
     <!-- FLYP Shop Colors - Dark Navy Theme -->
     <color name="colorPrimary">#05E06C</color>
     <color name="colorPrimaryDark">#060D2D</color>

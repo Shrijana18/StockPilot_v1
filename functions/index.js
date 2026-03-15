@@ -49,6 +49,14 @@ exports.migrateEmployeeIds = require("./employees/migrateEmployeeIds");
 exports.createEmployeeSession = require("./employees/createEmployeeSession");
 exports.logDistributorActivity = require("./employees/logDistributorActivity");
 
+// Retailer Push Notifications (FCM)
+const retailerPushNotifications = require("./notifications/retailerPushNotifications");
+exports.onNewMarketplaceOrder = retailerPushNotifications.onNewMarketplaceOrder;
+
+// Customer Push Notifications (order status updates)
+const customerPushNotifications = require("./notifications/customerPushNotifications");
+exports.onCustomerOrderStatusUpdate = customerPushNotifications.onCustomerOrderStatusUpdate;
+
 // Retailer Profile Sync
 exports.resyncRetailerProfile = require("./profile/resyncRetailerProfile");
 exports.syncRetailerProfileToDistributors = require("./profile/syncRetailerProfileToDistributors");
@@ -84,6 +92,10 @@ exports.checkUniqueness = checkUniqueness;
 // Payment Gateway
 exports.createMerchantAccount = require("./payment/createMerchantAccount");
 exports.generatePaymentLink = require("./payment/generatePaymentLink");
+exports.createRazorpayOrder = require("./payment/createRazorpayOrder");
+exports.razorpayWebhook = require("./payment/razorpayWebhook");
+exports.createPayUOrder = require("./payment/createPayUOrder");
+exports.payuWebhook = require("./payment/payuWebhook");
 
 // Cashfree Partner (embedded merchant onboarding)
 // Single HTTP impl: cashfreeCreateMerchantAndOnboardingLinkHttp. Others are aliases (same handler, no duplication).

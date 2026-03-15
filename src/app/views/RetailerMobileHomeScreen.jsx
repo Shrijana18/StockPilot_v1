@@ -1,7 +1,6 @@
 /**
- * RetailerMobileHomeScreen - App home for retailers
- * Shows greeting, quick stats, and cards for: Marketplace, Inventory, Billing, Manage Employee, Profile.
- * Includes "More on web" banner for Analytics, Distributors, Order History, POS, etc.
+ * RetailerMobileHomeScreen - Premium App Home for Retailers
+ * SaaS CRM/ERP-first design with glassmorphism, refined typography, and clean UX
  */
 
 import React, { useState, useEffect } from 'react';
@@ -20,9 +19,7 @@ import {
   FaArrowRight,
   FaStore,
 } from 'react-icons/fa';
-import { HiLightningBolt } from 'react-icons/hi';
-import { auth, db } from '../../firebase/firebaseConfig';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { HiLightningBolt, HiSparkles } from 'react-icons/hi';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
 const triggerHaptic = async () => {
@@ -31,51 +28,70 @@ const triggerHaptic = async () => {
   } catch (e) {}
 };
 
-const FeatureCard = ({ feature, onPress, delay = 0 }) => {
+const container = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.04, delayChildren: 0.02 },
+  },
+};
+
+const item = {
+  hidden: { opacity: 0, y: 12 },
+  show: { opacity: 1, y: 0 },
+};
+
+const FeatureCard = ({ feature, onPress, index }) => {
   const Icon = feature.icon;
   return (
     <motion.button
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: delay * 0.05, duration: 0.3 }}
+      variants={item}
       whileTap={{ scale: 0.96 }}
       onClick={async () => {
         await triggerHaptic();
         onPress(feature.id);
       }}
-      className={`relative flex flex-col items-center justify-center p-3 rounded-xl 
-        ${feature.gradient} shadow-lg shadow-black/20 overflow-hidden
-        active:shadow-inner transition-all duration-200`}
-      style={{ aspectRatio: '1/1' }}
+      className="relative group flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden
+        bg-white/[0.06] backdrop-blur-xl border border-white/[0.08]
+        hover:bg-white/[0.08] hover:border-emerald-500/20
+        active:bg-white/[0.1] transition-all duration-300"
+      style={{ aspectRatio: '1/1', boxShadow: '0 4px 24px -4px rgba(0,0,0,0.2)' }}
     >
-      <div className="absolute inset-0 opacity-20">
-        <div className="absolute -right-4 -bottom-4 w-20 h-20 rounded-full bg-white/20" />
-      </div>
+      {/* Subtle gradient overlay on hover */}
+      <div className={`absolute inset-0 opacity-0 group-active:opacity-100 transition-opacity ${feature.gradient} mix-blend-overlay`} />
+      {/* Top-right glow */}
+      <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-white/5 blur-2xl" />
       {feature.badge && (
-        <span className="absolute top-2 right-2 px-2 py-0.5 text-[10px] font-bold bg-white/25 rounded-full text-white">
+        <span className="absolute top-2.5 right-2.5 px-2 py-0.5 text-[10px] font-bold bg-emerald-500/90 text-slate-900 rounded-full uppercase tracking-wider shadow-lg shadow-emerald-500/20">
           {feature.badge}
         </span>
       )}
-      <div className="relative z-10 mb-1">
-        <Icon className="text-2xl text-white drop-shadow-lg" />
+      <div className={`relative z-10 w-12 h-12 rounded-xl ${feature.iconBg} flex items-center justify-center mb-2 shadow-lg`}>
+        <Icon className="text-xl text-white" />
       </div>
-      <span className="relative z-10 text-[11px] font-semibold text-white text-center leading-tight">
+      <span className="relative z-10 text-xs font-semibold text-white/95 text-center leading-tight tracking-tight">
         {feature.label}
       </span>
     </motion.button>
   );
 };
 
-const StatCard = ({ label, value, icon: Icon, color }) => (
-  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-white/5 border border-white/10">
-    <div className={`w-9 h-9 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
-      <Icon className="text-white text-base" />
+const StatCard = ({ label, value, icon: Icon, color, glow }) => (
+  <motion.div
+    variants={item}
+    className="relative flex items-center gap-3 p-3.5 rounded-2xl overflow-hidden
+      bg-white/[0.05] backdrop-blur-sm border border-white/[0.06]
+      hover:bg-white/[0.07] hover:border-white/[0.1] transition-all duration-300"
+    style={{ boxShadow: '0 2px 16px -4px rgba(0,0,0,0.15)' }}
+  >
+    <div className={`w-11 h-11 rounded-xl ${color} flex items-center justify-center flex-shrink-0 shadow-lg ${glow || ''}`}>
+      <Icon className="text-white text-lg" />
     </div>
     <div className="min-w-0 flex-1">
-      <p className="text-base font-bold text-white truncate">{value}</p>
-      <p className="text-[11px] text-gray-400 truncate">{label}</p>
+      <p className="text-base font-bold text-white truncate tabular-nums">{value}</p>
+      <p className="text-[11px] text-gray-500 font-medium tracking-wide truncate">{label}</p>
     </div>
-  </div>
+  </motion.div>
 );
 
 const RetailerMobileHomeScreen = ({ onNavigate, userData, stats }) => {
@@ -93,32 +109,37 @@ const RetailerMobileHomeScreen = ({ onNavigate, userData, stats }) => {
       id: 'marketplace',
       label: 'Marketplace',
       icon: FaShoppingCart,
-      gradient: 'bg-gradient-to-br from-emerald-500 to-teal-600',
+      gradient: 'from-emerald-500 to-teal-600',
+      iconBg: 'bg-gradient-to-br from-emerald-500 to-teal-600',
       badge: 'NEW',
     },
     {
       id: 'inventory',
       label: 'Inventory',
       icon: FaBoxes,
-      gradient: 'bg-gradient-to-br from-amber-500 to-orange-600',
+      gradient: 'from-amber-500 to-orange-600',
+      iconBg: 'bg-gradient-to-br from-amber-500 to-orange-600',
     },
     {
       id: 'billing',
       label: 'Billing',
       icon: FaFileInvoice,
-      gradient: 'bg-gradient-to-br from-blue-500 to-indigo-600',
+      gradient: 'from-blue-500 to-indigo-600',
+      iconBg: 'bg-gradient-to-br from-blue-500 to-indigo-600',
     },
     {
       id: 'employees',
-      label: 'Manage Employee',
+      label: 'Employees',
       icon: FaUsers,
-      gradient: 'bg-gradient-to-br from-violet-500 to-purple-600',
+      gradient: 'from-violet-500 to-purple-600',
+      iconBg: 'bg-gradient-to-br from-violet-500 to-purple-600',
     },
     {
       id: 'profile',
       label: 'Profile',
       icon: FaUser,
-      gradient: 'bg-gradient-to-br from-slate-500 to-slate-600',
+      gradient: 'from-slate-500 to-slate-700',
+      iconBg: 'bg-gradient-to-br from-slate-500 to-slate-600',
     },
   ];
 
@@ -130,130 +151,120 @@ const RetailerMobileHomeScreen = ({ onNavigate, userData, stats }) => {
   ];
 
   return (
-    <div className="px-1 py-0 pb-2">
-      {/* Welcome - compact */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-2"
-      >
-        <p className="text-gray-400 text-xs">{greeting} 👋</p>
-        <h1 className="text-lg font-bold text-white">
+    <motion.div
+      variants={container}
+      initial="hidden"
+      animate="show"
+      className="px-1 py-0 pb-4"
+    >
+      {/* Welcome - refined typography */}
+      <motion.div variants={item} className="mb-5">
+        <p className="text-gray-500 text-xs font-medium tracking-widest uppercase">{greeting}</p>
+        <h1 className="text-2xl font-bold text-white tracking-tight mt-0.5">
           {userData?.ownerName?.split(' ')[0] || 'Welcome'}
         </h1>
-        <p className="text-[11px] text-gray-500 mt-0.5">
+        <p className="text-sm text-gray-400 font-medium mt-0.5 tracking-wide">
           {userData?.businessName || 'Your Store'}
         </p>
       </motion.div>
 
-      {/* Quick Stats */}
+      {/* Quick Stats - glassmorphism cards */}
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="grid grid-cols-2 gap-1.5 mb-2"
+        variants={container}
+        className="grid grid-cols-2 gap-2.5 mb-5"
       >
         <StatCard
           label="Products"
           value={stats?.products ?? 0}
           icon={FaBoxes}
-          color="bg-purple-500"
+          color="bg-gradient-to-br from-purple-500 to-purple-600"
         />
         <StatCard
           label="Orders"
           value={stats?.orders ?? 0}
           icon={FaFileInvoice}
-          color="bg-blue-500"
+          color="bg-gradient-to-br from-blue-500 to-blue-600"
         />
         <StatCard
           label="Revenue"
           value={`₹${(stats?.revenue ?? 0).toLocaleString('en-IN')}`}
           icon={FaStore}
-          color="bg-emerald-500"
+          color="bg-gradient-to-br from-emerald-500 to-emerald-600"
         />
         <StatCard
           label="Employees"
           value={stats?.employees ?? 0}
           icon={FaUsers}
-          color="bg-amber-500"
+          color="bg-gradient-to-br from-amber-500 to-orange-500"
         />
       </motion.div>
 
-      {/* App features */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.1 }}
-        className="flex items-center justify-between mb-2"
-      >
-        <h2 className="text-sm font-semibold text-white">App features</h2>
+      {/* App features - premium grid */}
+      <motion.div variants={item} className="mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <HiSparkles className="text-emerald-400/90 text-sm" />
+          <h2 className="text-xs font-semibold text-white/90 uppercase tracking-widest">App Features</h2>
+        </div>
+        <div className="grid grid-cols-3 gap-2.5">
+          {features.map((f, i) => (
+            <FeatureCard key={f.id} feature={f} onPress={onNavigate} index={i} />
+          ))}
+        </div>
       </motion.div>
-      <div className="grid grid-cols-3 gap-1.5 mb-2">
-        {features.map((feature, index) => (
-          <FeatureCard
-            key={feature.id}
-            feature={feature}
-            onPress={onNavigate}
-            delay={index}
-          />
-        ))}
-      </div>
 
-      {/* Quick Billing CTA */}
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="mb-2 p-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30"
+      {/* Quick Billing CTA - standout card */}
+      <motion.button
+        variants={item}
+        whileTap={{ scale: 0.99 }}
+        onClick={async () => {
+          await triggerHaptic();
+          onNavigate('billing');
+        }}
+        className="w-full mb-4 p-4 rounded-2xl overflow-hidden text-left
+          bg-gradient-to-r from-emerald-500/15 via-cyan-500/10 to-emerald-500/15
+          border border-emerald-500/25
+          hover:border-emerald-400/40 hover:from-emerald-500/20 transition-all duration-300"
+        style={{ boxShadow: '0 4px 24px -4px rgba(16, 185, 129, 0.25)' }}
       >
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shadow-lg flex-shrink-0">
-            <HiLightningBolt className="text-white text-xl" />
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/30 flex-shrink-0">
+            <HiLightningBolt className="text-white text-2xl" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-white">Quick Billing</h3>
-            <p className="text-[11px] text-gray-400">Create invoice in seconds</p>
+            <h3 className="text-base font-bold text-white tracking-tight">Quick Billing</h3>
+            <p className="text-xs text-gray-400 font-medium mt-0.5">Create invoice in seconds</p>
           </div>
-          <button
-            type="button"
-            onClick={async () => {
-              await triggerHaptic();
-              onNavigate('billing');
-            }}
-            className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0"
-          >
+          <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
             <FaArrowRight className="text-emerald-400 text-sm" />
-          </button>
+          </div>
         </div>
-      </motion.div>
+      </motion.button>
 
-      {/* More on web - compact */}
+      {/* More on web - subtle card */}
       <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="p-2.5 rounded-xl bg-white/5 border border-white/10"
+        variants={item}
+        className="p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/[0.06]"
       >
-        <div className="flex items-center gap-2 mb-2">
-          <FaGlobe className="text-emerald-400 text-base" />
-          <h3 className="text-sm font-semibold text-white">More on web</h3>
+        <div className="flex items-center gap-2 mb-3">
+          <FaGlobe className="text-emerald-400/80 text-sm" />
+          <h3 className="text-xs font-semibold text-white/80 uppercase tracking-widest">More on Web</h3>
         </div>
-        <p className="text-[11px] text-gray-400 mb-2">
-          Use FLYP on desktop for full experience:
+        <p className="text-xs text-gray-500 font-medium mb-3 leading-relaxed">
+          Use FLYP on desktop for the full experience
         </p>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {webOnlyFeatures.map((item) => (
             <span
               key={item.label}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-gray-300 text-[11px]"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.06] text-gray-400 text-xs font-medium"
             >
-              <item.icon className="text-emerald-400/80 text-xs" />
+              <item.icon className="text-emerald-400/70 text-xs" />
               {item.label}
             </span>
           ))}
         </div>
       </motion.div>
-    </div>
+    </motion.div>
   );
 };
 

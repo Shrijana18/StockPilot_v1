@@ -16,6 +16,13 @@ import {
 } from '../services/storeService';
 import { usePlatform } from '../../hooks/usePlatform';
 import { Capacitor } from '@capacitor/core';
+import {
+  getNotificationActivity,
+  getUnreadNotificationActivityCount,
+  markAllNotificationActivityRead,
+  clearNotificationActivity,
+  markNotificationActivityRead,
+} from '../../utils/notificationActivity';
 
 const IS_NATIVE = Capacitor?.isNativePlatform?.() === true;
 
@@ -521,6 +528,8 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
   const [error, setError] = useState(null);
   const [favoriteStores, setFavoriteStores] = useState([]);
   const [activeCategory, setActiveCategory] = useState('All');
+  const [showNotificationPanel, setShowNotificationPanel] = useState(false);
+  const [notificationItems, setNotificationItems] = useState(() => getNotificationActivity('customer'));
 
   const categories = [
     { name: 'All', emoji: '🏪' },
@@ -541,6 +550,7 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
   };
 
   const greeting = getGreeting();
+  const unreadCount = getUnreadNotificationActivityCount('customer');
 
   // Toggle favorite
   const toggleFavorite = (storeId) => {
@@ -548,6 +558,10 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
       prev.includes(storeId) ? prev.filter(id => id !== storeId) : [...prev, storeId]
     );
   };
+
+  useEffect(() => {
+    setNotificationItems(getNotificationActivity('customer'));
+  }, []);
 
   // Get location - Use prop if provided, otherwise fetch
   useEffect(() => {
@@ -774,9 +788,19 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
             >
               <FaSearch className="text-white/50 text-sm" />
             </button>
-            <button className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center relative hover:bg-white/[0.08] active:scale-95 transition-all duration-200">
+            <button
+              onClick={() => {
+                setNotificationItems(getNotificationActivity('customer'));
+                setShowNotificationPanel((v) => !v);
+              }}
+              className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center relative hover:bg-white/[0.08] active:scale-95 transition-all duration-200"
+            >
               <FaBell className="text-white/50 text-sm" />
-              <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -975,6 +999,103 @@ const CustomerHome = ({ location: propLocation, onNavigate, onStoreSelect, onPro
         </section>
         </div>
       </div>
+
+      {/* Notification Activity Panel - Redesigned */}
+      <AnimatePresence>
+        {showNotificationPanel && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowNotificationPanel(false)}
+              className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: -12, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -12, scale: 0.96 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed top-24 right-4 left-4 z-[60] max-h-[72vh] overflow-hidden rounded-2xl border border-white/10 bg-[#0f1419] shadow-2xl"
+            >
+              {/* Header with close button */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-bold text-white">Notifications</span>
+                  {notificationItems.length > 0 && (
+                    <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-emerald-500/20 text-emerald-400">
+                      {notificationItems.filter((i) => !i.read).length} unread
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {notificationItems.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationItems(markAllNotificationActivityRead('customer'))}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-white/10 text-white/90 hover:bg-white/15 active:scale-95"
+                      >
+                        Read all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationItems(clearNotificationActivity('customer'))}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/30 active:scale-95"
+                      >
+                        Clear
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowNotificationPanel(false)}
+                    className="w-9 h-9 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 active:scale-95 text-white/80"
+                    aria-label="Close notifications"
+                  >
+                    <FaTimes className="text-sm" />
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto overscroll-contain">
+                {notificationItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-14 px-6 text-center">
+                    <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center mb-4">
+                      <FaBell className="text-2xl text-white/30" />
+                    </div>
+                    <p className="text-sm font-medium text-white/70">No notifications yet</p>
+                    <p className="text-xs text-white/40 mt-1">Order updates will appear here</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {notificationItems.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setNotificationItems(markNotificationActivityRead('customer', item.id));
+                          setShowNotificationPanel(false);
+                          if (item?.data?.orderId) onNavigate?.('orders');
+                        }}
+                        className={`w-full text-left px-4 py-3.5 hover:bg-white/[0.04] active:bg-white/[0.06] transition-colors ${item.read ? 'opacity-75' : 'bg-white/[0.02]'}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className={`mt-2 flex-shrink-0 h-2 w-2 rounded-full ${item.read ? 'bg-white/30' : 'bg-emerald-400 shadow-sm shadow-emerald-400/40'}`} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-white truncate">{item.title}</p>
+                            <p className="text-xs text-white/60 mt-0.5 line-clamp-2">{item.body}</p>
+                            <p className="text-[10px] text-white/40 mt-1.5">{new Date(item.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</p>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Location Sheet */}
       <LocationSheet
