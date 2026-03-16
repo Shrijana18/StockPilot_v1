@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { usePOSTheme } from "../POSThemeContext";
 
 // Firebase / Firestore imports
 import { db, storage } from "../../../firebase/firebaseConfig";
@@ -17,6 +18,7 @@ import {
 
 // NEW: Food Icons (token-based icon system)
 import { IconTokens, getIconSVG, getIconEmoji } from "./foodIcons";
+import fetchGoogleImages from "../../../utils/fetchGoogleImages";
 
 /**
  * Firestore shape used here:
@@ -281,12 +283,13 @@ const autoDetectImgCat = (name) => {
 
 // ── PreviewItemCard ──────────────────────────────────────────────────────────
 function PreviewItemCard({ item, onEdit, onToggle }) {
+  const { tc } = usePOSTheme();
   const isVeg = (item.type || "").toLowerCase() === "veg";
   const available = item.available !== false;
   return (
     <div className={`relative rounded-2xl overflow-hidden border transition-all ${available ? "border-white/8 bg-white/4 hover:border-white/15 hover:bg-white/6" : "border-white/5 bg-white/2 opacity-50"}`}>
       {/* Image */}
-      <div className="relative w-full h-32 bg-slate-800/80 overflow-hidden">
+      <div className={`relative w-full h-32 overflow-hidden ${tc.mutedBg}`}>
         {item.image ? (
           <img src={item.image} alt={item.name} className="w-full h-full object-cover" onError={e => e.currentTarget.style.display="none"} />
         ) : (
@@ -333,6 +336,7 @@ function PreviewItemCard({ item, onEdit, onToggle }) {
 
 // ---------- Component ----------
 const CreateMenu = ({ onBack }) => {
+  const { tc } = usePOSTheme();
   // State
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("grid"); // 'grid' | 'list'
@@ -375,6 +379,11 @@ const CreateMenu = ({ onBack }) => {
   const [imgSubTab, setImgSubTab] = useState("pick"); // "pick" | "upload" | "url"
   const [imgPickSearch, setImgPickSearch] = useState("");
   const [imgPickCat, setImgPickCat] = useState("all");
+  const [googleImgQuery,   setGoogleImgQuery]   = useState("");
+  const [googleImgResults, setGoogleImgResults] = useState([]);
+  const [googleImgLoading, setGoogleImgLoading] = useState(false);
+  const [showGstField,     setShowGstField]     = useState(false);
+  const [imgPreviewIdx,    setImgPreviewIdx]    = useState(0);
 
   const [aiForm, setAiForm] = useState({
     industry: "restaurant",   // restaurant | cafe | pizzeria | bar | fastfood
@@ -620,42 +629,61 @@ const CreateMenu = ({ onBack }) => {
     setAiDescGenerating(true);
 
     const has = (...words) => words.some(w => kw.includes(w));
-    const spicy = has("spicy","hot","fiery","bold","pungent","zesty","chili","pepper");
-    const creamy = has("creamy","rich","buttery","smooth","velvety","malai","makhani");
-    const fresh = has("fresh","light","healthy","crisp","garden","salad","green");
-    const smoky = has("smoky","grilled","tandoor","charred","bbq","coal");
-    const sweet = has("sweet","caramel","chocolate","dessert","sugar","honey","halwa");
-    const tangy = has("tangy","sour","tamarind","lemon","lime","amchur","chaat");
-    const crispy = has("crispy","crunchy","fried","golden","crisp");
+    const spicy   = has("spicy","hot","fiery","bold","chili","pepper","masala","tikka");
+    const creamy  = has("creamy","rich","buttery","smooth","malai","makhani","cheese","paneer");
+    const fresh   = has("fresh","light","healthy","crisp","garden","salad","green","mint");
+    const smoky   = has("smoky","grilled","tandoor","charred","bbq","coal","roasted");
+    const sweet   = has("sweet","caramel","chocolate","dessert","sugar","honey","halwa","gulab");
+    const tangy   = has("tangy","sour","tamarind","lemon","lime","amchur","chaat","pickle");
+    const crispy  = has("crispy","crunchy","fried","golden","deep fried","pakora");
+    const biryani = has("biryani","pulao","dum");
+    const cafe    = has("coffee","latte","cappuccino","cold brew","espresso");
 
-    const adj = spicy ? "boldly spiced and fiery"
-      : creamy ? "rich, creamy and indulgent"
-      : fresh ? "light, fresh and wholesome"
-      : smoky ? "smoky and flame-kissed"
-      : sweet ? "delicately sweet and comforting"
-      : tangy ? "tangy with a burst of flavor"
-      : crispy ? "perfectly crispy and golden"
-      : "carefully crafted and flavorful";
+    const flavor = spicy   ? "bold, fiery spices" :
+                   creamy  ? "a lusciously rich and creamy sauce" :
+                   fresh   ? "light, garden-fresh ingredients" :
+                   smoky   ? "a deep, smoky char from the tandoor" :
+                   sweet   ? "a delicate sweetness and comforting warmth" :
+                   tangy   ? "a zesty, tangy punch of flavor" :
+                   crispy  ? "an irresistibly crispy golden crust" :
+                   biryani ? "fragrant basmati, whole spices and slow dum cooking" :
+                   cafe    ? "carefully sourced beans and expert brewing" :
+                   "a harmonious blend of hand-picked spices";
 
-    const base = isVeg ? "vegetarian dish" : "non-vegetarian specialty";
-    const kwPart = aiDescKeywords.trim()
-      ? `crafted with ${aiDescKeywords.trim()}`
+    const method = smoky   ? "slow-cooked over a wood flame" :
+                   biryani ? "sealed in a dum vessel to lock in every aroma" :
+                   crispy  ? "fried to perfection for that signature crunch" :
+                   creamy  ? "simmered low and slow until velvety smooth" :
+                   "prepared fresh to order";
+
+    const vibe = isVeg
+      ? ["A vegetarian delight", "Pure vegetarian comfort", "A plant-based masterpiece"][Math.floor(Math.random()*3)]
+      : ["A non-vegetarian classic", "A protein-rich indulgence", "A chef's signature"  ][Math.floor(Math.random()*3)];
+
+    const pairings = creamy || biryani ? "raita or a squeeze of fresh lemon" :
+                     spicy             ? "a cooling mint chutney or lassi" :
+                     cafe              ? "a buttery croissant or slice of cake" :
+                     crispy            ? "our house dipping sauce" :
+                     "naan or steamed rice";
+
+    const kwIngr = aiDescKeywords.trim()
+      ? `featuring ${aiDescKeywords.trim()}`
       : "made with premium, hand-picked ingredients";
 
-    const endings = [
-      "Prepared fresh to order with authentic flavors that keep guests coming back.",
-      "A beloved classic, perfected with every serving.",
-      "Every bite tells a story of tradition and quality.",
-      "Crafted with care — a true crowd favourite.",
-      "Ideal for sharing, though you may not want to!",
-    ];
-    const ending = endings[Math.floor(Math.random() * endings.length)];
+    const closing = [
+      "A must-try for anyone who loves bold, authentic flavors.",
+      "Every bite tells a story of tradition, care, and culinary passion.",
+      "Crafted with love — a true crowd favourite that keeps guests coming back.",
+      "Ideal for sharing, though once you taste it, you may not want to!",
+      "An absolute staple — order it once and it becomes your go-to.",
+    ][Math.floor(Math.random()*5)];
 
-    const desc = `${name || "This dish"} is a ${adj} ${base} ${kwPart}. ${ending}`;
+    const desc = `${name || "This dish"} is ${vibe} ${kwIngr}, celebrated for ${flavor}. It is ${method}, ensuring every serving is packed with depth and authenticity. Best enjoyed with ${pairings} to complete the experience. ${closing}`;
+
     setTimeout(() => {
       setItemModalValue(v => ({ ...v, description: desc }));
       setAiDescGenerating(false);
-    }, 800);
+    }, 900);
   };
 
   const suggestAICalories = () => {
@@ -1008,15 +1036,18 @@ const CreateMenu = ({ onBack }) => {
     setItemModalMode("add");
     setItemModalTab("basic");
     setAiDescKeywords("");
+    setShowGstField(false);
+    setGoogleImgResults([]);
+    setGoogleImgQuery("");
     setItemModalValue({
       id: "",
       name: "",
       price: "",
-      tax: "5",
+      tax: "",
       type: "veg",
       image: "",
       images: [],
-      categoryId: selectedCategoryId,
+      categoryId: selectedCategoryId || (categories[0]?.id ?? ""),
       available: true,
       description: "",
       ingredients: "",
@@ -1029,6 +1060,9 @@ const CreateMenu = ({ onBack }) => {
     setItemModalMode("edit");
     setItemModalTab("basic");
     setAiDescKeywords("");
+    setShowGstField(!!(item.tax && parseFloat(item.tax) > 0));
+    setGoogleImgResults([]);
+    setGoogleImgQuery(item.name || "");
     setItemModalValue({
       ...item,
       images: item.images || [],
@@ -1098,69 +1132,78 @@ const CreateMenu = ({ onBack }) => {
   });
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-slate-900 overflow-y-auto">
-      {/* Aurora */}
+    <div className="relative w-full h-full min-h-screen overflow-y-auto" style={tc.bg}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/15" />
-        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/15" />
+        <div className="absolute -top-32 -left-16 w-[60%] h-[60%] rounded-full blur-[120px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob2} 0%, transparent 65%)` }} />
+        <div className="absolute -bottom-32 -right-16 w-[55%] h-[55%] rounded-full blur-[120px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
       </div>
 
       {/* Top Bar */}
-      <div className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-sm border-b border-white/10">
+      <div className={`sticky top-0 z-30 ${tc.headerBg}`}>
         <div className="px-4 py-3 flex items-center gap-3">
           {onBack && (
-            <button
+            <motion.button
               onClick={onBack}
-              className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-4 py-2 text-sm font-semibold shadow hover:shadow-emerald-600/30 hover:shadow-lg transition"
+              whileHover={{ scale: 1.04, x: -1 }}
+              whileTap={{ scale: 0.97 }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${tc.backBtn}`}
             >
               ← Back to POS
-            </button>
+            </motion.button>
           )}
-          <h1 className="text-lg font-semibold text-white/90">Menu Builder</h1>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-500/25 to-teal-500/15 border border-emerald-400/20 flex items-center justify-center text-sm">📜</div>
+            <h1 className={`text-sm font-bold ${tc.textPrimary}`}>Menu Builder</h1>
+          </div>
           <div className="flex-1" />
           {/* Tab Bar */}
-          <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-1 p-0.5 rounded-xl border ${tc.mutedBg} ${tc.borderSoft}`}>
             {["manual", "quick", "import"].map((t) => (
-              <button
+              <motion.button
                 key={t}
+                whileTap={{ scale: 0.96 }}
                 onClick={() => setActiveTab(t)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   activeTab === t
                     ? t === "import"
-                      ? "bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/25"
-                      : "bg-emerald-500 text-slate-900 font-semibold shadow"
-                    : "text-white/60 hover:text-white hover:bg-white/5"
+                      ? "bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-md shadow-violet-500/20"
+                      : "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/20"
+                    : `${tc.textMuted} hover:bg-white/[0.06]`
                 }`}
               >
                 {t === "manual" ? "✏️ Manual" : t === "quick" ? "⚡ Quick Start" : "🤖 Smart Import"}
-              </button>
+              </motion.button>
             ))}
           </div>
           <div className="hidden md:flex items-center gap-2">
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">🔍</span>
+              <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${tc.textMuted}`}>🔍</span>
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search items…"
-                className="pl-9 pr-3 py-2 rounded-xl border border-white/10 bg-white/5 text-white/90 placeholder:text-white/40 backdrop-blur outline-none text-sm focus:ring-2 focus:ring-emerald-300/40"
+                className={`pl-9 pr-3 py-2 rounded-xl backdrop-blur outline-none text-sm focus:ring-2 focus:ring-emerald-400/30 w-44 ${tc.inputBg}`}
               />
             </div>
-            <div className="inline-flex rounded-xl overflow-hidden border border-white/10">
+            <div className={`inline-flex rounded-xl overflow-hidden border ${tc.borderSoft} ${tc.mutedBg}`}>
               <button
                 onClick={() => setViewMode("grid")}
-                className={`px-3 py-2 text-sm ${viewMode === "grid" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5"}`}
+                className={`px-3 py-2 text-xs font-semibold transition-all ${
+                  viewMode === "grid" ? `bg-white/12 ${tc.textPrimary}` : `${tc.textMuted} hover:bg-white/[0.05]`
+                }`}
               >
                 Grid
               </button>
               <button
                 onClick={() => setViewMode("list")}
-                className={`px-3 py-2 text-sm ${viewMode === "list" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5"}`}
+                className={`px-3 py-2 text-xs font-semibold transition-all ${
+                  viewMode === "list" ? `bg-white/12 ${tc.textPrimary}` : `${tc.textMuted} hover:bg-white/[0.05]`
+                }`}
               >
                 List
               </button>
             </div>
-            <label className="flex items-center gap-2 text-sm text-white/80">
+            <label className={`flex items-center gap-2 text-xs cursor-pointer ${tc.textSub}`}>
               <input
                 type="checkbox"
                 className="accent-emerald-400"
@@ -1172,23 +1215,23 @@ const CreateMenu = ({ onBack }) => {
           </div>
           <button
             onClick={() => setShowQuickStart((v) => !v)}
-            className={`ml-2 rounded-lg border border-white/10 px-3 py-2 text-sm ${
+            className={`ml-2 rounded-lg px-3 py-2 text-sm ${
               items.length === 0
                 ? "bg-emerald-500 text-slate-900 font-semibold shadow hover:shadow-lg"
-                : "text-white/90 hover:bg-white/5"
+                : `border ${tc.borderSoft} ${tc.textSub} hover:bg-white/5`
             }`}
           >
             Quick Start
           </button>
           <button
             onClick={() => setShowPreview(true)}
-            className="ml-2 rounded-lg border border-white/10 text-white/90 px-3 py-2 text-sm hover:bg-white/5"
+            className={`ml-2 rounded-lg border px-3 py-2 text-sm hover:bg-white/5 ${tc.borderSoft} ${tc.textSub}`}
           >
             Preview Menu
           </button>
           <button
             onClick={handleAddCategory}
-            className="ml-2 rounded-lg border border-white/10 text-white/90 px-3 py-2 text-sm hover:bg-white/5"
+            className={`ml-2 rounded-lg border px-3 py-2 text-sm hover:bg-white/5 ${tc.borderSoft} ${tc.textSub}`}
           >
             + Category
           </button>
@@ -1205,9 +1248,9 @@ const CreateMenu = ({ onBack }) => {
       {activeTab === "manual" && (
         <div className="relative z-20 flex min-h-[calc(100vh-160px)] px-4 md:px-6 pb-4">
           {/* Left Pane: Categories */}
-          <div className="w-1/4 min-w-[210px] bg-white/5 backdrop-blur flex flex-col shadow-[inset_-1px_0_rgba(255,255,255,0.06)] rounded-xl border border-white/10">
-            <div className="flex items-center justify-between p-4 border-b border-white/10">
-              <h2 className="text-lg font-semibold tracking-wide text-white/90">Categories</h2>
+          <div className={`w-1/4 min-w-[210px] backdrop-blur flex flex-col rounded-xl border ${tc.cardBg}`}>
+            <div className={`flex items-center justify-between p-4 border-b ${tc.borderSoft}`}>
+              <h2 className={`text-lg font-semibold tracking-wide ${tc.textSub}`}>Categories</h2>
               <motion.button
                 whileHover={{ scale: 1.1, rotate: 5 }}
                 whileTap={{ scale: 0.95 }}
@@ -1219,7 +1262,7 @@ const CreateMenu = ({ onBack }) => {
               </motion.button>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-3">
-              {categories.length === 0 && <div className="text-center text-white/40 mt-8">No categories</div>}
+              {categories.length === 0 && <div className={`text-center mt-8 ${tc.textMuted}`}>No categories</div>}
               {categories.map((cat) => (
                 <motion.div
                   key={cat.id}
@@ -1232,13 +1275,13 @@ const CreateMenu = ({ onBack }) => {
                   }`}
                   onClick={() => setSelectedCategoryId(cat.id)}
                 >
-                  <span className="mr-2 text-white/90">
+                  <span className={`mr-2 ${tc.textSub}`}>
                     <Icon token={cat.icon || mapCategoryIdToIcon(cat.id)} fallback={fallbackEmojiById(cat.id)} className="w-5 h-5" />
                   </span>
-                  <span className="flex-1 font-medium text-white/90 truncate">{cat.name}</span>
+                  <span className={`flex-1 font-medium truncate ${tc.textSub}`}>{cat.name}</span>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
                     <button
-                      className="text-xs text-white/60 hover:text-emerald-300 px-1"
+                      className={`text-xs px-1 hover:text-emerald-300 ${tc.textMuted}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleEditCategory(cat);
@@ -1250,7 +1293,7 @@ const CreateMenu = ({ onBack }) => {
                       </svg>
                     </button>
                     <button
-                      className="text-xs text-white/60 hover:text-red-400 px-1"
+                      className={`text-xs px-1 hover:text-red-400 ${tc.textMuted}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteCategory(cat.id);
@@ -1268,20 +1311,20 @@ const CreateMenu = ({ onBack }) => {
           </div>
 
           {/* Right Pane: Items */}
-          <div className="flex-1 flex flex-col ml-4 rounded-xl border border-white/10 bg-white/5 backdrop-blur">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-              <h2 className="text-lg font-semibold tracking-wide text-white/90">
+          <div className={`flex-1 flex flex-col ml-4 rounded-xl border backdrop-blur ${tc.cardBg}`}>
+            <div className={`flex items-center justify-between px-6 py-4 border-b ${tc.borderSoft}`}>
+              <h2 className={`text-lg font-semibold tracking-wide ${tc.textSub}`}>
                 {selectedCategory ? selectedCategory.name : "Select a Category"}
               </h2>
               <div className="md:hidden flex-1" />
               <div className="md:hidden flex items-center gap-2">
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">🔍</span>
+                  <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${tc.textMuted}`}>🔍</span>
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search items…"
-                    className="pl-9 pr-3 py-2 rounded-xl border border-white/10 bg-white/5 text-white/90 placeholder:text-white/40 backdrop-blur outline-none text-sm focus:ring-2 focus:ring-emerald-300/40"
+                    className={`pl-9 pr-3 py-2 rounded-xl backdrop-blur outline-none text-sm focus:ring-2 focus:ring-emerald-300/40 ${tc.inputBg}`}
                   />
                 </div>
               </div>
@@ -1298,7 +1341,7 @@ const CreateMenu = ({ onBack }) => {
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
                           transition={{ duration: 0.15 }}
-                          className="col-span-full text-center text-white/40 mt-8"
+                          className={`col-span-full text-center mt-8 ${tc.textMuted}`}
                         >
                           No items match your filters.
                         </motion.div>
@@ -1310,78 +1353,99 @@ const CreateMenu = ({ onBack }) => {
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.97 }}
                           transition={{ duration: 0.15 }}
-                          className={`relative flex flex-col rounded-2xl overflow-hidden group border transition-all ${
+                          className={`relative flex flex-col rounded-2xl overflow-hidden group border transition-all duration-200 ${
                             item.available === false
-                              ? "border-white/5 bg-slate-800/40 opacity-60"
-                              : "border-white/10 bg-slate-800/70 hover:border-emerald-400/30 hover:shadow-[0_8px_24px_rgba(16,185,129,0.12)] hover:bg-slate-800/90"
+                              ? `${tc.cardBg} opacity-55`
+                              : normalizeType(item.type) === "veg"
+                                ? "border-emerald-500/20 bg-gradient-to-b from-slate-800 to-slate-800/80 hover:border-emerald-400/50 hover:shadow-[0_8px_32px_rgba(16,185,129,0.18)]"
+                                : "border-red-500/20 bg-gradient-to-b from-slate-800 to-slate-800/80 hover:border-red-400/50 hover:shadow-[0_8px_32px_rgba(239,68,68,0.15)]"
                           }`}
                         >
                           {/* Image area */}
-                          <div className="relative w-full h-28 bg-slate-700/50 overflow-hidden">
+                          <div className={`relative w-full h-32 overflow-hidden ${tc.mutedBg}`}>
                             {item.image ? (
-                              <img src={item.image} alt={item.name} className="w-full h-full object-cover transition group-hover:scale-105" onError={e => e.currentTarget.style.display="none"} />
+                              <img src={item.image} alt={item.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-108" onError={e => e.currentTarget.style.display="none"} />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center text-4xl opacity-20">🍽️</div>
+                              <div className="w-full h-full flex items-center justify-center">
+                                <span className="text-5xl opacity-10">🍽️</span>
+                              </div>
                             )}
+                            {/* Gradient overlay for legibility */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent pointer-events-none" />
+
                             {/* Veg/NonVeg badge */}
-                            <div className={`absolute top-2 left-2 w-4 h-4 rounded-sm border-2 flex items-center justify-center ${normalizeType(item.type) === "veg" ? "border-emerald-400 bg-emerald-900/70" : "border-red-400 bg-red-900/70"}`}>
-                              <div className={`w-2 h-2 rounded-full ${normalizeType(item.type) === "veg" ? "bg-emerald-400" : "bg-red-400"}`} />
+                            <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center shadow-md ${normalizeType(item.type) === "veg" ? "border-emerald-400 bg-black/70" : "border-red-400 bg-black/70"}`}>
+                              <div className={`w-2.5 h-2.5 rounded-full ${normalizeType(item.type) === "veg" ? "bg-emerald-400" : "bg-red-400"}`} />
                             </div>
-                            {/* Move to category menu */}
-                            <div className="absolute top-1 right-1">
+
+                            {/* Price badge overlaid on image */}
+                            <div className="absolute bottom-2 left-2">
+                              <span className="px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur text-white font-black text-sm">₹{item.price}</span>
+                            </div>
+
+                            {/* ⋯ menu — always visible, clear purpose */}
+                            <div className="absolute top-1.5 right-1.5">
                               <div className="relative">
                                 <button
                                   onClick={e => { e.stopPropagation(); setItemContextMenu(itemContextMenu?.itemId === item.id ? null : { itemId: item.id }); }}
-                                  className="w-6 h-6 rounded-md bg-black/60 text-white/70 hover:text-white flex items-center justify-center text-xs backdrop-blur"
+                                  className="w-7 h-7 rounded-lg bg-black/70 backdrop-blur text-white/80 hover:text-white hover:bg-black/90 flex items-center justify-center text-sm font-bold transition border border-white/15"
+                                  title="Actions"
                                 >⋯</button>
                                 {itemContextMenu?.itemId === item.id && (
-                                  <div className="absolute right-0 top-7 z-50 w-44 rounded-xl border border-white/15 bg-slate-900/95 backdrop-blur shadow-2xl overflow-hidden text-xs">
-                                    <div className="px-3 py-2 text-white/40 font-semibold uppercase tracking-wider text-[10px] border-b border-white/8">Move to Category</div>
-                                    {categories.filter(c => c.id !== item.categoryId).map(c => (
-                                      <button key={c.id} onClick={() => handleMoveItemToCategory(item.id, c.id)} className="w-full px-3 py-2 text-left text-white/70 hover:bg-white/8 hover:text-white transition flex items-center gap-2">
-                                        <Icon token={c.icon || mapCategoryIdToIcon(c.id)} fallback={fallbackEmojiById(c.id)} className="w-3.5 h-3.5" />
-                                        {c.name}
-                                      </button>
-                                    ))}
-                                    <div className="border-t border-white/8">
-                                      <button onClick={() => { handleEditItem(item); setItemContextMenu(null); }} className="w-full px-3 py-2 text-left text-emerald-300/80 hover:bg-emerald-500/10 transition">✏️ Edit item</button>
-                                      <button onClick={() => { handleDeleteItem(item.id); setItemContextMenu(null); }} className="w-full px-3 py-2 text-left text-red-400/80 hover:bg-red-500/10 transition">🗑️ Delete</button>
-                                    </div>
+                                  <div className={`absolute right-0 top-8 z-50 w-48 rounded-2xl border shadow-2xl backdrop-blur-xl overflow-hidden text-xs ${tc.modalBg}`}>
+                                    {/* Quick actions */}
+                                    <button onClick={() => { handleEditItem(item); setItemContextMenu(null); }} className="w-full px-3.5 py-2.5 text-left text-emerald-300 hover:bg-emerald-500/12 transition flex items-center gap-2 font-semibold">
+                                      <span className="text-base">✏️</span> Edit item
+                                    </button>
+                                    <button onClick={() => { handleDeleteItem(item.id); setItemContextMenu(null); }} className="w-full px-3.5 py-2.5 text-left text-red-400 hover:bg-red-500/12 transition flex items-center gap-2 font-semibold border-b border-white/8">
+                                      <span className="text-base">🗑️</span> Delete item
+                                    </button>
+                                    {/* Move to category */}
+                                    {categories.filter(c => c.id !== item.categoryId).length > 0 && (
+                                      <>
+                                        <div className={`px-3 pt-2 pb-1 font-semibold uppercase tracking-wider text-[9px] ${tc.textMuted}`}>Move to</div>
+                                        {categories.filter(c => c.id !== item.categoryId).map(c => (
+                                          <button key={c.id} onClick={() => handleMoveItemToCategory(item.id, c.id)} className="w-full px-3.5 py-2 text-left text-white/60 hover:bg-white/8 hover:text-white transition flex items-center gap-2">
+                                            <Icon token={c.icon || mapCategoryIdToIcon(c.id)} fallback={fallbackEmojiById(c.id)} className="w-3 h-3" />
+                                            {c.name}
+                                          </button>
+                                        ))}
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </div>
                             </div>
+
                             {/* Unavailable overlay */}
                             {item.available === false && (
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                                <span className="px-2 py-0.5 rounded bg-black/60 text-white/60 text-[10px] font-semibold uppercase tracking-wide">Unavailable</span>
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                <span className="px-2.5 py-1 rounded-lg bg-black/70 text-white/50 text-[10px] font-bold uppercase tracking-widest">Unavailable</span>
                               </div>
                             )}
                           </div>
 
                           {/* Card body */}
-                          <div className="p-3 flex flex-col gap-1.5">
-                            <span className="text-sm font-semibold leading-tight text-white/90 line-clamp-1">{item.name}</span>
-                            {item.description && <p className="text-[10px] text-white/40 line-clamp-1">{item.description}</p>}
-                            <div className="flex items-center justify-between mt-0.5">
-                              <span className="text-base font-bold text-white">₹{item.price}</span>
-                              <div className="flex items-center gap-1.5">
-                                {item.calories && <span className="text-[10px] text-amber-300/60">{item.calories}kcal</span>}
-                                <span className="text-[10px] text-white/30">{item.tax}% GST</span>
-                              </div>
-                            </div>
-                            {/* Available toggle + quick actions */}
-                            <div className="flex items-center justify-between pt-1 border-t border-white/6">
+                          <div className="p-3 flex flex-col gap-1">
+                            <span className={`text-sm font-bold leading-tight line-clamp-1 ${tc.textPrimary}`}>{item.name}</span>
+                            {item.description
+                              ? <p className={`text-[10px] line-clamp-2 leading-relaxed ${tc.textSub}`}>{item.description}</p>
+                              : <p className={`text-[10px] italic ${tc.textMuted}`}>No description</p>
+                            }
+                            <div className={`flex items-center justify-between mt-1 pt-1.5 border-t ${tc.borderSoft}`}>
                               <button
                                 onClick={() => toggleAvailability(item)}
-                                className={`flex items-center gap-1.5 text-[10px] font-semibold transition ${item.available !== false ? "text-emerald-300" : "text-white/30"}`}
+                                className={`flex items-center gap-1.5 text-[10px] font-bold transition ${item.available !== false ? "text-emerald-400" : "text-white/30"}`}
                               >
-                                <span className={`w-6 h-3 rounded-full transition-colors relative inline-block ${item.available !== false ? "bg-emerald-500" : "bg-white/15"}`}>
-                                  <span className={`absolute top-0.5 w-2 h-2 rounded-full bg-white transition-all ${item.available !== false ? "left-3.5" : "left-0.5"}`} />
+                                <span className={`w-7 h-3.5 rounded-full transition-colors relative inline-flex items-center ${item.available !== false ? "bg-emerald-500" : "bg-white/15"}`}>
+                                  <span className={`absolute w-2.5 h-2.5 rounded-full bg-white shadow transition-all ${item.available !== false ? "left-3.5" : "left-0.5"}`} />
                                 </span>
                                 {item.available !== false ? "Available" : "Off"}
                               </button>
-                              <button onClick={() => handleEditItem(item)} className="text-white/30 hover:text-emerald-300 transition text-[11px] px-1.5 py-0.5 rounded hover:bg-white/8">✏️ Edit</button>
+                              <div className="flex items-center gap-1">
+                                {item.calories && <span className="text-[9px] text-amber-300/50 bg-amber-500/8 border border-amber-500/15 px-1.5 py-0.5 rounded-full">{item.calories}k</span>}
+                                {item.tax > 0 && <span className={`text-[9px] ${tc.textMuted}`}>{item.tax}%</span>}
+                              </div>
                             </div>
                           </div>
                         </motion.div>
@@ -1389,31 +1453,31 @@ const CreateMenu = ({ onBack }) => {
                     </AnimatePresence>
                   </div>
                 ) : (
-                  <div className="divide-y rounded-xl border border-white/10">
+                  <div className={`divide-y rounded-xl border ${tc.borderSoft}`}>
                     {itemsInCategoryFiltered.map((item) => (
                       <div key={item.id} className={`flex items-center gap-3 p-3 ${item.available === false ? "opacity-60" : ""}`}>
                         {item.image ? (
-                          <img src={item.image} alt={item.name} className="w-14 h-14 rounded object-cover border border-white/10" />
+                          <img src={item.image} alt={item.name} className={`w-14 h-14 rounded object-cover border ${tc.borderSoft}`} />
                         ) : (
-                          <div className="w-14 h-14 rounded bg-white/5 border border-white/10" />
+                          <div className={`w-14 h-14 rounded border ${tc.mutedBg} ${tc.borderSoft}`} />
                         )}
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-white/90 truncate">{item.name}</div>
-                          <div className="text-xs text-white/60">Tax {item.tax}% • {normalizeType(item.type) === "veg" ? "veg" : "non-veg"}</div>
+                          <div className={`font-medium truncate ${tc.textSub}`}>{item.name}</div>
+                          <div className={`text-xs ${tc.textMuted}`}>Tax {item.tax}% • {normalizeType(item.type) === "veg" ? "veg" : "non-veg"}</div>
                         </div>
-                        <div className="w-24 text-right font-semibold text-white/90">₹{item.price}</div>
-                        <label className="ml-2 flex items-center gap-1 text-xs text-white/70">
+                        <div className={`w-24 text-right font-semibold ${tc.textSub}`}>₹{item.price}</div>
+                        <label className={`ml-2 flex items-center gap-1 text-xs ${tc.textMuted}`}>
                           <input type="checkbox" checked={item.available !== false} onChange={() => toggleAvailability(item)} />
                           Available
                         </label>
-                        <button className="ml-2 text-xs text-white/60 hover:text-emerald-300" onClick={() => handleEditItem(item)}>Edit</button>
-                        <button className="ml-1 text-xs text-white/60 hover:text-red-400" onClick={() => handleDeleteItem(item.id)}>Delete</button>
+                        <button className={`ml-2 text-xs hover:text-emerald-300 ${tc.textMuted}`} onClick={() => handleEditItem(item)}>Edit</button>
+                        <button className={`ml-1 text-xs hover:text-red-400 ${tc.textMuted}`} onClick={() => handleDeleteItem(item.id)}>Delete</button>
                       </div>
                     ))}
                   </div>
                 )
               ) : (
-                <div className="text-center text-white/40 mt-8">Select a category to view items.</div>
+                <div className={`text-center mt-8 ${tc.textMuted}`}>Select a category to view items.</div>
               )}
             </div>
           </div>
@@ -1426,8 +1490,8 @@ const CreateMenu = ({ onBack }) => {
           {/* Header */}
           <div className="flex items-center gap-4">
             <div>
-              <h2 className="text-xl font-bold text-white">⚡ Quick Start</h2>
-              <p className="text-white/50 text-sm mt-0.5">Pick a template and be ready in under 60 seconds</p>
+              <h2 className={`text-xl font-bold ${tc.textPrimary}`}>⚡ Quick Start</h2>
+              <p className={`text-sm mt-0.5 ${tc.textMuted}`}>Pick a template and be ready in under 60 seconds</p>
             </div>
             <div className="ml-auto flex gap-2">
               <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={e => handleCSVUpload(e.target.files?.[0])} />
@@ -1463,22 +1527,22 @@ const CreateMenu = ({ onBack }) => {
                       whileHover={{ scale: 1.02, y: -2 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => setShowTemplatePreview(key)}
-                      className={`relative text-left rounded-2xl border ${meta.border} bg-gradient-to-br ${meta.gradient} bg-slate-900/80 backdrop-blur overflow-hidden p-5 group transition-all hover:shadow-xl`}
+                      className={`relative text-left rounded-2xl border ${meta.border} bg-gradient-to-br ${meta.gradient} backdrop-blur-sm overflow-hidden p-5 group transition-all hover:shadow-xl shadow-sm`}
                     >
                       {/* Glow */}
                       <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-br from-white/5 to-transparent" />
 
                       <div className="text-4xl mb-3 select-none">{meta.emoji}</div>
-                      <div className="font-bold text-white text-sm mb-1">{tpl.label}</div>
-                      <div className="text-[11px] text-white/50 mb-3 leading-relaxed">{tpl.description}</div>
+                      <div className={`font-bold text-sm mb-1 ${tc.textPrimary}`}>{tpl.label}</div>
+                      <div className={`text-[11px] mb-3 leading-relaxed ${tc.textMuted}`}>{tpl.description}</div>
 
                       {/* Sample items */}
                       <div className="space-y-0.5 mb-3">
                         {tpl.items.slice(0, 3).map((item, i) => (
-                          <div key={i} className="flex items-center gap-1.5 text-[10px] text-white/40">
+                          <div key={i} className={`flex items-center gap-1.5 text-[10px] ${tc.textMuted}`}>
                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${normalizeType(item.type) === "veg" ? "bg-emerald-400" : "bg-red-400"}`} />
                             <span className="truncate">{item.name}</span>
-                            <span className="ml-auto shrink-0 text-white/25">₹{item.price}</span>
+                            <span className={`ml-auto shrink-0 ${tc.textMuted}`}>₹{item.price}</span>
                           </div>
                         ))}
                         {tpl.items.length > 3 && <div className="text-[10px] text-white/25">+{tpl.items.length - 3} more</div>}
@@ -1543,7 +1607,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                 className={`fixed top-20 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-semibold backdrop-blur border flex items-center gap-2 ${
                   importToast.type === "error" ? "bg-red-600/90 border-red-500/50 text-white" :
                   importToast.type === "success" ? "bg-emerald-600/90 border-emerald-500/50 text-white" :
-                  "bg-slate-800/90 border-white/15 text-white"
+                  `${tc.cardBg} border-white/15 ${tc.textPrimary}`
                 }`}
               >{importToast.msg}</motion.div>
             )}
@@ -1653,7 +1717,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                       <motion.div key={entry.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative rounded-xl overflow-hidden border border-white/10 bg-white/5 group">
                         {entry.preview
                           ? <img src={entry.preview} alt={entry.file.name} className="w-full h-20 object-cover" />
-                          : <div className="w-full h-20 flex items-center justify-center text-3xl bg-slate-800">📄</div>
+                          : <div className={`w-full h-20 flex items-center justify-center text-3xl ${tc.mutedBg}`}>📄</div>
                         }
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all rounded-xl" />
                         <button
@@ -1814,7 +1878,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                 {/* Results */}
                 {importResults.length > 0 && (
                   <motion.div key="results" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                    className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 backdrop-blur overflow-hidden"
+                    className={`rounded-2xl border border-emerald-500/20 backdrop-blur overflow-hidden ${tc.cardBg}`}
                   >
                     {/* Results header */}
                     <div className="px-5 py-4 bg-gradient-to-r from-emerald-900/30 to-teal-900/20 border-b border-emerald-500/15 flex items-center gap-3">
@@ -1829,7 +1893,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                     {/* Table */}
                     <div className="max-h-[400px] overflow-y-auto">
                       <table className="w-full text-xs">
-                        <thead className="sticky top-0 bg-slate-900/95 backdrop-blur border-b border-white/8">
+                        <thead className={`sticky top-0 backdrop-blur border-b border-white/8 ${tc.headerBg}`}>
                           <tr>
                             <th className="px-4 py-2.5 text-left text-white/40 font-semibold">Dish Name</th>
                             <th className="px-2 py-2.5 text-left text-white/40 font-semibold">₹ Price</th>
@@ -1899,7 +1963,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                     </div>
 
                     {/* Footer */}
-                    <div className="px-5 py-4 border-t border-white/8 flex items-center justify-between gap-3 bg-slate-900/40">
+                    <div className={`px-5 py-4 border-t border-white/8 flex items-center justify-between gap-3 ${tc.mutedBg}`}>
                       <div>
                         <p className="text-xs text-white/40">All fields editable · Categories auto-created</p>
                         <p className="text-[10px] text-white/25 mt-0.5">{importResults.filter(r => r.available).length} available · {importResults.filter(r => !r.available).length} unavailable</p>
@@ -1941,18 +2005,18 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: "spring", stiffness: 200, damping: 24 }}
-              className="bg-slate-900 text-white border border-white/10 rounded-xl shadow-2xl w-[28rem] p-6"
+              className={`border rounded-xl shadow-2xl w-[28rem] p-6 ${tc.modalBg}`}
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold mb-4">
+              <h3 className={`text-lg font-semibold mb-4 ${tc.textPrimary}`}>
                 {categoryModalMode === "add" ? "Add Category" : "Edit Category"}
               </h3>
 
               <div className="mb-4">
-                <label className="block text-white/70 text-xs mb-1">Name</label>
+                <label className={`block text-xs mb-1 ${tc.textSub}`}>Name</label>
                 <input
                   type="text"
-                  className="w-full border border-white/10 bg-white/5 text-white placeholder:text-white/40 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
+                  className={`w-full rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300/40 ${tc.inputBg}`}
                   placeholder="Category name"
                   value={categoryModalValue.name}
                   onChange={(e) => setCategoryModalValue((v) => ({ ...v, name: e.target.value }))}
@@ -1962,16 +2026,16 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="block text-white/70 text-xs">Icon</label>
-                  <div className="flex items-center gap-2 text-xs text-white/60">
+                  <label className={`block text-xs ${tc.textSub}`}>Icon</label>
+                  <div className={`flex items-center gap-2 text-xs ${tc.textMuted}`}>
                     <span>Selected:</span>
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white/5 border border-white/10">
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded border ${tc.mutedBg} ${tc.borderSoft}`}>
                       <Icon token={categoryModalValue.icon || "empty"} fallback="🍽️" />
                       <code className="opacity-70">{categoryModalValue.icon || "none"}</code>
                     </span>
                   </div>
                 </div>
-                <div className="grid grid-cols-8 gap-2 max-h-40 overflow-y-auto p-2 rounded border border-white/10 bg-white/5">
+                <div className={`grid grid-cols-8 gap-2 max-h-40 overflow-y-auto p-2 rounded border ${tc.mutedBg} ${tc.borderSoft}`}>
                   {IconTokens.map((t) => (
                     <button
                       key={t}
@@ -1979,7 +2043,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                       className={`p-2 rounded border transition ${
                         categoryModalValue.icon === t
                           ? "border-emerald-400 bg-emerald-500/20"
-                          : "border-white/10 bg-white/5 hover:bg-white/10"
+                          : `${tc.borderSoft} ${tc.mutedBg} hover:bg-white/10`
                       }`}
                       onClick={() => setCategoryModalValue((v) => ({ ...v, icon: t }))}
                       title={t}
@@ -1992,7 +2056,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
 
               <div className="flex justify-end gap-2 mt-5">
                 <button
-                  className="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-white/80"
+                  className={`px-4 py-2 rounded transition ${tc.outlineBtn}`}
                   onClick={() => setShowCategoryModal(false)}
                 >
                   Cancel
@@ -2026,30 +2090,30 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.93, opacity: 0, y: 20 }}
               transition={{ type: "spring", stiffness: 260, damping: 26 }}
-              className="relative w-full max-w-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-white border border-white/10 rounded-3xl shadow-[0_32px_80px_rgba(0,0,0,0.6)] overflow-hidden"
+              className={`relative w-full max-w-3xl rounded-3xl border shadow-[0_32px_80px_rgba(0,0,0,0.6)] overflow-hidden ${tc.modalBg}`}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Glow accent */}
-              <div className="pointer-events-none absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl bg-emerald-500/10" />
-              <div className="pointer-events-none absolute -bottom-20 -left-20 w-64 h-64 rounded-full blur-3xl bg-cyan-500/8" />
+              <div className="pointer-events-none absolute -top-20 -right-20 w-64 h-64 rounded-full blur-[80px]" style={{ background: "radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%)" }} />
+              <div className="pointer-events-none absolute -bottom-20 -left-20 w-64 h-64 rounded-full blur-[80px]" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.07) 0%, transparent 70%)" }} />
 
               {/* Header */}
-              <div className="relative flex items-center gap-3 px-6 py-4 border-b border-white/8 bg-white/3">
+              <div className={`relative flex items-center gap-3 px-6 py-4 border-b ${tc.borderSoft}`}>
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
                   normalizeType(itemModalValue.type) === "veg"
                     ? "bg-emerald-500/20 text-emerald-300"
                     : "bg-red-500/20 text-red-300"
                 }`}>
-                  {normalizeType(itemModalValue.type) === "veg" ? "🌿" : "🍗"}
+                  {normalizeType(itemModalValue.type) === "veg" ? "🌿" : "🌗"}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">{itemModalMode === "add" ? "Add New Item" : "Edit Item"}</h3>
-                  <p className="text-[11px] text-white/40">Fill in details to create a rich menu card</p>
+                  <h3 className={`text-base font-bold ${tc.textPrimary}`}>{itemModalMode === "add" ? "Add New Item" : "Edit Item"}</h3>
+                  <p className={`text-[11px] ${tc.textMuted}`}>Fill in details to create a rich menu card</p>
                 </div>
                 <div className="ml-auto flex items-center gap-3">
                   {/* Available toggle */}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-white/50">Available</span>
+                    <span className={`text-xs ${tc.textMuted}`}>Available</span>
                     <button
                       type="button"
                       onClick={() => setItemModalValue(v => ({ ...v, available: !v.available }))}
@@ -2058,7 +2122,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                       <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${itemModalValue.available ? "left-5.5 translate-x-0.5" : "left-0.5"}`} />
                     </button>
                   </div>
-                  <button onClick={() => setShowItemModal(false)} className="w-8 h-8 rounded-lg hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition">✕</button>
+                  <button onClick={() => setShowItemModal(false)} className={`w-8 h-8 rounded-lg flex items-center justify-center transition hover:bg-white/10 ${tc.textMuted}`}>✕</button>
                 </div>
               </div>
 
@@ -2071,8 +2135,8 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                     onClick={() => setItemModalTab(t)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                       itemModalTab === t
-                        ? "bg-white/10 text-white border border-white/15"
-                        : "text-white/40 hover:text-white/70 hover:bg-white/5"
+                        ? `bg-white/10 ${tc.textPrimary} border ${tc.borderSoft}`
+                        : `${tc.textMuted} hover:bg-white/5`
                     }`}
                   >{label}</button>
                 ))}
@@ -2086,7 +2150,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                     {/* Name + Type row */}
                     <div className="flex gap-3 items-end">
                       <div className="flex-1">
-                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Dish Name *</label>
+                        <label className={`block text-xs mb-1.5 font-medium ${tc.textSub}`}>Dish Name *</label>
                         <input
                           autoFocus
                           type="text"
@@ -2094,71 +2158,97 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                           value={itemModalValue.name}
                           onChange={e => setItemModalValue(v => ({ ...v, name: e.target.value }))}
                           placeholder="e.g. Paneer Butter Masala"
-                          className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                          className={`w-full px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm ${tc.inputBg}`}
                         />
                       </div>
                       {/* Veg / Non-Veg pill toggle */}
                       <div className="shrink-0">
-                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Type</label>
-                        <div className="flex rounded-xl overflow-hidden border border-white/10">
+                        <label className={`block text-xs mb-1.5 font-medium ${tc.textSub}`}>Type</label>
+                        <div className={`flex rounded-xl overflow-hidden border ${tc.borderSoft}`}>
                           <button type="button"
                             onClick={() => setItemModalValue(v => ({ ...v, type: "veg" }))}
-                            className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-500 text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}
+                            className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-500 text-white" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`}`}
                           ><span className="w-2.5 h-2.5 rounded-full bg-current opacity-70" />VEG</button>
                           <button type="button"
                             onClick={() => setItemModalValue(v => ({ ...v, type: "nonveg" }))}
-                            className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "nonveg" ? "bg-red-500 text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}
+                            className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "nonveg" ? "bg-red-500 text-white" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`}`}
                           ><span className="w-2.5 h-2.5 rounded-full bg-current opacity-70" />NON-VEG</button>
                         </div>
                       </div>
+
                     </div>
 
-                    {/* Price + Tax + Category */}
-                    <div className="grid grid-cols-3 gap-3">
+                    {/* Price + Category */}
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Price (₹) *</label>
+                        <label className={`block text-xs mb-1.5 font-medium ${tc.textSub}`}>Price (₹) *</label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-sm">₹</span>
+                          <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${tc.textMuted}`}>₹</span>
                           <input
                             type="number" min="0" step="0.01" required
                             value={itemModalValue.price}
                             onChange={e => setItemModalValue(v => ({ ...v, price: e.target.value.replace(/^0+(?!\.)/, "") }))}
                             placeholder="0"
-                            className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                            className={`w-full pl-7 pr-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm ${tc.inputBg}`}
                           />
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs text-white/50 mb-1.5 font-medium">GST Tax % <span className="text-white/25 font-normal">(optional)</span></label>
-                        <input
-                          type="number" min="0" step="0.01"
-                          value={itemModalValue.tax}
-                          onChange={e => setItemModalValue(v => ({ ...v, tax: e.target.value.replace(/^0+(?!\.)/, "") }))}
-                          placeholder="5"
-                          className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/50 mb-1.5 font-medium">Category</label>
+                        <label className={`block text-xs mb-1.5 font-medium ${tc.textSub}`}>Category</label>
                         <select
                           value={itemModalValue.categoryId}
                           onChange={e => setItemModalValue(v => ({ ...v, categoryId: e.target.value }))}
-                          className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                          className={`w-full px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm ${tc.inputBg}`}
                         >
                           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                       </div>
                     </div>
 
+                    {/* GST Tax — optional toggle */}
+                    {!showGstField ? (
+                      <button type="button" onClick={() => setShowGstField(true)}
+                        className={`flex items-center gap-1.5 text-xs hover:text-amber-300 transition py-1 group ${tc.textMuted}`}
+                      >
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] group-hover:border-amber-400/40 group-hover:text-amber-300 transition ${tc.borderSoft} ${tc.textMuted}`}>+</span>
+                        Add GST Tax <span className={`group-hover:text-amber-300/50 ${tc.textMuted}`}>(optional)</span>
+                      </button>
+                    ) : (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="flex items-end gap-2">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className={`text-xs font-medium ${tc.textSub}`}>GST Tax %</label>
+                            <div className="flex gap-1">
+                              {[0,5,12,18].map(v => (
+                                <button key={v} type="button" onClick={() => setItemModalValue(f => ({ ...f, tax: String(v) }))}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition border ${parseFloat(itemModalValue.tax||0)===v ? "bg-amber-500/20 border-amber-500/40 text-amber-300" : "border-white/10 text-white/30 hover:bg-white/8 hover:text-white/60"}`}
+                                >{v}%</button>
+                              ))}
+                            </div>
+                          </div>
+                          <input
+                            type="number" min="0" step="0.01" autoFocus
+                            value={itemModalValue.tax}
+                            onChange={e => setItemModalValue(v => ({ ...v, tax: e.target.value.replace(/^0+(?!\.)/, "") }))}
+                            placeholder="e.g. 5"
+                            className="w-full px-3 py-2.5 rounded-xl border border-amber-500/25 bg-amber-500/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-amber-400/30 text-sm"
+                          />
+                        </div>
+                        <button type="button" onClick={() => { setShowGstField(false); setItemModalValue(v => ({ ...v, tax: "" })); }}
+                          className="mb-0.5 px-2.5 py-2.5 rounded-xl border border-white/8 text-white/30 hover:text-red-400 hover:border-red-400/30 text-xs transition"
+                        >✕ Remove</button>
+                      </motion.div>
+                    )}
+
                     {/* Quick image URL */}
                     <div>
-                      <label className="block text-xs text-white/50 mb-1.5 font-medium">Main Image URL <span className="text-white/25 font-normal">(or use Photos tab for upload)</span></label>
+                      <label className={`block text-xs mb-1.5 font-medium ${tc.textSub}`}>Main Image URL <span className={tc.textMuted}>(or use Photos tab for upload)</span></label>
                       <input
                         type="url"
                         value={itemModalValue.image}
                         onChange={e => setItemModalValue(v => ({ ...v, image: e.target.value }))}
                         placeholder="https://example.com/dish.jpg"
-                        className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm"
+                        className={`w-full px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-sm ${tc.inputBg}`}
                       />
                     </div>
 
@@ -2171,15 +2261,15 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                         </div>
                         {itemModalValue.tax > 0 && (
                           <>
-                            <span className="text-white/20">+</span>
+                            <span className={tc.textMuted}>+</span>
                             <div>
-                              <p className="text-[10px] text-white/40 font-medium uppercase tracking-wider">GST ({itemModalValue.tax}%)</p>
-                              <p className="text-sm font-semibold text-white/60">₹{(parseFloat(itemModalValue.price || 0) * parseFloat(itemModalValue.tax || 0) / 100).toFixed(2)}</p>
+                              <p className={`text-[10px] font-medium uppercase tracking-wider ${tc.textMuted}`}>GST ({itemModalValue.tax}%)</p>
+                              <p className={`text-sm font-semibold ${tc.textSub}`}>₹{(parseFloat(itemModalValue.price || 0) * parseFloat(itemModalValue.tax || 0) / 100).toFixed(2)}</p>
                             </div>
-                            <span className="text-white/20">=</span>
+                            <span className={tc.textMuted}>=</span>
                             <div>
-                              <p className="text-[10px] text-white/40 font-medium uppercase tracking-wider">Total</p>
-                              <p className="text-lg font-bold text-white">₹{(parseFloat(itemModalValue.price || 0) * (1 + parseFloat(itemModalValue.tax || 0) / 100)).toFixed(0)}</p>
+                              <p className={`text-[10px] font-medium uppercase tracking-wider ${tc.textMuted}`}>Total</p>
+                              <p className={`text-lg font-bold ${tc.textPrimary}`}>₹{(parseFloat(itemModalValue.price || 0) * (1 + parseFloat(itemModalValue.tax || 0) / 100)).toFixed(0)}</p>
                             </div>
                           </>
                         )}
@@ -2199,7 +2289,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                     {/* AI Description */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <label className="text-xs text-white/50 font-medium">Description</label>
+                        <label className={`text-xs font-medium ${tc.textSub}`}>Description</label>
                         <span className="text-[10px] text-violet-300/70 font-medium">✨ AI powered</span>
                       </div>
                       {/* Keywords input */}
@@ -2209,7 +2299,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                           value={aiDescKeywords}
                           onChange={e => setAiDescKeywords(e.target.value)}
                           placeholder="Type keywords: spicy, creamy, tomato, cheese…"
-                          className="flex-1 px-3 py-2 rounded-xl border border-violet-500/40 bg-slate-800 text-white text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-violet-400/50"
+                          className={`flex-1 px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/50 border border-violet-500/40 ${tc.inputBg}`}
                         />
                         <button
                           type="button"
@@ -2222,31 +2312,31 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                           ) : "✨"} Generate
                         </button>
                       </div>
-                      <p className="text-[10px] text-white/30 mb-2">e.g. "spicy, creamy, paneer, cashew gravy" → AI writes a rich description</p>
+                      <p className={`text-[10px] mb-2 ${tc.textMuted}`}>e.g. "spicy, creamy, paneer, cashew gravy" → AI writes a rich description</p>
                       <textarea
                         rows={4}
                         value={itemModalValue.description}
                         onChange={e => setItemModalValue(v => ({ ...v, description: e.target.value }))}
                         placeholder="Describe how it's made, the flavors, the story behind it…"
-                        className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 resize-none leading-relaxed"
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40 resize-none leading-relaxed ${tc.inputBg}`}
                       />
                     </div>
 
                     {/* Ingredients */}
                     <div>
-                      <label className="block text-xs text-white/50 mb-1.5 font-medium">Ingredients <span className="text-white/25 font-normal">(comma-separated)</span></label>
+                      <label className={`block text-xs mb-1.5 font-medium ${tc.textSub}`}>Ingredients <span className={`font-normal ${tc.textMuted}`}>(comma-separated)</span></label>
                       <input
                         type="text"
                         value={itemModalValue.ingredients}
                         onChange={e => setItemModalValue(v => ({ ...v, ingredients: e.target.value }))}
                         placeholder="Paneer, Butter, Tomatoes, Cream, Spices…"
-                        className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40 ${tc.inputBg}`}
                       />
                       {/* Tag preview */}
                       {itemModalValue.ingredients && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {itemModalValue.ingredients.split(",").map((ing, i) => ing.trim() && (
-                            <span key={i} className="px-2 py-0.5 rounded-full bg-white/8 border border-white/10 text-[11px] text-white/70">{ing.trim()}</span>
+                            <span key={i} className={`px-2 py-0.5 rounded-full border text-[11px] ${tc.mutedBg} ${tc.borderSoft} ${tc.textSub}`}>{ing.trim()}</span>
                           ))}
                         </div>
                       )}
@@ -2255,7 +2345,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                     {/* Calories + serving */}
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs text-white/50 font-medium">Calories (kcal)</label>
+                        <label className={`text-xs font-medium ${tc.textSub}`}>Calories (kcal)</label>
                         <button
                           type="button"
                           onClick={suggestAICalories}
@@ -2274,10 +2364,10 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                             value={itemModalValue.calories}
                             onChange={e => setItemModalValue(v => ({ ...v, calories: e.target.value }))}
                             placeholder="e.g. 350"
-                            className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-slate-800 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400/40 text-sm"
+                            className={`w-full px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/40 text-sm ${tc.inputBg}`}
                           />
                           {itemModalValue.calories && (
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 text-xs">kcal</span>
+                            <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${tc.textMuted}`}>kcal</span>
                           )}
                         </div>
                         <div className="rounded-xl bg-amber-500/5 border border-amber-500/15 p-3 flex flex-col justify-center">
@@ -2300,26 +2390,46 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                 {itemModalTab === "images" && (
                   <div className="space-y-3">
 
-                    {/* ── Quick controls: Veg/NonVeg + Available ── */}
-                    <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-white/3 border border-white/8">
-                      <span className="text-xs text-white/40 font-medium shrink-0">Quick:</span>
-                      <div className="flex rounded-xl overflow-hidden border border-white/10 shrink-0">
-                        <button type="button" onClick={() => setItemModalValue(v => ({ ...v, type: "veg" }))}
-                          className={`px-3 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-500 text-white" : "bg-white/5 text-white/40 hover:bg-white/8"}`}
-                        ><span className="w-2 h-2 rounded-full bg-current opacity-80" />VEG</button>
-                        <button type="button" onClick={() => setItemModalValue(v => ({ ...v, type: "nonveg" }))}
-                          className={`px-3 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "nonveg" ? "bg-red-500 text-white" : "bg-white/5 text-white/40 hover:bg-white/8"}`}
-                        ><span className="w-2 h-2 rounded-full bg-current opacity-80" />NON-VEG</button>
-                      </div>
-                      <div className="ml-auto flex items-center gap-2">
-                        <span className="text-xs text-white/40">Available</span>
-                        <button type="button" onClick={() => setItemModalValue(v => ({ ...v, available: !v.available }))}
-                          className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${itemModalValue.available ? "bg-emerald-500" : "bg-white/15"}`}
-                        >
-                          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${itemModalValue.available ? "left-4" : "left-0.5"}`} />
-                        </button>
-                        <span className={`text-xs font-bold ${itemModalValue.available ? "text-emerald-300" : "text-white/25"}`}>{itemModalValue.available ? "On" : "Off"}</span>
-                      </div>
+                    {/* ── Veg / Non-Veg — bold prominent selector ── */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setItemModalValue(v => ({ ...v, type: "veg" }))}
+                        className={`relative flex items-center gap-3 px-4 py-3 rounded-2xl border-2 font-bold text-sm transition-all ${
+                          normalizeType(itemModalValue.type) === "veg"
+                            ? "border-emerald-400 bg-emerald-500/15 text-emerald-300 shadow-[0_0_16px_rgba(16,185,129,0.25)]"
+                            : "border-white/10 bg-white/3 text-white/40 hover:border-emerald-400/30 hover:bg-emerald-500/5 hover:text-white/70"
+                        }`}
+                      >
+                        <span className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center ${
+                          normalizeType(itemModalValue.type) === "veg" ? "border-emerald-400" : "border-white/20"
+                        }`}>
+                          <span className={`w-2.5 h-2.5 rounded-full ${
+                            normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-400" : "bg-white/20"
+                          }`} />
+                        </span>
+                        <span>🌿 Veg</span>
+                        {normalizeType(itemModalValue.type) === "veg" && (
+                          <span className="ml-auto text-emerald-400 text-base">✓</span>
+                        )}
+                      </button>
+                      <button type="button" onClick={() => setItemModalValue(v => ({ ...v, type: "nonveg" }))}
+                        className={`relative flex items-center gap-3 px-4 py-3 rounded-2xl border-2 font-bold text-sm transition-all ${
+                          normalizeType(itemModalValue.type) === "nonveg"
+                            ? "border-red-400 bg-red-500/15 text-red-300 shadow-[0_0_16px_rgba(239,68,68,0.22)]"
+                            : "border-white/10 bg-white/3 text-white/40 hover:border-red-400/30 hover:bg-red-500/5 hover:text-white/70"
+                        }`}
+                      >
+                        <span className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center ${
+                          normalizeType(itemModalValue.type) === "nonveg" ? "border-red-400" : "border-white/20"
+                        }`}>
+                          <span className={`w-2.5 h-2.5 rounded-full ${
+                            normalizeType(itemModalValue.type) === "nonveg" ? "bg-red-400" : "bg-white/20"
+                          }`} />
+                        </span>
+                        <span>🍗 Non-Veg</span>
+                        {normalizeType(itemModalValue.type) === "nonveg" && (
+                          <span className="ml-auto text-red-400 text-base">✓</span>
+                        )}
+                      </button>
                     </div>
 
                     {/* ── Sub-tabs ── */}
@@ -2331,20 +2441,8 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                       ))}
                     </div>
 
-                    {/* ── Sub-tab: Find Image (inline picker) ── */}
+                    {/* ── Sub-tab: Google Image Search ── */}
                     {imgSubTab === "pick" && (() => {
-                      const q = imgPickSearch.toLowerCase().trim();
-                      const scoreImg = (img) => {
-                        const combined = (img.label + " " + img.tags).toLowerCase();
-                        const name = (itemModalValue.name || "").toLowerCase();
-                        const allQ = (q + " " + name).trim();
-                        if (!allQ) return 0;
-                        return allQ.split(/\s+/).filter(Boolean).reduce((s, w) => s + (combined.includes(w) ? 1 : 0), 0);
-                      };
-                      const filtered = FOOD_IMG_DB
-                        .filter(img => imgPickCat === "all" || img.cat === imgPickCat)
-                        .filter(img => !q || scoreImg(img) > 0 || (img.label + " " + img.tags).toLowerCase().includes(q))
-                        .sort((a, b) => scoreImg(b) - scoreImg(a));
                       const isSelected = (url) => itemModalValue.image === url || (itemModalValue.images || []).includes(url);
                       const pickImage = (url) => {
                         if (isSelected(url)) return;
@@ -2354,58 +2452,126 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                           images: [...(v.images || []), url],
                         }));
                       };
+                      const GAPI_KEY = (typeof import.meta !== "undefined" && import.meta.env?.VITE_GOOGLE_API_KEY) || "AIzaSyBPkkXZWll0VifG5kb0DDSsoV5UB-n5pFE";
+                      const GCSE_CX  = (typeof import.meta !== "undefined" && import.meta.env?.VITE_GOOGLE_CSE_CX)  || "82ccaaa87aa2e40a6";
+                      const runSearch = async (q) => {
+                        if (!q?.trim()) return;
+                        setGoogleImgLoading(true);
+                        const tryQueries = [
+                          `${q.trim()} food dish photo`,
+                          `${q.trim()} restaurant drink`,
+                          `${q.trim()} recipe`,
+                        ];
+                        let found = [];
+                        for (const sq of tryQueries) {
+                          try {
+                            const res = await fetch(
+                              `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(sq)}&searchType=image&key=${GAPI_KEY}&cx=${GCSE_CX}&num=8&imgType=photo&safe=active`
+                            );
+                            if (res.ok) {
+                              const data = await res.json();
+                              found = (data.items || [])
+                                .filter(it => it.link?.startsWith("http"))
+                                .map(it => it.link);
+                              if (found.length >= 3) break;
+                            }
+                          } catch { /* try next */ }
+                        }
+                        setGoogleImgResults(found);
+                        setGoogleImgLoading(false);
+                      };
                       return (
-                        <div className="space-y-2.5">
-                          {/* Search */}
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25 text-sm">🔍</span>
-                            <input
-                              type="text"
-                              value={imgPickSearch}
-                              onChange={e => setImgPickSearch(e.target.value)}
-                              placeholder={`Search images for "${itemModalValue.name || "your dish"}"…`}
-                              className="w-full pl-9 pr-8 py-2 rounded-xl border border-white/10 bg-slate-800 text-white text-sm placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-                            />
-                            {imgPickSearch && <button type="button" onClick={() => setImgPickSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/50 transition text-xs">✕</button>}
+                        <div className="space-y-3">
+                          {/* Search bar */}
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-sm">🔍</span>
+                              <input
+                                type="text"
+                                value={googleImgQuery}
+                                onChange={e => setGoogleImgQuery(e.target.value)}
+                                onKeyDown={e => e.key === "Enter" && runSearch(googleImgQuery)}
+                                placeholder={`Search Google Images for "${itemModalValue.name || "your dish"}"…`}
+                                className={`w-full pl-9 pr-8 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/40 ${tc.inputBg}`}
+                              />
+                              {googleImgQuery && <button type="button" onClick={() => { setGoogleImgQuery(""); setGoogleImgResults([]); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/50 transition text-xs">✕</button>}
+                            </div>
+                            <motion.button
+                              type="button"
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => runSearch(googleImgQuery || itemModalValue.name)}
+                              disabled={googleImgLoading}
+                              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                            >
+                              {googleImgLoading
+                                ? <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }} className="inline-block">⟳</motion.span>
+                                : "🌐"
+                              }
+                              {googleImgLoading ? "Searching…" : "Search"}
+                            </motion.button>
                           </div>
 
-                          {/* Category filter chips */}
-                          <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{scrollbarWidth:"none"}}>
-                            {[["all","🍽️ All"],["beverages","☕ Beverages"],["indian","🍛 Indian"],["fastfood","🍔 Fast Food"],["desserts","🎂 Desserts"],["healthy","🥗 Healthy"],["aesthetic","✨ Aesthetic"]].map(([c,label]) => (
-                              <button key={c} type="button" onClick={() => setImgPickCat(c)}
-                                className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-bold transition border ${imgPickCat === c ? "bg-emerald-500 border-emerald-400 text-white" : "border-white/10 bg-white/4 text-white/45 hover:bg-white/8 hover:text-white/70"}`}
-                              >{label}</button>
-                            ))}
-                          </div>
+                          {/* Quick-search chips */}
+                          {!googleImgResults.length && !googleImgLoading && (
+                            <div className="flex gap-1.5 flex-wrap">
+                              {[itemModalValue.name, "biryani", "paneer", "burger", "coffee", "cake", "dosa"].filter(Boolean).slice(0,6).map(term => (
+                                <button key={term} type="button"
+                                  onClick={() => { setGoogleImgQuery(term); runSearch(term); }}
+                                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold border border-blue-400/20 bg-blue-500/8 text-blue-300/70 hover:bg-blue-500/20 hover:text-blue-200 transition"
+                                >{term}</button>
+                              ))}
+                            </div>
+                          )}
 
-                          {/* Image grid */}
-                          {filtered.length === 0 ? (
-                            <p className="text-xs text-white/30 text-center py-4">No images found for "{imgPickSearch}"</p>
-                          ) : (
-                            <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-0.5">
-                              {filtered.map(img => {
-                                const sel = isSelected(img.url);
-                                const score = scoreImg(img);
+                          {/* Loading skeleton */}
+                          {googleImgLoading && (
+                            <div className="grid grid-cols-4 gap-2">
+                              {Array.from({length: 8}).map((_, i) => (
+                                <motion.div key={i} animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ repeat: Infinity, duration: 1.2, delay: i * 0.1 }}
+                                  className="rounded-xl bg-white/5 h-16 border border-white/6"
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Results grid */}
+                          {!googleImgLoading && googleImgResults.length > 0 && (
+                            <div className="grid grid-cols-4 gap-2 max-h-52 overflow-y-auto pr-0.5">
+                              {googleImgResults.map((url, idx) => {
+                                const sel = isSelected(url);
                                 return (
-                                  <button key={img.id} type="button" onClick={() => pickImage(img.url)}
-                                    className={`relative rounded-xl overflow-hidden border-2 transition group ${sel ? "border-emerald-400 ring-2 ring-emerald-400/40" : "border-white/8 hover:border-emerald-400/50"}`}
+                                  <button key={idx} type="button" onClick={() => pickImage(url)}
+                                    className={`relative rounded-xl overflow-hidden border-2 transition group ${sel ? "border-emerald-400 ring-2 ring-emerald-400/40" : "border-white/8 hover:border-blue-400/60 hover:shadow-[0_0_12px_rgba(59,130,246,0.3)]"}`}
                                   >
-                                    <img src={img.url} alt={img.label} className="w-full h-16 object-cover group-hover:scale-105 transition-transform duration-200" onError={e => { e.currentTarget.style.display="none"; e.currentTarget.parentElement.querySelector(".fallback")?.style.setProperty("display","flex"); }} />
-                                    <div className="fallback hidden w-full h-16 bg-slate-700 items-center justify-center text-2xl opacity-30">🍽️</div>
-                                    {sel && <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center"><span className="text-lg text-emerald-300">✓</span></div>}
-                                    {score > 1 && !sel && <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-violet-500/80 border border-violet-400/60" title="AI match" />}
-                                    <div className="absolute bottom-0 left-0 right-0 px-1 py-0.5 bg-black/60 text-[8px] text-white/70 truncate">{img.label}</div>
+                                    <img src={url} alt={`result-${idx}`} className="w-full h-16 object-cover group-hover:scale-105 transition-transform duration-200"
+                                      onError={e => { e.currentTarget.parentElement.style.display = "none"; }}
+                                    />
+                                    {sel
+                                      ? <div className="absolute inset-0 bg-emerald-500/30 flex items-center justify-center"><span className="text-xl text-white font-black">✓</span></div>
+                                      : <div className="absolute inset-0 bg-black/0 group-hover:bg-blue-500/15 transition flex items-center justify-center opacity-0 group-hover:opacity-100"><span className="text-xs font-bold text-white bg-blue-500/80 px-2 py-0.5 rounded-lg">Select</span></div>
+                                    }
                                   </button>
                                 );
                               })}
                             </div>
                           )}
 
-                          {/* License badge */}
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
-                            <span className="text-emerald-300/60 text-xs">✅</span>
-                            <p className="text-[10px] text-emerald-300/50 font-medium">All images are <strong>watermark-free</strong>, <strong>trademark-safe</strong> &amp; free to use commercially · Unsplash License</p>
-                          </div>
+                          {/* Empty state */}
+                          {!googleImgLoading && !googleImgResults.length && (
+                            <div className="flex flex-col items-center justify-center py-6 gap-2 text-center rounded-xl border border-white/6 bg-white/2">
+                              <span className="text-3xl opacity-20">🌐</span>
+                              <p className="text-xs text-white/30">Search Google Images above to find real dish photos</p>
+                              <p className="text-[10px] text-white/20">Click a photo to instantly use it as your dish image — no download needed</p>
+                            </div>
+                          )}
+
+                          {/* Info badge */}
+                          {googleImgResults.length > 0 && (
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/5 border border-blue-500/15">
+                              <span className="text-blue-300/60 text-xs">💡</span>
+                              <p className="text-[10px] text-blue-300/50">Click any image to instantly set it as your dish photo · No saving to desktop needed</p>
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -2431,7 +2597,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                         <p className="text-xs text-white/40">Paste any image URL directly</p>
                         <div className="flex gap-2">
                           <input type="url" id="photo-url-paste" placeholder="https://example.com/dish-photo.jpg"
-                            className="flex-1 px-3 py-2.5 rounded-xl border border-white/10 bg-slate-800 text-white text-sm placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                            className={`flex-1 px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 ${tc.inputBg}`}
                           />
                           <button type="button"
                             onClick={() => { const url = document.getElementById("photo-url-paste")?.value?.trim(); if (url) { setItemModalValue(v => ({ ...v, image: v.image || url, images: [...(v.images||[]), url] })); document.getElementById("photo-url-paste").value = ""; }}}
@@ -2442,51 +2608,123 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                       </div>
                     )}
 
-                    {/* ── Gallery: always shown ── */}
-                    {(itemModalValue.images?.length > 0 || itemModalValue.image) && (
-                      <div>
-                        <p className="text-xs text-white/40 mb-2 flex items-center gap-1.5">
-                          <span>📁</span> Selected photos
-                          <span className="text-white/20">—</span>
-                          <span className="text-white/25">first = main card image</span>
-                        </p>
-                        <div className="grid grid-cols-5 gap-1.5">
-                          {itemModalValue.image && !itemModalValue.images?.includes(itemModalValue.image) && (
-                            <div className="relative group rounded-lg overflow-hidden border-2 border-emerald-400/50">
-                              <img src={itemModalValue.image} alt="main" className="w-full h-14 object-cover" onError={e => e.currentTarget.style.display="none"} />
-                              <div className="absolute inset-0 bg-emerald-500/25 flex items-end p-0.5"><span className="text-[8px] font-black text-emerald-200 bg-black/50 px-1 rounded">MAIN</span></div>
+                    {/* ── Gallery: swipeable carousel ── */}
+                    {(() => {
+                      const allImgs = [
+                        ...(itemModalValue.images || []),
+                        ...(itemModalValue.image && !(itemModalValue.images||[]).includes(itemModalValue.image) ? [itemModalValue.image] : []),
+                      ];
+                      if (allImgs.length === 0) return null;
+                      const safeIdx = Math.min(imgPreviewIdx, allImgs.length - 1);
+                      const goTo = (i) => setImgPreviewIdx(Math.max(0, Math.min(i, allImgs.length - 1)));
+                      const removeImg = (i) => {
+                        setItemModalValue(v => {
+                          const imgs = allImgs.filter((_, j) => j !== i);
+                          return { ...v, images: imgs, image: imgs[0] || "" };
+                        });
+                        goTo(Math.max(0, i - 1));
+                      };
+                      const setMain = (i) => {
+                        const url = allImgs[i];
+                        setItemModalValue(v => {
+                          const others = allImgs.filter((_, j) => j !== i);
+                          return { ...v, images: [url, ...others], image: url };
+                        });
+                        goTo(0);
+                      };
+                      return (
+                        <div className={`rounded-2xl border overflow-hidden ${tc.cardBg}`}>
+                          {/* Header */}
+                          <div className="flex items-center justify-between px-3 py-2 border-b border-white/8">
+                            <p className="text-xs text-white/50 flex items-center gap-1.5 font-medium">
+                              <span>🖼️</span> {allImgs.length} photo{allImgs.length > 1 ? "s" : ""}
+                              {safeIdx === 0 && <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">MAIN</span>}
+                            </p>
+                            <button type="button" onClick={() => setImgSubTab("pick")} className="text-[11px] text-white/30 hover:text-blue-300 transition">+ Add more</button>
+                          </div>
+
+                          {/* Big preview */}
+                          <div className={`relative w-full h-40 overflow-hidden ${tc.mutedBg}`}>
+                            <AnimatePresence mode="wait">
+                              <motion.img
+                                key={safeIdx}
+                                src={allImgs[safeIdx]}
+                                alt={`preview-${safeIdx}`}
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ duration: 0.18 }}
+                                className="w-full h-full object-cover"
+                                onError={e => e.currentTarget.style.opacity = "0.1"}
+                              />
+                            </AnimatePresence>
+
+                            {/* Prev / Next arrows */}
+                            {allImgs.length > 1 && (
+                              <>
+                                <button type="button" onClick={() => goTo(safeIdx - 1)} disabled={safeIdx === 0}
+                                  className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/60 backdrop-blur border border-white/15 text-white/80 hover:text-white hover:bg-black/80 transition flex items-center justify-center text-xs disabled:opacity-25 disabled:pointer-events-none"
+                                >‹</button>
+                                <button type="button" onClick={() => goTo(safeIdx + 1)} disabled={safeIdx === allImgs.length - 1}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/60 backdrop-blur border border-white/15 text-white/80 hover:text-white hover:bg-black/80 transition flex items-center justify-center text-xs disabled:opacity-25 disabled:pointer-events-none"
+                                >›</button>
+                              </>
+                            )}
+
+                            {/* Action buttons on current image */}
+                            <div className="absolute bottom-2 right-2 flex gap-1.5">
+                              {safeIdx !== 0 && (
+                                <button type="button" onClick={() => setMain(safeIdx)}
+                                  className="px-2 py-1 rounded-lg bg-black/70 backdrop-blur text-amber-300 text-[10px] font-bold border border-amber-400/30 hover:bg-amber-500/20 transition"
+                                >★ Set Main</button>
+                              )}
+                              <button type="button" onClick={() => removeImg(safeIdx)}
+                                className="px-2 py-1 rounded-lg bg-black/70 backdrop-blur text-red-400 text-[10px] font-bold border border-red-400/30 hover:bg-red-500/20 transition"
+                              >✕ Remove</button>
+                            </div>
+                          </div>
+
+                          {/* Dot indicators */}
+                          {allImgs.length > 1 && (
+                            <div className="flex items-center justify-center gap-1.5 py-2 border-t border-white/5">
+                              {allImgs.map((_, i) => (
+                                <button key={i} type="button" onClick={() => goTo(i)}
+                                  className={`rounded-full transition-all ${i === safeIdx ? "w-5 h-2 bg-emerald-400" : "w-2 h-2 bg-white/20 hover:bg-white/40"}`}
+                                />
+                              ))}
                             </div>
                           )}
-                          {itemModalValue.images?.map((url, i) => (
-                            <div key={i} className={`relative group rounded-lg overflow-hidden border-2 transition ${i === 0 ? "border-emerald-400/50" : "border-white/10 hover:border-white/25"}`}>
-                              <img src={url} alt={`img-${i}`} className="w-full h-14 object-cover" />
-                              {i === 0 && <div className="absolute inset-0 bg-emerald-500/15 flex items-end p-0.5 pointer-events-none"><span className="text-[8px] font-black text-emerald-200 bg-black/50 px-1 rounded">MAIN</span></div>}
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/55 transition flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100">
-                                {i !== 0 && <button type="button" onClick={() => setItemModalValue(v => ({ ...v, images: [url, ...v.images.filter((_,j)=>j!==i)], image: url }))} className="px-1 py-0.5 rounded bg-white/90 text-slate-900 text-[8px] font-black">★</button>}
-                                <button type="button" onClick={() => setItemModalValue(v => { const imgs = v.images.filter((_,j)=>j!==i); return { ...v, images: imgs, image: i===0?(imgs[0]||""):v.image }; })} className="w-4 h-4 rounded bg-red-500 text-white text-[10px] flex items-center justify-center leading-none">×</button>
-                              </div>
+
+                          {/* Horizontal scrollable thumbnails */}
+                          {allImgs.length > 1 && (
+                            <div className="flex gap-1.5 px-3 pb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                              {allImgs.map((url, i) => (
+                                <button key={i} type="button" onClick={() => goTo(i)}
+                                  className={`relative flex-shrink-0 w-12 h-12 rounded-xl overflow-hidden border-2 transition ${i === safeIdx ? "border-emerald-400 ring-1 ring-emerald-400/40" : "border-white/10 hover:border-white/30 opacity-60 hover:opacity-100"}`}
+                                >
+                                  <img src={url} alt={`thumb-${i}`} className="w-full h-full object-cover" onError={e => e.currentTarget.style.opacity="0"} />
+                                  {i === 0 && <div className="absolute bottom-0 left-0 right-0 bg-emerald-500/80 text-[7px] text-white text-center font-black py-0.5">MAIN</div>}
+                                </button>
+                              ))}
                             </div>
-                          ))}
-                          <button type="button" onClick={() => setImgSubTab("pick")} className="rounded-lg border-2 border-dashed border-white/10 hover:border-emerald-400/40 h-14 flex flex-col items-center justify-center text-white/20 hover:text-emerald-300 transition gap-0.5">
-                            <span className="text-base">+</span><span className="text-[8px]">More</span>
-                          </button>
+                          )}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
 
                 {/* Footer actions */}
-                <div className="flex items-center justify-between mt-6 pt-5 border-t border-white/8">
+                <div className={`flex items-center justify-between mt-6 pt-5 border-t ${tc.borderSoft}`}>
                   <div className="flex gap-2">
                     {itemModalTab !== "basic" && (
-                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "details" ? "basic" : "details")} className="px-3 py-2 rounded-xl text-xs font-medium text-white/50 hover:text-white hover:bg-white/8 transition">← Back</button>
+                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "details" ? "basic" : "details")} className={`px-3 py-2 rounded-xl text-xs font-medium hover:bg-white/8 transition ${tc.textMuted}`}>← Back</button>
                     )}
                   </div>
                   <div className="flex gap-2 items-center">
-                    <button type="button" onClick={() => setShowItemModal(false)} className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white hover:bg-white/8 transition">Cancel</button>
+                    <button type="button" onClick={() => setShowItemModal(false)} className={`px-4 py-2 rounded-xl text-sm hover:bg-white/8 transition ${tc.textMuted}`}>Cancel</button>
                     {itemModalTab !== "images" ? (
-                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "basic" ? "details" : "images")} className="px-4 py-2 rounded-xl text-sm font-semibold border border-white/15 text-white/70 hover:bg-white/8 transition">Next →</button>
+                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "basic" ? "details" : "images")} className={`px-4 py-2 rounded-xl text-sm font-semibold border hover:bg-white/8 transition ${tc.borderSoft} ${tc.textSub}`}>Next →</button>
                     ) : null}
                     <motion.button
                       whileHover={{ scale: 1.03 }}
@@ -2662,7 +2900,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
               <motion.div
                 initial={{ scale: 0.93, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.93, opacity: 0, y: 20 }}
                 transition={{ type: "spring", stiffness: 260, damping: 26 }}
-                className={`relative w-full max-w-3xl max-h-[88vh] rounded-3xl border ${meta.border} bg-gradient-to-br ${meta.gradient} bg-slate-900 text-white shadow-[0_32px_80px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col`}
+                className={`relative w-full max-w-3xl max-h-[88vh] rounded-3xl border ${meta.border} bg-gradient-to-br ${meta.gradient} shadow-[0_32px_80px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col ${tc.modalBg}`}
                 onClick={e => e.stopPropagation()}
               >
                 {/* Header */}
@@ -2731,7 +2969,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                 </div>
 
                 {/* Footer */}
-                <div className="px-6 py-4 border-t border-white/8 flex items-center gap-3 shrink-0 bg-slate-900/60 backdrop-blur">
+                <div className={`px-6 py-4 border-t border-white/8 flex items-center gap-3 shrink-0 backdrop-blur ${tc.mutedBg}`}>
                   <p className="text-xs text-white/35 flex-1">You can edit, delete or add items after applying.</p>
                   <button onClick={() => setShowTemplatePreview(null)} className="px-4 py-2.5 rounded-xl text-sm text-white/50 hover:text-white hover:bg-white/8 transition">Cancel</button>
                   <motion.button

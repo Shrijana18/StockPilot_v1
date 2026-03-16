@@ -1,9 +1,10 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db, auth } from "../../../firebase/firebaseConfig";
-import { collection, doc, getDocs, query, where, onSnapshot, addDoc, updateDoc, setDoc } from "firebase/firestore";
+import { collection, doc, getDocs, getDoc, query, where, onSnapshot, addDoc, updateDoc, setDoc } from "firebase/firestore";
 import CustomerForm from "../../billing/CustomerForm";
 import { IconTokens, getIconSVG, getIconEmoji } from "./foodIcons";
+import { usePOSTheme } from "../POSThemeContext";
 
 /**
  * RestaurantPOSBilling - Complete Restaurant-Specific POS
@@ -95,6 +96,7 @@ export default function RestaurantPOSBilling({
   inventory,
   onTableUpdate // Callback to refresh table list
 }) {
+  const { tc } = usePOSTheme();
   const [categories, setCategories] = React.useState([]);
   const [items, setItems] = React.useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = React.useState("");
@@ -116,11 +118,13 @@ export default function RestaurantPOSBilling({
   const [coPayment, setCoPayment]         = React.useState("cash"); // cash|card|upi|other
   const [coCustomer, setCoCustomer]       = React.useState({ name: "", phone: "" });
   const [coTaxMode, setCoTaxMode]         = React.useState("auto"); // auto|manual
-  const [coTaxPct, setCoTaxPct]           = React.useState("18");   // manual GST %
-  const [coTaxLocked, setCoTaxLocked]     = React.useState(false);
+  const [coTaxPct, setCoTaxPct]           = React.useState("5");    // manual GST %
   const [coExtraLabel, setCoExtraLabel]   = React.useState("Service Charge");
   const [coExtraAmt, setCoExtraAmt]       = React.useState("");
   const [coDiscount, setCoDiscount]       = React.useState("");
+  const [coStaff, setCoStaff]             = React.useState(null);   // { id, name, role }
+  const [posStaff, setPosStaff]           = React.useState([]);     // staff list for picker
+  const [posSettings, setPosSettings]     = React.useState(null);   // posConfig/restaurantSettings
 
   const [collapsedRounds, setCollapsedRounds] = React.useState(new Set());
   const [footerMinimized, setFooterMinimized] = React.useState(false);
@@ -188,55 +192,46 @@ export default function RestaurantPOSBilling({
     if (!uid) return;
 
     const ordersRef = collection(db, "businesses", uid, "kitchenOrders");
-    
-    // Try with composite query, fallback to simple query if index doesn't exist
-    let q;
-    try {
-      q = query(ordersRef, where("tableId", "==", table.id), where("status", "!=", "completed"));
-    } catch (e) {
-      // Fallback: query by tableId only, filter status in client
-      q = query(ordersRef, where("tableId", "==", table.id));
-    }
+    // Single-field query only — no composite index needed; status filtered client-side
+    const q = query(ordersRef, where("tableId", "==", table.id));
 
     const unsubscribe = onSnapshot(q, (snap) => {
       const orders = [];
       snap.forEach((docSnap) => {
         const data = docSnap.data();
-        // Filter out completed orders in client if composite query failed
         if (data.status !== "completed") {
           orders.push({ id: docSnap.id, ...data });
         }
       });
-      // Sort by creation time
       orders.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
       setKitchenOrders(orders);
-      
-      // Set active order ID to the most recent pending/preparing/ready order
       const activeOrder = orders.find(o => ["pending", "preparing", "ready"].includes(o.status)) || orders[0];
       setActiveOrderId(activeOrder?.id || null);
     }, (error) => {
       console.error("Error loading kitchen orders:", error);
-      // If composite query fails, try simple query
-      if (error.code === 'failed-precondition') {
-        const fallbackQ = query(ordersRef, where("tableId", "==", table.id));
-        onSnapshot(fallbackQ, (snap) => {
-          const orders = [];
-          snap.forEach((docSnap) => {
-            const data = docSnap.data();
-            if (data.status !== "completed") {
-              orders.push({ id: docSnap.id, ...data });
-            }
-          });
-          orders.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-          setKitchenOrders(orders);
-          const activeOrder = orders.find(o => ["pending", "preparing", "ready"].includes(o.status)) || orders[0];
-          setActiveOrderId(activeOrder?.id || null);
-        });
-      }
     });
 
     return () => unsubscribe();
   }, [table?.id]);
+
+  // Load active staff for checkout picker
+  React.useEffect(() => {
+    const uid = getUid();
+    if (!uid) return;
+    const unsub = onSnapshot(collection(db, "businesses", uid, "pos-staff"), snap => {
+      setPosStaff(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s.active !== false));
+    });
+    return unsub;
+  }, []);
+
+  // Load POS settings for invoice meta (GST, FSSAI, business info)
+  React.useEffect(() => {
+    const uid = getUid();
+    if (!uid) return;
+    getDoc(doc(db, "businesses", uid, "posConfig", "restaurantSettings"))
+      .then(snap => { if (snap.exists()) setPosSettings(snap.data()); })
+      .catch(() => {});
+  }, []);
 
   // Live 30-second clock for table occupation timer
   React.useEffect(() => {
@@ -562,9 +557,13 @@ export default function RestaurantPOSBilling({
           tableZone: tableData.zone || "Main",
           tableCapacity: tableData.capacity,
           paymentMethod: payMethodLabel,
-          businessName: billing?.businessInfo?.name || "",
-          businessAddress: billing?.businessInfo?.address || "",
-          gstNumber: billing?.businessInfo?.gstNumber || "",
+          businessName: posSettings?.business?.name || billing?.businessInfo?.name || "",
+          businessAddress: posSettings?.business?.address || billing?.businessInfo?.address || "",
+          gstNumber: posSettings?.business?.gstNumber || billing?.businessInfo?.gstNumber || "",
+          fssaiNumber: posSettings?.business?.fssaiNumber || "",
+          panNumber: posSettings?.business?.panNumber || "",
+          invoicePrefix: posSettings?.invoice?.prefix || "INV",
+          servedBy: coStaff ? { id: coStaff.id, name: coStaff.name, role: coStaff.role } : null,
         }
       };
 
@@ -663,19 +662,18 @@ export default function RestaurantPOSBilling({
   }, [kitchenOrders, cart]);
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-slate-900 overflow-hidden">
-      {/* Aurora */}
+    <div className="relative w-full h-full flex flex-col overflow-hidden" style={tc.bg}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-emerald-500/15" />
-        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-cyan-500/15" />
+        <div className="absolute -top-32 -left-16 w-[60%] h-[60%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
+        <div className="absolute -bottom-32 -right-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob2} 0%, transparent 65%)` }} />
       </div>
 
       {/* Top Bar */}
-      <div className="shrink-0 z-30 bg-slate-900/90 backdrop-blur-sm border-b border-white/10">
+      <div className={`shrink-0 z-30 ${tc.headerBg}`}>
         <div className="px-4 py-3 flex items-center gap-3">
           <button
             onClick={onBack}
-            className="rounded-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 text-slate-900 px-4 py-2 text-sm font-semibold shadow hover:shadow-lg transition"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${tc.backBtn}`}
           >
             ← Back to Tables
           </button>
@@ -687,7 +685,7 @@ export default function RestaurantPOSBilling({
                 {tableData.number || "T"}
               </div>
               <div className="flex-1">
-                <div className="text-sm font-semibold text-white flex items-center gap-2">
+                <div className={`text-sm font-semibold flex items-center gap-2 ${tc.textPrimary}`}>
                   {tableData.name || `Table ${tableData.number}`}
                   <button
                     onClick={() => setShowEditTable(true)}
@@ -697,7 +695,7 @@ export default function RestaurantPOSBilling({
                     ✏️
                   </button>
                 </div>
-                <div className="text-xs text-white/70 flex items-center gap-2">
+                <div className={`text-xs flex items-center gap-2 ${tc.textSub}`}>
                   Capacity: {tableData.capacity || 4} • Zone: {tableData.zone || "Main"}
                   {tableOccupiedSince && (
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -732,7 +730,7 @@ export default function RestaurantPOSBilling({
           
           <button
             onClick={() => setShowCustomer(true)}
-            className="rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-sm text-white/90 transition"
+            className={`rounded-lg px-4 py-2 text-sm transition ${tc.outlineBtn}`}
           >
             {customerData?.name ? customerData.name : "Customer"}
           </button>
@@ -742,9 +740,9 @@ export default function RestaurantPOSBilling({
       {/* Main Content */}
       <div className="relative z-10 flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Menu Items */}
-        <div className="flex-1 flex flex-col border-r border-white/10 overflow-hidden">
+        <div className={`flex-1 flex flex-col overflow-hidden border-r ${tc.borderSoft}`}>
           {/* Categories */}
-          <div className="px-4 py-3 border-b border-white/10 bg-white/5 backdrop-blur-sm overflow-x-auto">
+          <div className={`px-4 py-3 border-b backdrop-blur-sm overflow-x-auto ${tc.borderSoft}`}>
             <div className="flex gap-2">
               {categories.map(cat => (
                 <button
@@ -753,7 +751,7 @@ export default function RestaurantPOSBilling({
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all shrink-0 flex items-center gap-2 ${
                     selectedCategoryId === cat.id
                       ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg"
-                      : "bg-white/5 text-white/80 hover:bg-white/10"
+                      : `${tc.mutedBg} ${tc.textSub} hover:bg-white/10`
                   }`}
                 >
                   <Icon token={cat.icon} fallback="🍽️" className="w-4 h-4" />
@@ -764,15 +762,15 @@ export default function RestaurantPOSBilling({
           </div>
 
           {/* Search */}
-          <div className="px-4 py-3 border-b border-white/10">
+          <div className={`px-4 py-3 border-b ${tc.borderSoft}`}>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">🔍</span>
+              <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${tc.textMuted}`}>🔍</span>
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search menu items..."
-                className="w-full pl-10 pr-4 py-2 rounded-lg border border-white/10 bg-white/5 text-white placeholder:text-white/40 focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 outline-none"
+                className={`w-full pl-10 pr-4 py-2 rounded-lg outline-none focus:ring-2 focus:ring-orange-500/50 ${tc.inputBg}`}
               />
             </div>
           </div>
@@ -790,7 +788,7 @@ export default function RestaurantPOSBilling({
                     key={item.id}
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="relative rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-3 hover:bg-white/10 transition-all group"
+                    className={`relative rounded-xl border p-3 transition-all group hover:bg-white/10 ${tc.cardBg}`}
                   >
                     {item.image && (
                       <img
@@ -806,20 +804,20 @@ export default function RestaurantPOSBilling({
                       ) : (
                         <span className="w-3 h-3 bg-red-400 rounded-full border border-red-600" title="Non-Veg" />
                       )}
-                      <div className="text-sm font-semibold text-white truncate flex-1">{item.name}</div>
+                      <div className={`text-sm font-semibold truncate flex-1 ${tc.textPrimary}`}>{item.name}</div>
                     </div>
-                    <div className="text-lg font-bold text-white mb-2">₹{item.price}</div>
-                    {item.tax > 0 && <div className="text-xs text-white/60 mb-2">Tax: {item.tax}%</div>}
+                    <div className={`text-lg font-bold mb-2 ${tc.textPrimary}`}>₹{item.price}</div>
+                    {item.tax > 0 && <div className={`text-xs mb-2 ${tc.textMuted}`}>Tax: {item.tax}%</div>}
                     
                     {qty > 0 ? (
                       <div className="flex items-center gap-2 mt-2">
                         <button
                           onClick={() => updateQty(item.id, qty - 1)}
-                          className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center transition"
+                          className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center transition ${tc.mutedBg} ${tc.textPrimary} hover:bg-white/20`}
                         >
                           −
                         </button>
-                        <span className="flex-1 text-center font-bold text-white">{qty}</span>
+                        <span className={`flex-1 text-center font-bold ${tc.textPrimary}`}>{qty}</span>
                         <button
                           onClick={() => updateQty(item.id, qty + 1)}
                           className="w-8 h-8 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold flex items-center justify-center transition"
@@ -840,7 +838,7 @@ export default function RestaurantPOSBilling({
               })}
             </div>
             {filteredItems.length === 0 && (
-              <div className="text-center py-12 text-white/60">
+              <div className={`text-center py-12 ${tc.textMuted}`}>
                 <div className="text-4xl mb-3">🍽️</div>
                 <div>No items found</div>
               </div>
@@ -849,7 +847,7 @@ export default function RestaurantPOSBilling({
         </div>
 
         {/* Right Panel: Active Orders + New Cart + Actions */}
-        <div className="w-[360px] flex-none flex flex-col bg-slate-900/60 border-l border-white/10 overflow-hidden">
+        <div className={`w-[360px] flex-none flex flex-col backdrop-blur-xl overflow-hidden border-l ${tc.borderSoft}`} style={tc.bg}>
 
           {/* ── ORDER READY banner ────────────────────────────────── */}
           <AnimatePresence>
@@ -871,9 +869,9 @@ export default function RestaurantPOSBilling({
 
           {/* ── Active kitchen orders ── */}
           {hasActiveOrders && (
-            <div className="shrink-0 border-b border-white/10">
+            <div className={`shrink-0 border-b ${tc.borderSoft}`}>
               <div className="px-3 pt-3 pb-1 flex items-center gap-2">
-                <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">Orders on Table</span>
+                <span className={`text-[11px] font-bold uppercase tracking-widest ${tc.textMuted}`}>Orders on Table</span>
                 <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-red-500/20 text-red-300 font-bold">{kitchenOrders.length}</span>
                 {kitchenOrders.length > 1 && (
                   <button
@@ -905,18 +903,18 @@ export default function RestaurantPOSBilling({
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] font-bold uppercase tracking-wide">Round {rIdx + 1}</span>
                           {order.isRush && <span className="text-[9px] font-black bg-red-500 text-white px-1 rounded animate-pulse">🚨 RUSH</span>}
-                          <span className="text-[10px] opacity-60">{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
+                          <span className={`text-[10px] opacity-60 ${tc.textMuted}`}>{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] font-bold opacity-80">{statusLabels[order.status] || order.status}</span>
-                          <span className="text-white/25 text-[9px]" style={{ display:"inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▼</span>
+                          <span className={`text-[9px] ${tc.textMuted}`} style={{ display:"inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▼</span>
                         </div>
                       </div>
                       {!isCollapsed && orderItems.length > 0 && (
-                        <div className="px-2.5 pb-2 space-y-0.5 border-t border-white/10">
+                        <div className={`px-2.5 pb-2 space-y-0.5 border-t ${tc.borderSoft}`}>
                           {orderItems.map((line, idx) => (
                             <div key={idx} className="flex items-center justify-between text-[11px] py-0.5">
-                              <span className="opacity-80 truncate flex-1">{line.product?.name || line.name || "Item"}</span>
+                              <span className={`opacity-80 truncate flex-1 ${tc.textSub}`}>{line.product?.name || line.name || "Item"}</span>
                               {line.note && <span className="text-orange-300/70 italic text-[10px] mx-1 truncate max-w-[60px]">{line.note}</span>}
                               <span className="opacity-60 ml-2 flex-none">×{line.qty || 1}</span>
                             </div>
@@ -932,7 +930,7 @@ export default function RestaurantPOSBilling({
 
           {/* ── Cart header ── */}
           <div className="px-3 pt-2.5 pb-1 shrink-0 flex items-center gap-2">
-            <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
+            <span className={`text-[11px] font-bold uppercase tracking-widest ${tc.textMuted}`}>
               {hasActiveOrders ? "Add More Items" : "Order Cart"}
             </span>
             {cart.length > 0 && (
@@ -946,11 +944,11 @@ export default function RestaurantPOSBilling({
           {/* ── Cart items with inline notes ── */}
           <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2 space-y-2">
             {cart.map(line => (
-              <div key={line.product.id} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+              <div key={line.product.id} className={`rounded-xl border px-3 py-2 ${tc.cardBg}`}>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">{line.product.name}</div>
-                    <div className="text-[11px] text-white/50">₹{line.product.price} × {line.qty} = ₹{(line.product.price * line.qty).toFixed(2)}</div>
+                    <div className={`text-xs font-semibold truncate ${tc.textPrimary}`}>{line.product.name}</div>
+                    <div className={`text-[11px] ${tc.textMuted}`}>₹{line.product.price} × {line.qty} = ₹{(line.product.price * line.qty).toFixed(2)}</div>
                   </div>
                   <div className="flex items-center gap-1 flex-none">
                     <button
@@ -961,10 +959,10 @@ export default function RestaurantPOSBilling({
                       title="Add note"
                     >📝</button>
                     <button onClick={() => updateQty(line.product.id, line.qty - 1)}
-                      className="w-6 h-6 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center transition">−</button>
-                    <span className="w-6 text-center text-sm font-bold text-white">{line.qty}</span>
+                      className={`w-6 h-6 rounded-md text-sm font-bold flex items-center justify-center transition ${tc.mutedBg} ${tc.textPrimary} hover:bg-white/20`}>−</button>
+                    <span className={`w-6 text-center text-sm font-bold ${tc.textPrimary}`}>{line.qty}</span>
                     <button onClick={() => updateQty(line.product.id, line.qty + 1)}
-                      className="w-6 h-6 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center transition">+</button>
+                      className={`w-6 h-6 rounded-md text-sm font-bold flex items-center justify-center transition ${tc.mutedBg} ${tc.textPrimary} hover:bg-white/20`}>+</button>
                     <button onClick={() => removeFromCart(line.product.id)}
                       className="w-6 h-6 rounded-md bg-red-500/20 hover:bg-red-500/35 text-red-400 text-sm font-bold flex items-center justify-center transition ml-0.5">×</button>
                   </div>
@@ -985,7 +983,7 @@ export default function RestaurantPOSBilling({
               </div>
             ))}
             {cart.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-10 text-white/30">
+              <div className={`flex flex-col items-center justify-center py-10 ${tc.textMuted}`}>
                 <div className="text-3xl mb-2">🛒</div>
                 <div className="text-xs">Tap an item to add</div>
               </div>
@@ -993,16 +991,16 @@ export default function RestaurantPOSBilling({
           </div>
 
           {/* ── Footer ── */}
-          <div className="shrink-0 border-t border-white/10 bg-slate-900/90 backdrop-blur-sm">
+          <div className={`shrink-0 border-t backdrop-blur-xl ${tc.borderSoft} ${tc.headerBg}`}>
             {/* Minimize/maximize toggle row */}
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06]">
+            <div className={`flex items-center justify-between px-3 py-1.5 border-b ${tc.borderSoft}`}>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Checkout Total</span>
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${tc.textMuted}`}>Checkout Total</span>
                 <span className="text-sm font-bold text-emerald-400">₹{money(checkoutTotal.grandTotal)}</span>
               </div>
               <button
                 onClick={() => setFooterMinimized(m => !m)}
-                className="text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/50 hover:text-white transition"
+                className={`text-[10px] px-2 py-0.5 rounded transition hover:bg-white/20 ${tc.mutedBg} ${tc.textMuted} hover:${tc.textPrimary}`}
               >{footerMinimized ? "▲ Expand" : "▼ Collapse"}</button>
             </div>
 
@@ -1010,13 +1008,13 @@ export default function RestaurantPOSBilling({
             {!footerMinimized && (
               <div className="px-3 pt-2 pb-1 space-y-0.5">
                 {kitchenOrdersTotals.grandTotal > 0 && (
-                  <div className="flex justify-between text-xs text-white/45"><span>Orders placed</span><span>₹{money(kitchenOrdersTotals.grandTotal)}</span></div>
+                  <div className={`flex justify-between text-xs ${tc.textSub}`}><span>Orders placed</span><span>₹{money(kitchenOrdersTotals.grandTotal)}</span></div>
                 )}
                 {totals.grandTotal > 0 && (
-                  <div className="flex justify-between text-xs text-white/45"><span>New items</span><span>₹{money(totals.grandTotal)}</span></div>
+                  <div className={`flex justify-between text-xs ${tc.textSub}`}><span>New items</span><span>₹{money(totals.grandTotal)}</span></div>
                 )}
                 {checkoutTotal.tax > 0 && (
-                  <div className="flex justify-between text-xs text-white/45"><span>Tax</span><span>₹{money(checkoutTotal.tax)}</span></div>
+                  <div className={`flex justify-between text-xs ${tc.textSub}`}><span>Tax</span><span>₹{money(checkoutTotal.tax)}</span></div>
                 )}
               </div>
             )}
@@ -1030,7 +1028,7 @@ export default function RestaurantPOSBilling({
                   className={`px-3 py-2.5 rounded-xl text-xs font-bold border transition ${
                     rushMode
                       ? "bg-red-500/25 border-red-500/50 text-red-300"
-                      : "bg-white/5 border-white/10 text-white/40 hover:text-white/70"
+                      : `${tc.outlineBtn}`
                   }`}
                   title="Mark order as Rush/Priority"
                 >
@@ -1058,7 +1056,7 @@ export default function RestaurantPOSBilling({
               {cart.length > 0 && (
                 <button
                   onClick={() => { setCart([]); setItemNotes({}); setShowNoteFor(null); }}
-                  className="w-full py-1.5 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] text-white/45 hover:text-white/75 text-xs transition"
+                  className={`w-full py-1.5 rounded-lg text-xs transition ${tc.outlineBtn}`}
                 >Clear cart</button>
               )}
             </div>
@@ -1068,34 +1066,34 @@ export default function RestaurantPOSBilling({
 
       {/* Edit Table Modal */}
       <Modal open={showEditTable} onClose={() => setShowEditTable(false)} size="sm">
-        <div className="text-lg font-bold text-white mb-4">Edit Table</div>
+        <div className={`text-lg font-bold mb-4 ${tc.textPrimary}`}>Edit Table</div>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-white/70 mb-1">Table Name</label>
+            <label className={`block text-sm font-medium mb-1 ${tc.textSub}`}>Table Name</label>
             <input
               type="text"
               value={tableData.name || ""}
               onChange={(e) => setTableData(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 outline-none"
+              className={`w-full rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-orange-500/50 ${tc.inputBg}`}
               placeholder={`Table ${tableData.number || ""}`}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-white/70 mb-1">Capacity</label>
+            <label className={`block text-sm font-medium mb-1 ${tc.textSub}`}>Capacity</label>
             <input
               type="number"
               value={tableData.capacity || 4}
               onChange={(e) => setTableData(prev => ({ ...prev, capacity: parseInt(e.target.value) || 4 }))}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 outline-none"
+              className={`w-full rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-orange-500/50 ${tc.inputBg}`}
               min="1"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-white/70 mb-1">Zone</label>
+            <label className={`block text-sm font-medium mb-1 ${tc.textSub}`}>Zone</label>
             <select
               value={tableData.zone || "main"}
               onChange={(e) => setTableData(prev => ({ ...prev, zone: e.target.value }))}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 outline-none"
+              className={`w-full rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-orange-500/50 ${tc.inputBg}`}
             >
               <option value="main">Main Dining</option>
               <option value="outdoor">Outdoor</option>
@@ -1108,7 +1106,7 @@ export default function RestaurantPOSBilling({
         <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={() => setShowEditTable(false)}
-            className="px-4 py-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white transition"
+            className={`px-4 py-2 rounded-lg transition ${tc.outlineBtn}`}
             disabled={saving}
           >
             Cancel
@@ -1130,14 +1128,14 @@ export default function RestaurantPOSBilling({
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/95 backdrop-blur-xl p-6 shadow-2xl"
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl backdrop-blur-xl ${tc.modalBg}`}
           >
-            <h3 className="text-lg font-bold text-white mb-4">Customer Information</h3>
+            <h3 className={`text-lg font-bold mb-4 ${tc.textPrimary}`}>Customer Information</h3>
             <CustomerForm customer={customerData} setCustomer={setCustomerData} />
             <div className="flex justify-end gap-2 mt-4">
               <button
                 onClick={() => setShowCustomer(false)}
-                className="px-4 py-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white transition"
+                className={`px-4 py-2 rounded-lg transition ${tc.outlineBtn}`}
               >
                 Close
               </button>
@@ -1152,150 +1150,211 @@ export default function RestaurantPOSBilling({
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border border-white/10 bg-slate-900 shadow-2xl flex flex-col max-h-[92vh]"
+            className={`w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border shadow-2xl flex flex-col max-h-[92vh] backdrop-blur-xl ${tc.modalBg}`}
           >
             {/* ── Header ── */}
-            <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between shrink-0">
+            <div className={`px-5 py-4 border-b flex items-center justify-between shrink-0 ${tc.borderSoft}`}>
               <div>
-                <div className="text-sm font-bold text-white">Checkout — {tableData.name || `Table ${tableData.number}`}</div>
-                <div className="text-xs text-white/40 mt-0.5">Zone: {tableData.zone || "Main"} · {preCheckoutItems.length} item{preCheckoutItems.length !== 1 ? "s" : ""}</div>
+                <div className={`text-sm font-bold ${tc.textPrimary}`}>Checkout — {tableData.name || (tableData.number ? `Table ${tableData.number}` : "Walk-in Order")}</div>
+                <div className={`text-xs mt-0.5 ${tc.textMuted}`}>Zone: {tableData.zone || "Main"} · {preCheckoutItems.length} item{preCheckoutItems.length !== 1 ? "s" : ""}</div>
               </div>
-              <button onClick={() => setShowPreCheckout(false)} className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-sm">✕</button>
+              <button onClick={() => setShowPreCheckout(false)} className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${tc.editBtn}`}>✕</button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto">
 
               {/* ── Customer ── */}
-              <div className="px-5 py-3 border-b border-white/[0.07]">
-                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Customer</div>
+              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
+                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Customer</div>
                 <div className="flex gap-2 items-center">
                   <input
                     value={coCustomer.name}
                     onChange={e => setCoCustomer(p => ({ ...p, name: e.target.value }))}
                     placeholder="Name (optional)"
-                    className="flex-1 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/50 ${tc.inputBg}`}
                   />
                   <input
                     value={coCustomer.phone}
                     onChange={e => setCoCustomer(p => ({ ...p, phone: e.target.value }))}
                     placeholder="Phone (optional)"
                     type="tel"
-                    className="flex-1 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/50 ${tc.inputBg}`}
                   />
                   <button
                     onClick={() => setCoCustomer({ name: "Guest", phone: "" })}
-                    className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs transition whitespace-nowrap"
+                    className={`px-3 py-2 rounded-lg text-xs transition whitespace-nowrap ${tc.outlineBtn}`}
                   >👤 Guest</button>
                 </div>
               </div>
 
               {/* ── Items delivered ── */}
-              <div className="px-5 py-3 border-b border-white/[0.07]">
-                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Items Delivered</div>
-                <div className="space-y-1.5">
+              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`text-[10px] font-bold uppercase tracking-widest ${tc.textMuted}`}>Items</div>
+                  <div className={`text-[10px] font-semibold ${tc.textMuted}`}>{preCheckoutItems.length} item{preCheckoutItems.length !== 1 ? "s" : ""}</div>
+                </div>
+                <div className="space-y-2">
                   {preCheckoutItems.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-5 h-5 rounded bg-white/[0.08] text-[10px] font-bold text-white/60 flex items-center justify-center flex-none">{item.qty}</span>
-                        <span className="text-xs text-white/80 truncate">{item.name}</span>
-                        <span className="text-[10px] text-white/30 flex-none">× ₹{item.price}</span>
+                    <div key={idx} className={`flex items-center gap-3 px-3 py-2 rounded-xl ${tc.mutedBg}`}>
+                      <div className={`w-6 h-6 rounded-lg text-[11px] font-black flex items-center justify-center flex-none border ${tc.borderSoft} ${tc.textPrimary}`}>{item.qty}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-xs font-semibold truncate ${tc.textPrimary}`}>{item.name}</div>
+                        <div className={`text-[10px] ${tc.textMuted}`}>₹{item.price} × {item.qty}</div>
                       </div>
-                      <span className="text-xs font-medium text-white/70 flex-none ml-3">₹{(item.price * item.qty).toFixed(2)}</span>
+                      <div className={`text-xs font-bold flex-none ${tc.textSub}`}>₹{(item.price * item.qty).toFixed(2)}</div>
                     </div>
                   ))}
                   {preCheckoutItems.length === 0 && (
-                    <div className="text-xs text-white/30 text-center py-2">No items</div>
+                    <div className={`text-xs text-center py-4 ${tc.textMuted}`}>No items in order</div>
                   )}
                 </div>
               </div>
 
-              {/* ── Tax / GST ── */}
-              <div className="px-5 py-3 border-b border-white/[0.07]">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Tax / GST</div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => !coTaxLocked && setCoTaxMode(m => m === "auto" ? "manual" : "auto")}
-                      disabled={coTaxLocked}
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${coTaxMode === "auto" ? "bg-blue-500/20 text-blue-300" : "bg-amber-500/20 text-amber-300"} disabled:opacity-50`}
-                    >{coTaxMode === "auto" ? "Auto (from menu)" : "Manual override"}</button>
-                    <button
-                      onClick={() => setCoTaxLocked(l => !l)}
-                      className={`w-6 h-6 rounded flex items-center justify-center text-xs transition ${coTaxLocked ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/50 hover:text-white"}`}
-                      title={coTaxLocked ? "Unlock tax" : "Lock tax"}
-                    >{coTaxLocked ? "🔒" : "🔓"}</button>
-                  </div>
+              {/* ── Tax / GST — redesigned ── */}
+              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
+                <div className={`text-[10px] font-bold uppercase tracking-widest mb-3 ${tc.textMuted}`}>Tax / GST</div>
+                {/* Mode toggle pills */}
+                <div className={`flex gap-2 mb-3 p-1 rounded-xl ${tc.mutedBg} border ${tc.borderSoft}`}>
+                  <button
+                    onClick={() => setCoTaxMode("auto")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      coTaxMode === "auto"
+                        ? "bg-emerald-500/25 text-emerald-300 shadow-sm ring-1 ring-inset ring-emerald-400/30"
+                        : `${tc.textMuted} hover:bg-white/[0.05]`
+                    }`}
+                  >
+                    <span>⚡</span> Auto (from menu)
+                  </button>
+                  <button
+                    onClick={() => setCoTaxMode("manual")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      coTaxMode === "manual"
+                        ? "bg-amber-500/25 text-amber-300 shadow-sm ring-1 ring-inset ring-amber-400/30"
+                        : `${tc.textMuted} hover:bg-white/[0.05]`
+                    }`}
+                  >
+                    <span>✏️</span> Manual
+                  </button>
                 </div>
-                {coTaxMode === "manual" && !coTaxLocked && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 relative">
-                      <input
-                        value={coTaxPct}
-                        onChange={e => setCoTaxPct(e.target.value)}
-                        type="number"
-                        min="0"
-                        max="100"
-                        placeholder="18"
-                        className="w-full px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-amber-500/50 pr-10"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-amber-400">%</span>
-                    </div>
-                    <div className="flex gap-1">
-                      {["5","12","18","28"].map(v => (
-                        <button key={v} onClick={() => setCoTaxPct(v)}
-                          className={`px-2 py-1.5 rounded text-[10px] font-semibold transition ${coTaxPct === v ? "bg-amber-500 text-white" : "bg-white/10 text-white/60 hover:bg-white/15"}`}
-                        >{v}%</button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="mt-2 flex justify-between text-xs">
-                  <span className="text-white/40">{coTaxMode === "auto" ? "Calculated from item rates" : `GST @ ${coTaxPct || 0}% on ₹${money(checkoutTotal.subTotal)}`}</span>
-                  <span className="text-white/70 font-medium">₹{money(finalTax)}</span>
+                {/* Manual rate input */}
+                <AnimatePresence>
+                  {coTaxMode === "manual" && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden mb-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            value={coTaxPct}
+                            onChange={e => setCoTaxPct(e.target.value.replace(/[^0-9.]/g, ""))}
+                            type="text" inputMode="decimal" placeholder="0"
+                            className={`w-full px-3 py-2.5 rounded-xl text-sm pr-8 focus:outline-none focus:ring-2 focus:ring-amber-500/40 border border-amber-500/30 bg-amber-500/10 text-amber-200 placeholder:text-white/30`}
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-400">%</span>
+                        </div>
+                        <div className="flex gap-1">
+                          {["0","5","12","18","28"].map(v => (
+                            <button key={v} onClick={() => setCoTaxPct(v)}
+                              className={`px-2.5 py-2 rounded-lg text-[10px] font-bold transition ${
+                                coTaxPct === v ? "bg-amber-500 text-white shadow-sm" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`
+                              }`}
+                            >{v}%</button>
+                          ))}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <div className="flex justify-between items-center">
+                  <span className={`text-xs ${tc.textMuted}`}>
+                    {coTaxMode === "auto" ? "Calculated from menu item rates" : `GST @ ${coTaxPct || 0}% on ₹${money(checkoutTotal.subTotal)}`}
+                  </span>
+                  <span className={`text-sm font-bold text-emerald-400`}>₹{money(finalTax)}</span>
                 </div>
               </div>
 
               {/* ── Extra Charge & Discount ── */}
-              <div className="px-5 py-3 border-b border-white/[0.07]">
-                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Adjustments (optional)</div>
+              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
+                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Adjustments (optional)</div>
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <div className="text-[10px] text-white/40 mb-1">Extra charge label</div>
+                    <div className={`text-[10px] mb-1 ${tc.textMuted}`}>Extra charge label</div>
                     <input
                       value={coExtraLabel}
                       onChange={e => setCoExtraLabel(e.target.value)}
                       placeholder="Service Charge"
-                      className="w-full px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none"
+                      className={`w-full px-3 py-2 rounded-lg text-xs focus:outline-none ${tc.inputBg}`}
                     />
                   </div>
                   <div className="w-24">
-                    <div className="text-[10px] text-white/40 mb-1">Amount (₹)</div>
+                    <div className={`text-[10px] mb-1 ${tc.textMuted}`}>Amount (₹)</div>
                     <input
                       value={coExtraAmt}
                       onChange={e => setCoExtraAmt(e.target.value)}
                       type="number"
                       min="0"
                       placeholder="0"
-                      className="w-full px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30 focus:outline-none"
+                      className={`w-full px-3 py-2 rounded-lg text-xs focus:outline-none ${tc.inputBg}`}
                     />
                   </div>
                   <div className="w-24">
-                    <div className="text-[10px] text-white/40 mb-1">Discount (₹)</div>
+                    <div className={`text-[10px] mb-1 ${tc.textMuted}`}>Discount (₹)</div>
                     <input
                       value={coDiscount}
                       onChange={e => setCoDiscount(e.target.value)}
                       type="number"
                       min="0"
                       placeholder="0"
-                      className="w-full px-3 py-2 rounded-lg border border-white/10 bg-red-500/5 text-xs text-red-300 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-red-500/30"
+                      className="w-full px-3 py-2 rounded-lg border border-red-500/20 bg-red-500/5 text-xs text-red-300 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-red-500/30"
                     />
                   </div>
                 </div>
               </div>
 
+              {/* ── Served By (Staff Picker) ── */}
+              {posStaff.length > 0 && (
+                <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
+                  <div className={`text-[10px] font-bold uppercase tracking-widest mb-3 ${tc.textMuted}`}>Served By</div>
+                  <div className="flex gap-2 flex-wrap">
+                    {posStaff.map(s => {
+                      const isSelected = coStaff?.id === s.id;
+                      const initials = (s.name || "?").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+                      return (
+                        <motion.button
+                          key={s.id}
+                          whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                          onClick={() => setCoStaff(isSelected ? null : { id: s.id, name: s.name, role: s.role })}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${
+                            isSelected
+                              ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200 shadow-sm"
+                              : `${tc.cardBg} ${tc.borderSoft} ${tc.textSub} hover:bg-white/[0.07]`
+                          }`}
+                        >
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black text-white flex-none ${
+                            isSelected ? "bg-emerald-500" : "bg-gradient-to-br from-slate-500 to-gray-600"
+                          }`}>{initials}</div>
+                          <div className="text-left">
+                            <div className="text-xs font-semibold leading-tight">{s.name}</div>
+                            <div className={`text-[10px] capitalize leading-none ${isSelected ? "text-emerald-400/70" : tc.textMuted}`}>{s.role}</div>
+                          </div>
+                          {isSelected && <span className="text-emerald-400 text-xs ml-1">✓</span>}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                  {!coStaff && (
+                    <p className={`text-[10px] mt-2 ${tc.textMuted}`}>Optional — tap to assign this bill to a staff member</p>
+                  )}
+                </div>
+              )}
+
               {/* ── Payment method ── */}
-              <div className="px-5 py-3 border-b border-white/[0.07]">
-                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Payment Method</div>
+              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
+                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Payment Method</div>
                 <div className="grid grid-cols-4 gap-2">
                   {[
                     { key: "cash", icon: "💵", label: "Cash" },
@@ -1309,7 +1368,7 @@ export default function RestaurantPOSBilling({
                       className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border text-center transition ${
                         coPayment === pm.key
                           ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300"
-                          : "border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.07] hover:text-white/80"
+                          : `${tc.cardBg} ${tc.textMuted} hover:bg-white/[0.07]`
                       }`}
                     >
                       <span className="text-lg">{pm.icon}</span>
@@ -1321,17 +1380,17 @@ export default function RestaurantPOSBilling({
 
               {/* ── Bill summary ── */}
               <div className="px-5 py-3">
-                <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Bill Summary</div>
+                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Bill Summary</div>
                 <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-white/50"><span>Subtotal</span><span>₹{money(checkoutTotal.subTotal)}</span></div>
-                  <div className="flex justify-between text-xs text-white/50"><span>Tax / GST</span><span>₹{money(finalTax)}</span></div>
-                  {finalExtra > 0 && <div className="flex justify-between text-xs text-white/50"><span>{coExtraLabel || "Extra"}</span><span>₹{money(finalExtra)}</span></div>}
+                  <div className={`flex justify-between text-xs ${tc.textSub}`}><span>Subtotal</span><span>₹{money(checkoutTotal.subTotal)}</span></div>
+                  <div className={`flex justify-between text-xs ${tc.textSub}`}><span>Tax / GST</span><span>₹{money(finalTax)}</span></div>
+                  {finalExtra > 0 && <div className={`flex justify-between text-xs ${tc.textSub}`}><span>{coExtraLabel || "Extra"}</span><span>₹{money(finalExtra)}</span></div>}
                   {finalDiscount > 0 && <div className="flex justify-between text-xs text-red-400/70"><span>Discount</span><span>−₹{money(finalDiscount)}</span></div>}
-                  <div className="flex justify-between text-sm font-bold text-white pt-2 border-t border-white/10 mt-1">
+                  <div className={`flex justify-between text-sm font-bold pt-2 border-t mt-1 ${tc.textPrimary} ${tc.borderSoft}`}>
                     <span>Grand Total</span>
                     <span className="text-emerald-400 text-base">₹{money(finalGrand)}</span>
                   </div>
-                  <div className="flex justify-between text-[10px] text-white/30 mt-1">
+                  <div className={`flex justify-between text-[10px] mt-1 ${tc.textMuted}`}>
                     <span>Paying via</span>
                     <span>{{ cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment]}</span>
                   </div>
@@ -1340,10 +1399,10 @@ export default function RestaurantPOSBilling({
             </div>
 
             {/* ── Confirm ── */}
-            <div className="px-5 py-4 border-t border-white/10 flex gap-3 shrink-0">
+            <div className={`px-5 py-4 border-t flex gap-3 shrink-0 ${tc.borderSoft}`}>
               <button
                 onClick={() => setShowPreCheckout(false)}
-                className="flex-1 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm transition"
+                className={`flex-1 py-3 rounded-xl text-sm transition ${tc.outlineBtn}`}
                 disabled={saving}
               >Cancel</button>
               <button
@@ -1358,22 +1417,41 @@ export default function RestaurantPOSBilling({
 
       {/* ── Receipt Modal (after checkout) ── */}
       {showReceipt && receiptData && (
-        <div className="fixed inset-0 z-[99999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[99999] bg-black/60 backdrop-blur-lg flex items-center justify-center p-4">
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            initial={{ opacity: 0, scale: 0.92, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900/98 shadow-2xl overflow-hidden"
+            transition={{ type: "spring", stiffness: 400, damping: 28 }}
+            className="w-full max-w-md rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/98 via-slate-800/95 to-slate-900/98 backdrop-blur-2xl shadow-2xl shadow-black/40 overflow-hidden"
           >
             {/* Receipt header */}
-            <div className={`px-5 py-5 text-center border-b border-white/10 ${receiptData.type === "checkout" ? "bg-emerald-500/[0.08]" : "bg-slate-700/40"}`}>
-              <div className="text-2xl mb-1">{receiptData.type === "checkout" ? "✅" : "🪑"}</div>
-              <div className="text-base font-bold text-white">
+            <div className={`px-6 py-6 text-center border-b border-white/10 ${receiptData.type === "checkout" ? "bg-gradient-to-br from-emerald-500/15 via-emerald-500/10 to-transparent" : "bg-gradient-to-br from-blue-500/10 to-transparent"}`}>
+              <motion.div 
+                initial={{ scale: 0 }} animate={{ scale: 1 }} 
+                transition={{ type: "spring", stiffness: 500, damping: 25, delay: 0.1 }}
+                className="text-3xl mb-2"
+              >
+                {receiptData.type === "checkout" ? "✅" : "🪑"}
+              </motion.div>
+              <motion.div 
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="text-lg font-bold text-white"
+              >
                 {receiptData.type === "checkout" ? "Invoice Created" : "Table Freed"}
-              </div>
+              </motion.div>
               {receiptData.invoiceId ? (
-                <div className="text-xs text-emerald-400 mt-1 font-mono"># {receiptData.invoiceId}</div>
+                <motion.div 
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="text-sm text-emerald-400 mt-1.5 font-mono bg-emerald-500/10 px-3 py-1 rounded-full inline-block"
+                ># {receiptData.invoiceId}</motion.div>
               ) : (
-                <div className="text-xs text-white/40 mt-1">Orders closed · No invoice</div>
+                <motion.div 
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="text-xs text-white/40 mt-1.5"
+                >Orders closed · No invoice</motion.div>
               )}
             </div>
             {/* Table + Customer + Payment */}
@@ -1409,22 +1487,36 @@ export default function RestaurantPOSBilling({
               )}
             </div>
             {/* Items */}
-            <div className="px-5 py-3 max-h-44 overflow-y-auto space-y-1.5">
-              {receiptData.items.map((item, idx) => {
-                const name  = item.product?.name || item.name;
-                const price = Number(item.product?.price || item.price || 0);
-                const qty   = item.qty || 1;
-                return (
-                  <div key={idx} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-5 h-5 rounded bg-white/10 text-[10px] font-bold text-white/70 flex items-center justify-center flex-none">{qty}</span>
-                      <span className="text-xs text-white/80 truncate">{name}</span>
-                      <span className="text-[10px] text-white/30 flex-none">× ₹{price}</span>
-                    </div>
-                    <span className="text-xs text-white/60 flex-none ml-2">₹{(price * qty).toFixed(2)}</span>
-                  </div>
-                );
-              })}
+            <div className="px-6 py-4 max-h-72 overflow-y-auto space-y-2" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.2) transparent" }}>
+              <AnimatePresence>
+                {receiptData.items.map((item, idx) => {
+                  const name  = item.product?.name || item.name;
+                  const price = Number(item.product?.price || item.price || 0);
+                  const qty   = item.qty || 1;
+                  return (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.3 + idx * 0.05, type: "spring", stiffness: 300, damping: 24 }}
+                      whileHover={{ x: 4, backgroundColor: "rgba(255,255,255,0.08)" }}
+                      className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] transition-all"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <motion.div 
+                          initial={{ scale: 0.8 }} animate={{ scale: 1 }}
+                          className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-400/20 text-[11px] font-bold text-emerald-300 flex items-center justify-center flex-none"
+                        >{qty}</motion.div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-white/90 truncate">{name}</div>
+                          <div className="text-[11px] text-white/40">₹{price} × {qty}</div>
+                        </div>
+                      </div>
+                      <div className="text-sm font-bold text-emerald-400 flex-none ml-3">₹{(price * qty).toFixed(2)}</div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
             </div>
             {/* Bill breakdown */}
             <div className="px-5 py-3 border-t border-white/[0.07] bg-white/[0.02] space-y-1">
@@ -1438,11 +1530,13 @@ export default function RestaurantPOSBilling({
               </div>
             </div>
             {/* Done */}
-            <div className="px-5 py-4">
-              <button
+            <div className="px-6 py-5">
+              <motion.button
+                whileHover={{ scale: 1.02, y: -1 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => { setShowReceipt(false); if (onBack) onBack(); }}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-bold transition hover:from-emerald-400"
-              >Done — Back to Tables</button>
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-500 bg-[length:200%_100%] hover:bg-[position:100%_0] text-white text-sm font-bold transition-all duration-300 shadow-lg shadow-emerald-500/25"
+              >Done — Back to Tables</motion.button>
             </div>
           </motion.div>
         </div>

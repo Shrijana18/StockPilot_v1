@@ -26,7 +26,7 @@ export default function POSApp() {
   // While Firebase resolves auth state
   if (!authReady) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-slate-950 flex items-center justify-center">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: "linear-gradient(135deg, #0d1117 0%, #111827 45%, #0f1320 100%)" }}>
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
@@ -39,22 +39,28 @@ export default function POSApp() {
   // Not logged in — show a clean POS login prompt (not dashboard login)
   if (!isAuthenticated) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-slate-950 flex items-center justify-center p-6">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6" style={{ background: "linear-gradient(135deg, #0d1117 0%, #111827 45%, #0f1320 100%)" }}>
+        {/* Aurora */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 right-0 w-[55%] h-[55%] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(251,146,60,0.07) 0%, transparent 65%)" }} />
+          <div className="absolute bottom-0 left-0 w-[50%] h-[50%] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(16,185,129,0.05) 0%, transparent 65%)" }} />
+        </div>
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-8 text-center shadow-2xl"
+          initial={{ opacity: 0, scale: 0.95, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 280, damping: 24 }}
+          className="relative w-full max-w-sm rounded-3xl border border-white/[0.1] bg-white/[0.04] backdrop-blur-2xl p-8 text-center shadow-2xl"
         >
-          <div className="text-4xl mb-4">🍽️</div>
-          <h1 className="text-2xl font-bold text-white mb-2">FLYP POS</h1>
-          <p className="text-white/60 text-sm mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500/20 to-amber-400/10 border border-orange-400/20 flex items-center justify-center text-3xl mx-auto mb-5 shadow-lg shadow-orange-900/20">🍽️</div>
+          <h1 className="text-2xl font-black text-white/95 mb-2">FLYP POS</h1>
+          <p className="text-white/45 text-sm mb-7 leading-relaxed">
             Sign in to your FLYP account to access the POS system.
           </p>
           <a
             href={`/auth?type=login&redirect=${encodeURIComponent("/pos")}`}
-            className="block w-full py-3 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold text-sm shadow-lg hover:from-orange-600 hover:to-red-600 transition"
+            className="block w-full py-3 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-bold text-sm shadow-lg shadow-orange-500/25 transition-all"
           >
-            Sign In
+            Sign In to Continue
           </a>
         </motion.div>
       </div>
@@ -64,7 +70,8 @@ export default function POSApp() {
   // Authenticated — render fullscreen POS (overlays WebShell completely)
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-slate-950 overflow-hidden flex flex-col"
+      className="fixed inset-0 z-[9999] overflow-hidden flex flex-col"
+      style={{ background: "linear-gradient(135deg, #0d1117 0%, #111827 45%, #0f1320 100%)" }}
     >
       <POSView />
     </div>

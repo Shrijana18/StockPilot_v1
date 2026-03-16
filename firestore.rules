@@ -423,6 +423,11 @@ service cloud.firestore {
         allow get: if true;
       }
 
+      // --- ONLINE INTEGRATIONS (UrbanPiper / Swiggy / Zomato credentials) ---
+      match /onlineIntegrations/{integrationId} {
+        allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
       // --- KITCHEN ORDERS ---
       match /kitchenOrders/{orderId} {
         allow read, write: if isAuthed() && (
@@ -556,6 +561,21 @@ service cloud.firestore {
           (isSelf(userId) && isEmailVerified()) || 
           isDistributorEmployee(userId)
         );
+      }
+
+      // --- EXPENSES (Restaurant analytics expense tracker) ---
+      match /expenses/{expenseId} {
+        allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
+      // --- POS STAFF (Restaurant POS team members) ---
+      match /pos-staff/{staffId} {
+        allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
+      // --- POS CONFIG (Restaurant settings, receipt config, business hours) ---
+      match /posConfig/{docId} {
+        allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
       }
 
       // --- Connected Distributors (for Product Owners) ---

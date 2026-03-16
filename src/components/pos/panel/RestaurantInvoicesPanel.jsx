@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../../firebase/firebaseConfig";
+import { usePOSTheme } from "../POSThemeContext";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt   = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -152,6 +153,7 @@ const payColor = (inv) => {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function RestaurantInvoicesPanel() {
+  const { tc } = usePOSTheme();
   const [invoices,    setInvoices]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState("");
@@ -225,20 +227,20 @@ export default function RestaurantInvoicesPanel() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ background: "linear-gradient(180deg,#070b12 0%,#060a10 100%)" }}>
+    <div className="flex-1 flex flex-col h-full overflow-hidden" style={tc.bg}>
 
       {/* ── Top Header ── */}
-      <div className="px-6 pt-5 pb-4 shrink-0 border-b border-white/6">
+      <div className={`px-6 pt-5 pb-4 shrink-0 border-b ${tc.borderSoft}`}>
         <div className="flex items-center justify-between mb-5">
           <div>
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-xl">🧾</span>
-              <h1 className="text-xl font-black text-white tracking-tight">Restaurant Invoices</h1>
+              <h1 className={`text-xl font-black tracking-tight ${tc.textPrimary}`}>Restaurant Invoices</h1>
               <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 uppercase tracking-wider flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />Restaurant &amp; Café only
               </span>
             </div>
-            <p className="text-[11px] text-white/35">Complete billing history · Click any invoice to view &amp; print</p>
+            <p className={`text-[11px] ${tc.textMuted}`}>Complete billing history · Click any invoice to view &amp; print</p>
           </div>
           <button
             onClick={() => {
@@ -254,7 +256,7 @@ export default function RestaurantInvoicesPanel() {
                 })
                 .finally(() => setLoading(false));
             }}
-            className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/40 hover:text-white flex items-center justify-center text-sm transition"
+            className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm transition ${tc.editBtn}`}
             title="Refresh"
           >↻</button>
         </div>
@@ -267,28 +269,28 @@ export default function RestaurantInvoicesPanel() {
             { icon: "🎯", label: "Avg Order",       value: fmtShort(stats.avgOrder), sub: "per table", grad: "from-violet-500/15", border: "border-violet-500/15", vc: "text-violet-300" },
             { icon: "🔍", label: "Showing",         value: filtered.length, sub: fmt(filteredRevenue), grad: "from-amber-500/15", border: "border-amber-500/15", vc: "text-amber-300" },
           ].map(s => (
-            <div key={s.label} className={`rounded-2xl border ${s.border} bg-gradient-to-br ${s.grad} bg-slate-900/80 px-4 py-3 relative overflow-hidden`}>
+            <div key={s.label} className={`rounded-2xl border ${s.border} bg-gradient-to-br ${s.grad} backdrop-blur-sm px-4 py-3 relative overflow-hidden shadow-sm`}>
               <div className="absolute top-2.5 right-2.5 text-base opacity-20">{s.icon}</div>
-              <p className="text-[9px] text-white/35 uppercase tracking-wider font-bold mb-1.5">{s.label}</p>
+              <p className={`text-[9px] uppercase tracking-wider font-bold mb-1.5 ${tc.textMuted}`}>{s.label}</p>
               <p className={`text-lg font-black ${s.vc} leading-none`}>{s.value}</p>
-              <p className="text-[10px] text-white/25 mt-1">{s.sub}</p>
+              <p className={`text-[10px] mt-1 ${tc.textMuted}`}>{s.sub}</p>
             </div>
           ))}
         </div>
       </div>
 
       {/* ── Filters Bar ── */}
-      <div className="px-6 py-3 flex items-center gap-3 shrink-0 border-b border-white/5">
+      <div className={`px-6 py-3 flex items-center gap-3 shrink-0 border-b ${tc.borderSoft}`}>
         {/* Search */}
         <div className="relative w-56">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25 text-xs">🔍</span>
+          <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs ${tc.textMuted}`}>🔍</span>
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Table name, invoice ID…"
-            className="w-full pl-8 pr-7 py-2 rounded-xl border border-white/8 bg-white/4 text-white text-xs placeholder:text-white/20 focus:outline-none focus:ring-1 focus:ring-emerald-400/40"
+            className={`w-full pl-8 pr-7 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400/40 ${tc.inputBg}`}
           />
-          {search && <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/60 transition text-xs">✕</button>}
+          {search && <button onClick={() => setSearch("")} className={`absolute right-2.5 top-1/2 -translate-y-1/2 transition text-xs ${tc.textMuted}`}>✕</button>}
         </div>
 
         {/* Date chips */}
@@ -298,15 +300,15 @@ export default function RestaurantInvoicesPanel() {
               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition border whitespace-nowrap ${
                 dateFilter === key
                   ? "bg-emerald-500 border-emerald-400 text-white shadow-[0_0_14px_rgba(16,185,129,0.35)]"
-                  : "border-white/8 bg-white/4 text-white/45 hover:bg-white/8 hover:text-white/75"
+                  : `${tc.borderSoft} ${tc.textSub} hover:text-white/75`
               }`}
             >{label}</button>
           ))}
         </div>
 
         {filtered.length > 0 && (
-          <div className="ml-auto text-xs text-white/30">
-            <span className="font-bold text-white/50">{filtered.length}</span> invoice{filtered.length !== 1 ? "s" : ""} · <span className="font-bold text-emerald-300/70">{fmt(filteredRevenue)}</span>
+          <div className={`ml-auto text-xs ${tc.textMuted}`}>
+            <span className={`font-bold ${tc.textSub}`}>{filtered.length}</span> invoice{filtered.length !== 1 ? "s" : ""} · <span className="font-bold text-emerald-300/70">{fmt(filteredRevenue)}</span>
           </div>
         )}
       </div>
@@ -317,12 +319,12 @@ export default function RestaurantInvoicesPanel() {
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
               className="w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-400 rounded-full" />
-            <p className="text-white/30 text-sm">Loading invoices…</p>
+            <p className={`text-sm ${tc.textMuted}`}>Loading invoices…</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="text-5xl opacity-10">🧾</div>
-            <p className="text-white/30 text-sm font-medium">
+            <p className={`text-sm font-medium ${tc.textMuted}`}>
               {invoices.length === 0 ? "No restaurant invoices yet" : "No invoices match your filters"}
             </p>
             {search || dateFilter !== "all" ? (
@@ -331,7 +333,7 @@ export default function RestaurantInvoicesPanel() {
                 Clear filters
               </button>
             ) : (
-              <p className="text-xs text-white/20">Invoices from table billing will appear here automatically</p>
+              <p className={`text-xs ${tc.textMuted}`}>Invoices from table billing will appear here automatically</p>
             )}
           </div>
         ) : (
@@ -366,6 +368,7 @@ export default function RestaurantInvoicesPanel() {
 
 // ── Invoice Card ──────────────────────────────────────────────────────────────
 function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
+  const { tc } = usePOSTheme();
   const items  = getItems(inv);
   const total  = getTotal(inv);
   const sub    = getSubtotal(inv);
@@ -380,7 +383,7 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
     <motion.div
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
       transition={{ delay: idx * 0.025, duration: 0.18 }}
-      className="group rounded-2xl border border-white/8 bg-white/3 hover:border-emerald-500/25 hover:bg-white/5 hover:shadow-[0_4px_24px_rgba(0,0,0,0.4)] transition-all cursor-pointer overflow-hidden"
+      className={`group rounded-2xl border hover:border-emerald-500/25 hover:shadow-[0_4px_24px_rgba(0,0,0,0.3)] transition-all cursor-pointer overflow-hidden ${tc.cardBg}`}
       onClick={onOpen}
     >
       {/* Top accent bar */}
@@ -391,13 +394,13 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-500/20 flex items-center justify-center text-lg shrink-0">🍽️</div>
           <div className="min-w-0">
-            <p className="font-black text-white text-sm truncate">{table}</p>
-            <p className="text-[10px] text-white/35">{zone || dateStr}</p>
+            <p className={`font-black text-sm truncate ${tc.textPrimary}`}>{table}</p>
+            <p className={`text-[10px] ${tc.textMuted}`}>{zone || dateStr}</p>
           </div>
         </div>
         <div className="text-right shrink-0">
           <p className="font-black text-emerald-300 text-base leading-tight">{fmt(total)}</p>
-          {zone && <p className="text-[10px] text-white/30">{fmtDate(inv.createdAt)}</p>}
+          {zone && <p className={`text-[10px] ${tc.textMuted}`}>{fmtDate(inv.createdAt)}</p>}
         </div>
       </div>
 
@@ -405,11 +408,11 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
       <div className="px-4 pb-2 space-y-0.5">
         {items.slice(0, 3).map((it, i) => (
           <div key={i} className="flex items-center justify-between">
-            <span className="text-xs text-white/55 truncate flex-1 pr-2">
+            <span className={`text-xs truncate flex-1 pr-2 ${tc.textSub}`}>
               {iName(it)}
-              <span className="text-white/25 ml-1">×{iQty(it)}</span>
+              <span className={`ml-1 ${tc.textMuted}`}>×{iQty(it)}</span>
             </span>
-            <span className="text-xs text-white/40 shrink-0">₹{iTotal(it).toFixed(0)}</span>
+            <span className={`text-xs shrink-0 ${tc.textMuted}`}>₹{iTotal(it).toFixed(0)}</span>
           </div>
         ))}
         {items.length > 3 && (
@@ -418,8 +421,8 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
       </div>
 
       {/* Footer */}
-      <div className="px-4 pb-3 pt-2 border-t border-white/5 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3 text-[10px] text-white/25">
+      <div className={`px-4 pb-3 pt-2 border-t flex items-center justify-between gap-2 ${tc.borderSoft}`}>
+        <div className={`flex items-center gap-3 text-[10px] ${tc.textMuted}`}>
           {sub  > 0 && <span>Sub {fmtShort(sub)}</span>}
           {tax  > 0 && <span>GST {fmtShort(tax)}</span>}
         </div>
@@ -436,7 +439,7 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
 
       {/* Invoice ID strip */}
       <div className="px-4 pb-2 -mt-1">
-        <p className="text-[9px] text-white/15 font-mono">#{id.slice(0, 24)}</p>
+        <p className={`text-[9px] font-mono ${tc.textMuted} opacity-60`}>#{id.slice(0, 24)}</p>
       </div>
     </motion.div>
   );
@@ -444,6 +447,7 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
 
 // ── Invoice Detail Modal ──────────────────────────────────────────────────────
 function InvoiceDetailModal({ inv, bizName, onClose }) {
+  const { tc } = usePOSTheme();
   const items  = getItems(inv);
   const total  = getTotal(inv);
   const sub    = getSubtotal(inv);
@@ -455,8 +459,7 @@ function InvoiceDetailModal({ inv, bizName, onClose }) {
 
   return (
     <motion.div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.8)" }}
+      className={`fixed inset-0 z-[60] flex items-center justify-center p-4 ${tc.overlayBg}`}
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       onClick={onClose}
     >
@@ -465,8 +468,7 @@ function InvoiceDetailModal({ inv, bizName, onClose }) {
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.92, opacity: 0, y: 24 }}
         transition={{ type: "spring", stiffness: 280, damping: 28 }}
-        className="relative w-full max-w-md rounded-3xl border border-white/10 overflow-hidden shadow-[0_40px_100px_rgba(0,0,0,0.8)]"
-        style={{ background: "linear-gradient(170deg,#0d1a1a 0%,#070d0d 100%)" }}
+        className={`relative w-full max-w-md rounded-3xl border overflow-hidden shadow-[0_40px_100px_rgba(0,0,0,0.8)] backdrop-blur-2xl ${tc.modalBg}`}
         onClick={e => e.stopPropagation()}
       >
         {/* Green gradient top stripe */}
@@ -478,51 +480,51 @@ function InvoiceDetailModal({ inv, bizName, onClose }) {
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/25 to-teal-500/10 border border-emerald-500/30 flex items-center justify-center text-2xl">🍽️</div>
               <div>
-                <h2 className="text-lg font-black text-white">{table}{zone ? ` · ${zone}` : ""}</h2>
-                <p className="text-xs text-white/35 font-mono mt-0.5">#{id}</p>
+                <h2 className={`text-lg font-black ${tc.textPrimary}`}>{table}{zone ? ` · ${zone}` : ""}</h2>
+                <p className={`text-xs font-mono mt-0.5 ${tc.textMuted}`}>#{id}</p>
               </div>
             </div>
-            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/8 hover:bg-white/15 text-white/50 hover:text-white flex items-center justify-center text-sm transition shrink-0">✕</button>
+            <button onClick={onClose} className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition shrink-0 ${tc.editBtn}`}>✕</button>
           </div>
           <div className="flex items-center gap-3 mt-3">
-            <div className="text-xs text-white/40">🕐 {fmtDate(inv.createdAt, { year: true })}</div>
+            <div className={`text-xs ${tc.textMuted}`}>🕐 {fmtDate(inv.createdAt, { year: true })}</div>
             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${payColor(inv)}`}>{pay}</span>
           </div>
         </div>
 
         {/* Items list */}
-        <div className="mx-4 rounded-2xl border border-white/6 bg-white/3 overflow-hidden mb-3">
-          <div className="px-4 py-2 flex items-center text-[9px] font-black text-white/30 uppercase tracking-widest border-b border-white/5">
+        <div className={`mx-4 rounded-2xl border overflow-hidden mb-3 ${tc.cardBg}`}>
+          <div className={`px-4 py-2 flex items-center text-[9px] font-black uppercase tracking-widest border-b ${tc.textMuted} ${tc.borderSoft}`}>
             <span className="flex-1">Item</span><span className="w-8 text-center">Qty</span><span className="w-20 text-right">Amount</span>
           </div>
           <div className="max-h-52 overflow-y-auto">
             {items.map((it, i) => (
-              <div key={i} className="px-4 py-2 flex items-center border-b border-white/4 last:border-0">
+              <div key={i} className={`px-4 py-2 flex items-center border-b last:border-0 ${tc.borderSoft}`}>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white/80 font-medium truncate">{iName(it)}</p>
-                  {iPrice(it) > 0 && <p className="text-[10px] text-white/25">₹{iPrice(it).toFixed(2)} each</p>}
+                  <p className={`text-sm font-medium truncate ${tc.textSub}`}>{iName(it)}</p>
+                  {iPrice(it) > 0 && <p className={`text-[10px] ${tc.textMuted}`}>₹{iPrice(it).toFixed(2)} each</p>}
                 </div>
-                <span className="w-8 text-center text-sm text-white/40 shrink-0">{iQty(it)}</span>
-                <span className="w-20 text-right text-sm font-black text-white/70 shrink-0">₹{iTotal(it).toFixed(2)}</span>
+                <span className={`w-8 text-center text-sm shrink-0 ${tc.textMuted}`}>{iQty(it)}</span>
+                <span className={`w-20 text-right text-sm font-black shrink-0 ${tc.textSub}`}>₹{iTotal(it).toFixed(2)}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Totals */}
-        <div className="mx-4 rounded-2xl border border-white/6 bg-white/2 px-4 py-3 mb-4 space-y-1.5">
+        <div className={`mx-4 rounded-2xl border px-4 py-3 mb-4 space-y-1.5 ${tc.cardBg}`}>
           {sub > 0 && (
-            <div className="flex justify-between text-sm text-white/45">
+            <div className={`flex justify-between text-sm ${tc.textSub}`}>
               <span>Subtotal</span><span>₹{sub.toFixed(2)}</span>
             </div>
           )}
           {tax > 0 && (
-            <div className="flex justify-between text-sm text-white/45">
+            <div className={`flex justify-between text-sm ${tc.textSub}`}>
               <span>Tax / GST</span><span>₹{tax.toFixed(2)}</span>
             </div>
           )}
-          <div className="flex justify-between items-center pt-1.5 border-t border-white/8">
-            <span className="text-base font-black text-white">Total</span>
+          <div className={`flex justify-between items-center pt-1.5 border-t ${tc.borderSoft}`}>
+            <span className={`text-base font-black ${tc.textPrimary}`}>Total</span>
             <span className="text-xl font-black text-emerald-300">{fmt(total)}</span>
           </div>
         </div>
@@ -539,7 +541,7 @@ function InvoiceDetailModal({ inv, bizName, onClose }) {
           <motion.button
             whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
             onClick={() => printInvoice(inv, bizName)}
-            className="flex-1 py-3 rounded-2xl bg-white/6 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 font-semibold text-sm transition flex items-center justify-center gap-2"
+            className={`flex-1 py-3 rounded-2xl font-semibold text-sm transition flex items-center justify-center gap-2 ${tc.outlineBtn}`}
           >
             📄 Save as PDF
           </motion.button>
@@ -547,8 +549,8 @@ function InvoiceDetailModal({ inv, bizName, onClose }) {
 
         {/* FLYP branding strip */}
         <div className="px-4 pb-4 flex items-center justify-center">
-          <div className="px-4 py-1.5 rounded-full bg-white/3 border border-white/6">
-            <p className="text-[9px] text-white/20 tracking-widest uppercase font-bold">Powered by FLYP POS</p>
+          <div className={`px-4 py-1.5 rounded-full border ${tc.borderSoft}`}>
+            <p className={`text-[9px] tracking-widest uppercase font-bold ${tc.textMuted}`}>Powered by FLYP POS</p>
           </div>
         </div>
       </motion.div>

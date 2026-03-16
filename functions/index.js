@@ -109,6 +109,12 @@ exports.cashfreeMerchantOnboardingWebhook = cashfreePartner.cashfreeMerchantOnbo
 // Location Data (India)
 exports.fetchIndiaLocationData = require("./location/fetchIndiaLocationData");
 
+// Online Orders (Swiggy / Zomato via UrbanPiper middleware)
+const onlineOrders = require("./onlineOrders");
+exports.urbanPiperWebhook    = onlineOrders.urbanPiperWebhook;
+exports.onlineOrderAction    = onlineOrders.onlineOrderAction;
+exports.syncUrbanPiperOrders = onlineOrders.syncUrbanPiperOrders;
+
 // WhatsApp Business API - New Clean Structure
 const whatsappWabaManager = require("./whatsapp/wabaManager");
 const whatsappEmbeddedSignup = require("./whatsapp/embeddedSignup");

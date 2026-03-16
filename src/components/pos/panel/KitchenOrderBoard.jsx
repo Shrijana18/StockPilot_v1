@@ -2,6 +2,7 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { collection, query, orderBy, onSnapshot, updateDoc, doc } from "firebase/firestore";
+import { usePOSTheme } from "../POSThemeContext";
 
 const PIPELINE = [
   { key: "pending",   label: "Pending",   icon: "🕐", accent: "amber"   },
@@ -40,6 +41,7 @@ const STATUS_DOT = {
 const money = (n) => Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAddition }) {
+  const { tc } = usePOSTheme();
   const [collapsed, setCollapsed] = React.useState(
     !isNewAddition && (batch.status === "served" || (batch.status === "ready" && !isLatest))
   );
@@ -93,7 +95,7 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
         onClick={() => setCollapsed(c => !c)}
       >
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Round {batchNum}</span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${tc.textMuted}`}>Round {batchNum}</span>
           {batch.isRush && (
             <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-red-500 text-white animate-pulse">🚨 RUSH</span>
           )}
@@ -101,10 +103,10 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
             <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500 text-white tracking-wide animate-pulse">✦ NEW</span>
           )}
           {isLatest && !isNew && !batch.isRush && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white/10 text-white/50">Latest</span>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${tc.mutedBg} ${tc.textMuted}`}>Latest</span>
           )}
           {collapsed && (
-            <span className="text-[10px] text-white/30">{items.length} item{items.length !== 1 ? "s" : ""}</span>
+            <span className={`text-[10px] ${tc.textMuted}`}>{items.length} item{items.length !== 1 ? "s" : ""}</span>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -119,7 +121,7 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
             <span>{PIPELINE.find(p => p.key === batch.status)?.label || batch.status}</span>
           </div>
           <span
-            className="text-white/25 text-[10px] transition-transform duration-200"
+            className={`text-[10px] transition-transform duration-200 ${tc.textMuted}`}
             style={{ display: "inline-block", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}
           >▼</span>
         </div>
@@ -164,12 +166,12 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
                       p.accent === "blue"    ? "bg-blue-500/25 text-blue-300" :
                       p.accent === "emerald" ? "bg-emerald-500/25 text-emerald-300" :
                       "bg-purple-500/25 text-purple-300"
-                    ) : isDone ? "text-white/50" : "text-white/15"
+                    ) : isDone ? tc.textSub : tc.textMuted
                   }`}>
                     {isDone ? "✓" : p.icon} {(isCurrent || isDone) ? p.label : ""}
                   </div>
                   {i < PIPELINE.length - 1 && (
-                    <div className={`flex-1 h-px ${isDone ? "bg-white/20" : "bg-white/[0.07]"}`} />
+                    <div className={`flex-1 h-px ${isDone ? "bg-white/20" : tc.mutedBg}`} />
                   )}
                 </React.Fragment>
               );
@@ -185,24 +187,24 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
               return (
                 <div key={idx} className="flex items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="w-5 h-5 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-white/70 flex-none">{qty}</span>
-                    <span className="text-white/85 truncate">{name}</span>
+                    <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-none ${tc.mutedBg} ${tc.textSub}`}>{qty}</span>
+                    <span className={`truncate ${tc.textPrimary}`}>{name}</span>
                     {item.note && <span className="text-orange-300/70 italic truncate text-[10px] ml-1">· {item.note}</span>}
                   </div>
-                  {price > 0 && <span className="text-white/40 flex-none">₹{money(price * qty)}</span>}
+                  {price > 0 && <span className={`flex-none ${tc.textMuted}`}>₹{money(price * qty)}</span>}
                 </div>
               );
             })}
           </div>
 
           {/* Time + total */}
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.07]">
-            <div className={`text-[10px] font-medium ${isOver ? "text-red-400" : isLate ? "text-amber-400" : "text-white/35"}`}>
+          <div className={`flex items-center justify-between gap-2 pt-2 border-t ${tc.borderSoft}`}>
+            <div className={`text-[10px] font-medium ${isOver ? "text-red-400" : isLate ? "text-amber-400" : tc.textMuted}`}>
               ⏱ {elapsed()}
               {isOver && <span className="ml-1 font-bold">OVERDUE</span>}
               {isLate && !isOver && <span className="ml-1 font-bold">LATE</span>}
             </div>
-            {batchTotal > 0 && <span className="text-xs font-bold text-white/50">₹{money(batchTotal)}</span>}
+            {batchTotal > 0 && <span className={`text-xs font-bold ${tc.textSub}`}>₹{money(batchTotal)}</span>}
           </div>
 
           {/* Action button */}
@@ -224,6 +226,7 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
 }
 
 export default function KitchenOrderBoard() {
+  const { tc } = usePOSTheme();
   const [orders, setOrders]     = React.useState([]);
   const [filter, setFilter]     = React.useState("all");
   const [now, setNow]           = React.useState(Date.now());
@@ -339,18 +342,17 @@ export default function KitchenOrderBoard() {
   const hasMultiBatch = tableGroups.some(g => g.batches.length > 1);
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-slate-900 overflow-y-auto">
-      {/* Aurora */}
+    <div className="relative w-full h-full min-h-screen overflow-y-auto" style={tc.bg}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/3 -left-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-orange-500/10" />
-        <div className="absolute -bottom-1/3 -right-1/4 w-[70%] h-[70%] rounded-full blur-3xl bg-blue-500/10" />
+        <div className="absolute -top-32 -right-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
+        <div className="absolute -bottom-32 -left-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob2} 0%, transparent 65%)` }} />
       </div>
 
       {/* Top Bar */}
-      <div className="sticky top-0 z-20 bg-slate-900/90 backdrop-blur-md border-b border-white/[0.08]">
+      <div className={`sticky top-0 z-20 ${tc.headerBg}`}>
         <div className="px-5 py-3 flex items-center gap-4 flex-wrap">
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold text-white flex items-center gap-2">
+            <div className={`text-sm font-bold flex items-center gap-2 ${tc.textPrimary}`}>
               Kitchen Order Board
               {hasMultiBatch && (
                 <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 uppercase tracking-wide">
@@ -358,7 +360,7 @@ export default function KitchenOrderBoard() {
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-white/40 mt-0.5">
+            <div className={`text-[11px] mt-0.5 ${tc.textMuted}`}>
               {activeCount > 0 ? `${activeCount} active batch${activeCount !== 1 ? "es" : ""} across ${filteredGroups.length} table${filteredGroups.length !== 1 ? "s" : ""}` : "All clear"}
               {statusCounts.served > 0 && ` · ${statusCounts.served} awaiting clear`}
             </div>
@@ -375,12 +377,12 @@ export default function KitchenOrderBoard() {
                     : p.accent === "blue"    ? "bg-blue-500/15 text-blue-300"
                     : p.accent === "emerald" ? "bg-emerald-500/15 text-emerald-300"
                     : "bg-purple-500/15 text-purple-300"
-                    : "text-white/20"
+                    : tc.textMuted
                 }`}>
                   <span>{p.icon}</span>
                   <span className="font-semibold">{statusCounts[p.key]}</span>
                 </div>
-                {i < PIPELINE.length - 1 && <span className="text-white/15">›</span>}
+                {i < PIPELINE.length - 1 && <span className={tc.textMuted}>›</span>}
               </React.Fragment>
             ))}
           </div>
@@ -397,7 +399,7 @@ export default function KitchenOrderBoard() {
             ].map(({ key, label, cls }) => (
               <button key={key} onClick={() => setFilter(key)}
                 className={`px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all ${
-                  filter === key ? cls : "text-white/35 hover:text-white/60 hover:bg-white/5"
+                  filter === key ? cls : `${tc.textMuted} hover:bg-white/5`
                 }`}
               >{label}</button>
             ))}
@@ -409,9 +411,9 @@ export default function KitchenOrderBoard() {
       <div className="relative z-10 p-5">
         <div className="max-w-7xl mx-auto">
           {filteredGroups.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-white/40">
+            <div className={`flex flex-col items-center justify-center py-24 ${tc.textMuted}`}>
               <div className="text-7xl mb-4">👨‍🍳</div>
-              <div className="text-lg font-semibold text-white/60 mb-1">
+              <div className={`text-lg font-semibold mb-1 ${tc.textSub}`}>
                 {filter === "all" ? "Kitchen is clear!" : `No ${filter} orders`}
               </div>
               <div className="text-sm">Orders sent from POS will appear here instantly</div>
@@ -440,30 +442,29 @@ export default function KitchenOrderBoard() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.93, y: -8 }}
                       transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                      className={`rounded-2xl border bg-slate-800/50 backdrop-blur-sm overflow-hidden ${
+                      className={`rounded-2xl border backdrop-blur-sm overflow-hidden ${tc.cardBg} ${
                         hasNew  ? "border-amber-500/40 ring-1 ring-amber-500/20" :
                         hasPending ? "border-amber-500/25" :
                         dominantAccent === "green"   ? "border-green-500/25" :
                         dominantAccent === "blue"    ? "border-blue-500/25" :
-                        dominantAccent === "emerald" ? "border-emerald-500/30" :
-                        "border-white/[0.08]"
+                        dominantAccent === "emerald" ? "border-emerald-500/30" : tc.borderSoft
                       }`}
                     >
                       {/* ── Table Header ── */}
-                      <div className={`px-4 py-3 border-b border-white/[0.07] ${
+                      <div className={`px-4 py-3 border-b ${tc.borderSoft} ${
                         hasNew ? "bg-amber-500/[0.06]" :
                         dominantAccent === "green"   ? "bg-green-500/[0.06]" :
                         dominantAccent === "blue"    ? "bg-blue-500/[0.06]" :
                         dominantAccent === "emerald" ? "bg-emerald-500/[0.06]" :
-                        "bg-white/[0.03]"
+                        ""
                       }`}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-sm font-bold text-white truncate">
-                              🪑 {group.tableName}
+                            <span className={`text-sm font-bold truncate ${tc.textPrimary}`}>
+                              � {group.tableName}
                             </span>
                             {group.tableZone && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white/10 text-white/55 uppercase tracking-wide">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${tc.mutedBg} ${tc.textMuted}`}>
                                 {group.tableZone}
                               </span>
                             )}
@@ -478,7 +479,7 @@ export default function KitchenOrderBoard() {
                               </motion.span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1 shrink-0 text-[10px] text-white/40 font-medium">
+                          <div className={`flex items-center gap-1 shrink-0 text-[10px] font-medium ${tc.textMuted}`}>
                             <span>{group.batches.length} batch{group.batches.length !== 1 ? "es" : ""}</span>
                           </div>
                         </div>

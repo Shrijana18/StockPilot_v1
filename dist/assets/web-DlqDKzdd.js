@@ -1,1 +1,0 @@
-import{W as a}from"./index-CjSJ5y56.js";import"./router-0IH_jsSi.js";import"./firebase-CrPAx79r.js";import"./index.esm-BXakCC1z.js";class s extends a{async show(t){if(typeof document<"u"){let o=2e3;t.duration&&(o=t.duration==="long"?3500:2e3);const e=document.createElement("pwa-toast");e.duration=o,e.message=t.text,document.body.appendChild(e)}}}export{s as ToastWeb};

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import CustomerForm from "../../billing/CustomerForm";
 import { getFirestore, collection, getDocs } from "firebase/firestore";
 import { auth } from "../../../firebase/firebaseConfig";
+import { usePOSTheme } from "../POSThemeContext";
 
 /**
  * POSBilling — Premium clean build (V3 Layout - Enhanced)
@@ -893,6 +894,7 @@ function ReceiptPreviewModal({ open, invoice, onClose }) {
 
 
 export default function POSBilling({ inventory = {}, billing = {}, mode = "retail", onBack, onInvoiceSaved }) {
+  const { tc, theme } = usePOSTheme();
   // Search / results
   const [q, setQ] = React.useState("");
   const [results, setResults] = React.useState(/** @type {Product[]} */([]));
@@ -1573,10 +1575,10 @@ return {
 
 
   return (
-    <div className="relative flex flex-col min-h-screen text-slate-100">
+    <div className={`relative flex flex-col min-h-screen ${tc.textPrimary}`} style={{ background: theme === "light" ? "linear-gradient(180deg,#f0fdf4 0%,#f8fafc 55%,#f0fdf4 100%)" : "linear-gradient(180deg,#071a2b 0%,#0b2944 55%,#071a2b 100%)" }}>
       {/* Base gradient (green–blue) */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10" style={{
-        backgroundImage:
+        backgroundImage: theme === "light" ? undefined :
           'linear-gradient(180deg, #071a2b 0%, #0b2944 55%, #071a2b 100%)'
       }} />
 
@@ -1597,7 +1599,7 @@ return {
         maskImage: 'linear-gradient(to bottom, black, black, rgba(0,0,0,0.85) 60%, rgba(0,0,0,0.6))'
       }} />
       {/* ... (Top Bar and other JSX remains the same) ... */}
-      <div className="sticky top-0 z-30 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
+      <div className={`sticky top-0 z-30 backdrop-blur border-b ${tc.headerBg} ${tc.borderSoft}`}>
         <div className="px-4 py-3 flex gap-2 items-center">
           {onBack && (
             <button
@@ -1607,11 +1609,11 @@ return {
           )}
           <button
             onClick={() => setScanOpen(true)}
-            className="rounded-lg px-4 py-2 text-sm font-semibold border border-white/10 bg-white/5 hover:bg-white/10"
+            className={`rounded-lg px-4 py-2 text-sm font-semibold border hover:bg-white/10 ${tc.borderSoft} ${tc.mutedBg}`}
             type="button"
             style={{ marginLeft: "0.5rem" }}
           >Scan (F1)</button>
-          <h2 className="text-lg font-semibold">Billing POS</h2>
+          <h2 className={`text-lg font-semibold ${tc.textPrimary}`}>Billing POS</h2>
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={() => setShowShortcuts(true)}
@@ -1629,10 +1631,10 @@ return {
 
       {posMode === 'expandedCart' ? (
         <div key="expanded-cart" className="w-full bg-transparent sticky top-[56px] self-start h-[calc(100vh-56px)]">
-          <div className="flex flex-col h-full min-h-0 bg-gradient-to-br from-slate-900/50 to-slate-800/50 backdrop-blur-xl border-l border-white/10">
+          <div className={`flex flex-col h-full min-h-0 backdrop-blur-xl border-l ${tc.cardBg} ${tc.borderSoft}`}>
             <div className="p-4 flex items-center gap-2 border-b border-white/10 bg-white/5">
               {/* --- ENHANCED: Multi-Cart Tabs (Expanded View) --- */}
-              <div className="flex gap-1 rounded-lg bg-slate-800/50 p-1 border border-white/10">
+              <div className={`flex gap-1 rounded-lg p-1 border ${tc.mutedBg} ${tc.borderSoft}`}>
                 {[0, 1, 2].map(idx => {
                   const cartState = multiCarts[idx];
                   const itemCount = cartState.cart?.length || 0;
@@ -1651,7 +1653,7 @@ return {
                     >
                       Cart {idx + 1}
                       {itemCount > 0 && (
-                        <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] ${isActive ? 'bg-white/20' : 'bg-slate-700'}`}>
+                        <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] ${isActive ? 'bg-white/20' : tc.mutedBg}`}>
                           {itemCount}
                         </span>
                       )}
@@ -1666,15 +1668,15 @@ return {
                 <button onClick={holdCurrentOrder} className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition-all" type="button">Hold Order</button>
                 <div className="relative group">
                   <button className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition-all" type="button">Drafts ({drafts.length})</button>
-                  <div className="absolute right-0 mt-1 hidden group-hover:block z-30 w-64 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl shadow-2xl max-h-64 overflow-auto">
+                  <div className={`absolute right-0 mt-1 hidden group-hover:block z-30 w-64 rounded-xl border shadow-2xl backdrop-blur-xl max-h-64 overflow-auto ${tc.modalBg}`}>
                     {drafts.length === 0 ? (
-                      <div className="p-3 text-xs text-slate-400">No drafts</div>
+                      <div className={`p-3 text-xs ${tc.textMuted}`}>No drafts</div>
                     ) : (
                       drafts.map(d => (
                         <div key={d.id} className="flex items-center justify-between text-xs px-3 py-2 hover:bg-white/10 border-b border-white/10 last:border-0">
                           <div className="truncate">
                             <div className="font-semibold text-white">{d.id}</div>
-                            <div className="text-slate-400">{new Date(d.createdAt).toLocaleTimeString()}</div>
+                            <div className={tc.textMuted}>{new Date(d.createdAt).toLocaleTimeString()}</div>
                           </div>
                           <div className="flex items-center gap-1">
                             <button onClick={() => resumeDraft(d.id)} className="rounded border border-white/10 bg-white/5 px-2 py-0.5 text-emerald-400 hover:bg-emerald-500/20">Resume</button>
@@ -1876,23 +1878,23 @@ return {
                 <div className="flex gap-1 rounded-full px-1.5 py-1 bg-white/5 border border-white/10 shadow-sm transition-all">
                   <button
                     onClick={() => setPosMode("inventory")}
-                    className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all duration-150 ${posMode === "inventory" ? "bg-emerald-500 text-white shadow-sm" : "bg-transparent text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"}`}
+                    className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all duration-150 ${posMode === "inventory" ? "bg-emerald-500 text-white shadow-sm" : `bg-transparent ${tc.textSub} hover:bg-white/10`}`}
                     style={{ minWidth: 90 }} type="button">Inventory</button>
                   <button
                     onClick={() => setPosMode("scanner")}
-                    className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all duration-150 ${posMode === "scanner" ? "bg-emerald-500 text-white shadow-sm" : "bg-transparent text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"}`}
+                    className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all duration-150 ${posMode === "scanner" ? "bg-emerald-500 text-white shadow-sm" : `bg-transparent ${tc.textSub} hover:bg-white/10`}`}
                     style={{ minWidth: 90 }} type="button">Scanner</button>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => { setIsCartExpanded(true); setPosMode("expandedCart"); }}
-                    className="rounded-lg border px-3 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className={`rounded-lg border px-3 py-1.5 text-xs transition ${tc.borderSoft} ${tc.textSub} ${tc.mutedBg}`}
                     type="button"
                   >Expand Cart (F4)</button>
                   {posMode === "expandedCart" && (
                     <button
                       onClick={() => { setIsCartExpanded(false); setPosMode("inventory"); }}
-                      className="rounded-lg border px-3 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                      className={`rounded-lg border px-3 py-1.5 text-xs transition ${tc.borderSoft} ${tc.textSub} ${tc.mutedBg}`}
                       type="button"
                     >Collapse Cart</button>
                   )}
@@ -1955,7 +1957,7 @@ return {
               </div>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 pointer-events-none select-none">🔍</span>
+                  <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-lg pointer-events-none select-none ${tc.textMuted}`}>🔍</span>
                   <input
                     ref={searchRef}
                     value={q}
@@ -1968,11 +1970,11 @@ return {
                     }}
                     inputMode="search"
                     placeholder="Scan barcode or search products"
-                    className="w-full rounded-xl border border-white/10 bg-white/10 backdrop-blur px-9 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-300/40 transition-all" />
+                    className={`w-full rounded-xl border backdrop-blur px-9 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-300/40 transition-all ${tc.inputBg}`} />
                 </div>
                 <button
                   onClick={() => { if (searchTimer.current) clearTimeout(searchTimer.current); setQ(""); setActiveCat(undefined); setResults(allResults); setLoading(false); } }
-                  className="rounded-xl border border-white/10 bg-white/10 hover:bg-white/20 px-3 py-2.5 text-sm">Clear</button>
+                  className={`rounded-xl border px-3 py-2.5 text-sm hover:bg-white/20 transition ${tc.borderSoft} ${tc.mutedBg} ${tc.textSub}`}>Clear</button>
               </div>
               {/* keep the rest of the inventory grid exactly as it was */}
               {/* START of original inventory grid */}
@@ -2056,9 +2058,9 @@ return {
         {/* Col 2: Cart */}
         <div className="w-[420px] bg-transparent sticky top-[56px] self-start h-[calc(100vh-56px)]">
           <div className="flex flex-col h-full min-h-0">
-            <div className="p-3 flex items-center gap-2 border-b border-white/10 bg-white/5 flex-wrap">
+            <div className={`p-3 flex items-center gap-2 border-b flex-wrap ${tc.mutedBg} ${tc.borderSoft}`}>
               {/* --- ENHANCED: Multi-Cart Tabs --- */}
-              <div className="flex gap-1 rounded-lg bg-slate-800/50 p-1 border border-white/10 shrink-0">
+              <div className={`flex gap-1 rounded-lg p-1 border shrink-0 ${tc.mutedBg} ${tc.borderSoft}`}>
                 {[0, 1, 2].map(idx => {
                   const cartState = multiCarts[idx];
                   const itemCount = cartState.cart?.length || 0;
@@ -2070,14 +2072,14 @@ return {
                       className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
                         isActive
                           ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25'
-                          : 'text-slate-300 hover:text-white hover:bg-white/10'
+                          : `${tc.textSub} hover:text-white hover:bg-white/10`
                       }`}
                       type="button"
                       title={`Cart ${idx + 1} (Ctrl+${idx + 1})`}
                     >
                       {idx + 1}
                       {itemCount > 0 && (
-                        <span className={`ml-1 px-1 py-0.5 rounded text-[10px] ${isActive ? 'bg-white/20' : 'bg-slate-700'}`}>
+                        <span className={`ml-1 px-1 py-0.5 rounded text-[10px] ${isActive ? 'bg-white/20' : tc.mutedBg}`}>
                           {itemCount}
                         </span>
                       )}
@@ -2092,15 +2094,15 @@ return {
                 <button onClick={holdCurrentOrder} className="text-xs rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 px-2 py-1 text-white transition-all shrink-0" type="button">Hold</button>
                 <div className="relative group shrink-0">
                   <button className="text-xs rounded-lg border border-white/10 px-2 py-1 bg-white/5 hover:bg-white/10 text-white transition-all" type="button">Drafts ({drafts.length})</button>
-                  <div className="absolute right-0 mt-1 hidden group-hover:block z-30 w-64 rounded-xl border bg-white dark:bg-slate-900 shadow-lg max-h-64 overflow-auto">
+                  <div className={`absolute right-0 mt-1 hidden group-hover:block z-30 w-64 rounded-xl border shadow-lg max-h-64 overflow-auto ${tc.modalBg}`}>
                     {drafts.length === 0 ? (
-                      <div className="p-3 text-xs text-slate-500">No drafts</div>
+                      <div className={`p-3 text-xs ${tc.textMuted}`}>No drafts</div>
                     ) : (
                       drafts.map(d => (
                         <div key={d.id} className="flex items-center justify-between text-xs px-3 py-2 hover:bg-white/10">
                           <div className="truncate">
                             <div className="font-semibold">{d.id}</div>
-                            <div className="text-slate-500">{new Date(d.createdAt).toLocaleTimeString()}</div>
+                            <div className={tc.textMuted}>{new Date(d.createdAt).toLocaleTimeString()}</div>
                           </div>
                           <div className="flex items-center gap-1">
                             <button onClick={() => resumeDraft(d.id)} className="rounded border border-white/10 bg-white/5 px-2 py-0.5">Resume</button>
@@ -2132,7 +2134,7 @@ return {
                       className="flex items-start gap-3 rounded-xl border border-white/10 p-2.5 bg-gradient-to-br from-white/5 to-white/[0.02] hover:from-white/10 hover:to-white/5 transition-all">
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{cartDisplayName}</div>
-                        <div className="text-xs text-slate-500">₹ {money(cartDisplayPrice)}</div>
+                        <div className={`text-xs ${tc.textMuted}`}>₹ {money(cartDisplayPrice)}</div>
                         <button
                           onClick={() => {
                             const base = (line.product.sellingPrice ?? line.product.price ?? line.product.mrp ?? line.product.basePrice ?? 0) * line.qty;
@@ -2140,7 +2142,7 @@ return {
                             setDiscountTarget({ id: line.product.id, max });
                             setEditingDiscount({ id: line.product.id, value: line.discount ?? "" });
                           }}
-                          className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300 hover:underline" type="button">
+                          className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-300 hover:underline" type="button">
                           {typeof line.discount === "number" && line.discount > 0 ? `Discount: ₹${money(line.discount)}` : "Add discount"}
                         </button>
                       </div>
@@ -2150,12 +2152,12 @@ return {
                         <button onClick={() => incQty(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/20 transition-all text-base font-bold" type="button">＋</button>
                       </div>
                       <div className="w-20 text-right text-sm font-semibold pt-1">₹ {money(Math.max(0, (cartDisplayPrice * line.qty) - (line.discount ?? 0)))}</div>
-                      <button onClick={() => removeLine(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border border-white/10 bg-white/5 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all text-base font-bold text-rose-600" type="button">×</button>
+                      <button onClick={() => removeLine(line.product.id)} className="rounded-md w-7 h-7 flex items-center justify-center border border-white/10 bg-white/5 hover:bg-rose-900/20 transition-all text-base font-bold text-rose-400" type="button">×</button>
                     </motion.div>
                   );
                 })}
               </AnimatePresence>
-              {!cart.length && <div className="text-sm text-white/60 text-center py-16">Your cart is empty</div>}
+              {!cart.length && <div className={`text-sm text-center py-16 ${tc.textMuted}`}>Your cart is empty</div>}
             </div>
 
             <DiscountEditor
@@ -2172,20 +2174,20 @@ return {
 
             {/* --- ENHANCED: Checkout Section - Fully Minimizable --- */}
             {isPaymentSectionMinimized ? (
-              <div className="mt-auto border-t border-white/10 bg-gradient-to-t from-slate-900/95 to-slate-800/95 backdrop-blur-xl sticky bottom-0">
+              <div className={`mt-auto border-t backdrop-blur-xl sticky bottom-0 ${tc.cardBg} ${tc.borderSoft}`}>
                 <button
                   onClick={() => setIsPaymentSectionMinimized(false)}
                   className="w-full p-3 flex items-center justify-between hover:bg-white/5 transition-colors group"
                   type="button"
                 >
                   <div className="flex items-center gap-2">
-                    <div className="text-sm font-semibold text-white">Payment & Checkout</div>
+                    <div className={`text-sm font-semibold ${tc.textPrimary}`}>Payment &amp; Checkout</div>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
                       ₹ {money(totals.grandTotal)}
                     </span>
                   </div>
                   <svg
-                    className="w-4 h-4 text-slate-400 transition-transform duration-200 rotate-180"
+                    className={`w-4 h-4 transition-transform duration-200 rotate-180 ${tc.textMuted}`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -2193,29 +2195,29 @@ return {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
-                </div>
+              </div>
             ) : (
-              <div className="mt-auto border-t border-white/10 bg-gradient-to-t from-slate-900/95 to-slate-800/95 backdrop-blur-xl sticky bottom-0">
+              <div className={`mt-auto border-t backdrop-blur-xl sticky bottom-0 ${tc.cardBg} ${tc.borderSoft}`}>
                 {/* Minimize Header */}
                 <button
                   onClick={() => setIsPaymentSectionMinimized(true)}
                   className="w-full p-2 flex items-center justify-between hover:bg-white/5 transition-colors border-b border-white/10"
                   type="button"
                 >
-                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Payment & Checkout</div>
+                  <div className={`text-xs font-semibold uppercase tracking-wider ${tc.textMuted}`}>Payment &amp; Checkout</div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold bg-gradient-to-r from-emerald-400 to-emerald-500 bg-clip-text text-transparent">
                       ₹ {money(totals.grandTotal)}
                     </span>
                     <svg
-                      className="w-4 h-4 text-slate-400 transition-transform duration-200"
+                      className={`w-4 h-4 transition-transform duration-200 ${tc.textMuted}`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
-              </div>
+                  </div>
                 </button>
                 
               {/* Customer Panel - Collapsible */}
@@ -2242,7 +2244,7 @@ return {
                       >Add</button>
                     )}
                     <svg
-                      className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isCustomerCollapsed ? '' : 'rotate-180'}`}
+                      className={`w-4 h-4 transition-transform duration-200 ${tc.textMuted} ${isCustomerCollapsed ? '' : 'rotate-180'}`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -2266,7 +2268,7 @@ return {
                   <CustomerForm customer={customer} setCustomer={setCustomer} />
                 </div>
                         ) : customer.name ? (
-                          <div className="text-sm text-slate-300 py-2">{customer.name}</div>
+                          <div className={`text-sm py-2 ${tc.textSub}`}>{customer.name}</div>
                         ) : (
                           <button
                             onClick={() => setShowCustomer(true)}
@@ -2283,17 +2285,17 @@ return {
               {/* Totals Summary - Always Visible Compact */}
               <div className="p-3 border-b border-white/10">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs text-slate-400">Total</div>
+                  <div className={`text-xs ${tc.textMuted}`}>Total</div>
                   <div className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-emerald-500 bg-clip-text text-transparent">
                     ₹ {money(totals.grandTotal)}
                   </div>
                 </div>
-                <div className="flex justify-between text-xs text-slate-400 mb-1">
+                <div className={`flex justify-between text-xs mb-1 ${tc.textMuted}`}>
                   <span>Subtotal</span>
                   <span>₹ {money(totals.subTotal)}</span>
                 </div>
                 {totals.tax > 0 && (
-                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                  <div className={`flex justify-between text-xs mb-1 ${tc.textMuted}`}>
                     <span>Tax</span>
                     <span>₹ {money(totals.tax)}</span>
                   </div>

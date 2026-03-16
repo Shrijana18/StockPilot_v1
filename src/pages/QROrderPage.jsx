@@ -24,7 +24,7 @@ const STATUS_META = {
   completed: { label: "Completed",        icon: "✅", color: "text-white/50",    bar: "bg-white/30",    step: 5 },
 };
 
-// ── Item Card ─────────────────────────────────────────────────────────────────
+// ── Item Card ───────────────────────────────────────────────────────────────
 function ItemCard({ item, qty, onAdd, onRemove }) {
   const isVeg = normalizeType(item.type) === "veg";
   const available = item.available !== false;
@@ -32,60 +32,72 @@ function ItemCard({ item, qty, onAdd, onRemove }) {
   return (
     <motion.div
       layout
+      whileHover={available ? { y: -2, scale: 1.01 } : {}}
       className={`rounded-2xl border transition-all overflow-hidden ${
         available
-          ? "border-white/8 bg-white/3 hover:border-white/15 hover:bg-white/5"
-          : "border-white/4 bg-white/1 opacity-50"
+          ? "border-white/[0.09] bg-white/[0.04] hover:border-white/[0.16] hover:bg-white/[0.07]"
+          : "border-white/[0.04] bg-white/[0.02] opacity-45"
       }`}
     >
-      {item.image && (
-        <div className="relative w-full h-32 overflow-hidden">
+      {/* Image */}
+      {item.image ? (
+        <div className="relative w-full h-36 overflow-hidden">
           <img src={item.image} alt={item.name}
-            className="w-full h-full object-cover"
-            onError={e => { e.currentTarget.style.display = "none"; }}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={e => { e.currentTarget.parentElement.style.display = "none"; }}
           />
+          {/* Veg dot on image */}
+          <div className="absolute top-2.5 left-2.5">
+            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center bg-black/50 backdrop-blur-sm ${
+              isVeg ? "border-emerald-400" : "border-red-400"
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${ isVeg ? "bg-emerald-400" : "bg-red-400" }`} />
+            </div>
+          </div>
           {!available && (
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-              <span className="text-xs font-black text-white/60 bg-black/40 px-3 py-1 rounded-full">Unavailable</span>
+            <div className="absolute inset-0 bg-black/65 flex items-center justify-center">
+              <span className="text-xs font-black text-white/70 bg-black/50 px-3 py-1.5 rounded-xl backdrop-blur-sm">Unavailable</span>
             </div>
           )}
         </div>
-      )}
-      <div className="px-3 pt-2.5 pb-3">
-        <div className="flex items-start gap-2 mb-1.5">
-          {/* Veg/nonveg dot */}
-          <div className={`mt-0.5 shrink-0 w-3.5 h-3.5 rounded-sm border-[1.5px] flex items-center justify-center ${
-            isVeg ? "border-emerald-500" : "border-red-500"
+      ) : (
+        <div className="w-full h-24 flex items-center justify-center bg-white/[0.03] relative">
+          <span className="text-4xl opacity-25">🍽️</span>
+          <div className={`absolute top-2.5 left-2.5 w-5 h-5 rounded-md border-2 flex items-center justify-center ${
+            isVeg ? "border-emerald-500 bg-emerald-900/30" : "border-red-500 bg-red-900/30"
           }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isVeg ? "bg-emerald-400" : "bg-red-400"}`} />
+            <span className={`w-2 h-2 rounded-full ${ isVeg ? "bg-emerald-400" : "bg-red-400" }`} />
           </div>
-          <p className="text-sm font-bold text-white/90 leading-tight flex-1">{item.name}</p>
         </div>
+      )}
+
+      <div className="px-3.5 pt-3 pb-3.5">
+        <p className="text-sm font-bold text-white/90 leading-tight mb-1">{item.name}</p>
         {item.description && (
-          <p className="text-[10px] text-white/35 leading-relaxed mb-2 line-clamp-2">{item.description}</p>
+          <p className="text-[10px] text-white/35 leading-relaxed mb-2.5 line-clamp-2">{item.description}</p>
         )}
-        <div className="flex items-center justify-between gap-2">
-          <div>
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <div className="flex flex-col">
             <span className="text-base font-black text-white">₹{item.price}</span>
-            {item.tax > 0 && <span className="text-[9px] text-white/25 ml-1">+{item.tax}% GST</span>}
+            {item.tax > 0 && <span className="text-[9px] text-white/25">+{item.tax}% GST incl.</span>}
           </div>
           {available ? (
             qty > 0 ? (
-              <div className="flex items-center gap-2 bg-emerald-500/15 border border-emerald-500/25 rounded-full px-1.5 py-1">
-                <button onClick={onRemove}
-                  className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-sm font-black transition">−</button>
-                <span className="text-sm font-black text-emerald-300 min-w-[16px] text-center">{qty}</span>
-                <button onClick={onAdd}
-                  className="w-6 h-6 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center text-sm font-black transition">+</button>
+              <div className="flex items-center gap-2 bg-emerald-500/15 border border-emerald-500/30 rounded-2xl px-2 py-1.5">
+                <motion.button whileTap={{ scale: 0.85 }} onClick={onRemove}
+                  className="w-7 h-7 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-base font-black transition">−</motion.button>
+                <span className="text-sm font-black text-emerald-300 min-w-[18px] text-center">{qty}</span>
+                <motion.button whileTap={{ scale: 0.85 }} onClick={onAdd}
+                  className="w-7 h-7 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center text-base font-black transition shadow-md shadow-emerald-500/30">+</motion.button>
               </div>
             ) : (
-              <motion.button whileTap={{ scale: 0.92 }} onClick={onAdd}
-                className="px-3.5 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-xs font-black hover:bg-emerald-500/25 transition">
-                ADD +
+              <motion.button whileTap={{ scale: 0.9 }} onClick={onAdd}
+                className="flex items-center gap-1 px-4 py-2 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-black hover:bg-emerald-500/25 hover:border-emerald-400/50 transition shadow-sm">
+                <span className="text-base leading-none">+</span> ADD
               </motion.button>
             )
           ) : (
-            <span className="text-[10px] text-white/30 font-medium">Unavailable</span>
+            <span className="text-[10px] text-white/25 font-medium">Unavailable</span>
           )}
         </div>
       </div>
@@ -177,13 +189,128 @@ function OrderTracker({ orderId, bizUid, tableName, onNewOrder }) {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Splash Screen ────────────────────────────────────────────────────────────
+function SplashScreen({ bizName, bizTagline, tableName, tableZone, onEnter }) {
+  const [step, setStep] = useState(0); // 0=logo, 1=name, 2=table
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setStep(1), 700);
+    const t2 = setTimeout(() => setStep(2), 1500);
+    const t3 = setTimeout(() => onEnter(), 3200);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [onEnter]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 flex flex-col items-center justify-center px-6 text-center"
+      style={{ background: "linear-gradient(160deg,#071a2b 0%,#0b2944 55%,#060c17 100%)" }}
+      exit={{ opacity: 0, scale: 1.04 }}
+      transition={{ duration: 0.35 }}
+      onClick={onEnter}
+    >
+      {/* Aurora blobs */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-32 -left-16 w-[70%] h-[70%] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(56,189,248,0.18) 0%, transparent 65%)" }} />
+        <div className="absolute -bottom-32 -right-16 w-[65%] h-[65%] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(16,185,129,0.16) 0%, transparent 65%)" }} />
+      </div>
+
+      <div className="relative z-10 flex flex-col items-center">
+        {/* FLYP Logo */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.5, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 280, damping: 22, delay: 0.1 }}
+          className="mb-5"
+        >
+          <img src="/assets/flyp_logo.png" alt="FLYP"
+            className="w-20 h-20 object-contain drop-shadow-[0_0_30px_rgba(16,185,129,0.5)]"
+            onError={e => { e.target.style.display = "none"; }}
+          />
+        </motion.div>
+
+        {/* FLYP POS label */}
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: step >= 0 ? 1 : 0, y: step >= 0 ? 0 : 6 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
+          className="text-[10px] font-black tracking-[0.3em] text-emerald-400/70 uppercase mb-6"
+        >FLYP POS</motion.div>
+
+        {/* Business Name */}
+        <AnimatePresence>
+          {step >= 1 && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="text-center mb-2"
+            >
+              <h1 className="text-3xl font-black text-white leading-tight">
+                Welcome to
+              </h1>
+              <h2 className="text-3xl font-black bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent leading-tight mt-0.5">
+                {bizName || "Our Restaurant"}
+              </h2>
+              {bizTagline && (
+                <p className="text-white/40 text-sm mt-2">{bizTagline}</p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Table info */}
+        <AnimatePresence>
+          {step >= 2 && (
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: "spring", stiffness: 320, damping: 28 }}
+              className="mt-5 px-5 py-3 rounded-2xl border border-white/[0.12] bg-white/[0.07] backdrop-blur-sm flex items-center gap-3"
+            >
+              <span className="text-2xl">🪑</span>
+              <div className="text-left">
+                <div className="text-white font-bold text-sm">{tableName}</div>
+                {tableZone && <div className="text-white/40 text-[11px] capitalize">{tableZone} zone</div>}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Tap to view menu */}
+        {step >= 2 && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="text-white/25 text-xs mt-8 animate-pulse"
+          >Tap anywhere to view menu</motion.p>
+        )}
+      </div>
+
+      {/* Powered by FLYP */}
+      <div className="absolute bottom-8 left-0 right-0 flex justify-center">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: step >= 1 ? 1 : 0 }}
+          className="flex items-center gap-2"
+        >
+          <img src="/assets/flyp_logo.png" alt="FLYP" className="w-5 h-5 object-contain opacity-30"
+            onError={e => e.target.style.display="none"} />
+          <span className="text-[10px] text-white/25 font-semibold tracking-widest uppercase">Powered by FLYP</span>
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function QROrderPage() {
   const bizUid  = useQp("biz");
   const tableId = useQp("table");
 
-  const [phase, setPhase]       = useState("loading"); // loading | menu | placing | tracking | error
-  const [bizName, setBizName]   = useState("");
-  const [table,   setTable]     = useState(null);
+  const [phase, setPhase]           = useState("loading"); // loading | splash | menu | tracking | error
+  const [bizName, setBizName]       = useState("");
+  const [bizTagline, setBizTagline] = useState("");
+  const [table,   setTable]         = useState(null);
   const [categories, setCats]   = useState([]);
   const [items,   setItems]     = useState([]);
   const [selCat,  setSelCat]    = useState("");
@@ -206,7 +333,9 @@ export default function QROrderPage() {
         // Business info
         const bizSnap = await getDoc(doc(db, "businesses", bizUid));
         if (!bizSnap.exists()) { setErrMsg("Restaurant not found."); setPhase("error"); return; }
-        setBizName(bizSnap.data()?.businessName || bizSnap.data()?.name || "Restaurant");
+        const bd = bizSnap.data();
+        setBizName(bd?.businessInfo?.name || bd?.businessName || bd?.name || "Restaurant");
+        setBizTagline(bd?.tagline || bd?.businessInfo?.tagline || "");
 
         // Table info
         const tableSnap = await getDoc(doc(db, "businesses", bizUid, "tables", tableId));
@@ -223,7 +352,7 @@ export default function QROrderPage() {
         const itemSnap = await getDocs(collection(db, "businesses", bizUid, "items"));
         setItems(itemSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(it => it.available !== false));
 
-        setPhase("menu");
+        setPhase("splash");
       } catch (e) {
         console.error(e);
         setErrMsg("Failed to load menu. Please try again.");
@@ -294,7 +423,8 @@ export default function QROrderPage() {
     }
   };
 
-  const tableName = table?.name || `Table ${table?.number || ""}`;
+  const tableName  = table?.name || `Table ${table?.number || ""}`;
+  const tableZone  = table?.zone || "";
 
   // ── Render: Error ──
   if (phase === "error") return (
@@ -308,12 +438,28 @@ export default function QROrderPage() {
 
   // ── Render: Loading ──
   if (phase === "loading") return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-4"
-      style={{ background: "linear-gradient(180deg,#080e18 0%,#050a10 100%)" }}>
-      <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-        className="w-10 h-10 border-2 border-emerald-500/20 border-t-emerald-400 rounded-full" />
-      <p className="text-white/30 text-sm">Loading menu…</p>
+    <div className="min-h-screen flex flex-col items-center justify-center gap-5"
+      style={{ background: "linear-gradient(160deg,#071a2b 0%,#0b2944 55%,#060c17 100%)" }}>
+      <img src="/assets/flyp_logo.png" alt="FLYP" className="w-14 h-14 object-contain opacity-60 animate-pulse" onError={e => e.target.style.display="none"} />
+      <div className="flex flex-col items-center gap-2">
+        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.9, ease: "linear" }}
+          className="w-6 h-6 border-2 border-emerald-500/20 border-t-emerald-400 rounded-full" />
+        <p className="text-white/30 text-xs tracking-widest uppercase">Loading menu…</p>
+      </div>
     </div>
+  );
+
+  // ── Render: Splash ──
+  if (phase === "splash") return (
+    <AnimatePresence>
+      <SplashScreen
+        bizName={bizName}
+        bizTagline={bizTagline}
+        tableName={tableName}
+        tableZone={tableZone}
+        onEnter={() => setPhase("menu")}
+      />
+    </AnimatePresence>
   );
 
   // ── Render: Order tracking ──
@@ -390,18 +536,25 @@ export default function QROrderPage() {
       {/* Items grid */}
       <div className="px-4 pt-4">
         {filteredItems.length === 0 ? (
-          <div className="flex flex-col items-center py-16 gap-2 text-center">
-            <div className="text-4xl opacity-15">🍽️</div>
-            <p className="text-white/30 text-sm">No items found</p>
+          <div className="flex flex-col items-center py-16 gap-3 text-center">
+            <div className="text-5xl opacity-15">🍽️</div>
+            <p className="text-white/30 text-sm font-semibold">No items found</p>
+            <p className="text-white/15 text-xs">Try a different category or search term</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {filteredItems.map(item => (
-              <ItemCard key={item.id} item={item}
-                qty={cart[item.id] || 0}
-                onAdd={() => addItem(item.id)}
-                onRemove={() => removeItem(item.id)}
-              />
+          <div className="grid grid-cols-2 gap-3">
+            {filteredItems.map((item, i) => (
+              <motion.div key={item.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.03, duration: 0.22 }}
+              >
+                <ItemCard item={item}
+                  qty={cart[item.id] || 0}
+                  onAdd={() => addItem(item.id)}
+                  onRemove={() => removeItem(item.id)}
+                />
+              </motion.div>
             ))}
           </div>
         )}
