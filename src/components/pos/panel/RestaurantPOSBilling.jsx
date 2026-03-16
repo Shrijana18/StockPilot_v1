@@ -19,6 +19,7 @@ import { usePOSTheme } from "../POSThemeContext";
  */
 
 const getUid = () => auth.currentUser?.uid;
+const ALL_CATEGORY_ID = "__all__";
 
 // Helper to normalize type
 const normalizeType = (t = "veg") =>
@@ -139,13 +140,23 @@ export default function RestaurantPOSBilling({
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   }, []);
 
-  // Load categories and items (from CreateMenu)
+  const [menuLoading, setMenuLoading] = React.useState(true);
+  const [menuError, setMenuError] = React.useState(null);
+
+  // Load categories and items (from CreateMenu) with error handling
   React.useEffect(() => {
     const uid = getUid();
-    if (!uid) return;
+    if (!uid) {
+      setMenuError("User not authenticated");
+      setMenuLoading(false);
+      return;
+    }
 
     const loadData = async () => {
       try {
+        setMenuLoading(true);
+        setMenuError(null);
+        
         // Load categories
         const categoriesRef = collection(db, "businesses", uid, "categories");
         const categoriesSnap = await getDocs(categoriesRef);
@@ -154,7 +165,8 @@ export default function RestaurantPOSBilling({
           cats.push({ id: docSnap.id, ...docSnap.data() });
         });
         setCategories(cats);
-        if (cats.length > 0) setSelectedCategoryId(cats[0].id);
+        // Default to "All" so operators can browse full menu quickly
+        setSelectedCategoryId(ALL_CATEGORY_ID);
 
         // Load items (only available)
         const itemsRef = collection(db, "businesses", uid, "items");
@@ -167,8 +179,21 @@ export default function RestaurantPOSBilling({
           }
         });
         setItems(itemsList);
+        
+        if (itemsList.length === 0) {
+          setMenuError("No menu items available. Please add items in Menu Builder.");
+        }
       } catch (err) {
         console.error("Error loading menu data:", err);
+        if (err.code === "permission-denied") {
+          setMenuError("Access denied. Please check your permissions for menu data.");
+        } else if (err.code === "unavailable") {
+          setMenuError("Network error. Please check your connection and try again.");
+        } else {
+          setMenuError("Failed to load menu. Please try refreshing the page.");
+        }
+      } finally {
+        setMenuLoading(false);
       }
     };
 
@@ -243,7 +268,7 @@ export default function RestaurantPOSBilling({
   const filteredItems = React.useMemo(() => {
     let filtered = items;
     
-    if (selectedCategoryId) {
+    if (selectedCategoryId && selectedCategoryId !== ALL_CATEGORY_ID) {
       filtered = filtered.filter(item => item.categoryId === selectedCategoryId);
     }
     
@@ -661,6 +686,68 @@ export default function RestaurantPOSBilling({
     return Object.values(map);
   }, [kitchenOrders, cart]);
 
+  // Show loading state for menu data
+  if (menuLoading) {
+    return (
+      <div className="relative w-full h-full flex items-center justify-center" style={tc.bg}>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 -left-16 w-[60%] h-[60%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
+        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative z-10 text-center"
+        >
+          <div className="w-16 h-16 border-4 border-emerald-500/40 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
+          <div className={`text-sm font-semibold ${tc.textPrimary}`}>Loading Menu...</div>
+          <div className={`text-xs mt-2 ${tc.textMuted}`}>Fetching items and categories</div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Show error state for menu data
+  if (menuError) {
+    return (
+      <div className="relative w-full h-full flex items-center justify-center p-5" style={tc.bg}>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 -left-16 w-[60%] h-[60%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, rgba(239,68,68,0.1) 0%, transparent 65%)` }} />
+        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative z-10 text-center max-w-md"
+        >
+          <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center text-3xl mx-auto mb-4">
+            📋
+          </div>
+          <div className={`text-base font-bold mb-2 ${tc.textPrimary}`}>Menu Loading Error</div>
+          <div className={`text-sm mb-6 ${tc.textSub}`}>{menuError}</div>
+          <div className="flex gap-3 justify-center">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => window.location.reload()}
+              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${tc.primaryBtn}`}
+            >
+              Refresh Page
+            </motion.button>
+            {onBack && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onBack}
+                className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${tc.outlineBtn}`}
+              >
+                Go Back
+              </motion.button>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden" style={tc.bg}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -744,8 +831,23 @@ export default function RestaurantPOSBilling({
           {/* Categories */}
           <div className={`px-4 py-3 border-b backdrop-blur-sm overflow-x-auto ${tc.borderSoft}`}>
             <div className="flex gap-2">
+              <button
+                type="button"
+                key={ALL_CATEGORY_ID}
+                onClick={() => setSelectedCategoryId(ALL_CATEGORY_ID)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all shrink-0 flex items-center gap-2 ${
+                  selectedCategoryId === ALL_CATEGORY_ID
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg"
+                    : `${tc.mutedBg} ${tc.textSub} hover:bg-white/10`
+                }`}
+                title="Show all items"
+              >
+                <span className="w-4 h-4 inline-flex items-center justify-center">🍽️</span>
+                <span>All</span>
+              </button>
               {categories.map(cat => (
                 <button
+                  type="button"
                   key={cat.id}
                   onClick={() => setSelectedCategoryId(cat.id)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all shrink-0 flex items-center gap-2 ${

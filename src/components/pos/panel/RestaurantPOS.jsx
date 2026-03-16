@@ -2,7 +2,7 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { usePOSTheme } from "../POSThemeContext";
-import { collection, doc, getDocs, setDoc, query, where, orderBy, updateDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDocs, setDoc, query, orderBy, updateDoc, onSnapshot, limit } from "firebase/firestore";
 import RestaurantPOSBilling from "./RestaurantPOSBilling";
 import TableManager from "./TableManager";
 
@@ -26,58 +26,107 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
   const [filterZone, setFilterZone] = React.useState("all"); // all | main | outdoor | vip | bar
 
   const getUid = () => auth.currentUser?.uid;
+  const [authError, setAuthError] = React.useState(null);
+  const [dataLoading, setDataLoading] = React.useState(true);
 
-  // Load tables on mount
+  // Authentication state listener
+  React.useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        setAuthError("Please login to access POS system");
+        setDataLoading(false);
+      } else {
+        setAuthError(null);
+        setDataLoading(false);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Load tables on mount with error handling
   React.useEffect(() => {
     const uid = getUid();
-    if (!uid) return;
+    if (!uid) {
+      setAuthError("User not authenticated");
+      return;
+    }
 
+    setDataLoading(true);
     const tablesRef = collection(db, "businesses", uid, "tables");
-    const unsubscribe = onSnapshot(tablesRef, (snap) => {
-      const tableList = [];
-      snap.forEach((docSnap) => {
-        tableList.push({ id: docSnap.id, ...docSnap.data() });
-      });
-      setTables(tableList.sort((a, b) => (a.number || 0) - (b.number || 0)));
-    });
+    const unsubscribe = onSnapshot(tablesRef, 
+      (snap) => {
+        try {
+          const tableList = [];
+          snap.forEach((docSnap) => {
+            tableList.push({ id: docSnap.id, ...docSnap.data() });
+          });
+          setTables(tableList.sort((a, b) => (a.number || 0) - (b.number || 0)));
+          setAuthError(null);
+        } catch (error) {
+          console.error("Error processing tables data:", error);
+          setAuthError("Failed to load tables data");
+        } finally {
+          setDataLoading(false);
+        }
+      },
+      (error) => {
+        console.error("Error fetching tables:", error);
+        if (error.code === "permission-denied") {
+          setAuthError("Access denied. Please check your permissions.");
+        } else {
+          setAuthError("Failed to load tables. Please try again.");
+        }
+        setDataLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
 
-  // Load kitchen orders to determine table status
+  // Load kitchen orders to determine table status with error handling
   React.useEffect(() => {
     const uid = getUid();
     if (!uid) return;
 
     const ordersRef = collection(db, "businesses", uid, "kitchenOrders");
-    const q = query(ordersRef, where("status", "!=", "completed"), orderBy("createdAt", "desc"));
+    // IMPORTANT: Avoid composite-index requirements by not using "!=" + orderBy.
+    // We pull the latest N kitchenOrders and filter out completed client-side.
+    let activeUnsub = null;
+    let switchedToFallback = false;
 
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const orders = [];
-      snap.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.status !== "completed") {
-          orders.push({ id: docSnap.id, ...data });
+    const attachListener = (q) => onSnapshot(
+      q,
+      (snap) => {
+        try {
+          const orders = [];
+          snap.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.status !== "completed") orders.push({ id: docSnap.id, ...data });
+          });
+          setKitchenOrders(orders);
+        } catch (error) {
+          console.error("Error processing kitchen orders:", error);
         }
-      });
-      setKitchenOrders(orders);
-    }, (error) => {
-      console.error("Error fetching kitchen orders:", error);
-      // Fallback query without status filter
-      const fallbackQ = query(ordersRef, orderBy("createdAt", "desc"));
-      onSnapshot(fallbackQ, (snap) => {
-        const orders = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status !== "completed") {
-            orders.push({ id: docSnap.id, ...data });
-          }
-        });
-        setKitchenOrders(orders);
-      });
-    });
+      },
+      (error) => {
+        console.error("Error fetching kitchen orders:", error);
+        if (switchedToFallback) return;
+        switchedToFallback = true;
+        try { activeUnsub?.(); } catch (_) {}
+        // Fallback: same query but without any other constraints, keep it bounded.
+        try {
+          const fallbackQ = query(ordersRef, orderBy("createdAt", "desc"), limit(250));
+          activeUnsub = attachListener(fallbackQ);
+        } catch (fallbackError) {
+          console.error("Fallback query also failed:", fallbackError);
+        }
+      }
+    );
 
-    return () => unsubscribe();
+    const primaryQ = query(ordersRef, orderBy("createdAt", "desc"), limit(250));
+    activeUnsub = attachListener(primaryQ);
+
+    return () => { try { activeUnsub?.(); } catch (_) {} };
   }, []);
 
   // Get table status based on orders — show most urgent status
@@ -261,7 +310,7 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
     const meta = getStatusMeta(tableStatus, isOccupied, isReserved, isCleaning);
 
     return (
-      <motion.button
+      <motion.div
         key={table.id}
         initial={{ opacity: 0, scale: 0.88, y: 12, rotateY: 5 }}
         animate={{ opacity: 1, scale: 1, y: 0, rotateY: 0 }}
@@ -274,8 +323,17 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
         } : {}}
         whileTap={!isCleaning ? { scale: 0.96, y: -2 } : {}}
         transition={{ type: "spring", stiffness: 420, damping: 28 }}
+        role="button"
+        tabIndex={isCleaning ? -1 : 0}
+        aria-disabled={isCleaning}
         onClick={() => !isCleaning && handleTableSelect(table)}
-        disabled={isCleaning}
+        onKeyDown={(e) => {
+          if (isCleaning) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleTableSelect(table);
+          }
+        }}
         className={`relative group rounded-2xl border p-4 text-left transition-all duration-300 transform-gpu preserve-3d ${meta.cardClass}`}
       >
         {meta.bar && (
@@ -286,6 +344,7 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
             {table.name || `Table ${table.number}`}
           </div>
           <motion.button
+            type="button"
             onClick={(e) => handleEditTable(e, table)}
             initial={{ opacity: 0, scale: 0.8 }}
             whileHover={{ scale: 1.1, rotate: 15 }}
@@ -362,7 +421,7 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
             >· {tableStatus.orderCount} order{tableStatus.orderCount > 1 ? "s" : ""}</motion.span>
           )}
         </div>
-      </motion.button>
+      </motion.div>
     );
   };
 
@@ -414,6 +473,56 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
     const ai = ZONE_ORDER.indexOf(a), bi = ZONE_ORDER.indexOf(b);
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
+
+  // Show loading state
+  if (dataLoading) {
+    return (
+      <div className="relative flex flex-col w-full h-full items-center justify-center" style={tc.bg}>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 -right-16 w-[60%] h-[60%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
+        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative z-10 text-center"
+        >
+          <div className="w-16 h-16 border-4 border-emerald-500/40 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
+          <div className={`text-sm font-semibold ${tc.textPrimary}`}>Loading Restaurant POS...</div>
+          <div className={`text-xs mt-2 ${tc.textMuted}`}>Setting up your workspace</div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (authError) {
+    return (
+      <div className="relative flex flex-col w-full h-full items-center justify-center p-5" style={tc.bg}>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 -right-16 w-[60%] h-[60%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, rgba(239,68,68,0.1) 0%, transparent 65%)` }} />
+        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative z-10 text-center max-w-md"
+        >
+          <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center text-3xl mx-auto mb-4">
+            ⚠️
+          </div>
+          <div className={`text-base font-bold mb-2 ${tc.textPrimary}`}>Authentication Required</div>
+          <div className={`text-sm mb-6 ${tc.textSub}`}>{authError}</div>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => window.location.reload()}
+            className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${tc.primaryBtn}`}
+          >
+            Refresh Page
+          </motion.button>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex flex-col w-full h-full overflow-y-auto" style={tc.bg}>

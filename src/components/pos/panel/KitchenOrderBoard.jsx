@@ -1,7 +1,7 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db, auth } from "../../../firebase/firebaseConfig";
-import { collection, query, orderBy, onSnapshot, updateDoc, doc } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, updateDoc, doc, limit } from "firebase/firestore";
 import { usePOSTheme } from "../POSThemeContext";
 
 const PIPELINE = [
@@ -231,6 +231,8 @@ export default function KitchenOrderBoard() {
   const [filter, setFilter]     = React.useState("all");
   const [now, setNow]           = React.useState(Date.now());
   const [updating, setUpdating] = React.useState({});
+  const [ordersLoading, setOrdersLoading] = React.useState(true);
+  const [ordersError, setOrdersError] = React.useState(null);
 
   React.useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -239,26 +241,82 @@ export default function KitchenOrderBoard() {
 
   const getUid = () => auth.currentUser?.uid;
 
+  // Authentication state listener
+  React.useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        setOrdersError("Please login to access Kitchen Display");
+        setOrdersLoading(false);
+      } else {
+        setOrdersError(null);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   React.useEffect(() => {
     const uid = getUid();
-    if (!uid) return;
+    if (!uid) {
+      setOrdersError("User not authenticated");
+      setOrdersLoading(false);
+      return;
+    }
+
+    setOrdersLoading(true);
+    setOrdersError(null);
     const ref = collection(db, "businesses", uid, "kitchenOrders");
-    const q   = query(ref, orderBy("createdAt", "asc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const list = [];
-      snap.forEach(d => {
-        const data = d.data();
-        if (data.status !== "completed") list.push({ id: d.id, ...data });
-      });
-      setOrders(list);
-    }, () => {
-      onSnapshot(query(ref, orderBy("createdAt", "desc")), (snap) => {
-        const list = [];
-        snap.forEach(d => { const data = d.data(); if (data.status !== "completed") list.push({ id: d.id, ...data }); });
-        setOrders(list);
-      });
-    });
-    return unsub;
+    // Keep listener bounded for performance; sort/filter client-side.
+    let activeUnsub = null;
+    let switchedToFallback = false;
+
+    const attachListener = (q) => onSnapshot(
+      q,
+      (snap) => {
+        try {
+          const list = [];
+          snap.forEach(d => {
+            const data = d.data();
+            if (data.status !== "completed") list.push({ id: d.id, ...data });
+          });
+          // Ensure oldest-first display even if query is desc in fallback/primary.
+          list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+          setOrders(list);
+          setOrdersError(null);
+        } catch (error) {
+          console.error("Error processing kitchen orders:", error);
+          setOrdersError("Failed to process orders data");
+        } finally {
+          setOrdersLoading(false);
+        }
+      },
+      (error) => {
+        console.error("Error fetching kitchen orders:", error);
+        if (switchedToFallback) {
+          setOrdersLoading(false);
+          return;
+        }
+        switchedToFallback = true;
+        try { activeUnsub?.(); } catch (_) {}
+
+        try {
+          const fallbackQ = query(ref, orderBy("createdAt", "desc"), limit(300));
+          activeUnsub = attachListener(fallbackQ);
+        } catch (fallbackError) {
+          console.error("Fallback query failed:", fallbackError);
+          if (error.code === "permission-denied") {
+            setOrdersError("Access denied. Please check your kitchen permissions.");
+          } else {
+            setOrdersError("Failed to load kitchen orders. Please try again.");
+          }
+          setOrdersLoading(false);
+        }
+      }
+    );
+
+    const primaryQ = query(ref, orderBy("createdAt", "desc"), limit(300));
+    activeUnsub = attachListener(primaryQ);
+
+    return () => { try { activeUnsub?.(); } catch (_) {} };
   }, []);
 
   const advance = async (orderId, currentStatus) => {
@@ -341,11 +399,73 @@ export default function KitchenOrderBoard() {
   // Does any table have multiple batches (multi-round orders)?
   const hasMultiBatch = tableGroups.some(g => g.batches.length > 1);
 
+  // Show loading state for kitchen orders
+  if (ordersLoading) {
+    return (
+      <div className="relative w-full h-full min-h-screen flex items-center justify-center" style={tc.bg}>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 -right-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
+        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative z-10 text-center"
+        >
+          <div className="w-16 h-16 border-4 border-blue-500/40 border-t-blue-500 rounded-full animate-spin mx-auto mb-4" />
+          <div className={`text-sm font-semibold ${tc.textPrimary}`}>Loading Kitchen Orders...</div>
+          <div className={`text-xs mt-2 ${tc.textMuted}`}>Setting up order display</div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Show error state for kitchen orders
+  if (ordersError) {
+    return (
+      <div className="relative w-full h-full min-h-screen flex items-center justify-center p-5" style={tc.bg}>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 -right-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, rgba(239,68,68,0.1) 0%, transparent 65%)` }} />
+        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative z-10 text-center max-w-md"
+        >
+          <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center text-3xl mx-auto mb-4">
+            🧑‍🍳
+          </div>
+          <div className={`text-base font-bold mb-2 ${tc.textPrimary}`}>Kitchen Display Error</div>
+          <div className={`text-sm mb-6 ${tc.textSub}`}>{ordersError}</div>
+          <div className="flex gap-3 justify-center">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => window.location.reload()}
+              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${tc.primaryBtn}`}
+            >
+              Refresh Page
+            </motion.button>
+            {onBack && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onBack}
+                className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${tc.outlineBtn}`}
+              >
+                Go Back
+              </motion.button>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-full h-full min-h-screen overflow-y-auto" style={tc.bg}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-32 -right-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
-        <div className="absolute -bottom-32 -left-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob2} 0%, transparent 65%)` }} />
+        <div className="absolute -bottom-32 -left-16 w-[50%] h-[50%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob2} 0%, transparent 65%)` }} />
       </div>
 
       {/* Top Bar */}

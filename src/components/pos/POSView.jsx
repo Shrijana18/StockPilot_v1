@@ -8,6 +8,7 @@ import RestaurantPOS from "./panel/RestaurantPOS";
 import CreateMenu from "./panel/CreateMenu";
 import RestaurantInvoicesPanel from "./panel/RestaurantInvoicesPanel";
 import QROrderManager from "./panel/QROrderManager";
+import ErrorBoundary from "./ErrorBoundary";
 import OnlineOrdersPanel from "./panel/OnlineOrdersPanel";
 import AnalyticsPanel from "./panel/AnalyticsPanel";
 import StaffManagement from "./panel/StaffManagement";
@@ -571,8 +572,10 @@ function POSViewInner({ onBack }) {
 
 export default function POSView({ onBack }) {
   return (
-    <POSThemeProvider>
-      <POSViewInner onBack={onBack} />
-    </POSThemeProvider>
+    <ErrorBoundary>
+      <POSThemeProvider>
+        <POSViewInner onBack={onBack} />
+      </POSThemeProvider>
+    </ErrorBoundary>
   );
 }
