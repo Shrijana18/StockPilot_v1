@@ -25,29 +25,23 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
   const [editingTable, setEditingTable] = React.useState(null);
   const [filterZone, setFilterZone] = React.useState("all"); // all | main | outdoor | vip | bar
 
-  const getUid = () => auth.currentUser?.uid;
+  const [uid, setUid] = React.useState(() => auth.currentUser?.uid || null);
   const [authError, setAuthError] = React.useState(null);
   const [dataLoading, setDataLoading] = React.useState(true);
 
-  // Authentication state listener
+  // Track auth reactively — covers race where component mounts before IndexedDB restores
   React.useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (!user) {
-        setAuthError("Please login to access POS system");
-        setDataLoading(false);
-      } else {
-        setAuthError(null);
-        setDataLoading(false);
-      }
+    return auth.onAuthStateChanged((user) => {
+      setUid(user?.uid || null);
+      if (!user) { setAuthError("Please login to access POS system"); setDataLoading(false); }
+      else setAuthError(null);
     });
-    return unsubscribe;
   }, []);
 
-  // Load tables on mount with error handling
+  // Load tables — re-attaches whenever uid becomes available
   React.useEffect(() => {
-    const uid = getUid();
     if (!uid) {
-      setAuthError("User not authenticated");
+      setTables([]);
       return;
     }
 
@@ -81,11 +75,10 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [uid]);
 
-  // Load kitchen orders to determine table status with error handling
+  // Load kitchen orders — re-attaches whenever uid becomes available
   React.useEffect(() => {
-    const uid = getUid();
     if (!uid) return;
 
     const ordersRef = collection(db, "businesses", uid, "kitchenOrders");

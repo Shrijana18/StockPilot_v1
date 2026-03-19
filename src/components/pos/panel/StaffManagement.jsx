@@ -38,6 +38,129 @@ const getAccessMeta = key => ACCESS_LEVELS.find(a => a.key === key) || ACCESS_LE
 
 const EMPTY_FORM = { name: "", role: "server", pin: "", phone: "", accessLevel: "billing", active: true };
 
+// ── Share Login Modal ─────────────────────────────────────────────────────────
+function ShareLoginModal({ member, bizId, tc, onClose }) {
+  const loginUrl = `${window.location.origin}/pos-staff?biz=${bizId}`;
+  const [copiedUrl, setCopiedUrl] = React.useState(false);
+  const [copiedId,  setCopiedId]  = React.useState(false);
+  const [copiedPin, setCopiedPin] = React.useState(false);
+  const [showPin,   setShowPin]   = React.useState(false);
+
+  const copy = (text, setter) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setter(true);
+      setTimeout(() => setter(false), 2000);
+    }).catch(() => {});
+  };
+
+  const rm = getRoleMeta(member.role);
+  const am = getAccessMeta(member.accessLevel);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(12px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 24 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 12 }}
+        transition={{ type: "spring", stiffness: 360, damping: 26 }}
+        className={`w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden ${tc.modalBg}`}
+      >
+        {/* Header */}
+        <div className={`px-6 pt-6 pb-4 border-b ${tc.borderSoft}`}>
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${rm.gradient} flex items-center justify-center shadow-lg`}>
+                <span className="text-white font-black text-base">{(member.name || "?")[0].toUpperCase()}</span>
+              </div>
+              <div>
+                <div className={`text-sm font-black ${tc.textPrimary}`}>{member.name}</div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${rm.badge}`}>{rm.label}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${tc.mutedBg} ${tc.textMuted}`}>{am.icon} {am.label}</span>
+                </div>
+              </div>
+            </div>
+            <button onClick={onClose} className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm ${tc.editBtn}`}>✕</button>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {/* Instruction */}
+          <div className={`text-xs rounded-xl px-3 py-2.5 border ${tc.borderSoft} ${tc.mutedBg} ${tc.textSub} leading-relaxed`}>
+            Share the <strong>Login Link</strong> with <span className="text-emerald-400 font-semibold">{member.name}</span>. They enter their <strong>Staff ID</strong> + <strong>PIN</strong> to access their dashboard.
+          </div>
+
+          {/* Login URL */}
+          <div>
+            <label className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 block ${tc.textMuted}`}>🔗 Login Link</label>
+            <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${tc.inputBg}`}>
+              <span className={`flex-1 text-xs font-mono truncate ${tc.textSub}`}>{loginUrl}</span>
+              <button onClick={() => copy(loginUrl, setCopiedUrl)}
+                className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg transition ${copiedUrl ? "bg-emerald-500/30 text-emerald-300" : "bg-sky-500/20 hover:bg-sky-500/30 text-sky-300"}`}>
+                {copiedUrl ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+
+          {/* Staff ID */}
+          <div>
+            <label className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 block ${tc.textMuted}`}>🪪 Staff ID</label>
+            <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${tc.inputBg}`}>
+              <span className={`flex-1 text-sm font-mono font-black tracking-widest ${tc.textPrimary}`}>{member.staffId || "Not assigned"}</span>
+              {member.staffId && (
+                <button onClick={() => copy(member.staffId, setCopiedId)}
+                  className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg transition ${copiedId ? "bg-emerald-500/30 text-emerald-300" : "bg-sky-500/20 hover:bg-sky-500/30 text-sky-300"}`}>
+                  {copiedId ? "✓ Copied" : "Copy"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* PIN */}
+          {member.pin && (
+            <div>
+              <label className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 block ${tc.textMuted}`}>🔑 PIN</label>
+              <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${tc.inputBg}`}>
+                <span className={`flex-1 text-sm font-mono font-black tracking-widest ${tc.textPrimary}`}>
+                  {showPin ? member.pin : "•".repeat(member.pin.length)}
+                </span>
+                <button onClick={() => setShowPin(p => !p)}
+                  className={`shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-lg ${tc.mutedBg} ${tc.textMuted} hover:text-white transition`}>
+                  {showPin ? "Hide" : "Show"}
+                </button>
+                <button onClick={() => copy(member.pin, setCopiedPin)}
+                  className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg transition ${copiedPin ? "bg-emerald-500/30 text-emerald-300" : "bg-sky-500/20 hover:bg-sky-500/30 text-sky-300"}`}>
+                  {copiedPin ? "✓ Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Copy all button */}
+          <button
+            onClick={() => {
+              const msg = `Hi ${member.name}!\n\nYour FLYP POS Staff Login:\n🔗 Link: ${loginUrl}\n🪪 Staff ID: ${member.staffId || "Contact manager"}\n🔑 PIN: ${member.pin || "Contact manager"}\n\nVisit the link, enter your Staff ID and PIN to log in.`;
+              navigator.clipboard.writeText(msg);
+              copy(msg, () => {});
+            }}
+            className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold text-sm transition shadow-lg shadow-emerald-500/20"
+          >
+            📋 Copy All & Share via WhatsApp / SMS
+          </button>
+
+          <p className={`text-center text-[10px] ${tc.textMuted}`}>
+            Access level: <span className="font-semibold">{am.label}</span> — {am.desc}
+          </p>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export default function StaffManagement() {
   const { tc } = usePOSTheme();
   const [staff, setStaff]           = React.useState([]);
@@ -47,6 +170,11 @@ export default function StaffManagement() {
   const [filterRole, setFilterRole] = React.useState("all");
   const [form, setForm]             = React.useState(EMPTY_FORM);
   const [toast, setToast]           = React.useState(null);
+  const [shareTarget, setShareTarget] = React.useState(null); // staff member for share modal
+
+  // Reactive uid — covers auth race when component mounts before IndexedDB restores
+  const [uid, setUid] = React.useState(() => getUid() || null);
+  React.useEffect(() => auth.onAuthStateChanged(u => setUid(u?.uid || null)), []);
 
   const showToastMsg = (msg, type = "success") => {
     setToast({ msg, type });
@@ -54,13 +182,14 @@ export default function StaffManagement() {
   };
 
   React.useEffect(() => {
-    const uid = getUid();
     if (!uid) return;
-    const unsub = onSnapshot(collection(db, "businesses", uid, "pos-staff"), snap => {
-      setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const unsub = onSnapshot(
+      collection(db, "businesses", uid, "pos-staff"),
+      snap => setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      err => console.warn("[Staff] listener error:", err?.code)
+    );
     return unsub;
-  }, []);
+  }, [uid]);
 
   const openAdd = () => {
     setEditing(null);
@@ -74,6 +203,16 @@ export default function StaffManagement() {
     setShowModal(true);
   };
 
+  const generateStaffId = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    return "STF-" + Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  };
+
+  const openShareModal = (e, member) => {
+    e.stopPropagation();
+    setShareTarget(member);
+  };
+
   const handleSave = async () => {
     if (!form.name.trim()) return;
     const uid = getUid();
@@ -85,7 +224,8 @@ export default function StaffManagement() {
         await updateDoc(doc(db, "businesses", uid, "pos-staff", editing.id), data);
         showToastMsg("Staff updated");
       } else {
-        await addDoc(collection(db, "businesses", uid, "pos-staff"), { ...data, createdAt: Date.now() });
+        const staffId = generateStaffId();
+        await addDoc(collection(db, "businesses", uid, "pos-staff"), { ...data, staffId, createdAt: Date.now() });
         showToastMsg("Staff member added");
       }
       setShowModal(false);
@@ -215,7 +355,12 @@ export default function StaffManagement() {
                     </div>
 
                     {/* Name */}
-                    <div className={`text-sm font-bold leading-tight mb-2 ${tc.textPrimary}`}>{member.name}</div>
+                    <div className={`text-sm font-bold leading-tight mb-1 ${tc.textPrimary}`}>{member.name}</div>
+
+                    {/* Staff ID */}
+                    {member.staffId && (
+                      <div className={`text-[9px] font-mono mb-1.5 ${tc.textMuted}`}>{member.staffId}</div>
+                    )}
 
                     {/* Role badge */}
                     <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full mb-1.5 ${rm.badge}`}>{rm.label}</span>
@@ -229,6 +374,10 @@ export default function StaffManagement() {
                         className="w-full py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-semibold transition">
                         Edit
                       </button>
+                      <button onClick={e => openShareModal(e, member)}
+                        className="w-full py-1.5 rounded-xl bg-sky-500/30 hover:bg-sky-500/50 text-sky-200 text-xs font-semibold transition">
+                        🔗 Share Login
+                      </button>
                       <button onClick={e => { e.stopPropagation(); toggleActive(member); }}
                         className={`w-full py-1.5 rounded-xl text-xs font-semibold transition ${isActive ? "bg-red-500/30 hover:bg-red-500/50 text-red-200" : "bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-200"}`}>
                         {isActive ? "Deactivate" : "Activate"}
@@ -241,6 +390,18 @@ export default function StaffManagement() {
           </div>
         )}
       </div>
+
+      {/* Share Login Modal */}
+      <AnimatePresence>
+        {shareTarget && (
+          <ShareLoginModal
+            member={shareTarget}
+            bizId={getUid() || ""}
+            tc={tc}
+            onClose={() => setShareTarget(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Add / Edit Modal */}
       <AnimatePresence>
@@ -257,7 +418,14 @@ export default function StaffManagement() {
               <div className={`px-5 py-4 border-b flex items-center justify-between shrink-0 ${tc.borderSoft}`}>
                 <div>
                   <div className={`text-sm font-bold ${tc.textPrimary}`}>{editing ? "Edit Staff Member" : "Add Staff Member"}</div>
-                  <div className={`text-xs mt-0.5 ${tc.textMuted}`}>Set role, access level and optional PIN</div>
+                  {editing?.staffId ? (
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-[10px] font-mono ${tc.textMuted}`}>ID: <span className="text-sky-400 font-bold">{editing.staffId}</span></span>
+                      <button onClick={e => openShareModal(e, editing)} className="text-[9px] text-sky-400/70 hover:text-sky-300 transition">🔗 Share Login</button>
+                    </div>
+                  ) : (
+                    <div className={`text-xs mt-0.5 ${tc.textMuted}`}>Set role, access level and optional PIN</div>
+                  )}
                 </div>
                 <button onClick={() => setShowModal(false)} className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${tc.editBtn}`}>✕</button>
               </div>

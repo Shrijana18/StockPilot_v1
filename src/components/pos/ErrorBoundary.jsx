@@ -1,125 +1,80 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
+/**
+ * PanelErrorBoundary — lightweight per-panel recovery.
+ * Shows an inline error card with Retry (re-mounts the panel) and
+ * Hard Reload (full page, last resort) buttons.
+ * Does NOT blank the entire app — only the panel that crashed.
+ */
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false, error: null, retryKey: 0 };
   }
 
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error, errorInfo) {
-    console.error('POS Error Boundary caught an error:', error, errorInfo);
-    this.setState({ errorInfo });
-    
-    // Log error details for debugging
-    const errorDetails = {
-      message: error.message,
-      stack: error.stack,
-      componentStack: errorInfo.componentStack,
-      timestamp: new Date().toISOString(),
-      userAgent: navigator.userAgent,
-      url: window.location.href
-    };
-    
-    // Store in localStorage for debugging
+  componentDidCatch(error, info) {
+    console.error('[POS Panel Error]', error?.message, info?.componentStack?.split('\n')[1]?.trim());
     try {
-      const errors = JSON.parse(localStorage.getItem('pos-errors') || '[]');
-      errors.push(errorDetails);
-      // Keep only last 10 errors
-      if (errors.length > 10) errors.shift();
-      localStorage.setItem('pos-errors', JSON.stringify(errors));
-    } catch (e) {
-      console.error('Failed to store error details:', e);
-    }
+      const log = JSON.parse(localStorage.getItem('pos-errors') || '[]');
+      log.unshift({ msg: error?.message, ts: Date.now() });
+      localStorage.setItem('pos-errors', JSON.stringify(log.slice(0, 10)));
+    } catch (_) {}
   }
 
-  handleReload = () => {
-    window.location.reload();
-  };
-
-  handleClearErrors = () => {
-    localStorage.removeItem('pos-errors');
-    this.setState({ hasError: false, error: null, errorInfo: null });
+  retry = () => {
+    this.setState(s => ({ hasError: false, error: null, retryKey: s.retryKey + 1 }));
   };
 
   render() {
     if (this.state.hasError) {
+      const label = this.props.label || 'This section';
       return (
-        <div className="relative w-full h-full min-h-screen flex items-center justify-center p-5 bg-slate-900">
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute -top-32 -right-16 w-[60%] h-[60%] rounded-full blur-[110px] bg-gradient-to-br from-red-500/10 to-transparent" />
-            <div className="absolute -bottom-32 -left-16 w-[55%] h-[55%] rounded-full blur-[110px] bg-gradient-to-br from-orange-500/10 to-transparent" />
-          </div>
-          
+        <div className="flex-1 flex items-center justify-center p-8 min-h-[240px]">
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            className="relative z-10 text-center max-w-lg w-full"
+            initial={{ opacity: 0, scale: 0.94 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            className="max-w-sm w-full text-center"
           >
-            <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center text-4xl mx-auto mb-6 border border-red-500/30">
+            <div className="w-16 h-16 rounded-2xl bg-red-500/15 border border-red-500/25 flex items-center justify-center text-3xl mx-auto mb-4">
               ⚠️
             </div>
-            
-            <div className="text-xl font-bold text-white mb-3">Something went wrong</div>
-            <div className="text-sm text-white/70 mb-8 leading-relaxed">
-              The Restaurant POS encountered an unexpected error. This has been logged for debugging.
+            <div className="text-base font-bold text-white mb-1">{label} ran into an issue</div>
+            <div className="text-xs text-white/50 mb-5 leading-relaxed">
+              The rest of the app is unaffected. You can retry or reload the page.
             </div>
 
-            {/* Error details for developers */}
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <details className="mb-6 text-left">
-                <summary className="cursor-pointer text-xs text-orange-400 hover:text-orange-300 mb-2">
-                  Error Details (Development)
-                </summary>
-                <div className="bg-slate-800/50 rounded-lg p-3 mt-2 text-xs text-red-300 font-mono overflow-auto max-h-32">
-                  <div className="mb-2">
-                    <strong>Error:</strong> {this.state.error.toString()}
-                  </div>
-                  {this.state.errorInfo && (
-                    <div>
-                      <strong>Component Stack:</strong>
-                      <pre className="whitespace-pre-wrap mt-1 text-white/60">
-                        {this.state.errorInfo.componentStack}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </details>
-            )}
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <div className="flex gap-2 justify-center">
               <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={this.handleReload}
-                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold transition-all shadow-lg shadow-emerald-500/25"
+                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                onClick={this.retry}
+                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold transition-all shadow-lg shadow-emerald-500/20"
               >
-                Reload Application
+                🔄 Retry
               </motion.button>
-              
               <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={this.handleClearErrors}
-                className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-all"
+                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                onClick={() => window.location.reload()}
+                className="px-5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] text-white/70 hover:text-white text-xs font-semibold transition-all"
               >
-                Clear & Continue
+                Hard Reload
               </motion.button>
-            </div>
-
-            <div className="mt-6 text-xs text-white/40">
-              Error ID: {Date.now().toString(36)}
             </div>
           </motion.div>
         </div>
       );
     }
 
-    return this.props.children;
+    return (
+      <React.Fragment key={this.state.retryKey}>
+        {this.props.children}
+      </React.Fragment>
+    );
   }
 }
 

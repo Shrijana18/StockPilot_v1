@@ -42,6 +42,11 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/businesses/$(distributorId)/connectedRetailers/$(request.auth.uid)).data.status == "accepted";
     }
 
+    // POS Staff Portal: anonymous auth user (via signInAnonymously)
+    function isPOSStaffAnon() {
+      return isAuthed() && request.auth.token.firebase.sign_in_provider == "anonymous";
+    }
+
     function isDistributorEmployee(distributorId) {
       return isAuthed()
         && (
@@ -421,6 +426,8 @@ service cloud.firestore {
         );
         // QR ORDER: Allow unauthenticated get for table info
         allow get: if true;
+        // POS Staff Portal: anonymous staff can read table list for overview
+        allow read: if isPOSStaffAnon();
       }
 
       // --- ONLINE INTEGRATIONS (UrbanPiper / Swiggy / Zomato credentials) ---
@@ -439,6 +446,12 @@ service cloud.firestore {
           && request.resource.data.tableId is string
           && request.resource.data.tableId.size() > 0;
         allow get: if true;
+        // POS Staff Portal: anonymous staff can read and update order status
+        allow read: if isPOSStaffAnon();
+        allow update: if isPOSStaffAnon()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ['status', 'updatedAt', 'acceptedAt', 'readyAt', 'servedAt']
+          );
       }
       match /menuCategories/{categoryId} {
         allow read: if isAuthed() && (
@@ -568,9 +581,18 @@ service cloud.firestore {
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
       }
 
+      // --- DAILY ENTRIES (Daily sales & expenses manual tracker) ---
+      match /dailyEntries/{entryId} {
+        allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
       // --- POS STAFF (Restaurant POS team members) ---
       match /pos-staff/{staffId} {
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
+        // Staff portal login: allow unauthenticated reads so PIN verification works
+        // before Firebase anonymous auth is initialised (same pattern as items/categories for QR menu).
+        // PINs are short secrets — bizId is required to even reach this path.
+        allow read: if true;
       }
 
       // --- POS CONFIG (Restaurant settings, receipt config, business hours) ---

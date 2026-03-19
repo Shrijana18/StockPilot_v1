@@ -32,13 +32,21 @@ export const AuthProvider = ({ children }) => {
   const [role, setRole] = useState(null);
   const [initialized, setInitialized] = useState(false);   // <-- guards can wait on this
   const [authLoading, setAuthLoading] = useState(true);    // kept for backward-compat with existing code
+
+  // CRITICAL: Track whether onAuthStateChanged has fired at least once.
+  // Firebase restores session from IndexedDB asynchronously; if we allow the
+  // role-resolution effect to run with primaryUser=null before the first auth
+  // event, PrivateRoute sees initialized=true + user=null and redirects to login.
+  const [primaryAuthFired, setPrimaryAuthFired] = useState(false);
+  const [employeeAuthFired, setEmployeeAuthFired] = useState(false);
+
   const withTimeout = (promise, ms, label = 'Operation') =>
     Promise.race([
       promise,
       new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
     ]);
 
-  // --- One-time: ensure persistence for primary app auth only (skip on native - firebaseConfig sets persistence via initializeAuth)
+  // --- One-time: ensure IndexedDB persistence (30-day sessions, survives refresh)
   useEffect(() => {
     if (Capacitor?.isNativePlatform?.()) return;
     try { setPersistence(auth, indexedDBLocalPersistence); } catch (_) {}
@@ -55,24 +63,30 @@ export const AuthProvider = ({ children }) => {
     } catch (_) {}
   }, []);
 
-  // --- Subscribe to primary user
+  // --- Subscribe to primary user — set fired=true on FIRST event
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       setPrimaryUser(firebaseUser ?? null);
+      setPrimaryAuthFired(true);
     });
     return () => unsub();
   }, []);
 
-  // --- Subscribe to employee auth; we don't force persistence here
+  // --- Subscribe to employee auth; fired tracking for employee routes
   useEffect(() => {
     const unsub = onAuthStateChanged(empAuth, (u) => {
       setEmployeeUser(u ?? null);
+      setEmployeeAuthFired(true);
     });
     return () => unsub();
   }, []);
 
   // --- Core selector + role resolver
+  // Only runs after BOTH auth listeners have fired at least once.
+  // This prevents the race condition where initialized=true+user=null causes
+  // PrivateRoute to redirect to /auth before Firebase restores the session.
   useEffect(() => {
+    if (!primaryAuthFired || !employeeAuthFired) return; // wait for first events
     (async () => {
       const path = getCurrentPath();
       const inEmpArea = isEmployeePath(path);
@@ -205,7 +219,7 @@ export const AuthProvider = ({ children }) => {
       setInitialized(true);
       setAuthLoading(false);
     })();
-  }, [primaryUser, employeeUser]);
+  }, [primaryUser, employeeUser, primaryAuthFired, employeeAuthFired]);
 
   const value = useMemo(() => {
     // Recompute the effective user synchronously for consumers
@@ -237,10 +251,24 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={value}>
       {!initialized ? (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-            <p className="text-white text-lg">Loading...</p>
+        <div
+          className="min-h-screen flex flex-col items-center justify-center"
+          style={{ background: "linear-gradient(160deg, #071a2b 0%, #0b2944 50%, #071a2b 100%)" }}
+        >
+          <div className="flex flex-col items-center gap-5">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl shadow-emerald-500/25">
+              <span className="text-2xl font-black text-white select-none">F</span>
+            </div>
+            <div className="flex gap-1.5">
+              {[0,1,2].map(i => (
+                <span
+                  key={i}
+                  className="w-2 h-2 rounded-full bg-emerald-400/70"
+                  style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
+                />
+              ))}
+            </div>
+            <p className="text-white/40 text-xs tracking-widest uppercase">Restoring session…</p>
           </div>
         </div>
       ) : (

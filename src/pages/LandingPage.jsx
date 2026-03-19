@@ -562,7 +562,9 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
     const onMove = (e) => {
       if (af) return;
       af = requestAnimationFrame(() => {
-        auraRef.current.style.transform = `translate(${e.clientX - 150}px, ${e.clientY - 150}px)`;
+        if (auraRef.current) {
+          auraRef.current.style.transform = `translate(${e.clientX - 150}px, ${e.clientY - 150}px)`;
+        }
         af = 0;
       });
     };

@@ -16,6 +16,8 @@ import RestaurantSettings from "./panel/RestaurantSettings";
 import { collection, query, where, getDocs, orderBy, limit, startAfter, doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { POSThemeProvider, usePOSTheme, THEMES } from "./POSThemeContext";
+import { POSDataProvider } from "./POSDataContext";
+import { POSBusinessProvider } from "./POSBusinessContext";
 
 // ─── Shared inventory helper (used by POSBilling) ───────────────────────────
 function buildInventory() {
@@ -327,30 +329,35 @@ function RestaurantHub({ onBack, inventory }) {
   ];
 
   const renderContent = (key, navigate) => {
+    const wrap = (label, node) => (
+      <ErrorBoundary label={label}>
+        <div className="flex-1 flex flex-col h-full overflow-auto">{node}</div>
+      </ErrorBoundary>
+    );
     switch (key) {
       case "restaurant":
-        return (
+        return wrap("Tables & Orders",
           <RestaurantPOS
             onBack={() => navigate(null)}
             onOpenMenuBuilder={() => navigate("kds-menu")}
           />
         );
       case "kds":
-        return <KitchenDisplay />;
+        return wrap("Kitchen Display", <KitchenDisplay />);
       case "kds-menu":
-        return <CreateMenu />;
+        return wrap("Menu Builder", <CreateMenu />);
       case "invoices":
-        return <RestaurantInvoicesPanel />;
+        return wrap("Invoices", <RestaurantInvoicesPanel />);
       case "qr":
-        return <QROrderManager />;
+        return wrap("QR Orders", <QROrderManager />);
       case "online":
-        return <OnlineOrdersPanel />;
+        return wrap("Online Orders", <OnlineOrdersPanel />);
       case "analytics":
-        return <AnalyticsPanel />;
+        return wrap("Analytics", <AnalyticsPanel />);
       case "staff":
-        return <StaffManagement />;
+        return wrap("Staff", <StaffManagement />);
       case "settings":
-        return <RestaurantSettings />;
+        return wrap("Settings", <RestaurantSettings />);
       default:
         return null;
     }
@@ -573,9 +580,13 @@ function POSViewInner({ onBack }) {
 export default function POSView({ onBack }) {
   return (
     <ErrorBoundary>
-      <POSThemeProvider>
-        <POSViewInner onBack={onBack} />
-      </POSThemeProvider>
+      <POSDataProvider>
+        <POSBusinessProvider>
+          <POSThemeProvider>
+            <POSViewInner onBack={onBack} />
+          </POSThemeProvider>
+        </POSBusinessProvider>
+      </POSDataProvider>
     </ErrorBoundary>
   );
 }

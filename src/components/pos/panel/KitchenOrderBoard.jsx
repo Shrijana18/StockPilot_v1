@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { collection, query, orderBy, onSnapshot, updateDoc, doc, limit } from "firebase/firestore";
 import { usePOSTheme } from "../POSThemeContext";
+import { printThermalContent, generateKOT } from "../../../utils/thermalPrinter";
 
 const PIPELINE = [
   { key: "pending",   label: "Pending",   icon: "🕐", accent: "amber"   },
@@ -40,13 +41,73 @@ const STATUS_DOT = {
 
 const money = (n) => Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAddition }) {
+// ── Custom Confirm/Alert Modal ────────────────────────────────────────────────
+function KDSDialog({ type, title, message, onConfirm, onCancel }) {
+  const { tc } = usePOSTheme();
+  const isAlert = type === "alert";
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onCancel?.(); }}
+    >
+      <motion.div
+        initial={{ scale: 0.88, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.88, y: 12 }}
+        transition={{ type: "spring", stiffness: 380, damping: 28 }}
+        className={`w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden ${tc.modalBg} border ${tc.borderSoft}`}
+      >
+        <div className="p-6">
+          <div className={`flex items-center gap-3 mb-3`}>
+            <span className="text-3xl">{isAlert ? "⚠️" : "🗑️"}</span>
+            <h3 className={`text-base font-black ${tc.textPrimary}`}>{title}</h3>
+          </div>
+          <p className={`text-sm mb-6 leading-relaxed ${tc.textSub}`}>{message}</p>
+          <div className="flex gap-3">
+            {!isAlert && (
+              <button
+                onClick={onCancel}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition ${tc.outlineBtn}`}
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              onClick={onConfirm}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition ${
+                isAlert
+                  ? "bg-blue-500 hover:bg-blue-400 text-white"
+                  : "bg-red-500 hover:bg-red-400 text-white"
+              }`}
+            >
+              {isAlert ? "OK" : "Remove"}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAddition, onEditOrder }) {
   const { tc } = usePOSTheme();
   const [collapsed, setCollapsed] = React.useState(
     !isNewAddition && (batch.status === "served" || (batch.status === "ready" && !isLatest))
   );
+  const [editMode, setEditMode] = React.useState(false);
+  const [editedItems, setEditedItems] = React.useState([]);
+  const [dialog, setDialog] = React.useState(null); // { type, title, message, onConfirm, onCancel }
+  const [saveError, setSaveError] = React.useState(null);
 
   const items = batch.items || batch.lines || [];
+
+  // Re-sync editedItems whenever batch items change (fixes stale closure)
+  React.useEffect(() => {
+    if (!editMode) {
+      setEditedItems((batch.items || batch.lines || []).map(item => ({ ...item })));
+    }
+  }, [batch.items, batch.lines, editMode]);
+
   const diffMs = now - (batch.createdAt || now);
   const mins   = diffMs / 60000;
   const isNew  = diffMs < 90000;
@@ -61,8 +122,11 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
   };
 
   const statusIdx = PIPELINE.findIndex(p => p.key === batch.status);
-  const batchTotal = batch.totals?.grandTotal
-    ?? items.reduce((s, it) => s + Number(it.product?.price || it.price || 0) * (it.qty || 1), 0);
+  const activeItems = items.filter(it => !it.cancelled);
+  const savedTotal = batch.totals?.grandTotal
+    ?? activeItems.reduce((s, it) => s + Number(it.product?.price || it.price || 0) * (it.qty || 1), 0);
+  const editedTotal = editedItems.filter(it => !it.cancelled).reduce((s, it) => s + Number(it.product?.price || it.price || 0) * (it.qty || 1), 0);
+  const batchTotal = editMode ? editedTotal : savedTotal;
 
   return (
     <div className={`rounded-xl border relative overflow-hidden ${
@@ -178,33 +242,168 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
             })}
           </div>
 
+          {/* Edit mode toggle */}
+          {batch.status !== "completed" && batch.status !== "served" && (
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <button
+                onClick={() => {
+                  if (editMode) {
+                    setEditedItems(items.map(item => ({ ...item })));
+                    setSaveError(null);
+                  }
+                  setEditMode(!editMode);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition ${
+                  editMode ? "bg-slate-500/30 text-slate-300" : "bg-blue-500/20 hover:bg-blue-500/30 text-blue-300"
+                }`}
+              >
+                {editMode ? "✕ Cancel" : "✏️ Edit Order"}
+              </button>
+              {editMode && (
+                <button
+                  onClick={() => {
+                    if (editedItems.length === 0) {
+                      setDialog({
+                        type: "alert",
+                        title: "Cannot Save",
+                        message: "Order must have at least one item. Add items or cancel the edit.",
+                        onConfirm: () => setDialog(null),
+                        onCancel: () => setDialog(null),
+                      });
+                      return;
+                    }
+                    setSaveError(null);
+                    onEditOrder(batch.id, editedItems, (err) => {
+                      if (err) setSaveError("Failed to save. Please try again.");
+                    });
+                    setEditMode(false);
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-300 transition border border-emerald-500/30"
+                >
+                  💾 Save Changes
+                </button>
+              )}
+            </div>
+          )}
+
+          {saveError && (
+            <div className="mb-2 px-2 py-1 rounded-lg bg-red-500/20 text-red-300 text-[10px] border border-red-500/30">
+              ⚠️ {saveError}
+            </div>
+          )}
+
           {/* Items */}
           <div className="space-y-1 mb-3">
-            {items.map((item, idx) => {
+            <AnimatePresence initial={false} mode="popLayout">
+            {(editMode ? editedItems : items).map((item, idx) => {
               const name  = item.product?.name || item.product?.productName || item.name || "Item";
               const qty   = item.qty || item.quantity || 1;
               const price = Number(item.product?.price || item.price || 0);
+              const isCancelled = !!item.cancelled;
               return (
-                <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                <motion.div
+                  key={`${item.product?.id || item.name || idx}`}
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: isCancelled ? 0.45 : 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.16 }}
+                  className={`flex items-center justify-between gap-2 text-xs ${
+                    editMode ? `rounded-lg px-2 py-1.5 border ${
+                      isCancelled ? "border-red-500/20 bg-red-500/[0.06]" : "border-white/5 bg-white/5"
+                    }` : ""
+                  }`}
+                >
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-none ${tc.mutedBg} ${tc.textSub}`}>{qty}</span>
-                    <span className={`truncate ${tc.textPrimary}`}>{name}</span>
-                    {item.note && <span className="text-orange-300/70 italic truncate text-[10px] ml-1">· {item.note}</span>}
+                    <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-none ${isCancelled ? "bg-red-500/15 text-red-400/60" : `${tc.mutedBg} ${tc.textSub}`}`}>{qty}</span>
+                    <span className={`truncate ${isCancelled ? "line-through text-red-400/60" : tc.textPrimary}`}>{name}</span>
+                    {isCancelled && <span className="text-[8px] font-black text-red-400/70 bg-red-500/10 px-1 rounded ml-1 shrink-0">VOID</span>}
+                    {!isCancelled && item.note && <span className="text-orange-300/70 italic truncate text-[10px] ml-1">· {item.note}</span>}
                   </div>
-                  {price > 0 && <span className={`flex-none ${tc.textMuted}`}>₹{money(price * qty)}</span>}
-                </div>
+                  <div className="flex items-center gap-2 flex-none">
+                    {price > 0 && <span className={`${isCancelled ? "line-through text-red-400/50" : tc.textMuted}`}>₹{money(price * qty)}</span>}
+                    {editMode && !isCancelled && (
+                      <motion.button
+                        whileTap={{ scale: 0.85 }}
+                        onClick={() => {
+                          setDialog({
+                            type: "confirm",
+                            title: "Void Item",
+                            message: `Void "${name}"? It will be struck out but kept for reference.`,
+                            onConfirm: () => {
+                              setEditedItems(prev => prev.map((it, i) => i === idx ? { ...it, cancelled: true } : it));
+                              setDialog(null);
+                            },
+                            onCancel: () => setDialog(null),
+                          });
+                        }}
+                        className="w-6 h-6 rounded-lg bg-red-500/15 hover:bg-red-500/30 border border-red-500/25 text-red-400 flex items-center justify-center text-[11px] transition"
+                        title="Void item (keeps record)"
+                      >✕</motion.button>
+                    )}
+                    {editMode && isCancelled && (
+                      <motion.button
+                        whileTap={{ scale: 0.85 }}
+                        onClick={() => setEditedItems(prev => prev.map((it, i) => i === idx ? { ...it, cancelled: false } : it))}
+                        className="w-6 h-6 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-500/25 text-emerald-400 flex items-center justify-center text-[11px] transition"
+                        title="Restore item"
+                      >↩</motion.button>
+                    )}
+                  </div>
+                </motion.div>
               );
             })}
+            </AnimatePresence>
+            {editMode && editedItems.every(it => it.cancelled) && editedItems.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                className="text-center py-3 rounded-xl border border-dashed border-red-500/30 bg-red-500/5"
+              >
+                <p className="text-[10px] text-red-300/70 font-semibold">All items voided — save to confirm</p>
+              </motion.div>
+            )}
+            {editMode && editedItems.length === 0 && (
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                className="text-center py-5 rounded-xl border border-dashed border-red-500/30 bg-red-500/5"
+              >
+                <div className="text-2xl mb-1">🚫</div>
+                <p className="text-[11px] text-red-300/70 font-semibold">All items removed</p>
+                <p className="text-[10px] text-red-300/50 mt-0.5">Save to confirm or cancel to undo</p>
+              </motion.div>
+            )}
           </div>
 
-          {/* Time + total */}
+          {/* Custom dialog */}
+          <AnimatePresence>
+            {dialog && <KDSDialog {...dialog} />}
+          </AnimatePresence>
+
+          {/* Time + total + print */}
           <div className={`flex items-center justify-between gap-2 pt-2 border-t ${tc.borderSoft}`}>
             <div className={`text-[10px] font-medium ${isOver ? "text-red-400" : isLate ? "text-amber-400" : tc.textMuted}`}>
               ⏱ {elapsed()}
               {isOver && <span className="ml-1 font-bold">OVERDUE</span>}
               {isLate && !isOver && <span className="ml-1 font-bold">LATE</span>}
             </div>
-            {batchTotal > 0 && <span className={`text-xs font-bold ${tc.textSub}`}>₹{money(batchTotal)}</span>}
+            <div className="flex items-center gap-1.5">
+              {batchTotal > 0 && <span className={`text-xs font-bold ${tc.textSub}`}>₹{money(batchTotal)}</span>}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const html = generateKOT({
+                    items,
+                    tableName: batch.tableName || "Kitchen",
+                    tableZone: batch.tableZone || null,
+                    roundNumber: batchNum,
+                    isRush: batch.isRush,
+                    timestamp: batch.createdAt || Date.now(),
+                  });
+                  printThermalContent(html, `KOT — Round ${batchNum}`);
+                }}
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg ${tc.mutedBg} hover:bg-amber-500/20 ${tc.textMuted} hover:text-amber-300 transition`}
+                title="Print KOT for this round"
+              >🖨️</button>
+            </div>
           </div>
 
           {/* Action button */}
@@ -239,23 +438,19 @@ export default function KitchenOrderBoard() {
     return () => clearInterval(t);
   }, []);
 
-  const getUid = () => auth.currentUser?.uid;
+  const [uid, setUid] = React.useState(() => auth.currentUser?.uid || null);
 
-  // Authentication state listener
+  // Track auth reactively — covers race where component mounts before IndexedDB restores
   React.useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (!user) {
-        setOrdersError("Please login to access Kitchen Display");
-        setOrdersLoading(false);
-      } else {
-        setOrdersError(null);
-      }
+    return auth.onAuthStateChanged((user) => {
+      setUid(user?.uid || null);
+      if (!user) { setOrdersError("Please login to access Kitchen Display"); setOrdersLoading(false); }
+      else setOrdersError(null);
     });
-    return unsubscribe;
   }, []);
 
+  // KDS listener — re-attaches whenever uid becomes available
   React.useEffect(() => {
-    const uid = getUid();
     if (!uid) {
       setOrdersError("User not authenticated");
       setOrdersLoading(false);
@@ -317,7 +512,7 @@ export default function KitchenOrderBoard() {
     activeUnsub = attachListener(primaryQ);
 
     return () => { try { activeUnsub?.(); } catch (_) {} };
-  }, []);
+  }, [uid]);
 
   const advance = async (orderId, currentStatus) => {
     const uid = getUid();
@@ -334,6 +529,40 @@ export default function KitchenOrderBoard() {
       });
     } catch (e) { console.error(e); }
     finally { setUpdating(u => ({ ...u, [orderId]: false })); }
+  };
+
+  // Edit order items — updates Firestore; POS billing onSnapshot auto-syncs
+  const handleEditOrder = async (orderId, editedItems, onError) => {
+    const uid = getUid();
+    if (!uid) { onError?.("Not authenticated"); return; }
+
+    setUpdating(u => ({ ...u, [orderId]: true }));
+    try {
+      const subTotal = editedItems.filter(it => !it.cancelled).reduce((sum, item) => {
+        const price = Number(item.product?.price || item.price || 0);
+        const qty = item.qty || item.quantity || 1;
+        return sum + (price * qty);
+      }, 0);
+
+      const order = orders.find(o => o.id === orderId);
+      const taxRate = order?.totals?.taxRate ?? order?.totals?.gstPct ?? 0;
+      const tax = (subTotal * taxRate) / 100;
+      const grandTotal = subTotal + tax;
+
+      await updateDoc(doc(db, "businesses", uid, "kitchenOrders", orderId), {
+        items: editedItems,
+        lines: editedItems,
+        totals: { ...(order?.totals || {}), subTotal, tax, taxRate, grandTotal },
+        updatedAt: Date.now(),
+        editedAt: Date.now(),
+      });
+      // onSnapshot in POS billing picks up the change automatically
+    } catch (e) {
+      console.error("Error updating order:", e);
+      onError?.(e.message || "Failed to update order");
+    } finally {
+      setUpdating(u => ({ ...u, [orderId]: false }));
+    }
   };
 
   // ── Group orders by table ──────────────────────────────────────────────────
@@ -616,6 +845,7 @@ export default function KitchenOrderBoard() {
                             now={now}
                             updating={updating}
                             onAdvance={advance}
+                            onEditOrder={handleEditOrder}
                             isNewAddition={batch.status === "pending" && hasActiveInProgress}
                           />
                         ))}

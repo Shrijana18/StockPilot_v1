@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { usePOSTheme } from "../POSThemeContext";
+import { generateInvoice, printThermalContent } from "../../../utils/thermalPrinter";
+import { usePOSBusiness } from "../POSBusinessContext";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt   = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -59,7 +61,7 @@ const iPrice = (it) => Number(it.product?.price ?? it.price ?? it.unitPrice ?? 0
 const iQty   = (it) => Number(it.qty ?? it.quantity ?? 1);
 const iTotal = (it) => iPrice(it) * iQty(it);
 
-// ── Branded Print ─────────────────────────────────────────────────────────────
+// ── Thermal Print ────────────────────────────────────────────────────────────
 function printInvoice(inv, businessName) {
   const items    = getItems(inv);
   const total    = getTotal(inv);
@@ -69,76 +71,34 @@ function printInvoice(inv, businessName) {
   const table    = getTableName(inv);
   const zone     = getTableZone(inv);
   const id       = getInvoiceId(inv);
-  const date     = fmtDate(inv.createdAt, { year: true });
 
-  const itemRows = items.map(it => {
-    const qty   = iQty(it);
-    const price = iPrice(it);
-    return `<tr>
-      <td style="padding:3px 2px;border-bottom:1px dotted #e0e0e0;">${iName(it)}</td>
-      <td style="padding:3px 2px;border-bottom:1px dotted #e0e0e0;text-align:center;">${qty}</td>
-      <td style="padding:3px 2px;border-bottom:1px dotted #e0e0e0;text-align:right;">&#8377;${(qty * price).toFixed(2)}</td>
-    </tr>`;
-  }).join("");
+  const invoiceData = {
+    invoiceId: id,
+    items: items.map(it => ({
+      name: iName(it),
+      price: iPrice(it),
+      qty: iQty(it),
+      product: { name: iName(it), price: iPrice(it) }
+    })),
+    totals: {
+      subTotal: subtotal,
+      tax: tax,
+      grandTotal: total,
+      extraCharge: 0,
+      discount: 0
+    },
+    customer: inv.customer || {},
+    tableName: table,
+    tableZone: zone,
+    paymentMethod: payment,
+    businessName: businessName,
+    businessAddress: inv.meta?.businessAddress || "",
+    gstNumber: inv.meta?.gstNumber || "",
+    fssaiNumber: inv.meta?.fssaiNumber || "",
+    timestamp: inv.createdAt
+  };
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invoice #${id}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Courier New',monospace;font-size:12px;color:#111;width:80mm;margin:0 auto;padding:6mm 4mm;background:#fff}
-.center{text-align:center}
-.brand{text-align:center;padding-bottom:8px;margin-bottom:8px;border-bottom:2px dashed #222}
-.brand-name{font-size:22px;font-weight:900;letter-spacing:3px;text-transform:uppercase;font-family:sans-serif}
-.brand-badge{display:inline-block;background:#111;color:#fff;font-size:9px;letter-spacing:2px;padding:2px 8px;border-radius:100px;margin-top:4px;text-transform:uppercase}
-.inv-meta{text-align:center;margin-bottom:10px}
-.table-chip{display:inline-block;background:#f0fdf4;border:1.5px solid #16a34a;color:#15803d;font-weight:900;font-size:13px;padding:3px 12px;border-radius:6px;font-family:sans-serif;margin-bottom:4px}
-.inv-id{font-size:10px;color:#777;margin-top:2px}
-.inv-date{font-size:10px;color:#555;margin-top:1px}
-table{width:100%;border-collapse:collapse;margin-bottom:6px}
-thead tr th{font-size:10px;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid #111;padding:4px 2px;text-align:left}
-thead tr th:nth-child(2){text-align:center}
-thead tr th:nth-child(3){text-align:right}
-.totals{border-top:1px solid #ccc;padding-top:6px;margin-top:2px}
-.tot-row{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;color:#555}
-.grand{font-weight:900;font-size:15px;color:#111;border-top:2px dashed #111;margin-top:4px;padding-top:5px}
-.payment-row{text-align:center;margin:8px 0;font-size:11px}
-.pay-chip{display:inline-block;background:#f8f8f8;border:1px solid #ccc;padding:2px 10px;border-radius:100px;font-weight:bold;font-size:11px}
-.footer{text-align:center;margin-top:10px;padding-top:8px;border-top:2px dashed #222;font-size:10px;color:#888}
-.footer strong{color:#333;font-size:11px;display:block;margin-bottom:2px}
-.flyp-tag{font-size:8px;letter-spacing:2px;color:#bbb;margin-top:6px;text-transform:uppercase}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-</style></head><body>
-<div class="brand">
-  <div class="brand-name">${businessName}</div>
-  <span class="brand-badge">Restaurant &amp; Caf&#233;</span>
-</div>
-<div class="inv-meta">
-  <div class="table-chip">&#127869;&#65039; ${table}${zone ? " &middot; " + zone : ""}</div>
-  <div class="inv-id">#${id}</div>
-  <div class="inv-date">${date}</div>
-</div>
-<table>
-  <thead><tr><th>Item</th><th>Qty</th><th>Amt</th></tr></thead>
-  <tbody>${itemRows}</tbody>
-</table>
-<div class="totals">
-  ${subtotal > 0 ? `<div class="tot-row"><span>Subtotal</span><span>&#8377;${subtotal.toFixed(2)}</span></div>` : ""}
-  ${tax > 0 ? `<div class="tot-row"><span>Tax / GST</span><span>&#8377;${tax.toFixed(2)}</span></div>` : ""}
-  <div class="tot-row grand"><span>TOTAL</span><span>&#8377;${total.toFixed(2)}</span></div>
-</div>
-<div class="payment-row">Payment: <span class="pay-chip">${payment}</span></div>
-<div class="footer">
-  <strong>Thank you for dining with us! &#128591;</strong>
-  We look forward to serving you again
-  <div class="flyp-tag">Powered by FLYP POS</div>
-</div>
-</body></html>`;
-
-  const win = window.open("", "_blank", "width=420,height=650,scrollbars=yes");
-  if (!win) { alert("Pop-up blocked. Please allow pop-ups to print."); return; }
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => { win.print(); }, 600);
+  printThermalContent(generateInvoice(invoiceData), `Invoice ${id}`);
 }
 
 // ── Payment color map ─────────────────────────────────────────────────────────
@@ -155,20 +115,14 @@ const payColor = (inv) => {
 export default function RestaurantInvoicesPanel() {
   const { tc } = usePOSTheme();
   const [invoices,    setInvoices]    = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [search,      setSearch]      = useState("");
-  const [dateFilter,  setDateFilter]  = useState("today");
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("today");
   const [selectedInv, setSelectedInv] = useState(null);
-  const [bizName,     setBizName]     = useState("Restaurant");
+  const { uid, bizName } = usePOSBusiness();
 
   useEffect(() => {
-    const uid = auth.currentUser?.uid;
     if (!uid) { setLoading(false); return; }
-
-    // Load business name
-    getDoc(doc(db, "businesses", uid))
-      .then(snap => { if (snap.exists()) setBizName(snap.data()?.businessName || snap.data()?.name || "Restaurant"); })
-      .catch(() => {});
 
     // Load restaurant invoices
     getDocs(collection(db, `businesses/${uid}/finalizedInvoices`))
@@ -184,7 +138,7 @@ export default function RestaurantInvoicesPanel() {
       })
       .catch(err => console.error("Failed to load invoices:", err))
       .finally(() => setLoading(false));
-  }, []);
+  }, [uid]);
 
   const today = new Date();
   const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);

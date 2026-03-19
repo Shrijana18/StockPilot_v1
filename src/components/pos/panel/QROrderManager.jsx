@@ -4,6 +4,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { usePOSTheme } from "../POSThemeContext";
+import { generateQRPrint, printThermalContent } from "../../../utils/thermalPrinter";
 
 const getUid = () => auth.currentUser?.uid;
 
@@ -63,51 +64,16 @@ function TableQRCard({ table, bizUid, bizName, idx }) {
     if (!src) return;
     const dataUrl = src.toDataURL("image/png");
     const tName = table.name || `Table ${table.number}`;
-    const zone  = table.zone ? ` · ${table.zone}` : "";
 
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>Table QR · ${tName}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh}
-.card{width:88mm;border:2px solid #e5e7eb;border-radius:12px;overflow:hidden;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.08)}
-.stripe{height:6px;background:linear-gradient(90deg,#10b981,#0d9488)}
-.inner{padding:8mm}
-.biz{font-size:13px;font-weight:700;color:#111827;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
-.sep{border:none;border-top:1px dashed #d1d5db;margin:8px 0}
-.tname{font-size:26px;font-weight:900;color:#10b981;margin:6px 0 2px}
-.zone{font-size:11px;color:#9ca3af;margin-bottom:10px}
-.qrbox{background:#fff;padding:8px;display:inline-block;border:1.5px solid #f3f4f6;border-radius:8px;margin-bottom:10px}
-.qrbox img{width:58mm;height:58mm;display:block}
-.cta{font-size:13px;font-weight:700;color:#111827;margin-bottom:3px}
-.sub{font-size:10px;color:#9ca3af;line-height:1.4;margin-bottom:6px}
-.url{font-size:8px;color:#d1d5db;font-family:monospace;word-break:break-all}
-.powered{font-size:8px;color:#d1d5db;letter-spacing:1.5px;text-transform:uppercase;margin-top:8px}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-</style></head><body>
-<div class="card">
-  <div class="stripe"></div>
-  <div class="inner">
-    <div class="biz">${bizName}</div>
-    <hr class="sep">
-    <div class="tname">${tName}</div>
-    ${zone ? `<div class="zone">${zone}</div>` : ""}
-    <div class="qrbox"><img src="${dataUrl}" /></div>
-    <div class="cta">📱 Scan to order</div>
-    <div class="sub">Browse our menu and place your order<br>directly from your phone</div>
-    <div class="url">${qrUrl}</div>
-    <div class="powered">Powered by FLYP POS</div>
-  </div>
-</div>
-</body></html>`;
+    const qrData = {
+      tableName: tName,
+      tableZone: table.zone || "",
+      qrCodeDataUrl: dataUrl,
+      businessName: bizName,
+    };
 
-    const win = window.open("", "_blank", "width=430,height=640");
-    if (!win) return;
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 600);
-  }, [table, bizName, qrUrl]);
+    printThermalContent(generateQRPrint(qrData), `QR Code — ${tName}`);
+  }, [table, bizName]);
 
   const copyLink = useCallback(() => {
     navigator.clipboard.writeText(qrUrl).then(() => {
@@ -176,7 +142,10 @@ export default function QROrderManager() {
   const [tables,  setTables]  = useState([]);
   const [loading, setLoading] = useState(true);
   const [bizName, setBizName] = useState("Restaurant");
-  const uid = getUid();
+
+  // Reactive uid — covers auth race when component mounts before IndexedDB restores
+  const [uid, setUid] = useState(() => getUid() || null);
+  useEffect(() => auth.onAuthStateChanged(u => setUid(u?.uid || null)), []);
 
   useEffect(() => {
     if (!uid) { setLoading(false); return; }

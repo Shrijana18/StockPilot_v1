@@ -5,6 +5,8 @@ import { collection, doc, getDocs, getDoc, query, where, onSnapshot, addDoc, upd
 import CustomerForm from "../../billing/CustomerForm";
 import { IconTokens, getIconSVG, getIconEmoji } from "./foodIcons";
 import { usePOSTheme } from "../POSThemeContext";
+import { usePOSData } from "../POSDataContext";
+import { generateKOT, generateInvoice, printThermalContent } from "../../../utils/thermalPrinter";
 
 /**
  * RestaurantPOSBilling - Complete Restaurant-Specific POS
@@ -98,11 +100,11 @@ export default function RestaurantPOSBilling({
   onTableUpdate // Callback to refresh table list
 }) {
   const { tc } = usePOSTheme();
-  const [categories, setCategories] = React.useState([]);
-  const [items, setItems] = React.useState([]);
+  const posData = usePOSData(); // Cached: categories, items, posStaff, posSettings, loading, error
   const [selectedCategoryId, setSelectedCategoryId] = React.useState("");
   const [cart, setCart] = React.useState([]);
-  const [kitchenOrders, setKitchenOrders] = React.useState([]); // Active orders for this table
+  const [kitchenOrders, setKitchenOrders] = React.useState([]); // Non-completed orders (used for checkout calc)
+  const [allTableOrders, setAllTableOrders] = React.useState([]); // All orders incl. completed (for display)
   const [search, setSearch] = React.useState("");
   const [showCustomer, setShowCustomer] = React.useState(false);
   const [showEditTable, setShowEditTable] = React.useState(false);
@@ -124,8 +126,6 @@ export default function RestaurantPOSBilling({
   const [coExtraAmt, setCoExtraAmt]       = React.useState("");
   const [coDiscount, setCoDiscount]       = React.useState("");
   const [coStaff, setCoStaff]             = React.useState(null);   // { id, name, role }
-  const [posStaff, setPosStaff]           = React.useState([]);     // staff list for picker
-  const [posSettings, setPosSettings]     = React.useState(null);   // posConfig/restaurantSettings
 
   const [collapsedRounds, setCollapsedRounds] = React.useState(new Set());
   const [footerMinimized, setFooterMinimized] = React.useState(false);
@@ -140,65 +140,11 @@ export default function RestaurantPOSBilling({
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   }, []);
 
-  const [menuLoading, setMenuLoading] = React.useState(true);
-  const [menuError, setMenuError] = React.useState(null);
-
-  // Load categories and items (from CreateMenu) with error handling
+  // Default to "All" category so operators can browse full menu quickly
   React.useEffect(() => {
-    const uid = getUid();
-    if (!uid) {
-      setMenuError("User not authenticated");
-      setMenuLoading(false);
-      return;
-    }
+    if (!selectedCategoryId && posData.categories.length > 0) setSelectedCategoryId(ALL_CATEGORY_ID);
+  }, [selectedCategoryId, posData.categories]);
 
-    const loadData = async () => {
-      try {
-        setMenuLoading(true);
-        setMenuError(null);
-        
-        // Load categories
-        const categoriesRef = collection(db, "businesses", uid, "categories");
-        const categoriesSnap = await getDocs(categoriesRef);
-        const cats = [];
-        categoriesSnap.forEach((docSnap) => {
-          cats.push({ id: docSnap.id, ...docSnap.data() });
-        });
-        setCategories(cats);
-        // Default to "All" so operators can browse full menu quickly
-        setSelectedCategoryId(ALL_CATEGORY_ID);
-
-        // Load items (only available)
-        const itemsRef = collection(db, "businesses", uid, "items");
-        const itemsSnap = await getDocs(itemsRef);
-        const itemsList = [];
-        itemsSnap.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.available !== false) {
-            itemsList.push({ id: docSnap.id, ...data });
-          }
-        });
-        setItems(itemsList);
-        
-        if (itemsList.length === 0) {
-          setMenuError("No menu items available. Please add items in Menu Builder.");
-        }
-      } catch (err) {
-        console.error("Error loading menu data:", err);
-        if (err.code === "permission-denied") {
-          setMenuError("Access denied. Please check your permissions for menu data.");
-        } else if (err.code === "unavailable") {
-          setMenuError("Network error. Please check your connection and try again.");
-        } else {
-          setMenuError("Failed to load menu. Please try refreshing the page.");
-        }
-      } finally {
-        setMenuLoading(false);
-      }
-    };
-
-    loadData();
-  }, []);
 
   // Update tableData when table prop changes
   React.useEffect(() => {
@@ -221,16 +167,19 @@ export default function RestaurantPOSBilling({
     const q = query(ordersRef, where("tableId", "==", table.id));
 
     const unsubscribe = onSnapshot(q, (snap) => {
-      const orders = [];
+      const all = [];
+      const active = [];
       snap.forEach((docSnap) => {
         const data = docSnap.data();
-        if (data.status !== "completed") {
-          orders.push({ id: docSnap.id, ...data });
-        }
+        const order = { id: docSnap.id, ...data };
+        all.push(order);
+        if (data.status !== "completed") active.push(order);
       });
-      orders.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-      setKitchenOrders(orders);
-      const activeOrder = orders.find(o => ["pending", "preparing", "ready"].includes(o.status)) || orders[0];
+      all.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      active.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      setAllTableOrders(all);
+      setKitchenOrders(active);
+      const activeOrder = active.find(o => ["pending", "preparing", "ready"].includes(o.status)) || active[0];
       setActiveOrderId(activeOrder?.id || null);
     }, (error) => {
       console.error("Error loading kitchen orders:", error);
@@ -239,24 +188,6 @@ export default function RestaurantPOSBilling({
     return () => unsubscribe();
   }, [table?.id]);
 
-  // Load active staff for checkout picker
-  React.useEffect(() => {
-    const uid = getUid();
-    if (!uid) return;
-    const unsub = onSnapshot(collection(db, "businesses", uid, "pos-staff"), snap => {
-      setPosStaff(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s.active !== false));
-    });
-    return unsub;
-  }, []);
-
-  // Load POS settings for invoice meta (GST, FSSAI, business info)
-  React.useEffect(() => {
-    const uid = getUid();
-    if (!uid) return;
-    getDoc(doc(db, "businesses", uid, "posConfig", "restaurantSettings"))
-      .then(snap => { if (snap.exists()) setPosSettings(snap.data()); })
-      .catch(() => {});
-  }, []);
 
   // Live 30-second clock for table occupation timer
   React.useEffect(() => {
@@ -266,7 +197,7 @@ export default function RestaurantPOSBilling({
 
   // Filter items by category and search
   const filteredItems = React.useMemo(() => {
-    let filtered = items;
+    let filtered = posData.items;
     
     if (selectedCategoryId && selectedCategoryId !== ALL_CATEGORY_ID) {
       filtered = filtered.filter(item => item.categoryId === selectedCategoryId);
@@ -278,9 +209,8 @@ export default function RestaurantPOSBilling({
         (item.name || "").toLowerCase().includes(query)
       );
     }
-    
     return filtered;
-  }, [items, selectedCategoryId, search]);
+  }, [posData.items, selectedCategoryId, search]);
 
   // Add to cart
   const addToCart = React.useCallback((item, qty = 1) => {
@@ -352,11 +282,12 @@ export default function RestaurantPOSBilling({
     return { subTotal: +subTotal.toFixed(2), tax: +tax.toFixed(2), grandTotal: +(subTotal + tax).toFixed(2) };
   }, [cart]);
 
-  // Total from already-sent kitchen orders
+  // Total from already-sent kitchen orders (excluding voided items)
   const kitchenOrdersTotals = React.useMemo(() => {
     let subTotal = 0, tax = 0;
     kitchenOrders.forEach(order => {
       (order.items || order.lines || []).forEach(line => {
+        if (line.cancelled) return;
         const price = Number(line.product?.price || 0);
         const qty = line.qty || 1;
         const taxRate = Number(line.product?.tax || 0) / 100;
@@ -414,6 +345,71 @@ export default function RestaurantPOSBilling({
     }
   }, [table?.id, tableData, onTableUpdate]);
 
+  // Print KOT before sending to kitchen
+  const printKOT = React.useCallback(() => {
+    if (cart.length === 0) {
+      showToast("Cart is empty", "error");
+      return;
+    }
+
+    const roundNumber = kitchenOrders.length + 1;
+    const orderData = {
+      items: cart.map(line => ({
+        product: line.product,
+        qty: line.qty,
+        note: itemNotes[line.product.id] || "",
+      })),
+      tableName: table?.name || (table?.number ? `Table ${table.number}` : "Walk-in"),
+      tableZone: table?.zone || null,
+      roundNumber,
+      isRush: rushMode,
+      timestamp: Date.now(),
+    };
+
+    printThermalContent(generateKOT(orderData), "Kitchen Order Ticket");
+    showToast("🖨️ KOT sent to printer");
+  }, [cart, table, kitchenOrders, itemNotes, rushMode, showToast]);
+
+  // Print current table order summary (for kitchen/server physical record)
+  const printOrderSummary = React.useCallback(() => {
+    if (kitchenOrders.length === 0 && cart.length === 0) {
+      showToast("No orders to print", "error");
+      return;
+    }
+
+    const tName = table?.name || (table?.number ? `Table ${table.number}` : "Walk-in");
+    const allItems = [];
+    kitchenOrders.forEach(order => {
+      (order.items || order.lines || []).forEach(line => {
+        const id = line.product?.id || line.name;
+        const idx = allItems.findIndex(i => (i.product?.id || i.name) === id);
+        if (idx >= 0) allItems[idx].qty = (allItems[idx].qty || 1) + (line.qty || 1);
+        else allItems.push({ ...line });
+      });
+    });
+    cart.forEach(line => {
+      const idx = allItems.findIndex(i => i.product?.id === line.product?.id);
+      if (idx >= 0) allItems[idx].qty = (allItems[idx].qty || 1) + (line.qty || 1);
+      else allItems.push({ ...line, _fromCart: true });
+    });
+
+    const subTotal = allItems.reduce((s, it) => s + Number(it.product?.price || it.price || 0) * (it.qty || 1), 0);
+
+    const html = generateKOT({
+      items: allItems,
+      tableName: tName,
+      tableZone: table?.zone || null,
+      roundNumber: `${kitchenOrders.length} round${kitchenOrders.length !== 1 ? "s" : ""}`,
+      isRush: false,
+      timestamp: Date.now(),
+      isOrderSummary: true,
+      subTotal,
+    });
+
+    printThermalContent(html, `Order Summary — ${tName}`);
+    showToast("�️ Order summary sent to printer");
+  }, [kitchenOrders, cart, table, showToast]);
+
   // Send order to kitchen — always creates a new order document (new round/batch)
   const sendToKitchen = React.useCallback(async () => {
     if (cart.length === 0) {
@@ -470,7 +466,7 @@ export default function RestaurantPOSBilling({
     } finally {
       setSaving(false);
     }
-  }, [cart, totals, table, customerData, onOrderSentToKitchen, kitchenOrders, itemNotes, rushMode]);
+  }, [cart, totals, table, customerData, onOrderSentToKitchen, kitchenOrders, itemNotes, rushMode, showToast]);
 
   // Close/Complete all orders for this table
   const handleCloseOrders = React.useCallback(() => {
@@ -545,10 +541,11 @@ export default function RestaurantPOSBilling({
 
     setSaving(true);
     try {
-      // Merge cart + kitchen order items
+      // Merge cart + kitchen order items (skip voided items)
       const allItems = [...cart];
       kitchenOrders.forEach(order => {
         (order.items || order.lines || []).forEach(line => {
+          if (line.cancelled) return;
           const existing = allItems.findIndex(i => i.product?.id === line.product?.id);
           if (existing >= 0) {
             allItems[existing] = { ...allItems[existing], qty: (allItems[existing].qty || 1) + (line.qty || 1) };
@@ -582,12 +579,12 @@ export default function RestaurantPOSBilling({
           tableZone: tableData.zone || "Main",
           tableCapacity: tableData.capacity,
           paymentMethod: payMethodLabel,
-          businessName: posSettings?.business?.name || billing?.businessInfo?.name || "",
-          businessAddress: posSettings?.business?.address || billing?.businessInfo?.address || "",
-          gstNumber: posSettings?.business?.gstNumber || billing?.businessInfo?.gstNumber || "",
-          fssaiNumber: posSettings?.business?.fssaiNumber || "",
-          panNumber: posSettings?.business?.panNumber || "",
-          invoicePrefix: posSettings?.invoice?.prefix || "INV",
+          businessName: posData.posSettings?.business?.name || billing?.businessInfo?.name || "",
+          businessAddress: posData.posSettings?.business?.address || billing?.businessInfo?.address || "",
+          gstNumber: posData.posSettings?.business?.gstNumber || billing?.businessInfo?.gstNumber || "",
+          fssaiNumber: posData.posSettings?.business?.fssaiNumber || "",
+          panNumber: posData.posSettings?.business?.panNumber || "",
+          invoicePrefix: posData.posSettings?.invoice?.prefix || "INV",
           servedBy: coStaff ? { id: coStaff.id, name: coStaff.name, role: coStaff.role } : null,
         }
       };
@@ -623,6 +620,7 @@ export default function RestaurantPOSBilling({
         customerName: (coCustomer.name || customerData?.name) || "Guest",
         customerPhone: coCustomer.phone || customerData?.phone || "",
         paymentMethod: payMethodLabel2,
+        servedBy: coStaff ? `${coStaff.name} (${coStaff.role})` : null,
         items: allItems,
         totals: { subTotal: checkoutTotal.subTotal, tax: finalTax, extraCharge: finalExtra, discount: finalDiscount, grandTotal: finalGrand },
         timestamp: Date.now(),
@@ -635,26 +633,24 @@ export default function RestaurantPOSBilling({
     } finally {
       setSaving(false);
     }
-  }, [cart, customerData, table, tableData, billing, kitchenOrders, checkoutTotal, finalTax, finalExtra, finalDiscount, finalGrand, coPayment, coCustomer, showToast]);
+  }, [cart, customerData, table, tableData, billing, kitchenOrders, checkoutTotal, finalTax, finalExtra, finalDiscount, finalGrand, coPayment, coCustomer, coStaff, showToast]);
 
-  const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+  const selectedCategory = posData.categories.find(c => c.id === selectedCategoryId);
   const hasActiveOrders = kitchenOrders.length > 0;
   const activeOrder = kitchenOrders.find(o => o.id === activeOrderId);
 
-  // Compile all items ordered across all kitchen orders for the summary
+  // Compile all items ordered across all kitchen orders for the summary (excluding voided)
   const allOrderedItems = React.useMemo(() => {
     const map = {};
     kitchenOrders.forEach(order => {
       (order.items || order.lines || []).forEach(line => {
+        if (line.cancelled) return;
         const id = line.product?.id || line.name || line.product?.name;
         const name = line.product?.name || line.product?.productName || line.name || "Item";
         const price = Number(line.product?.price || 0);
         const qty = line.qty || line.quantity || 1;
-        if (map[id]) {
-          map[id].qty += qty;
-        } else {
-          map[id] = { name, price, qty };
-        }
+        if (map[id]) { map[id].qty += qty; }
+        else { map[id] = { name, price, qty }; }
       });
     });
     return Object.values(map);
@@ -662,11 +658,12 @@ export default function RestaurantPOSBilling({
 
   const orderSummaryTotal = allOrderedItems.reduce((sum, it) => sum + it.price * it.qty, 0);
 
-  // Build combined item list for pre-checkout preview
+  // Build combined item list for pre-checkout preview (excluding voided)
   const preCheckoutItems = React.useMemo(() => {
     const map = {};
     kitchenOrders.forEach(order => {
       (order.items || order.lines || []).forEach(line => {
+        if (line.cancelled) return;
         const id = line.product?.id || line.name;
         const name = line.product?.name || line.product?.productName || line.name || "Item";
         const price = Number(line.product?.price || 0);
@@ -687,7 +684,7 @@ export default function RestaurantPOSBilling({
   }, [kitchenOrders, cart]);
 
   // Show loading state for menu data
-  if (menuLoading) {
+  if (posData.loading) {
     return (
       <div className="relative w-full h-full flex items-center justify-center" style={tc.bg}>
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -707,7 +704,7 @@ export default function RestaurantPOSBilling({
   }
 
   // Show error state for menu data
-  if (menuError) {
+  if (posData.error) {
     return (
       <div className="relative w-full h-full flex items-center justify-center p-5" style={tc.bg}>
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -722,7 +719,7 @@ export default function RestaurantPOSBilling({
             📋
           </div>
           <div className={`text-base font-bold mb-2 ${tc.textPrimary}`}>Menu Loading Error</div>
-          <div className={`text-sm mb-6 ${tc.textSub}`}>{menuError}</div>
+          <div className={`text-sm mb-6 ${tc.textSub}`}>{posData.error}</div>
           <div className="flex gap-3 justify-center">
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -845,7 +842,7 @@ export default function RestaurantPOSBilling({
                 <span className="w-4 h-4 inline-flex items-center justify-center">🍽️</span>
                 <span>All</span>
               </button>
-              {categories.map(cat => (
+              {posData.categories.map(cat => (
                 <button
                   type="button"
                   key={cat.id}
@@ -970,20 +967,29 @@ export default function RestaurantPOSBilling({
           </AnimatePresence>
 
           {/* ── Active kitchen orders ── */}
-          {hasActiveOrders && (
+          {kitchenOrders.length > 0 && (
             <div className={`shrink-0 border-b ${tc.borderSoft}`}>
               <div className="px-3 pt-3 pb-1 flex items-center gap-2">
                 <span className={`text-[11px] font-bold uppercase tracking-widest ${tc.textMuted}`}>Orders on Table</span>
                 <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-red-500/20 text-red-300 font-bold">{kitchenOrders.length}</span>
-                {kitchenOrders.length > 1 && (
+                <div className="ml-auto flex items-center gap-1.5">
                   <button
-                    onClick={repeatLastRound}
-                    className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 transition"
-                    title="Add last round's items to cart again"
+                    onClick={printOrderSummary}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition"
+                    title="Print order summary for kitchen/server"
                   >
-                    🔁 Repeat last
+                    🖨️ Print
                   </button>
-                )}
+                  {kitchenOrders.length > 1 && (
+                    <button
+                      onClick={repeatLastRound}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 transition"
+                      title="Add last round's items to cart again"
+                    >
+                      🔁 Repeat
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="px-3 pb-3 space-y-1.5 max-h-[220px] overflow-y-auto">
                 {kitchenOrders.map((order, rIdx) => {
@@ -1005,20 +1011,21 @@ export default function RestaurantPOSBilling({
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] font-bold uppercase tracking-wide">Round {rIdx + 1}</span>
                           {order.isRush && <span className="text-[9px] font-black bg-red-500 text-white px-1 rounded animate-pulse">🚨 RUSH</span>}
-                          <span className={`text-[10px] opacity-60 ${tc.textMuted}`}>{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
+                          <span className="text-[10px] opacity-40">{new Date(order.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold opacity-80">{statusLabels[order.status] || order.status}</span>
-                          <span className={`text-[9px] ${tc.textMuted}`} style={{ display:"inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▼</span>
+                          <span className="text-[10px] font-bold opacity-60">{statusLabels[order.status] || order.status}</span>
+                          <span className="text-[9px] opacity-40" style={{ display:"inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▼</span>
                         </div>
                       </div>
                       {!isCollapsed && orderItems.length > 0 && (
                         <div className={`px-2.5 pb-2 space-y-0.5 border-t ${tc.borderSoft}`}>
                           {orderItems.map((line, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-[11px] py-0.5">
-                              <span className={`opacity-80 truncate flex-1 ${tc.textSub}`}>{line.product?.name || line.name || "Item"}</span>
-                              {line.note && <span className="text-orange-300/70 italic text-[10px] mx-1 truncate max-w-[60px]">{line.note}</span>}
-                              <span className="opacity-60 ml-2 flex-none">×{line.qty || 1}</span>
+                            <div key={idx} className={`flex items-center justify-between text-[11px] py-0.5 ${line.cancelled ? "opacity-40" : ""}`}>
+                              <span className={`truncate flex-1 ${tc.textSub} ${line.cancelled ? "line-through" : "opacity-80"}`}>{line.product?.name || line.name || "Item"}</span>
+                              {line.cancelled && <span className="text-[8px] text-red-400/60 font-bold mx-1">VOID</span>}
+                              {!line.cancelled && line.note && <span className="text-orange-300/70 italic text-[10px] mx-1 truncate max-w-[60px]">{line.note}</span>}
+                              <span className={`ml-2 flex-none ${line.cancelled ? "line-through" : "opacity-60"}`}>×{line.qty || 1}</span>
                             </div>
                           ))}
                         </div>
@@ -1156,10 +1163,18 @@ export default function RestaurantPOSBilling({
                 </button>
               </div>
               {cart.length > 0 && (
-                <button
-                  onClick={() => { setCart([]); setItemNotes({}); setShowNoteFor(null); }}
-                  className={`w-full py-1.5 rounded-lg text-xs transition ${tc.outlineBtn}`}
-                >Clear cart</button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={printKOT}
+                    disabled={cart.length === 0}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${tc.outlineBtn} disabled:opacity-40`}
+                    title="Print KOT before sending to kitchen"
+                  >🖨️ Print KOT</button>
+                  <button
+                    onClick={() => { setCart([]); setItemNotes({}); setShowNoteFor(null); }}
+                    className={`flex-1 py-1.5 rounded-lg text-xs transition ${tc.outlineBtn}`}
+                  >Clear cart</button>
+                </div>
               )}
             </div>
           </div>
@@ -1418,11 +1433,11 @@ export default function RestaurantPOSBilling({
               </div>
 
               {/* ── Served By (Staff Picker) ── */}
-              {posStaff.length > 0 && (
+              {posData.posStaff.length > 0 && (
                 <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
                   <div className={`text-[10px] font-bold uppercase tracking-widest mb-3 ${tc.textMuted}`}>Served By</div>
                   <div className="flex gap-2 flex-wrap">
-                    {posStaff.map(s => {
+                    {posData.posStaff.map(s => {
                       const isSelected = coStaff?.id === s.id;
                       const initials = (s.name || "?").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
                       return (
@@ -1585,6 +1600,12 @@ export default function RestaurantPOSBilling({
                 <div className="flex items-center justify-between">
                   <div className="text-[10px] text-white/40">Payment</div>
                   <div className="text-xs font-semibold text-emerald-400">{receiptData.paymentMethod}</div>
+                </div>
+              )}
+              {receiptData.servedBy && (
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] text-white/40">Served By</div>
+                  <div className="text-xs font-semibold text-sky-300">{receiptData.servedBy}</div>
                 </div>
               )}
             </div>

@@ -10,6 +10,7 @@ import {
   where, getDocs, updateDoc,
 } from "firebase/firestore";
 import { db, auth } from "../../../firebase/firebaseConfig";
+import DailySalesExpenses from "./DailySalesExpenses";
 
 const uid = () => auth.currentUser?.uid;
 const fmt = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -63,19 +64,23 @@ function SalesTab() {
   const { tc } = usePOSTheme();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState("30d"); // 7d | 30d | 90d | all
+  const [range, setRange] = useState("30d");
+  const [activeTab, setActiveTab] = useState("sales"); // sales | expenses // 7d | 30d | 90d | all
+
+  // Reactive uid — covers auth race when component mounts before IndexedDB restores
+  const [uidVal, setUidVal] = useState(() => uid() || null);
+  useEffect(() => auth.onAuthStateChanged(u => setUidVal(u?.uid || null)), []);
 
   useEffect(() => {
-    const u = uid();
-    if (!u) return;
-    const ref = collection(db, "businesses", u, "kitchenOrders");
+    if (!uidVal) { setLoading(false); return; }
+    const ref = collection(db, "businesses", uidVal, "kitchenOrders");
     const unsubscribe = onSnapshot(ref, (snap) => {
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setOrders(docs);
       setLoading(false);
-    }, () => setLoading(false));
+    }, (err) => { console.warn("[Analytics] kitchenOrders error:", err?.message); setLoading(false); });
     return unsubscribe;
-  }, []);
+  }, [uidVal]);
 
   const cutoff = useMemo(() => {
     if (range === "all") return 0;
@@ -163,14 +168,95 @@ function SalesTab() {
     return { revenue, ordersCount, avgOrder, itemsSold };
   }, [filtered]);
 
+  // ── Payment mode breakdown ──────────────────────────────────────────────
+  const paymentBreakdown = useMemo(() => {
+    const modes = {};
+    filtered.forEach(o => {
+      const payments = o.payments || [];
+      if (payments.length > 0) {
+        payments.forEach(p => {
+          const method = (p.method || p.type || "Other").toLowerCase();
+          const normalizedMethod = 
+            method.includes("cash") ? "Cash" :
+            method.includes("upi") ? "UPI" :
+            method.includes("card") || method.includes("pos") ? "Card/POS" :
+            "Other";
+          const amount = Number(p.amount || 0);
+          modes[normalizedMethod] = (modes[normalizedMethod] || 0) + amount;
+        });
+      } else {
+        const method = o.meta?.paymentMethod || o.paymentMode || "Other";
+        const normalizedMethod = 
+          method.toLowerCase().includes("cash") ? "Cash" :
+          method.toLowerCase().includes("upi") ? "UPI" :
+          method.toLowerCase().includes("card") || method.toLowerCase().includes("pos") ? "Card/POS" :
+          "Other";
+        const amount = o.totals?.grandTotal || 0;
+        modes[normalizedMethod] = (modes[normalizedMethod] || 0) + amount;
+      }
+    });
+    return Object.entries(modes).map(([method, amount]) => ({
+      method,
+      amount: +amount.toFixed(2),
+      color: 
+        method === "Cash" ? "#10b981" :
+        method === "UPI" ? "#8b5cf6" :
+        method === "Card/POS" ? "#3b82f6" :
+        "#f59e0b"
+    })).sort((a, b) => b.amount - a.amount);
+  }, [filtered]);
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} className="text-4xl">📊</motion.div>
     </div>
   );
 
+  // If Daily Sales & Expenses tab is active, render it with the nav bar so user can switch back
+  if (activeTab === "expenses") {
+    return (
+      <div className="space-y-6">
+        <div className={`flex gap-1 p-1 rounded-xl border backdrop-blur-sm ${tc.themeBtn}`}>
+          <button
+            onClick={() => setActiveTab("sales")}
+            className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${tc.textMuted} hover:bg-white/[0.06]`}
+          >📊 Sales Analytics</button>
+          <button
+            onClick={() => setActiveTab("expenses")}
+            className="flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25"
+          >📝 Daily Sales & Expenses</button>
+        </div>
+        <DailySalesExpenses />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Tab Navigation */}
+      <div className={`flex gap-1 p-1 rounded-xl border backdrop-blur-sm ${tc.themeBtn}`}>
+        <button
+          onClick={() => setActiveTab("sales")}
+          className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+            activeTab === "sales"
+              ? "bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/25"
+              : `${tc.textMuted} hover:bg-white/[0.06]`
+          }`}
+        >
+          📊 Sales Analytics
+        </button>
+        <button
+          onClick={() => setActiveTab("expenses")}
+          className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+            activeTab === "expenses"
+              ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25"
+              : `${tc.textMuted} hover:bg-white/[0.06]`
+          }`}
+        >
+          📝 Daily Sales & Expenses
+        </button>
+      </div>
+
       {/* Range selector */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -259,6 +345,42 @@ function SalesTab() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* Payment Mode Breakdown */}
+      <div className={`rounded-2xl border p-5 shadow-sm ${tc.cardBg}`}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className={`text-sm font-bold ${tc.textSub}`}>💳 Payment Mode Breakdown</h3>
+          <span className={`text-[10px] ${tc.textMuted}`}>cash collected by method</span>
+        </div>
+        {paymentBreakdown.length === 0 ? (
+          <p className={`text-xs text-center py-8 ${tc.textMuted}`}>No payment data yet</p>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {paymentBreakdown.map((pm, i) => (
+              <motion.div
+                key={pm.method}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="rounded-xl border p-4 text-center"
+                style={{ 
+                  backgroundColor: `${pm.color}15`,
+                  borderColor: `${pm.color}40`
+                }}
+              >
+                <div className="text-2xl mb-2">
+                  {pm.method === "Cash" ? "💵" : pm.method === "UPI" ? "📲" : pm.method === "Card/POS" ? "💳" : "🔄"}
+                </div>
+                <p className="text-xs font-semibold mb-1" style={{ color: pm.color }}>{pm.method}</p>
+                <p className="text-lg font-black" style={{ color: pm.color }}>{fmt(pm.amount)}</p>
+                <p className={`text-[9px] mt-1 ${tc.textMuted}`}>
+                  {((pm.amount / summary.revenue) * 100).toFixed(1)}% of total
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Top items ranked list + customer retention */}
@@ -379,16 +501,20 @@ function ExpensesTab() {
   });
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
+  // Reactive uid — covers auth race when component mounts before IndexedDB restores
+  const [uidVal, setUidVal] = useState(() => uid() || null);
+  useEffect(() => auth.onAuthStateChanged(u => setUidVal(u?.uid || null)), []);
+
   useEffect(() => {
-    const u = uid();
-    if (!u) return;
-    const ref = collection(db, "businesses", u, "expenses");
-    const unsubscribe = onSnapshot(query(ref, orderBy("date", "desc")), (snap) => {
-      setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    }, () => setLoading(false));
+    if (!uidVal) { setLoading(false); return; }
+    const ref = collection(db, "businesses", uidVal, "expenses");
+    const unsubscribe = onSnapshot(
+      query(ref, orderBy("date", "desc")),
+      (snap) => { setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
+      (err) => { console.warn("[Expenses]", err?.message); setLoading(false); }
+    );
     return unsubscribe;
-  }, []);
+  }, [uidVal]);
 
   const filtered = useMemo(() => {
     return expenses.filter(e => {

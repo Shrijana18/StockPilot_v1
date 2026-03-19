@@ -537,9 +537,12 @@ function LandingScreen({ onManual, onAutoConnect }) {
 // ── Main Panel ────────────────────────────────────────────────────────────────
 export default function OnlineOrdersPanel() {
   const { tc } = usePOSTheme();
-  const uid                           = getUid();
   const [orders,      setOrders]      = useState([]);
   const [loading,     setLoading]     = useState(true);
+
+  // Reactive uid — covers auth race when component mounts before IndexedDB restores
+  const [uid, setUid] = useState(() => getUid() || null);
+  useEffect(() => auth.onAuthStateChanged(u => setUid(u?.uid || null)), []);
   const [filter,      setFilter]      = useState("new");
   const [expanded,    setExpanded]    = useState(null);
   const [toast,       setToast]       = useState(null);
@@ -559,17 +562,18 @@ export default function OnlineOrdersPanel() {
     const ONLINE = ["swiggy","zomato","dunzo","magicpin","online"];
     const ref    = collection(db, "businesses", uid, "kitchenOrders");
     const q      = query(ref, where("source","in", ONLINE), orderBy("createdAt","desc"));
+    let fallbackUnsub = null;
     const unsub  = onSnapshot(q,
       snap => { setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
       ()   => {
-        onSnapshot(query(ref, orderBy("createdAt","desc")), snap => {
+        fallbackUnsub = onSnapshot(query(ref, orderBy("createdAt","desc")), snap => {
           const S = new Set(ONLINE);
           setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(o => S.has(o.source)));
           setLoading(false);
-        });
+        }, () => setLoading(false));
       }
     );
-    return unsub;
+    return () => { unsub(); fallbackUnsub?.(); };
   }, [uid]);
 
   const showToast = useCallback((msg, type = "success") => {

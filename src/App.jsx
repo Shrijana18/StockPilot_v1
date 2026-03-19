@@ -42,6 +42,10 @@ const CustomerApp = lazy(() => import('./customer/CustomerApp.jsx'));
 // Standalone POS App (Restaurant / Cafe / Hotel)
 const POSApp = lazy(() => import('./components/pos/POSApp.jsx'));
 
+// POS Staff Portal (public — no owner auth required)
+const POSStaffLogin = lazy(() => import('./pages/POSStaffLogin.jsx'));
+const POSStaffDashboard = lazy(() => import('./pages/POSStaffDashboard.jsx'));
+
 const PageFallback = () => <LoadingScreen />;
 
 const App = () => {
@@ -109,6 +113,9 @@ const App = () => {
               <Route element={<EmployeeRoute kind="distributor" />}>
                 <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
               </Route>
+              {/* POS Staff Portal */}
+              <Route path="/pos-staff" element={<POSStaffLogin />} />
+              <Route path="/pos-staff/dashboard" element={<POSStaffDashboard />} />
 
               {/* Protected Routes */}
               {/* Retailer - Use Mobile Dashboard for Native App */}
@@ -173,6 +180,9 @@ const App = () => {
               <Route element={<EmployeeRoute kind="distributor" />}>
                 <Route path="/distributor-employee-dashboard" element={<DistributorEmployeeDashboard />} />
               </Route>
+              {/* POS Staff Portal */}
+              <Route path="/pos-staff" element={<POSStaffLogin />} />
+              <Route path="/pos-staff/dashboard" element={<POSStaffDashboard />} />
 
               {/* Protected Routes */}
               {/* Retailer (no explicit role required) */}
