@@ -1,4 +1,5 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useState, useCallback } from "react";
+import { ProductSwitcher } from "./POSLandingPage";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { AuthContext } from '/src/context/AuthContext';
 import Register from "../components/Register";
@@ -16,6 +17,10 @@ const AuthPage = () => {
 
   const [selectedRole, setSelectedRole] = useState("");
   const [isLoadingUser, setIsLoadingUser] = useState(true);
+
+  // Detect product mode from URL param (?product=pos)
+  const productParam = searchParams.get("product") || "";
+  const isPOSMode = productParam.toLowerCase() === "pos";
 
   // ── Password reset action handler ──────────────────────────────────────────
   // Firebase sends reset links to the app URL with ?mode=resetPassword&oobCode=...
@@ -63,6 +68,11 @@ const AuthPage = () => {
       return;
     }
   }, [type, navigate]);
+
+  // Auto-select Restaurant when product=pos
+  useEffect(() => {
+    if (isPOSMode && !selectedRole) setSelectedRole("Restaurant");
+  }, [isPOSMode]);
 
   useEffect(() => {
     // If a post-signup role hint exists, skip auto-redirects to avoid racing the initial navigation
@@ -119,6 +129,8 @@ const AuthPage = () => {
             if (!location.pathname.includes("/distributor-dashboard")) navigate("/distributor-dashboard", { replace: true });
           } else if (normalized === "productowner") {
             if (!location.pathname.includes("/product-owner-dashboard")) navigate("/product-owner-dashboard", { replace: true });
+          } else if (normalized === "restaurant") {
+            if (!location.search.includes("mode=pos")) navigate("/dashboard?mode=pos", { replace: true });
           } else {
             if (!location.pathname.includes("/")) navigate("/", { replace: true });
           }
@@ -175,6 +187,8 @@ const AuthPage = () => {
             if (!location.pathname.includes("/distributor-dashboard")) navigate("/distributor-dashboard", { replace: true });
           } else if (normalized === "productowner") {
             if (!location.pathname.includes("/product-owner-dashboard")) navigate("/product-owner-dashboard", { replace: true });
+          } else if (normalized === "restaurant") {
+            if (!location.search.includes("mode=pos")) navigate("/dashboard?mode=pos", { replace: true });
           } else {
             if (!location.pathname.includes("/")) navigate("/", { replace: true });
           }
@@ -395,6 +409,13 @@ const AuthPage = () => {
                   <div className="relative rounded-3xl border border-white/20 bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-2xl p-8 sm:p-10 shadow-2xl">
                     {/* Header */}
                     <div className="text-center mb-8">
+                      <div className="flex justify-center mb-5">
+                        <ProductSwitcher
+                          active="supplychain"
+                          scTo="/auth?type=register"
+                          posTo="/auth?type=register&product=pos"
+                        />
+                      </div>
                       <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-white to-slate-200 bg-clip-text text-transparent">
                         Select your role
                       </h2>
@@ -441,7 +462,10 @@ const AuthPage = () => {
                               {item.icon}
                             </div>
                             <div className="flex-1">
-                              <div className="text-xl font-bold text-white mb-1.5">{item.role === "ProductOwner" ? "Product Owner" : item.role}</div>
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-xl font-bold text-white">{item.role === "ProductOwner" ? "Product Owner" : item.role === "Restaurant" ? "Restaurant / Café" : item.role}</span>
+                                {item.badge && <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-orange-500/30 text-orange-300 border border-orange-400/30">{item.badge}</span>}
+                              </div>
                               <div className="text-sm text-slate-300/90 leading-relaxed">{item.desc}</div>
                             </div>
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">

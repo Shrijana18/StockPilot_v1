@@ -2,9 +2,11 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { usePOSTheme } from "../POSThemeContext";
-import { collection, doc, getDocs, setDoc, query, orderBy, updateDoc, onSnapshot, limit } from "firebase/firestore";
+import { collection, doc, getDocs, setDoc, query, orderBy, updateDoc, onSnapshot, limit, deleteDoc } from "firebase/firestore";
 import RestaurantPOSBilling from "./RestaurantPOSBilling";
 import TableManager from "./TableManager";
+
+const getUid = () => auth.currentUser?.uid;
 
 /**
  * RestaurantPOS - Complete Restaurant/Cafe/Hotel POS System
@@ -24,6 +26,9 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
   const [isTableManagerOpen, setIsTableManagerOpen] = React.useState(false);
   const [editingTable, setEditingTable] = React.useState(null);
   const [filterZone, setFilterZone] = React.useState("all"); // all | main | outdoor | vip | bar
+  const [tableMenuOpen, setTableMenuOpen] = React.useState(null); // table.id or null
+  const [deleteConfirmFor, setDeleteConfirmFor] = React.useState(null); // table.id or null
+  const [deletingTable, setDeletingTable] = React.useState(false);
 
   const [uid, setUid] = React.useState(() => auth.currentUser?.uid || null);
   const [authError, setAuthError] = React.useState(null);
@@ -120,7 +125,7 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
     activeUnsub = attachListener(primaryQ);
 
     return () => { try { activeUnsub?.(); } catch (_) {} };
-  }, []);
+  }, [uid]);
 
   // Get table status based on orders — show most urgent status
   const getTableStatus = (tableId) => {
@@ -148,9 +153,26 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
     };
 
     const handleEditTable = (e, table) => {
-      e.stopPropagation(); // Prevent table selection
+      e.stopPropagation();
+      setTableMenuOpen(null);
+      setDeleteConfirmFor(null);
       setEditingTable(table);
       setIsTableManagerOpen(true);
+    };
+
+    const handleDeleteTable = async (e, table) => {
+      e.stopPropagation();
+      if (!uid) return;
+      setDeletingTable(true);
+      try {
+        await deleteDoc(doc(db, "businesses", uid, "tables", table.id));
+      } catch (err) {
+        console.error("Failed to delete table:", err);
+      } finally {
+        setDeletingTable(false);
+        setDeleteConfirmFor(null);
+        setTableMenuOpen(null);
+      }
     };
 
     const handleCustomerSelect = () => {
@@ -336,15 +358,71 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
           <div className={`text-sm font-bold leading-tight flex-1 mr-1 ${tc.tableNameColor(isOccupied, isReserved)}`}>
             {table.name || `Table ${table.number}`}
           </div>
-          <motion.button
-            type="button"
-            onClick={(e) => handleEditTable(e, table)}
-            initial={{ opacity: 0, scale: 0.8 }}
-            whileHover={{ scale: 1.1, rotate: 15 }}
-            whileTap={{ scale: 0.9 }}
-            className={`opacity-0 group-hover:opacity-100 w-5 h-5 rounded-lg flex items-center justify-center text-[10px] transition-all flex-none ${tc.editBtn}`}
-            title="Edit table"
-          >✏️</motion.button>
+
+          {/* ⋮ options menu */}
+          <div className="relative flex-none" onClick={e => e.stopPropagation()}>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.12 }} whileTap={{ scale: 0.9 }}
+              onClick={e => {
+                e.stopPropagation();
+                setDeleteConfirmFor(null);
+                setTableMenuOpen(tableMenuOpen === table.id ? null : table.id);
+              }}
+              className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black transition-all ${
+                tableMenuOpen === table.id
+                  ? `${tc.editBtn} opacity-100`
+                  : `opacity-0 group-hover:opacity-100 ${tc.editBtn}`
+              }`}
+              title="Table options"
+            >⋮</motion.button>
+
+            <AnimatePresence>
+              {tableMenuOpen === table.id && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -4 }}
+                  transition={{ duration: 0.12 }}
+                  className={`absolute right-0 top-7 z-50 min-w-[140px] rounded-xl shadow-2xl border overflow-hidden ${tc.modalBg} ${tc.borderSoft}`}
+                >
+                  {deleteConfirmFor === table.id ? (
+                    <div className="p-3">
+                      <p className="text-[11px] font-bold text-red-400 mb-1">Delete table?</p>
+                      <p className="text-[10px] text-white/40 mb-2.5">This cannot be undone.</p>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={e => { e.stopPropagation(); setDeleteConfirmFor(null); }}
+                          className={`flex-1 py-1.5 text-[10px] font-semibold rounded-lg transition ${tc.outlineBtn}`}
+                        >Cancel</button>
+                        <button
+                          onClick={e => handleDeleteTable(e, table)}
+                          disabled={deletingTable}
+                          className="flex-1 py-1.5 text-[10px] font-black rounded-lg bg-red-500 hover:bg-red-400 text-white transition disabled:opacity-50"
+                        >{deletingTable ? "…" : "Delete"}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={e => handleEditTable(e, table)}
+                        className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold transition hover:bg-white/6 ${tc.textSub}`}
+                      >
+                        <span className="text-sm">✏️</span> Edit Table
+                      </button>
+                      <div className={`h-px mx-2 ${tc.borderSoft}`} />
+                      <button
+                        onClick={e => { e.stopPropagation(); setDeleteConfirmFor(table.id); }}
+                        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-red-400 hover:bg-red-500/10 transition"
+                      >
+                        <span className="text-sm">🗑</span> Delete Table
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
         {(isOccupied || isReserved || isCleaning) && meta.label !== "Available" && (
           <AnimatePresence mode="wait">
@@ -518,7 +596,9 @@ export default function RestaurantPOS({ onBack, onOpenMenuBuilder }) {
   }
 
   return (
-    <div className="relative flex flex-col w-full h-full overflow-y-auto" style={tc.bg}>
+    <div className="relative flex flex-col w-full h-full overflow-y-auto" style={tc.bg}
+      onClick={() => { if (tableMenuOpen) { setTableMenuOpen(null); setDeleteConfirmFor(null); } }}
+    >
       {/* Aurora blobs */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-32 -right-16 w-[60%] h-[60%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />

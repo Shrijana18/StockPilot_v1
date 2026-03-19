@@ -515,7 +515,7 @@ export default function KitchenOrderBoard() {
   }, [uid]);
 
   const advance = async (orderId, currentStatus) => {
-    const uid = getUid();
+    const uid = auth.currentUser?.uid;
     if (!uid) return;
     const next = NEXT_STATUS[currentStatus];
     if (!next) return;
@@ -533,7 +533,7 @@ export default function KitchenOrderBoard() {
 
   // Edit order items — updates Firestore; POS billing onSnapshot auto-syncs
   const handleEditOrder = async (orderId, editedItems, onError) => {
-    const uid = getUid();
+    const uid = auth.currentUser?.uid;
     if (!uid) { onError?.("Not authenticated"); return; }
 
     setUpdating(u => ({ ...u, [orderId]: true }));

@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback } from "react";
+import ProductHeader from "../components/common/ProductHeader";
 import voiceBillingAnim from '../../public/assets/voice-billing.json';
 import aiInventory from "../../public/assets/AI_Inventory.json";
 import posMode from "../../public/assets/POS.json";
@@ -803,50 +804,35 @@ Submitted at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
     <div className={`text-white min-h-screen aurora-bg anim-gradient grain bg-gradient-to-b ${THEME.bg} ${themeMode==='dusk' ? 'theme-dusk' : 'theme-dark'}`}>
       <div aria-hidden className="fixed inset-0 -z-10 bg-[#020617]" />
       <div ref={auraRef} aria-hidden className="fixed top-0 left-0 z-0 pointer-events-none w-[300px] h-[300px] rounded-full" style={{ background: 'radial-gradient(150px 150px at center, rgba(16,185,129,0.25), rgba(16,185,129,0.0) 70%)', filter: 'blur(20px)' }} />
-      <header className="sticky top-0 z-50 glass supports-[backdrop-filter]:bg-[#020617f0] bg-gradient-to-b from-[#020617ee] via-[#020617e0] to-[#020617f7] relative flex items-center gap-4 border-b border-white/10 py-4 px-6 md:py-5 md:px-10">
-        <Link to="/" className="logo-brand" aria-label="FLYP home">
-          <img
-            src={LOGOS.hero}
-            alt="FLYP"
-            loading="eager"
-            fetchPriority="high"
-            className="navbar-logo select-none"
-          />
-        </Link>
-        <div className="hidden md:flex flex-1 justify-center">
-          <nav className={`flex items-center ${shrinkHeader ? 'gap-3 text-xs' : 'gap-4 text-sm'} transition-all duration-300 whitespace-nowrap`}>
-            <a href="#company" className="hover:text-emerald-300 transition-colors">Company</a>
-            <span className="text-white/30">•</span>
-            <a href="#features" className="hover:text-emerald-300 transition-colors">Features</a>
-            <span className="text-white/30">•</span>
-            <a href="#use-cases" className="hover:text-emerald-300 transition-colors">Use Cases</a>
-            <span className="text-white/30">•</span>
-            <a href="#how-it-helps" className="hover:text-emerald-300 transition-colors">Solutions</a>
-            <span className="text-white/30">•</span>
-            <a href="#pricing" className="hover:text-emerald-300 transition-colors">Pricing</a>
-          </nav>
-        </div>
-        <div className="flex flex-1 items-center justify-end gap-3">
-          <button
-            className={`rounded border border-white/20 hover:border-emerald-400/60 ${shrinkHeader ? 'px-3 py-0.5 text-sm' : 'px-4 py-1'} transition-all duration-300`}
-            onClick={() => {
-              trackButtonClick('Sign In', 'header');
-              navigate("/auth?type=login");
-            }}
-          >
-            Sign In
-          </button>
-          <button
-            className={`rounded bg-emerald-400 hover:bg-emerald-300 text-gray-900 font-semibold shadow-[0_8px_30px_rgba(16,185,129,0.25)] ${shrinkHeader ? 'px-3 py-1 text-sm' : 'px-4 py-1'} transition-all duration-300`}
-            onClick={() => {
-              trackButtonClick('Register', 'header');
-              navigate("/auth?type=register");
-            }}
-          >
-            Register
-          </button>
-        </div>
-      </header>
+      <ProductHeader
+        active="supplychain"
+        shrink={shrinkHeader}
+        scTo="/"
+        posTo="/pos-landing"
+        navLinks={[
+          { label: "Company",   href: "#company"    },
+          { label: "Features",  href: "#features"   },
+          { label: "Use Cases", href: "#use-cases"  },
+          { label: "Solutions", href: "#how-it-helps"},
+          { label: "Pricing",   href: "#pricing"    },
+        ]}
+        cta={
+          <>
+            <button
+              className={`rounded border border-white/20 hover:border-emerald-400/60 text-white/90 hover:text-white ${ shrinkHeader ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'} transition-all duration-300`}
+              onClick={() => { trackButtonClick('Sign In', 'header'); navigate("/auth?type=login"); }}
+            >
+              Sign In
+            </button>
+            <button
+              className={`rounded bg-emerald-400 hover:bg-emerald-300 text-gray-900 font-semibold shadow-[0_8px_30px_rgba(16,185,129,0.25)] ${ shrinkHeader ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'} transition-all duration-300`}
+              onClick={() => { trackButtonClick('Register', 'header'); navigate("/auth?type=register"); }}
+            >
+              Register
+            </button>
+          </>
+        }
+      />
 
       <div className="fixed top-0 left-0 h-1 bg-gradient-to-r from-green-500 via-yellow-500 to-blue-500 z-50 transition-[width]" style={{ width: `${scrollProgress}%` }} />
       {/* Section Navigator (floating dots) */}

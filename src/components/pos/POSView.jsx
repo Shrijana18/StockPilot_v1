@@ -13,11 +13,14 @@ import OnlineOrdersPanel from "./panel/OnlineOrdersPanel";
 import AnalyticsPanel from "./panel/AnalyticsPanel";
 import StaffManagement from "./panel/StaffManagement";
 import RestaurantSettings from "./panel/RestaurantSettings";
+import HelpPanel from "./panel/HelpPanel";
 import { collection, query, where, getDocs, orderBy, limit, startAfter, doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
+import { signOut } from "firebase/auth";
 import { POSThemeProvider, usePOSTheme, THEMES } from "./POSThemeContext";
 import { POSDataProvider } from "./POSDataContext";
-import { POSBusinessProvider } from "./POSBusinessContext";
+import { POSBusinessProvider, usePOSBusiness } from "./POSBusinessContext";
+import { useAuth } from "../../context/AuthContext";
 
 // ─── Shared inventory helper (used by POSBilling) ───────────────────────────
 function buildInventory() {
@@ -95,24 +98,64 @@ function ThemeToggle() {
   );
 }
 
+// ─── Live header clock ────────────────────────────────────────────────────────
+const DAYS_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function HeaderClock() {
+  const { tc } = usePOSTheme();
+  const [now, setNow] = React.useState(() => new Date());
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const h = now.getHours();
+  const m = String(now.getMinutes()).padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = String(h % 12 || 12).padStart(2, "0");
+  const day = DAYS_SHORT[now.getDay()];
+  const date = now.getDate();
+  const month = MONTHS_SHORT[now.getMonth()];
+
+  return (
+    <div className={`hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border ${tc.borderSoft} ${tc.mutedBg} select-none shrink-0`}>
+      {/* Time */}
+      <div className="flex items-baseline gap-0.5">
+        <span className={`text-sm font-black tabular-nums tracking-tight ${tc.textPrimary}`}>{h12}:{m}</span>
+        <span className={`text-[9px] font-bold ml-0.5 ${tc.textMuted}`}>{ampm}</span>
+      </div>
+      {/* Divider */}
+      <div className={`w-px h-3.5 ${tc.divider}`} />
+      {/* Date */}
+      <div className={`text-[10px] font-semibold ${tc.textMuted} leading-tight`}>
+        <span className={`font-black ${tc.textSub}`}>{day}</span>
+        {" "}{date} {month}
+      </div>
+    </div>
+  );
+}
+
 // ─── Generic split-pane hub ───────────────────────────────────────────────────
-function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, onBack }) {
+function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, onBack, isRestaurantOnly }) {
   const [activeKey, setActiveKey] = React.useState(defaultKey || navItems.find(n => !n.disabled)?.key);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
   const { tc } = usePOSTheme();
-  const [bizProfile, setBizProfile] = React.useState(null);
+  const { bizName: ctxBizName, bizAddress, bizCity, bizTagline, bizLogo } = usePOSBusiness();
+  const routerNavigateForLogout = useNavigate();
 
-  React.useEffect(() => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-    getDoc(doc(db, "businesses", uid)).then(snap => {
-      if (snap.exists()) setBizProfile(snap.data());
-    }).catch(() => {});
-  }, []);
+  const handleLogout = React.useCallback(async () => {
+    try {
+      await signOut(auth);
+      routerNavigateForLogout("/auth?type=login&product=pos");
+    } catch (e) {
+      window.location.assign("/auth?type=login&product=pos");
+    }
+  }, [routerNavigateForLogout]);
 
-  const bizName = bizProfile?.businessInfo?.name || bizProfile?.businessName || bizProfile?.name || null;
-  const bizType = bizProfile?.businessType || bizProfile?.role || null;
+  const bizName = ctxBizName && ctxBizName !== "Restaurant" ? ctxBizName : null;
   const bizInitial = bizName ? bizName.charAt(0).toUpperCase() : null;
+  const bizAddressLine = [bizAddress, bizCity].filter(Boolean).join(", ");
 
   return (
     <div className="w-full min-h-screen flex flex-col relative overflow-hidden" style={tc.bg}>
@@ -125,27 +168,48 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
       {/* ── Header ── */}
       <div className={`flex-none z-20 ${tc.headerBg}`}>
         <div className="px-4 h-14 flex items-center gap-3">
-          <motion.button
-            onClick={onBack}
-            whileHover={{ scale: 1.04, x: -1 }}
-            whileTap={{ scale: 0.97 }}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 flex-none ${tc.backBtn}`}
-          >
-            <span className="text-[10px]">←</span> POS Home
-          </motion.button>
-          <div className={`w-px h-5 flex-none ${tc.divider}`} />
+          {isRestaurantOnly ? (
+            <div className="flex items-center gap-2 flex-none">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 flex items-center justify-center shadow-md select-none overflow-hidden">
+                <img src="/assets/flyp_logo.png" alt="FLYP" className="w-6 h-6 object-contain"
+                  onError={e => { e.target.style.display='none'; e.target.parentElement.textContent='F'; }}
+                />
+              </div>
+              <div className={`text-xs font-black tracking-widest uppercase ${tc.textMuted}`}>FLYP POS</div>
+            </div>
+          ) : (
+            <>
+              <motion.button
+                onClick={onBack}
+                whileHover={{ scale: 1.04, x: -1 }}
+                whileTap={{ scale: 0.97 }}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 flex-none ${tc.backBtn}`}
+              >
+                <span className="text-[10px]">←</span> POS Home
+              </motion.button>
+              <div className={`w-px h-5 flex-none ${tc.divider}`} />
+            </>
+          )}
 
           {/* Business branding area */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
             {bizName ? (
               <>
-                {/* Business avatar */}
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black flex-none shadow-md bg-gradient-to-br from-emerald-500 to-teal-600 text-white select-none">
-                  {bizInitial}
+                {/* Business avatar / logo */}
+                <div className="w-8 h-8 rounded-xl flex-none shadow-md overflow-hidden flex items-center justify-center bg-gradient-to-br from-emerald-500 to-teal-600 select-none">
+                  {bizLogo ? (
+                    <img src={bizLogo} alt={bizName} className="w-full h-full object-contain p-0.5" />
+                  ) : (
+                    <span className="text-sm font-black text-white">{bizInitial}</span>
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className={`text-sm font-bold leading-tight truncate ${tc.textPrimary}`}>{bizName}</div>
-                  <div className={`text-[10px] leading-tight truncate ${tc.textMuted}`}>{title} · {bizType || "POS"}</div>
+                  {bizAddressLine ? (
+                    <div className={`text-[10px] leading-tight truncate ${tc.textMuted}`}>{bizAddressLine}</div>
+                  ) : (
+                    <div className={`text-[10px] leading-tight truncate ${tc.textMuted}`}>{title} · POS</div>
+                  )}
                 </div>
                 {/* Section badge */}
                 <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold flex-none ${tc.mutedBg} border ${tc.borderSoft} ${tc.textSub}`}>
@@ -164,6 +228,7 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
             )}
           </div>
 
+          <HeaderClock />
           <ThemeToggle />
         </div>
       </div>
@@ -174,11 +239,11 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
         <motion.nav
           animate={{ width: sidebarCollapsed ? 64 : 220 }}
           transition={{ type: "spring", stiffness: 380, damping: 34 }}
-          className={`flex-none flex flex-col overflow-y-auto overflow-x-hidden ${tc.sidebarBg}`}
-          style={{ scrollbarWidth: "none", minWidth: 0 }}
+          className={`flex-none flex flex-col overflow-hidden ${tc.sidebarBg}`}
+          style={{ minWidth: 0 }}
         >
           {/* Collapse toggle */}
-          <div className={`px-2 pt-3 pb-2.5 flex ${sidebarCollapsed ? "justify-center" : "justify-end pr-3"} border-b ${tc.borderSoft}`}>
+          <div className={`shrink-0 px-2 pt-2 pb-2 flex ${sidebarCollapsed ? "justify-center" : "justify-end pr-3"} border-b ${tc.borderSoft}`}>
             <motion.button
               onClick={() => setSidebarCollapsed(c => !c)}
               whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
@@ -199,15 +264,17 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
               <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
-                className="px-4 pt-3 pb-1.5"
+                className="shrink-0 px-4 pt-2 pb-1"
               >
-                <span className={`text-[9px] font-black tracking-[0.18em] uppercase ${tc.textMuted}`}>Navigation</span>
+                <span className={`text-[8.5px] font-black tracking-[0.18em] uppercase ${tc.textMuted}`}>Navigation</span>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Nav items */}
-          <div className={`${sidebarCollapsed ? "px-1.5" : "px-2.5"} pb-3 flex flex-col gap-0.5 flex-1 pt-1.5`}>
+          {/* Nav items — flex-1 min-h-0 so footer stays pinned */}
+          <div className={`${sidebarCollapsed ? "px-1.5" : "px-2"} pb-1 flex flex-col gap-0 flex-1 min-h-0 overflow-y-auto pt-1`}
+            style={{ scrollbarWidth: "none" }}
+          >
             {navItems.map((item, index) => {
               const isActive = activeKey === item.key;
               return (
@@ -219,7 +286,7 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
                   onClick={() => !item.disabled && setActiveKey(item.key)}
                   disabled={item.disabled}
                   title={sidebarCollapsed ? item.label : ""}
-                  className={`w-full flex items-center gap-3 ${sidebarCollapsed ? "px-0 justify-center" : "px-3"} py-2.5 rounded-xl text-left transition-all duration-150 relative ${
+                  className={`w-full flex items-center gap-2.5 ${sidebarCollapsed ? "px-0 justify-center" : "px-2.5"} py-1.5 rounded-xl text-left transition-all duration-150 relative ${
                     item.disabled
                       ? `opacity-25 cursor-not-allowed ${tc.textMuted}`
                       : isActive
@@ -228,7 +295,7 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
                   }`}
                 >
                   {/* Icon box */}
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[17px] flex-none transition-all duration-150 ${
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[14px] flex-none transition-all duration-150 ${
                     isActive ? "bg-white/20 shadow-sm" : "bg-white/[0.06]"
                   }`}>
                     {item.icon}
@@ -241,9 +308,9 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
                         transition={{ duration: 0.15 }}
                         className="min-w-0 flex-1 overflow-hidden"
                       >
-                        <div className="text-[13px] font-semibold truncate leading-tight whitespace-nowrap">{item.label}</div>
+                        <div className="text-[11.5px] font-semibold truncate leading-tight whitespace-nowrap">{item.label}</div>
                         {item.badge && (
-                          <span className={`text-[10px] font-medium leading-none ${tc.textMuted}`}>{item.badge}</span>
+                          <span className={`text-[9px] font-medium leading-none ${tc.textMuted}`}>{item.badge}</span>
                         )}
                       </motion.div>
                     )}
@@ -261,8 +328,45 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
             })}
           </div>
 
-          {/* Sidebar footer — FLYP branding */}
-          <div className={`${sidebarCollapsed ? "px-1.5 py-3" : "px-4 py-3.5"} border-t ${tc.borderSoft}`}>
+          {/* Sidebar footer — FLYP branding + restaurant actions */}
+          <div className={`shrink-0 ${sidebarCollapsed ? "px-1.5 py-2" : "px-3 py-2"} border-t ${tc.borderSoft} flex flex-col gap-1.5`}>
+            {/* Restaurant-only: Home + Logout buttons */}
+            {isRestaurantOnly && (
+              sidebarCollapsed ? (
+                <div className="flex flex-col items-center gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.92 }}
+                    onClick={() => setActiveKey(navItems[0]?.key)}
+                    title="POS Home"
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center text-base transition-all ${tc.editBtn}`}
+                  >🏠</motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.92 }}
+                    onClick={handleLogout}
+                    title="Sign Out"
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-base bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 transition-all"
+                  >⏏</motion.button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => setActiveKey(navItems[0]?.key)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold transition-all ${tc.editBtn}`}
+                  >
+                    <span>🏠</span><span>Home</span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    onClick={handleLogout}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 transition-all"
+                  >
+                    <span>⏏</span><span>Sign Out</span>
+                  </motion.button>
+                </div>
+              )
+            )}
+            {/* FLYP branding */}
             {sidebarCollapsed ? (
               <div className="flex justify-center">
                 <img src="/assets/flyp_logo.png" alt="FLYP"
@@ -273,7 +377,7 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
             ) : (
               <div className="flex items-center gap-2.5">
                 <img src="/assets/flyp_logo.png" alt="FLYP"
-                  className="h-8 w-8 object-contain flex-none"
+                  className="h-7 w-7 object-contain flex-none opacity-70"
                   onError={e => { e.target.style.display = 'none'; }}
                 />
                 <div className="min-w-0">
@@ -314,7 +418,7 @@ function SplitHub({ title, subtitle, icon, navItems, renderContent, defaultKey, 
 }
 
 // ─── Restaurant Hub ───────────────────────────────────────────────────────────
-function RestaurantHub({ onBack, inventory }) {
+function RestaurantHub({ onBack, inventory, isRestaurantOnly }) {
   const routerNavigate = useNavigate();
   const navItems = [
     { key: "restaurant", icon: "🪑", label: "Tables & Orders",       accent: "orange"  },
@@ -326,6 +430,7 @@ function RestaurantHub({ onBack, inventory }) {
     { key: "analytics",  icon: "📊", label: "Analytics",               accent: "violet"  },
     { key: "staff",      icon: "👥", label: "Staff",                   accent: "blue"    },
     { key: "settings",   icon: "⚙️", label: "Settings",               accent: "emerald" },
+    { key: "help",       icon: "🚨", label: "Help & Support",         accent: "violet"  },
   ];
 
   const renderContent = (key, navigate) => {
@@ -358,6 +463,8 @@ function RestaurantHub({ onBack, inventory }) {
         return wrap("Staff", <StaffManagement />);
       case "settings":
         return wrap("Settings", <RestaurantSettings />);
+      case "help":
+        return wrap("Help & Support", <HelpPanel />);
       default:
         return null;
     }
@@ -372,6 +479,7 @@ function RestaurantHub({ onBack, inventory }) {
       renderContent={renderContent}
       defaultKey="restaurant"
       onBack={onBack}
+      isRestaurantOnly={isRestaurantOnly}
     />
   );
 }
@@ -423,14 +531,16 @@ function BillingHub({ onBack, inventory, navigate }) {
   );
 }
 
-// ─── Main POSView ────────────────────────────────────────────────────────────
 function POSViewInner({ onBack }) {
   const { setMode } = useMode();
   const navigate = useNavigate();
   const { tc } = usePOSTheme();
+  const { role } = useAuth();
 
-  // views: landing | billing-hub | restaurant-hub
-  const [view, setView] = React.useState("landing");
+  const isRestaurantOnly = (role || '').toLowerCase().replace(/\s+/g, '') === 'restaurant';
+
+  // Restaurant-only accounts skip landing and go straight to the hub
+  const [view, setView] = React.useState(() => isRestaurantOnly ? "restaurant-hub" : "landing");
   const inventory = React.useMemo(() => buildInventory(), []);
 
   const safeBack = () => {
@@ -439,8 +549,15 @@ function POSViewInner({ onBack }) {
     catch (_) { window.location.assign("/dashboard"); }
   };
 
+  // Restaurant-only: render hub directly, no landing, no back-to-landing
   if (view === "restaurant-hub") {
-    return <RestaurantHub onBack={() => setView("landing")} inventory={inventory} />;
+    return (
+      <RestaurantHub
+        onBack={isRestaurantOnly ? safeBack : () => setView("landing")}
+        inventory={inventory}
+        isRestaurantOnly={isRestaurantOnly}
+      />
+    );
   }
 
   if (view === "billing-hub") {

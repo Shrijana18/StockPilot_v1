@@ -87,6 +87,7 @@ const toCanonicalRole = (key = '') => {
   const k = normalizeRoleKey(key);
   if (k === 'distributor') return 'Distributor';
   if (k === 'productowner' || k === 'product owner') return 'Product Owner';
+  if (k === 'restaurant') return 'Restaurant';
   return 'Retailer';
 };
 
@@ -108,8 +109,10 @@ const Register = ({ role = 'retailer' }) => {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   const roleParam = params.get('role') || '';
+  const productParam = params.get('product') || '';
   const roleName = useMemo(() => toCanonicalRole(form.role || role), [form.role, role]);
-  const cameFromChooser = Boolean(roleParam);
+  const isRestaurant = normalizeRoleKey(roleName) === 'restaurant';
+  const cameFromChooser = Boolean(roleParam) || Boolean(productParam) || isRestaurant;
 
   // Role-specific color themes matching choose role page
   const roleTheme = useMemo(() => {
@@ -148,6 +151,23 @@ const Register = ({ role = 'retailer' }) => {
         primaryColor: 'rgb(239, 68, 68)', // red-500
         secondaryColor: 'rgb(236, 72, 153)', // pink-500
       };
+    } else if (normalized === 'restaurant') {
+      return {
+        primary: 'orange',
+        secondary: 'amber',
+        gradient: 'from-orange-500/20 to-amber-500/20',
+        borderGradient: 'from-orange-400/50 to-amber-400/50',
+        hoverGlow: 'group-hover:shadow-orange-500/20',
+        textGradient: 'from-orange-400 via-amber-400 to-yellow-400',
+        accent: 'orange-400',
+        accentLight: 'orange-300',
+        glow: 'orange-500/40',
+        bgGradient: 'from-orange-500/10 via-amber-500/10 to-yellow-500/10',
+        accentColor: 'rgb(251, 146, 60)',
+        accentLightColor: 'rgb(253, 186, 116)',
+        primaryColor: 'rgb(249, 115, 22)',
+        secondaryColor: 'rgb(245, 158, 11)',
+      };
     } else {
       // Retailer (default)
       return {
@@ -161,10 +181,10 @@ const Register = ({ role = 'retailer' }) => {
         accentLight: 'pink-300',
         glow: 'pink-500/40',
         bgGradient: 'from-pink-500/10 via-rose-500/10 to-fuchsia-500/10',
-        accentColor: 'rgb(244, 114, 182)', // pink-400
-        accentLightColor: 'rgb(249, 168, 212)', // pink-300
-        primaryColor: 'rgb(236, 72, 153)', // pink-500
-        secondaryColor: 'rgb(244, 63, 94)', // rose-500
+        accentColor: 'rgb(244, 114, 182)',
+        accentLightColor: 'rgb(249, 168, 212)',
+        primaryColor: 'rgb(236, 72, 153)',
+        secondaryColor: 'rgb(244, 63, 94)',
       };
     }
   }, [roleName]);
@@ -202,6 +222,22 @@ const Register = ({ role = 'retailer' }) => {
           { label: 'Analytics', desc: 'Performance tracking' },
           { label: 'Network', desc: 'Distributor management' },
           { label: 'Insights', desc: 'Sales & growth data' },
+        ]
+      };
+    } else if (normalized === 'restaurant') {
+      return {
+        badge: 'Why FLYP Restaurant POS',
+        title: 'Run your restaurant, effortlessly',
+        subtitle: 'Full-featured restaurant & café POS. Tables, kitchen display, digital menu, QR ordering and analytics — all in one place.',
+        features: [
+          { icon: '🍽️', title: 'Table Management', text: 'Assign orders to tables, track status in real-time, and manage floor zones with ease.' },
+          { icon: '📺', title: 'Kitchen Display (KDS)', text: 'Orders fly to the kitchen the moment they\'re placed. No paper, no shouting — zero errors.' },
+          { icon: '📱', title: 'QR & Online Orders', text: 'Let guests order from their phone via QR code. Swiggy / Zomato integration ready.' },
+        ],
+        capabilities: [
+          { label: 'Tables', desc: 'Floor & zone management' },
+          { label: 'Kitchen', desc: 'Real-time KDS' },
+          { label: 'Menu', desc: 'Digital menu builder' },
         ]
       };
     } else {
@@ -350,6 +386,7 @@ const Register = ({ role = 'retailer' }) => {
       state: '',
       country: 'India',
       zipcode: '',
+      posOnly: selectedRole === 'Restaurant',
     };
     return payload;
   };
@@ -559,7 +596,9 @@ const Register = ({ role = 'retailer' }) => {
       }, 3000);
       
       // Navigate immediately without setTimeout to avoid landing page flash
-      if (normalizedRole === 'retailer') {
+      if (normalizedRole === 'restaurant') {
+        navigate('/dashboard?mode=pos', { replace: true });
+      } else if (normalizedRole === 'retailer') {
         navigate('/dashboard', { replace: true });
       } else if (normalizedRole === 'distributor') {
         navigate('/distributor-dashboard', { replace: true });
@@ -612,7 +651,8 @@ const Register = ({ role = 'retailer' }) => {
           city: '',
           state: '',
           country: 'India',
-          zipcode: ''
+          zipcode: '',
+          posOnly: selectedRole === 'Restaurant',
         }, { merge: false });
       }
 
@@ -631,7 +671,8 @@ const Register = ({ role = 'retailer' }) => {
       setTimeout(() => sessionStorage.removeItem('postSignupRole'), 3000);
 
       if (docSnap && docSnap.exists()) {
-        if (normalizedRole === 'retailer') navigate('/dashboard', { replace: true });
+        if (normalizedRole === 'restaurant') navigate('/dashboard?mode=pos', { replace: true });
+        else if (normalizedRole === 'retailer') navigate('/dashboard', { replace: true });
         else if (normalizedRole === 'distributor') navigate('/distributor-dashboard', { replace: true });
         else navigate('/product-owner-dashboard', { replace: true });
       } else {
@@ -1046,20 +1087,6 @@ const Register = ({ role = 'retailer' }) => {
                   <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white font-semibold text-xs">
                     {roleName}
                   </span>
-                  {/* Role selection UI: hide when coming from chooser */}
-                  {cameFromChooser ? null : (
-                    <select
-                      name="role"
-                      value={form.role || toCanonicalRole(role)}
-                      onChange={onChange}
-                      className="ml-1.5 px-2 py-0.5 rounded bg-slate-900/40 border border-white/10 text-slate-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-white/20"
-                      style={{ minWidth: 110 }}
-                    >
-                      <option value="Retailer">Retailer</option>
-                      <option value="Distributor">Distributor</option>
-                      <option value="Product Owner">Product Owner</option>
-                    </select>
-                  )}
                 </div>
                 <div className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5 text-[10px] font-medium">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

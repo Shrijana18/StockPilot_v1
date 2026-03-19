@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { usePOSTheme } from "../POSThemeContext";
 import { generateInvoice, printThermalContent } from "../../../utils/thermalPrinter";
@@ -62,7 +62,7 @@ const iQty   = (it) => Number(it.qty ?? it.quantity ?? 1);
 const iTotal = (it) => iPrice(it) * iQty(it);
 
 // ── Thermal Print ────────────────────────────────────────────────────────────
-function printInvoice(inv, businessName) {
+function printInvoice(inv, businessName, bizAddress, bizCity, bizGST, bizFSSAI, logoUrl) {
   const items    = getItems(inv);
   const total    = getTotal(inv);
   const subtotal = getSubtotal(inv);
@@ -92,9 +92,10 @@ function printInvoice(inv, businessName) {
     tableZone: zone,
     paymentMethod: payment,
     businessName: businessName,
-    businessAddress: inv.meta?.businessAddress || "",
-    gstNumber: inv.meta?.gstNumber || "",
-    fssaiNumber: inv.meta?.fssaiNumber || "",
+    businessAddress: [bizAddress, bizCity].filter(Boolean).join(", ") || inv.meta?.businessAddress || "",
+    gstNumber: bizGST || inv.meta?.gstNumber || "",
+    fssaiNumber: bizFSSAI || inv.meta?.fssaiNumber || "",
+    logoUrl: logoUrl || "",
     timestamp: inv.createdAt
   };
 
@@ -103,11 +104,12 @@ function printInvoice(inv, businessName) {
 
 // ── Payment color map ─────────────────────────────────────────────────────────
 const payColor = (inv) => {
+  if (inv.paymentStatus === "credit") return "bg-red-500/15 text-red-300 border-red-500/20";
   const p = getPayment(inv).toLowerCase();
   if (p.includes("cash"))   return "bg-emerald-500/15 text-emerald-300 border-emerald-500/20";
   if (p.includes("upi"))    return "bg-violet-500/15 text-violet-300 border-violet-500/20";
   if (p.includes("card"))   return "bg-blue-500/15 text-blue-300 border-blue-500/20";
-  if (p.includes("credit")) return "bg-amber-500/15 text-amber-300 border-amber-500/20";
+  if (p.includes("split"))  return "bg-amber-500/15 text-amber-300 border-amber-500/20";
   return "bg-white/8 text-white/40 border-white/10";
 };
 
@@ -119,7 +121,7 @@ export default function RestaurantInvoicesPanel() {
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState("today");
   const [selectedInv, setSelectedInv] = useState(null);
-  const { uid, bizName } = usePOSBusiness();
+  const { uid, bizName, bizAddress, bizCity, bizGST, bizFSSAI, bizLogo } = usePOSBusiness();
 
   useEffect(() => {
     if (!uid) { setLoading(false); return; }
@@ -149,6 +151,7 @@ export default function RestaurantInvoicesPanel() {
       if (dateFilter === "yesterday" && !isSameDay(inv.createdAt, yesterday)) return false;
       if (dateFilter === "week"      && !isInRange(inv.createdAt, 7))         return false;
       if (dateFilter === "month"     && !isInRange(inv.createdAt, 30))        return false;
+      if (dateFilter === "credit"    && inv.paymentStatus !== "credit")       return false;
       const q = search.toLowerCase().trim();
       if (!q) return true;
       const table  = (inv.meta?.tableName || "").toLowerCase();
@@ -172,12 +175,15 @@ export default function RestaurantInvoicesPanel() {
 
   const filteredRevenue = useMemo(() => filtered.reduce((s, i) => s + getTotal(i), 0), [filtered]);
 
+  const creditCount = invoices.filter(i => i.paymentStatus === "credit").length;
+
   const FILTERS = [
     ["today", "Today"],
     ["yesterday", "Yesterday"],
     ["week", "7 Days"],
     ["month", "30 Days"],
     ["all", "All Time"],
+    ["credit", creditCount > 0 ? `Credit (${creditCount})` : "Credit"],
   ];
 
   return (
@@ -253,8 +259,12 @@ export default function RestaurantInvoicesPanel() {
             <button key={key} onClick={() => setDateFilter(key)}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition border whitespace-nowrap ${
                 dateFilter === key
-                  ? "bg-emerald-500 border-emerald-400 text-white shadow-[0_0_14px_rgba(16,185,129,0.35)]"
-                  : `${tc.borderSoft} ${tc.textSub} hover:text-white/75`
+                  ? key === "credit"
+                    ? "bg-red-500 border-red-400 text-white shadow-[0_0_14px_rgba(239,68,68,0.35)]"
+                    : "bg-emerald-500 border-emerald-400 text-white shadow-[0_0_14px_rgba(16,185,129,0.35)]"
+                  : key === "credit" && creditCount > 0
+                    ? "border-red-500/40 text-red-300 hover:bg-red-500/10"
+                    : `${tc.borderSoft} ${tc.textSub} hover:text-white/75`
               }`}
             >{label}</button>
           ))}
@@ -299,7 +309,7 @@ export default function RestaurantInvoicesPanel() {
                 idx={idx}
                 bizName={bizName}
                 onOpen={() => setSelectedInv(inv)}
-                onPrint={e => { e.stopPropagation(); printInvoice(inv, bizName); }}
+                onPrint={e => { e.stopPropagation(); printInvoice(inv, bizName, bizAddress, bizCity, bizGST, bizFSSAI, bizLogo); }}
               />
             ))}
           </div>
@@ -312,7 +322,9 @@ export default function RestaurantInvoicesPanel() {
           <InvoiceDetailModal
             inv={selectedInv}
             bizName={bizName}
+            uid={uid}
             onClose={() => setSelectedInv(null)}
+            onMarkPaid={(invId) => setInvoices(prev => prev.map(i => i.id === invId ? { ...i, paymentStatus: "paid", dueAmount: 0 } : i))}
           />
         )}
       </AnimatePresence>
@@ -340,8 +352,12 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
       className={`group rounded-2xl border hover:border-emerald-500/25 hover:shadow-[0_4px_24px_rgba(0,0,0,0.3)] transition-all cursor-pointer overflow-hidden ${tc.cardBg}`}
       onClick={onOpen}
     >
-      {/* Top accent bar */}
-      <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500/0 via-emerald-400/40 to-emerald-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
+      {/* Top accent bar — red for credit */}
+      {inv.paymentStatus === "credit" ? (
+        <div className="h-0.5 w-full bg-gradient-to-r from-red-500/0 via-red-400/70 to-red-500/0" />
+      ) : (
+        <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500/0 via-emerald-400/40 to-emerald-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
+      )}
 
       {/* Header */}
       <div className="px-4 pt-3.5 pb-2 flex items-start justify-between gap-3">
@@ -379,9 +395,14 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
         <div className={`flex items-center gap-3 text-[10px] ${tc.textMuted}`}>
           {sub  > 0 && <span>Sub {fmtShort(sub)}</span>}
           {tax  > 0 && <span>GST {fmtShort(tax)}</span>}
+          {inv.paymentStatus === "credit" && inv.dueAmount > 0 && (
+            <span className="text-red-400 font-bold">Due ₹{Number(inv.dueAmount).toFixed(0)}</span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${payColor(inv)}`}>{pay}</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${payColor(inv)}`}>
+            {inv.paymentStatus === "credit" ? "📋 Credit" : pay}
+          </span>
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={onPrint}
@@ -400,8 +421,10 @@ function InvoiceCard({ inv, idx, bizName, onOpen, onPrint }) {
 }
 
 // ── Invoice Detail Modal ──────────────────────────────────────────────────────
-function InvoiceDetailModal({ inv, bizName, onClose }) {
+function InvoiceDetailModal({ inv, bizName, uid, onClose, onMarkPaid }) {
   const { tc } = usePOSTheme();
+  const { bizAddress, bizCity, bizGST, bizFSSAI, bizLogo } = usePOSBusiness();
+  const [markingPaid, setMarkingPaid] = React.useState(false);
   const items  = getItems(inv);
   const total  = getTotal(inv);
   const sub    = getSubtotal(inv);
@@ -410,6 +433,23 @@ function InvoiceDetailModal({ inv, bizName, onClose }) {
   const table  = getTableName(inv);
   const zone   = getTableZone(inv);
   const id     = getInvoiceId(inv);
+
+  const handleMarkPaid = async () => {
+    if (markingPaid || !uid || !inv.id) return;
+    setMarkingPaid(true);
+    try {
+      await updateDoc(doc(db, "businesses", uid, "finalizedInvoices", inv.id), {
+        paymentStatus: "paid",
+        dueAmount: 0,
+        paidAt: new Date().toISOString(),
+      });
+      onMarkPaid && onMarkPaid(inv.id);
+      onClose();
+    } catch (e) {
+      console.error("Mark paid failed:", e);
+      setMarkingPaid(false);
+    }
+  };
 
   return (
     <motion.div
@@ -483,18 +523,39 @@ function InvoiceDetailModal({ inv, bizName, onClose }) {
           </div>
         </div>
 
+        {/* Credit due + Mark as Paid */}
+        {inv.paymentStatus === "credit" && (
+          <div className="mx-4 mb-3 rounded-2xl border border-red-500/25 bg-red-500/8 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-red-400">📋 Credit Invoice</div>
+                {inv.dueAmount > 0 && (
+                  <div className="text-[11px] text-red-300/70 mt-0.5">Due: ₹{Number(inv.dueAmount).toFixed(2)}</div>
+                )}
+                {inv.payments?.find(p => p.dueDate) && (
+                  <div className="text-[10px] text-red-300/50 mt-0.5">By: {inv.payments.find(p => p.dueDate)?.dueDate}</div>
+                )}
+              </div>
+              <motion.button whileTap={{ scale: 0.95 }} onClick={handleMarkPaid} disabled={markingPaid}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition hover:bg-emerald-500/30 disabled:opacity-50">
+                {markingPaid ? "Saving…" : "✓ Mark as Paid"}
+              </motion.button>
+            </div>
+          </div>
+        )}
+
         {/* Action buttons */}
         <div className="px-4 pb-5 flex gap-2.5">
           <motion.button
             whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-            onClick={() => printInvoice(inv, bizName)}
+            onClick={() => printInvoice(inv, bizName, bizAddress, bizCity, bizGST, bizFSSAI, bizLogo)}
             className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 text-white font-black text-sm shadow-[0_4px_20px_rgba(16,185,129,0.35)] hover:shadow-[0_6px_28px_rgba(16,185,129,0.5)] transition flex items-center justify-center gap-2"
           >
             🖨️ Print Receipt
           </motion.button>
           <motion.button
             whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-            onClick={() => printInvoice(inv, bizName)}
+            onClick={() => printInvoice(inv, bizName, bizAddress, bizCity, bizGST, bizFSSAI, bizLogo)}
             className={`flex-1 py-3 rounded-2xl font-semibold text-sm transition flex items-center justify-center gap-2 ${tc.outlineBtn}`}
           >
             📄 Save as PDF

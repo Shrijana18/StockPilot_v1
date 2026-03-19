@@ -456,7 +456,7 @@ const RetailerDashboardInner = () => {
               onClick={(e) => e.stopPropagation()}
             >
                   <div className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-emerald-200">FLYP</div>
-              {!isNativeApp && (
+              {!isNativeApp && !userData?.posOnly && (
                 <div className="mb-3 sm:mb-4"><ModeToggle /></div>
               )}
               {sidebarItems.map((item) => (
@@ -552,7 +552,7 @@ const RetailerDashboardInner = () => {
                   <div className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-emerald-400 to-cyan-300 mb-4 pl-1 relative z-10">
                     FLYP
                   </div>
-                  {!isNativeApp && (
+                  {!isNativeApp && !userData?.posOnly && (
                     <motion.div className="mb-3 pl-1">
                       <ModeToggle />
                     </motion.div>

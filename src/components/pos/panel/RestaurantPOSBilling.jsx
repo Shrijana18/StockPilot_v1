@@ -118,7 +118,13 @@ export default function RestaurantPOSBilling({
   const [showReceipt, setShowReceipt] = React.useState(false);
   const [receiptData, setReceiptData] = React.useState(null);
   // Checkout form state
-  const [coPayment, setCoPayment]         = React.useState("cash"); // cash|card|upi|other
+  const [coPayment, setCoPayment]         = React.useState("cash"); // cash|card|upi|other|split|credit
+  const [splitRows, setSplitRows]         = React.useState([{ method: "cash", amount: "" }, { method: "upi", amount: "" }]);
+  const [creditAdvance, setCreditAdvance] = React.useState("");
+  const [creditDueDate, setCreditDueDate] = React.useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  });
   const [coCustomer, setCoCustomer]       = React.useState({ name: "", phone: "" });
   const [coTaxMode, setCoTaxMode]         = React.useState("auto"); // auto|manual
   const [coTaxPct, setCoTaxPct]           = React.useState("5");    // manual GST %
@@ -555,7 +561,33 @@ export default function RestaurantPOSBilling({
         });
       });
 
-      const payMethodLabel = { cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment] || "Cash";
+      // Build payments array based on mode
+      let paymentsArr;
+      let paymentStatus = "paid";
+      let dueAmount = 0;
+
+      if (coPayment === "split") {
+        paymentsArr = splitRows
+          .filter(r => r.amount && Number(r.amount) > 0)
+          .map(r => ({
+            method: { cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[r.method] || r.method,
+            amount: Number(r.amount),
+          }));
+      } else if (coPayment === "credit") {
+        const adv = Number(creditAdvance) || 0;
+        dueAmount = finalGrand - adv;
+        paymentStatus = dueAmount > 0 ? "credit" : "paid";
+        paymentsArr = [];
+        if (adv > 0)       paymentsArr.push({ method: "Advance", amount: adv });
+        if (dueAmount > 0) paymentsArr.push({ method: "Credit",  amount: dueAmount, dueDate: creditDueDate || null });
+      } else {
+        const payMethodLabel = { cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment] || "Cash";
+        paymentsArr = [{ method: payMethodLabel, amount: finalGrand }];
+      }
+
+      const payDisplayLabel = coPayment === "split" ? "Split" : coPayment === "credit" ? "Credit" :
+        ({ cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment] || "Cash");
+
       const mergedCustomer = coCustomer.name || coCustomer.phone
         ? { name: coCustomer.name || customerData?.name || "Guest", phone: coCustomer.phone || customerData?.phone || "" }
         : customerData || { name: "Guest" };
@@ -570,7 +602,9 @@ export default function RestaurantPOSBilling({
           grandTotal: finalGrand,
         },
         customer: mergedCustomer,
-        payments: [{ method: payMethodLabel, amount: finalGrand }],
+        payments: paymentsArr,
+        paymentStatus,
+        dueAmount: dueAmount > 0 ? dueAmount : 0,
         mode: "POS",
         meta: {
           source: "restaurant-pos",
@@ -578,7 +612,7 @@ export default function RestaurantPOSBilling({
           tableName: tableData.name || `Table ${tableData.number}`,
           tableZone: tableData.zone || "Main",
           tableCapacity: tableData.capacity,
-          paymentMethod: payMethodLabel,
+          paymentMethod: payDisplayLabel,
           businessName: posData.posSettings?.business?.name || billing?.businessInfo?.name || "",
           businessAddress: posData.posSettings?.business?.address || billing?.businessInfo?.address || "",
           gstNumber: posData.posSettings?.business?.gstNumber || billing?.businessInfo?.gstNumber || "",
@@ -601,7 +635,7 @@ export default function RestaurantPOSBilling({
         ));
       }
 
-      // Free the table
+      // Free the table (even for credit — table is free, payment is due)
       if (table?.id) {
         await updateDoc(doc(db, "businesses", uid, "tables", table.id), {
           status: "available", updatedAt: Date.now(),
@@ -610,8 +644,6 @@ export default function RestaurantPOSBilling({
 
       setCart([]);
 
-      // Show receipt
-      const payMethodLabel2 = { cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment] || "Cash";
       setReceiptData({
         invoiceId,
         tableName: tableData.name || `Table ${tableData.number}`,
@@ -619,7 +651,10 @@ export default function RestaurantPOSBilling({
         tableCapacity: tableData.capacity || 4,
         customerName: (coCustomer.name || customerData?.name) || "Guest",
         customerPhone: coCustomer.phone || customerData?.phone || "",
-        paymentMethod: payMethodLabel2,
+        paymentMethod: payDisplayLabel,
+        payments: paymentsArr,
+        paymentStatus,
+        dueAmount,
         servedBy: coStaff ? `${coStaff.name} (${coStaff.role})` : null,
         items: allItems,
         totals: { subTotal: checkoutTotal.subTotal, tax: finalTax, extraCharge: finalExtra, discount: finalDiscount, grandTotal: finalGrand },
@@ -633,7 +668,7 @@ export default function RestaurantPOSBilling({
     } finally {
       setSaving(false);
     }
-  }, [cart, customerData, table, tableData, billing, kitchenOrders, checkoutTotal, finalTax, finalExtra, finalDiscount, finalGrand, coPayment, coCustomer, coStaff, showToast]);
+  }, [cart, customerData, table, tableData, billing, kitchenOrders, checkoutTotal, finalTax, finalExtra, finalDiscount, finalGrand, coPayment, splitRows, creditAdvance, coCustomer, coStaff, showToast]);
 
   const selectedCategory = posData.categories.find(c => c.id === selectedCategoryId);
   const hasActiveOrders = kitchenOrders.length > 0;
@@ -1263,270 +1298,266 @@ export default function RestaurantPOSBilling({
 
       {/* ── Smart Checkout Sheet ── */}
       {showPreCheckout && (
-        <div className="fixed inset-0 z-[99999] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border shadow-2xl flex flex-col max-h-[92vh] backdrop-blur-xl ${tc.modalBg}`}
+            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 420, damping: 30 }}
+            className={`w-full max-w-2xl rounded-2xl border shadow-2xl flex flex-col max-h-[88vh] backdrop-blur-xl overflow-hidden ${tc.modalBg}`}
           >
             {/* ── Header ── */}
-            <div className={`px-5 py-4 border-b flex items-center justify-between shrink-0 ${tc.borderSoft}`}>
-              <div>
-                <div className={`text-sm font-bold ${tc.textPrimary}`}>Checkout — {tableData.name || (tableData.number ? `Table ${tableData.number}` : "Walk-in Order")}</div>
-                <div className={`text-xs mt-0.5 ${tc.textMuted}`}>Zone: {tableData.zone || "Main"} · {preCheckoutItems.length} item{preCheckoutItems.length !== 1 ? "s" : ""}</div>
+            <div className={`px-5 py-3.5 border-b flex items-center justify-between shrink-0 ${tc.borderSoft}`}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500/30 to-teal-500/20 border border-emerald-500/25 flex items-center justify-center text-base">🧾</div>
+                <div>
+                  <div className={`text-sm font-bold leading-tight ${tc.textPrimary}`}>
+                    Checkout — {tableData.name || (tableData.number ? `Table ${tableData.number}` : "Walk-in Order")}
+                  </div>
+                  <div className={`text-[10px] ${tc.textMuted}`}>
+                    {tableData.zone || "Main"} · {preCheckoutItems.length} item{preCheckoutItems.length !== 1 ? "s" : ""} · ₹{money(finalGrand)} due
+                  </div>
+                </div>
               </div>
-              <button onClick={() => setShowPreCheckout(false)} className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${tc.editBtn}`}>✕</button>
+              <button onClick={() => setShowPreCheckout(false)} className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs ${tc.editBtn}`}>✕</button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* ── 2-column body ── */}
+            <div className="flex-1 min-h-0 flex overflow-hidden">
 
-              {/* ── Customer ── */}
-              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
-                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Customer</div>
-                <div className="flex gap-2 items-center">
-                  <input
-                    value={coCustomer.name}
-                    onChange={e => setCoCustomer(p => ({ ...p, name: e.target.value }))}
-                    placeholder="Name (optional)"
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/50 ${tc.inputBg}`}
-                  />
-                  <input
-                    value={coCustomer.phone}
-                    onChange={e => setCoCustomer(p => ({ ...p, phone: e.target.value }))}
-                    placeholder="Phone (optional)"
-                    type="tel"
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/50 ${tc.inputBg}`}
-                  />
-                  <button
-                    onClick={() => setCoCustomer({ name: "Guest", phone: "" })}
-                    className={`px-3 py-2 rounded-lg text-xs transition whitespace-nowrap ${tc.outlineBtn}`}
-                  >👤 Guest</button>
+              {/* ═══ LEFT COLUMN — order summary ═══ */}
+              <div className={`w-[42%] flex flex-col border-r ${tc.borderSoft} min-h-0`}>
+                {/* Items scrollable */}
+                <div className={`px-4 pt-3 pb-1 flex items-center justify-between shrink-0`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-widest ${tc.textMuted}`}>Order</span>
+                  <span className={`text-[10px] font-semibold ${tc.textMuted}`}>{preCheckoutItems.length} items</span>
                 </div>
-              </div>
-
-              {/* ── Items delivered ── */}
-              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`text-[10px] font-bold uppercase tracking-widest ${tc.textMuted}`}>Items</div>
-                  <div className={`text-[10px] font-semibold ${tc.textMuted}`}>{preCheckoutItems.length} item{preCheckoutItems.length !== 1 ? "s" : ""}</div>
-                </div>
-                <div className="space-y-2">
+                <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-1.5 min-h-0">
                   {preCheckoutItems.map((item, idx) => (
-                    <div key={idx} className={`flex items-center gap-3 px-3 py-2 rounded-xl ${tc.mutedBg}`}>
-                      <div className={`w-6 h-6 rounded-lg text-[11px] font-black flex items-center justify-center flex-none border ${tc.borderSoft} ${tc.textPrimary}`}>{item.qty}</div>
+                    <div key={idx} className={`flex items-center gap-2 px-2.5 py-2 rounded-xl ${tc.mutedBg}`}>
+                      <div className={`w-5 h-5 rounded-md text-[10px] font-black flex items-center justify-center flex-none border ${tc.borderSoft} ${tc.textPrimary}`}>{item.qty}</div>
                       <div className="flex-1 min-w-0">
                         <div className={`text-xs font-semibold truncate ${tc.textPrimary}`}>{item.name}</div>
                         <div className={`text-[10px] ${tc.textMuted}`}>₹{item.price} × {item.qty}</div>
                       </div>
-                      <div className={`text-xs font-bold flex-none ${tc.textSub}`}>₹{(item.price * item.qty).toFixed(2)}</div>
+                      <div className={`text-xs font-bold flex-none ${tc.textSub}`}>₹{(item.price * item.qty).toFixed(0)}</div>
                     </div>
                   ))}
                   {preCheckoutItems.length === 0 && (
-                    <div className={`text-xs text-center py-4 ${tc.textMuted}`}>No items in order</div>
+                    <div className={`text-xs text-center py-6 ${tc.textMuted}`}>No items</div>
                   )}
+                </div>
+
+                {/* Bill summary pinned to bottom of left col */}
+                <div className={`px-4 py-3 border-t space-y-1 shrink-0 ${tc.borderSoft}`}>
+                  <div className={`flex justify-between text-[11px] ${tc.textSub}`}><span>Subtotal</span><span>₹{money(checkoutTotal.subTotal)}</span></div>
+                  <div className={`flex justify-between text-[11px] ${tc.textSub}`}><span>Tax / GST</span><span>₹{money(finalTax)}</span></div>
+                  {finalExtra > 0 && <div className={`flex justify-between text-[11px] ${tc.textSub}`}><span>{coExtraLabel || "Extra"}</span><span>₹{money(finalExtra)}</span></div>}
+                  {finalDiscount > 0 && <div className="flex justify-between text-[11px] text-red-400/70"><span>Discount</span><span>−₹{money(finalDiscount)}</span></div>}
+                  <div className={`flex justify-between font-bold pt-1.5 mt-0.5 border-t ${tc.borderSoft}`}>
+                    <span className={`text-sm ${tc.textPrimary}`}>Total</span>
+                    <span className="text-emerald-400 text-base">₹{money(finalGrand)}</span>
+                  </div>
+                  <div className={`flex justify-between text-[10px] ${tc.textMuted}`}>
+                    <span>Via</span>
+                    <span className={coPayment === "credit" ? "text-red-400 font-bold" : coPayment === "split" ? "text-amber-400 font-bold" : ""}>
+                      {{ cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other", split: "Split", credit: "Credit (Due)" }[coPayment]}
+                    </span>
+                  </div>
+                  {coPayment === "credit" && (() => { const due = finalGrand - (Number(creditAdvance)||0); return due > 0 ? (
+                    <div className="flex justify-between text-[10px]">
+                      <span className={tc.textMuted}>Due</span>
+                      <span className="text-red-400 font-bold">₹{money(due)}</span>
+                    </div>
+                  ) : null; })()}
                 </div>
               </div>
 
-              {/* ── Tax / GST — redesigned ── */}
-              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
-                <div className={`text-[10px] font-bold uppercase tracking-widest mb-3 ${tc.textMuted}`}>Tax / GST</div>
-                {/* Mode toggle pills */}
-                <div className={`flex gap-2 mb-3 p-1 rounded-xl ${tc.mutedBg} border ${tc.borderSoft}`}>
-                  <button
-                    onClick={() => setCoTaxMode("auto")}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      coTaxMode === "auto"
-                        ? "bg-emerald-500/25 text-emerald-300 shadow-sm ring-1 ring-inset ring-emerald-400/30"
-                        : `${tc.textMuted} hover:bg-white/[0.05]`
-                    }`}
-                  >
-                    <span>⚡</span> Auto (from menu)
-                  </button>
-                  <button
-                    onClick={() => setCoTaxMode("manual")}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      coTaxMode === "manual"
-                        ? "bg-amber-500/25 text-amber-300 shadow-sm ring-1 ring-inset ring-amber-400/30"
-                        : `${tc.textMuted} hover:bg-white/[0.05]`
-                    }`}
-                  >
-                    <span>✏️</span> Manual
-                  </button>
+              {/* ═══ RIGHT COLUMN — config ═══ */}
+              <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
+
+                {/* Customer */}
+                <div className={`px-4 py-3 border-b ${tc.borderSoft}`}>
+                  <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Customer</div>
+                  <div className="flex gap-2">
+                    <input value={coCustomer.name} onChange={e => setCoCustomer(p => ({ ...p, name: e.target.value }))}
+                      placeholder="Name" className={`flex-1 px-2.5 py-1.5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/40 ${tc.inputBg}`} />
+                    <input value={coCustomer.phone} onChange={e => setCoCustomer(p => ({ ...p, phone: e.target.value }))}
+                      type="tel" placeholder="Phone" className={`flex-1 px-2.5 py-1.5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/40 ${tc.inputBg}`} />
+                    <button onClick={() => setCoCustomer({ name: "Guest", phone: "" })}
+                      className={`px-2.5 py-1.5 rounded-lg text-[10px] transition whitespace-nowrap ${tc.outlineBtn}`}>Guest</button>
+                  </div>
                 </div>
-                {/* Manual rate input */}
-                <AnimatePresence>
-                  {coTaxMode === "manual" && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.18 }}
-                      className="overflow-hidden mb-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="relative flex-1">
-                          <input
-                            value={coTaxPct}
-                            onChange={e => setCoTaxPct(e.target.value.replace(/[^0-9.]/g, ""))}
+
+                {/* Tax / Adjustments — single compact row */}
+                <div className={`px-4 py-3 border-b ${tc.borderSoft}`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    {/* Tax toggle */}
+                    <div className={`flex-none flex p-0.5 rounded-lg gap-0.5 ${tc.mutedBg}`}>
+                      <button onClick={() => setCoTaxMode("auto")}
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition ${coTaxMode === "auto" ? "bg-emerald-500/30 text-emerald-300" : tc.textMuted}`}>⚡ Auto</button>
+                      <button onClick={() => setCoTaxMode("manual")}
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition ${coTaxMode === "manual" ? "bg-amber-500/30 text-amber-300" : tc.textMuted}`}>✏️ Manual</button>
+                    </div>
+                    {coTaxMode === "manual" && (
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <div className="relative w-16">
+                          <input value={coTaxPct} onChange={e => setCoTaxPct(e.target.value.replace(/[^0-9.]/g, ""))}
                             type="text" inputMode="decimal" placeholder="0"
-                            className={`w-full px-3 py-2.5 rounded-xl text-sm pr-8 focus:outline-none focus:ring-2 focus:ring-amber-500/40 border border-amber-500/30 bg-amber-500/10 text-amber-200 placeholder:text-white/30`}
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-400">%</span>
+                            className="w-full px-2 py-1 pr-5 rounded-lg text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 focus:outline-none" />
+                          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-amber-400">%</span>
                         </div>
                         <div className="flex gap-1">
                           {["0","5","12","18","28"].map(v => (
                             <button key={v} onClick={() => setCoTaxPct(v)}
-                              className={`px-2.5 py-2 rounded-lg text-[10px] font-bold transition ${
-                                coTaxPct === v ? "bg-amber-500 text-white shadow-sm" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`
-                              }`}
-                            >{v}%</button>
+                              className={`px-1.5 py-1 rounded-md text-[9px] font-bold transition ${coTaxPct === v ? "bg-amber-500 text-white" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`}`}>{v}%</button>
                           ))}
                         </div>
                       </div>
-                    </motion.div>
+                    )}
+                    <span className={`ml-auto text-xs font-bold text-emerald-400`}>₹{money(finalTax)}</span>
+                  </div>
+
+                  {/* Adjustments inline */}
+                  <div className="flex gap-2">
+                    <input value={coExtraLabel} onChange={e => setCoExtraLabel(e.target.value)} placeholder="Service Charge"
+                      className={`flex-1 px-2.5 py-1.5 rounded-lg text-[11px] focus:outline-none ${tc.inputBg}`} />
+                    <div className="relative w-20">
+                      <input value={coExtraAmt} onChange={e => setCoExtraAmt(e.target.value)} type="number" min="0" placeholder="0"
+                        className={`w-full px-2.5 py-1.5 rounded-lg text-[11px] focus:outline-none ${tc.inputBg}`} />
+                      <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-[9px] ${tc.textMuted}`}>+₹</span>
+                    </div>
+                    <div className="relative w-20">
+                      <input value={coDiscount} onChange={e => setCoDiscount(e.target.value)} type="number" min="0" placeholder="0"
+                        className="w-full px-2.5 py-1.5 rounded-lg text-[11px] text-red-300 bg-red-500/8 border border-red-500/20 focus:outline-none" />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-red-400">−₹</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Staff picker (compact) */}
+                {posData.posStaff.length > 0 && (
+                  <div className={`px-4 py-2.5 border-b ${tc.borderSoft}`}>
+                    <div className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 ${tc.textMuted}`}>Served by</div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {posData.posStaff.map(s => {
+                        const isSelected = coStaff?.id === s.id;
+                        const initials = (s.name || "?").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+                        return (
+                          <button key={s.id} onClick={() => setCoStaff(isSelected ? null : { id: s.id, name: s.name, role: s.role })}
+                            className={`flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-lg border text-xs transition ${
+                              isSelected ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200" : `${tc.cardBg} ${tc.borderSoft} ${tc.textSub} hover:bg-white/[0.06]`
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-black text-white flex-none ${isSelected ? "bg-emerald-500" : "bg-gradient-to-br from-slate-500 to-gray-600"}`}>{initials}</div>
+                            <span className="text-[10px] font-semibold">{s.name.split(" ")[0]}</span>
+                            {isSelected && <span className="text-emerald-400 text-[9px]">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment method */}
+                <div className={`px-4 py-3 border-b ${tc.borderSoft}`}>
+                  <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Payment</div>
+                  {/* 6 pills in 2 rows of 3 */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { key: "cash",   icon: "💵", label: "Cash" },
+                      { key: "card",   icon: "💳", label: "Card" },
+                      { key: "upi",    icon: "📲", label: "UPI" },
+                      { key: "other",  icon: "🔄", label: "Other" },
+                      { key: "split",  icon: "✂️", label: "Split" },
+                      { key: "credit", icon: "📋", label: "Credit" },
+                    ].map(pm => (
+                      <button key={pm.key} onClick={() => setCoPayment(pm.key)}
+                        className={`flex items-center justify-center gap-1.5 py-2 rounded-xl border text-center transition ${
+                          coPayment === pm.key
+                            ? pm.key === "credit" ? "border-red-500/60 bg-red-500/15 text-red-300"
+                            : pm.key === "split"  ? "border-amber-500/60 bg-amber-500/15 text-amber-300"
+                            :                       "border-emerald-500/60 bg-emerald-500/15 text-emerald-300"
+                            : `${tc.cardBg} ${tc.borderSoft} ${tc.textMuted} hover:bg-white/[0.07]`
+                        }`}
+                      >
+                        <span className="text-sm">{pm.icon}</span>
+                        <span className="text-[10px] font-semibold">{pm.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Split rows */}
+                  {coPayment === "split" && (
+                    <div className="mt-2.5 space-y-1.5">
+                      <div className={`text-[10px] ${tc.textMuted}`}>Split ₹{money(finalGrand)} across modes</div>
+                      {splitRows.map((row, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <select value={row.method}
+                            onChange={e => setSplitRows(prev => prev.map((r, j) => j === i ? { ...r, method: e.target.value } : r))}
+                            className={`flex-none w-24 px-2 py-1.5 rounded-lg text-[11px] focus:outline-none ${tc.inputBg}`}>
+                            <option value="cash">Cash</option>
+                            <option value="card">Card/POS</option>
+                            <option value="upi">UPI</option>
+                            <option value="other">Other</option>
+                          </select>
+                          <input type="number" min="0" placeholder="₹ Amount" value={row.amount}
+                            onChange={e => setSplitRows(prev => prev.map((r, j) => j === i ? { ...r, amount: e.target.value } : r))}
+                            className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] focus:outline-none ${tc.inputBg}`} />
+                          {splitRows.length > 2 && (
+                            <button onClick={() => setSplitRows(prev => prev.filter((_, j) => j !== i))}
+                              className="w-5 h-5 rounded-md bg-red-500/15 text-red-400 text-[9px] flex items-center justify-center shrink-0">✕</button>
+                          )}
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-0.5">
+                        <button onClick={() => setSplitRows(prev => [...prev, { method: "cash", amount: "" }])}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${tc.mutedBg} ${tc.textMuted} hover:bg-white/10 transition`}>+ Mode</button>
+                        {(() => { const tot = splitRows.reduce((s,r) => s + (Number(r.amount)||0), 0); const diff = finalGrand - tot;
+                          return diff !== 0 ? <span className="text-[10px] text-amber-400">₹{money(Math.abs(diff))} {diff > 0 ? "under" : "over"}</span> : <span className="text-[10px] text-emerald-400">✓ Balanced</span>; })()}
+                      </div>
+                    </div>
                   )}
-                </AnimatePresence>
-                <div className="flex justify-between items-center">
-                  <span className={`text-xs ${tc.textMuted}`}>
-                    {coTaxMode === "auto" ? "Calculated from menu item rates" : `GST @ ${coTaxPct || 0}% on ₹${money(checkoutTotal.subTotal)}`}
-                  </span>
-                  <span className={`text-sm font-bold text-emerald-400`}>₹{money(finalTax)}</span>
-                </div>
-              </div>
 
-              {/* ── Extra Charge & Discount ── */}
-              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
-                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Adjustments (optional)</div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <div className={`text-[10px] mb-1 ${tc.textMuted}`}>Extra charge label</div>
-                    <input
-                      value={coExtraLabel}
-                      onChange={e => setCoExtraLabel(e.target.value)}
-                      placeholder="Service Charge"
-                      className={`w-full px-3 py-2 rounded-lg text-xs focus:outline-none ${tc.inputBg}`}
-                    />
-                  </div>
-                  <div className="w-24">
-                    <div className={`text-[10px] mb-1 ${tc.textMuted}`}>Amount (₹)</div>
-                    <input
-                      value={coExtraAmt}
-                      onChange={e => setCoExtraAmt(e.target.value)}
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      className={`w-full px-3 py-2 rounded-lg text-xs focus:outline-none ${tc.inputBg}`}
-                    />
-                  </div>
-                  <div className="w-24">
-                    <div className={`text-[10px] mb-1 ${tc.textMuted}`}>Discount (₹)</div>
-                    <input
-                      value={coDiscount}
-                      onChange={e => setCoDiscount(e.target.value)}
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      className="w-full px-3 py-2 rounded-lg border border-red-500/20 bg-red-500/5 text-xs text-red-300 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-red-500/30"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Served By (Staff Picker) ── */}
-              {posData.posStaff.length > 0 && (
-                <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
-                  <div className={`text-[10px] font-bold uppercase tracking-widest mb-3 ${tc.textMuted}`}>Served By</div>
-                  <div className="flex gap-2 flex-wrap">
-                    {posData.posStaff.map(s => {
-                      const isSelected = coStaff?.id === s.id;
-                      const initials = (s.name || "?").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
-                      return (
-                        <motion.button
-                          key={s.id}
-                          whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                          onClick={() => setCoStaff(isSelected ? null : { id: s.id, name: s.name, role: s.role })}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${
-                            isSelected
-                              ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200 shadow-sm"
-                              : `${tc.cardBg} ${tc.borderSoft} ${tc.textSub} hover:bg-white/[0.07]`
-                          }`}
-                        >
-                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black text-white flex-none ${
-                            isSelected ? "bg-emerald-500" : "bg-gradient-to-br from-slate-500 to-gray-600"
-                          }`}>{initials}</div>
-                          <div className="text-left">
-                            <div className="text-xs font-semibold leading-tight">{s.name}</div>
-                            <div className={`text-[10px] capitalize leading-none ${isSelected ? "text-emerald-400/70" : tc.textMuted}`}>{s.role}</div>
-                          </div>
-                          {isSelected && <span className="text-emerald-400 text-xs ml-1">✓</span>}
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                  {!coStaff && (
-                    <p className={`text-[10px] mt-2 ${tc.textMuted}`}>Optional — tap to assign this bill to a staff member</p>
+                  {/* Credit panel */}
+                  {coPayment === "credit" && (
+                    <div className={`mt-2.5 rounded-xl border border-red-500/20 bg-red-500/5 p-3 space-y-2`}>
+                      <div className="flex items-center gap-1.5 text-red-400">
+                        <span className="text-sm">📋</span>
+                        <span className="text-[10px] font-bold">Invoice marked as Credit / Due</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className={`text-[9px] mb-1 ${tc.textMuted}`}>Advance paid (optional)</div>
+                          <input type="number" min="0" max={finalGrand} placeholder="₹ 0" value={creditAdvance}
+                            onChange={e => setCreditAdvance(e.target.value)}
+                            className={`w-full px-2.5 py-1.5 rounded-lg text-[11px] focus:outline-none ${tc.inputBg}`} />
+                        </div>
+                        <div>
+                          <div className={`text-[9px] mb-1 ${tc.textMuted}`}>Due date</div>
+                          <input type="date" value={creditDueDate} onChange={e => setCreditDueDate(e.target.value)}
+                            className={`w-full px-2.5 py-1.5 rounded-lg text-[11px] focus:outline-none ${tc.inputBg}`} />
+                        </div>
+                      </div>
+                      {(finalGrand - (Number(creditAdvance)||0)) > 0 && (
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className={tc.textMuted}>Due amount</span>
+                          <span className="text-red-400 font-bold">₹{money(finalGrand - (Number(creditAdvance)||0))}</span>
+                        </div>
+                      )}
+                    </div>
                   )}
-                </div>
-              )}
-
-              {/* ── Payment method ── */}
-              <div className={`px-5 py-3 border-b ${tc.borderSoft}`}>
-                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Payment Method</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { key: "cash", icon: "💵", label: "Cash" },
-                    { key: "card", icon: "💳", label: "Card / POS" },
-                    { key: "upi",  icon: "📲", label: "UPI" },
-                    { key: "other",icon: "🔄", label: "Other" },
-                  ].map(pm => (
-                    <button
-                      key={pm.key}
-                      onClick={() => setCoPayment(pm.key)}
-                      className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border text-center transition ${
-                        coPayment === pm.key
-                          ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300"
-                          : `${tc.cardBg} ${tc.textMuted} hover:bg-white/[0.07]`
-                      }`}
-                    >
-                      <span className="text-lg">{pm.icon}</span>
-                      <span className="text-[10px] font-semibold">{pm.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Bill summary ── */}
-              <div className="px-5 py-3">
-                <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${tc.textMuted}`}>Bill Summary</div>
-                <div className="space-y-1">
-                  <div className={`flex justify-between text-xs ${tc.textSub}`}><span>Subtotal</span><span>₹{money(checkoutTotal.subTotal)}</span></div>
-                  <div className={`flex justify-between text-xs ${tc.textSub}`}><span>Tax / GST</span><span>₹{money(finalTax)}</span></div>
-                  {finalExtra > 0 && <div className={`flex justify-between text-xs ${tc.textSub}`}><span>{coExtraLabel || "Extra"}</span><span>₹{money(finalExtra)}</span></div>}
-                  {finalDiscount > 0 && <div className="flex justify-between text-xs text-red-400/70"><span>Discount</span><span>−₹{money(finalDiscount)}</span></div>}
-                  <div className={`flex justify-between text-sm font-bold pt-2 border-t mt-1 ${tc.textPrimary} ${tc.borderSoft}`}>
-                    <span>Grand Total</span>
-                    <span className="text-emerald-400 text-base">₹{money(finalGrand)}</span>
-                  </div>
-                  <div className={`flex justify-between text-[10px] mt-1 ${tc.textMuted}`}>
-                    <span>Paying via</span>
-                    <span>{{ cash: "Cash", card: "Card / POS", upi: "UPI", other: "Other" }[coPayment]}</span>
-                  </div>
                 </div>
               </div>
             </div>
 
             {/* ── Confirm ── */}
-            <div className={`px-5 py-4 border-t flex gap-3 shrink-0 ${tc.borderSoft}`}>
-              <button
-                onClick={() => setShowPreCheckout(false)}
-                className={`flex-1 py-3 rounded-xl text-sm transition ${tc.outlineBtn}`}
-                disabled={saving}
-              >Cancel</button>
-              <button
-                onClick={executeCheckout}
-                className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white text-sm font-bold shadow-lg transition disabled:opacity-50"
-                disabled={saving}
-              >{saving ? "⏳ Processing..." : `💳 Confirm — ₹${money(finalGrand)}`}</button>
+            <div className={`px-5 py-3.5 border-t flex gap-3 shrink-0 ${tc.borderSoft}`}>
+              <button onClick={() => setShowPreCheckout(false)} disabled={saving}
+                className={`flex-none px-5 py-2.5 rounded-xl text-sm transition ${tc.outlineBtn}`}>Cancel</button>
+              <button onClick={executeCheckout} disabled={saving}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white text-sm font-bold shadow-lg transition disabled:opacity-50">
+                {saving ? "⏳ Processing…" : `💳 Confirm — ₹${money(finalGrand)}`}
+              </button>
             </div>
           </motion.div>
         </div>

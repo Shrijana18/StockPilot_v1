@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
-import { collection, onSnapshot, doc, getDoc } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db, auth } from "../../../firebase/firebaseConfig";
 import { usePOSTheme } from "../POSThemeContext";
+import { usePOSBusiness } from "../POSBusinessContext";
 import { generateQRPrint, printThermalContent } from "../../../utils/thermalPrinter";
 
 const getUid = () => auth.currentUser?.uid;
@@ -139,9 +140,9 @@ function TableQRCard({ table, bizUid, bizName, idx }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function QROrderManager() {
   const { tc } = usePOSTheme();
+  const { uid: bizUid, bizName, bizAddress, bizCity, bizPhone, bizGST } = usePOSBusiness();
   const [tables,  setTables]  = useState([]);
   const [loading, setLoading] = useState(true);
-  const [bizName, setBizName] = useState("Restaurant");
 
   // Reactive uid — covers auth race when component mounts before IndexedDB restores
   const [uid, setUid] = useState(() => getUid() || null);
@@ -149,10 +150,6 @@ export default function QROrderManager() {
 
   useEffect(() => {
     if (!uid) { setLoading(false); return; }
-
-    getDoc(doc(db, "businesses", uid))
-      .then(snap => { if (snap.exists()) setBizName(snap.data()?.businessName || snap.data()?.name || "Restaurant"); })
-      .catch(() => {});
 
     const unsub = onSnapshot(
       collection(db, "businesses", uid, "tables"),
@@ -170,6 +167,22 @@ export default function QROrderManager() {
 
       {/* Header */}
       <div className={`px-6 pt-5 pb-4 shrink-0 border-b ${tc.borderSoft}`}>
+        {/* Business info bar */}
+        {bizName && bizName !== "Restaurant" && (
+          <div className={`flex items-center gap-3 mb-4 px-4 py-2.5 rounded-2xl border ${tc.borderSoft} ${tc.mutedBg}`}>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-400/20 flex items-center justify-center text-sm font-black text-emerald-300 shrink-0">
+              {bizName.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-bold truncate ${tc.textPrimary}`}>{bizName}</p>
+              {(bizAddress || bizCity) && (
+                <p className={`text-[10px] truncate ${tc.textMuted}`}>{[bizAddress, bizCity].filter(Boolean).join(", ")}</p>
+              )}
+            </div>
+            {bizGST && <span className={`text-[9px] font-mono px-2 py-0.5 rounded-lg bg-white/5 border border-white/8 ${tc.textMuted} shrink-0`}>GST: {bizGST}</span>}
+            {bizPhone && <a href={`tel:${bizPhone}`} className="text-[10px] text-emerald-400 hover:underline shrink-0">{bizPhone}</a>}
+          </div>
+        )}
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="flex items-center gap-2 mb-0.5">

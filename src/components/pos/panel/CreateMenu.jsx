@@ -33,10 +33,13 @@ const generateId = (prefix = "") =>
   Date.now().toString(36);
 
 // Helper so both "nonveg" and "non-veg" work consistently in UI & storage
-const normalizeType = (t = "veg") =>
-  String(t).toLowerCase().replace(/\s+/g, "").replace("-", "") === "nonveg"
-    ? "nonveg"
-    : "veg";
+// Supports 3 types: "veg" | "egg" | "nonveg"
+const normalizeType = (t = "veg") => {
+  const n = String(t).toLowerCase().replace(/\s+/g, "").replace("-", "");
+  if (n === "nonveg") return "nonveg";
+  if (n === "egg") return "egg";
+  return "veg";
+};
 
 // Default emoji fallback (only used if no icon token)
 const fallbackEmojiById = (id) =>
@@ -1621,11 +1624,21 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
               <div className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-3xl bg-indigo-500/10" />
             </div>
             <div className="relative p-7 flex flex-col md:flex-row items-start md:items-center gap-6">
-              <motion.div
-                animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.05, 1] }}
-                transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-                className="text-6xl select-none shrink-0"
-              >🤖</motion.div>
+              <div className="relative shrink-0 w-16 h-16">
+                <motion.div
+                  animate={{ opacity: [0.3, 0.8, 0.3], scale: [0.8, 1.2, 0.8] }}
+                  transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut" }}
+                  className="absolute inset-0 rounded-2xl bg-gradient-to-br from-violet-500/60 to-indigo-500/40 blur-xl"
+                />
+                <motion.img
+                  src="/assets/flyp_logo.png"
+                  alt="FLYP AI"
+                  animate={{ scale: [1, 1.08, 1], rotate: [0, 3, -3, 0] }}
+                  transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+                  className="relative w-16 h-16 object-contain drop-shadow-[0_0_20px_rgba(139,92,246,0.8)]"
+                  onError={e => { e.target.style.display = 'none'; }}
+                />
+              </div>
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <h2 className="text-2xl font-black text-white tracking-tight">Smart Import</h2>
@@ -1773,11 +1786,11 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                 <span className="relative flex items-center justify-center gap-2 text-white">
                   {importScanning ? (
                     <>
-                      <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }} className="inline-block text-base">⚙️</motion.span>
-                      AI is reading your menu…
+                      <motion.img src="/assets/flyp_logo.png" alt="" className="w-4 h-4 object-contain inline" onError={e => e.target.style.display='none'} />
+                      FLYP AI is reading your menu…
                     </>
                   ) : (
-                    <><span className="text-base">🤖</span> Scan & Extract All Dishes</>
+                    <><img src="/assets/flyp_logo.png" alt="" className="w-4 h-4 object-contain inline" onError={e => e.target.style.display='none'} /> FLYP AI · Scan &amp; Extract All Dishes</>
                   )}
                 </span>
               </motion.button>
@@ -1842,12 +1855,37 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                   <motion.div key="scanning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                     className="rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-900/20 to-indigo-900/20 min-h-[420px] flex flex-col items-center justify-center text-center p-10"
                   >
-                    <motion.div
-                      animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
-                      transition={{ repeat: Infinity, duration: 2 }}
-                      className="text-7xl mb-6 select-none"
-                    >🤖</motion.div>
-                    <p className="text-violet-300 font-black text-lg mb-2">Reading your menu…</p>
+                    <div className="relative mb-6">
+                      <motion.div
+                        animate={{ opacity: [0.2, 0.7, 0.2], scale: [0.7, 1.3, 0.7] }}
+                        transition={{ repeat: Infinity, duration: 1.8 }}
+                        className="absolute inset-0 rounded-full bg-gradient-to-br from-violet-500/70 to-indigo-500/50 blur-3xl"
+                      />
+                      {[0,1,2].map(i => (
+                        <motion.div
+                          key={i}
+                          animate={{ rotate: 360 }}
+                          transition={{ repeat: Infinity, duration: 3 + i, ease: "linear" }}
+                          className="absolute inset-0 flex items-center justify-center"
+                          style={{ transformOrigin: "center" }}
+                        >
+                          <div className="absolute" style={{ top: `${-28 - i*10}px`, left: "50%", transform: "translateX(-50%)" }}>
+                            <div className={`w-${2+i} h-${2+i} rounded-full bg-violet-${400-i*50}/70`} />
+                          </div>
+                        </motion.div>
+                      ))}
+                      <motion.img
+                        src="/assets/flyp_logo.png"
+                        alt="FLYP AI"
+                        animate={{ scale: [1, 1.1, 1] }}
+                        transition={{ repeat: Infinity, duration: 1.5 }}
+                        className="relative w-24 h-24 object-contain drop-shadow-[0_0_40px_rgba(139,92,246,0.9)]"
+                        onError={e => { e.target.style.display = 'none'; }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="text-violet-300 font-black text-lg">FLYP AI is reading your menu…</p>
+                    </div>
                     <p className="text-white/40 text-sm mb-6">Detecting every dish, price and ingredient</p>
                     {/* Fake progress bars */}
                     <div className="w-full max-w-xs space-y-2">
@@ -1897,7 +1935,6 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                           <tr>
                             <th className="px-4 py-2.5 text-left text-white/40 font-semibold">Dish Name</th>
                             <th className="px-2 py-2.5 text-left text-white/40 font-semibold">₹ Price</th>
-                            <th className="px-2 py-2.5 text-left text-white/40 font-semibold">Tax</th>
                             <th className="px-2 py-2.5 text-left text-white/40 font-semibold">Category</th>
                             <th className="px-2 py-2.5 text-center text-white/40 font-semibold">Type</th>
                             <th className="px-2 py-2.5 text-center text-white/40 font-semibold">On</th>
@@ -1925,25 +1962,24 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                                 </div>
                               </td>
                               <td className="px-2 py-2">
-                                <div className="flex items-center gap-0.5">
-                                  <input type="number" value={row.tax} onChange={e => updateImportRow(row._id, "tax", e.target.value)}
-                                    className="w-8 bg-transparent focus:bg-white/5 border-b border-transparent focus:border-violet-400/60 outline-none text-white/60 py-0.5 px-0.5 rounded transition text-xs" />
-                                  <span className="text-white/20 text-[10px]">%</span>
-                                </div>
-                              </td>
-                              <td className="px-2 py-2">
                                 <input value={row.categoryName} onChange={e => updateImportRow(row._id, "categoryName", e.target.value)}
                                   className="w-24 bg-transparent focus:bg-white/5 border-b border-transparent focus:border-violet-400/60 outline-none text-white/50 py-0.5 px-0.5 rounded transition text-xs" />
                               </td>
                               <td className="px-2 py-2 text-center">
                                 <button
-                                  onClick={() => updateImportRow(row._id, "type", row.type === "veg" ? "nonveg" : "veg")}
+                                  onClick={() => {
+                                    const cycle = { veg: "egg", egg: "nonveg", nonveg: "veg" };
+                                    updateImportRow(row._id, "type", cycle[row.type] || "veg");
+                                  }}
+                                  title="Click to cycle: Veg → Egg → Non-Veg"
                                   className={`px-2 py-0.5 rounded-full text-[10px] font-black border transition ${
-                                    row.type === "veg"
-                                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
-                                      : "bg-red-500/15 text-red-300 border-red-500/30 hover:bg-red-500/25"
+                                    row.type === "egg"
+                                      ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/30 hover:bg-yellow-500/25"
+                                      : row.type === "nonveg"
+                                      ? "bg-red-500/15 text-red-300 border-red-500/30 hover:bg-red-500/25"
+                                      : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
                                   }`}
-                                >{row.type === "veg" ? "🌿 V" : "🍗 NV"}</button>
+                                >{row.type === "egg" ? "🥚 E" : row.type === "nonveg" ? "🍗 NV" : "🌿 V"}</button>
                               </td>
                               <td className="px-2 py-2 text-center">
                                 <button
@@ -2100,11 +2136,11 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
               {/* Header */}
               <div className={`relative flex items-center gap-3 px-6 py-4 border-b ${tc.borderSoft}`}>
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
-                  normalizeType(itemModalValue.type) === "veg"
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : "bg-red-500/20 text-red-300"
+                  normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-500/20 text-emerald-300"
+                  : normalizeType(itemModalValue.type) === "egg" ? "bg-yellow-500/20 text-yellow-300"
+                  : "bg-red-500/20 text-red-300"
                 }`}>
-                  {normalizeType(itemModalValue.type) === "veg" ? "🌿" : "🌗"}
+                  {normalizeType(itemModalValue.type) === "veg" ? "🌿" : normalizeType(itemModalValue.type) === "egg" ? "🥚" : "🌗"}
                 </div>
                 <div>
                   <h3 className={`text-base font-bold ${tc.textPrimary}`}>{itemModalMode === "add" ? "Add New Item" : "Edit Item"}</h3>
@@ -2169,6 +2205,10 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                             onClick={() => setItemModalValue(v => ({ ...v, type: "veg" }))}
                             className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "veg" ? "bg-emerald-500 text-white" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`}`}
                           ><span className="w-2.5 h-2.5 rounded-full bg-current opacity-70" />VEG</button>
+                          <button type="button"
+                            onClick={() => setItemModalValue(v => ({ ...v, type: "egg" }))}
+                            className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "egg" ? "bg-yellow-500 text-white" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`}`}
+                          ><span className="w-2.5 h-2.5 rounded-full bg-current opacity-70" />EGG</button>
                           <button type="button"
                             onClick={() => setItemModalValue(v => ({ ...v, type: "nonveg" }))}
                             className={`px-3 py-2.5 text-xs font-bold transition flex items-center gap-1.5 ${normalizeType(itemModalValue.type) === "nonveg" ? "bg-red-500 text-white" : `${tc.mutedBg} ${tc.textMuted} hover:bg-white/10`}`}

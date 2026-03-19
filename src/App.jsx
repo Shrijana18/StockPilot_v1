@@ -46,6 +46,9 @@ const POSApp = lazy(() => import('./components/pos/POSApp.jsx'));
 const POSStaffLogin = lazy(() => import('./pages/POSStaffLogin.jsx'));
 const POSStaffDashboard = lazy(() => import('./pages/POSStaffDashboard.jsx'));
 
+// POS Landing Page
+const POSLandingPage = lazy(() => import('./pages/POSLandingPage.jsx'));
+
 const PageFallback = () => <LoadingScreen />;
 
 const App = () => {
@@ -117,6 +120,9 @@ const App = () => {
               <Route path="/pos-staff" element={<POSStaffLogin />} />
               <Route path="/pos-staff/dashboard" element={<POSStaffDashboard />} />
 
+              {/* POS Landing Page */}
+              <Route path="/pos-landing" element={<POSLandingPage />} />
+
               {/* Protected Routes */}
               {/* Retailer - Use Mobile Dashboard for Native App */}
               <Route element={<PrivateRoute />}>
@@ -183,6 +189,9 @@ const App = () => {
               {/* POS Staff Portal */}
               <Route path="/pos-staff" element={<POSStaffLogin />} />
               <Route path="/pos-staff/dashboard" element={<POSStaffDashboard />} />
+
+              {/* POS Landing Page */}
+              <Route path="/pos-landing" element={<POSLandingPage />} />
 
               {/* Protected Routes */}
               {/* Retailer (no explicit role required) */}

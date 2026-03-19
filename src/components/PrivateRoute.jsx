@@ -82,6 +82,7 @@ const PrivateRoute = ({ requireRole }) => {
       let redirectTo = '/dashboard';
       if (roleNorm === 'distributor') redirectTo = '/distributor-dashboard';
       else if (roleNorm === 'productowner') redirectTo = '/product-owner-dashboard';
+      else if (roleNorm === 'restaurant') redirectTo = '/dashboard?mode=pos';
       return <Navigate to={redirectTo} replace />;
     }
   }

@@ -294,6 +294,7 @@ export const printThermalContent = (htmlContent, title = "Receipt") => {
     .thermal-double-divider { border-top: 2px solid #000; margin: 2mm 0; }
     .thermal-qr { text-align: center; margin: 3mm 0; }
     .thermal-qr img { max-width: 40mm; height: auto; display: block; margin: 0 auto; }
+    .thermal-logo { display: block; max-width: 28mm; max-height: 20mm; height: auto; margin: 0 auto 2mm; object-fit: contain; }
     .rush-banner { background: #000; color: #fff; text-align: center; padding: 2mm; font-weight: 900; font-size: 13pt; margin-bottom: 3mm; }
     .kot-item { border-bottom: 1px dotted #ccc; padding: 1.5mm 0; }
     .kot-qty { font-size: 14pt; font-weight: 900; }
@@ -304,6 +305,7 @@ export const printThermalContent = (htmlContent, title = "Receipt") => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=80mm">
+<base href="${window.location.origin}/">
 <title>${title}</title>
 <style>${PRINT_CSS}</style>
 </head>
@@ -346,12 +348,13 @@ export const printThermalContent = (htmlContent, title = "Receipt") => {
 export const printThermalReceipt = (_, htmlContent) => printThermalContent(htmlContent);
 
 export const generateKOT = (orderData) => {
-  const { items, tableName, tableZone, roundNumber, isRush, timestamp } = orderData;
+  const { items, tableName, tableZone, roundNumber, isRush, timestamp, logoUrl } = orderData;
   const date = new Date(timestamp || Date.now());
   
   return `
     <div class="thermal-receipt" id="thermal-kot">
       <div class="thermal-header">
+        ${logoUrl ? `<img src="${logoUrl}" alt="logo" class="thermal-logo" />` : ''}
         <div class="thermal-title">KITCHEN ORDER</div>
         ${isRush ? '<div class="thermal-subtitle" style="color: #f00;">🚨 RUSH ORDER 🚨</div>' : ''}
         <div class="thermal-info">${date.toLocaleString('en-IN')}</div>
@@ -383,7 +386,10 @@ export const generateKOT = (orderData) => {
       </div>
       
       <div class="thermal-footer">
-        <div>Powered by FLYP POS</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:3mm;">
+          <img src="assets/flyp_logo.png" alt="FLYP" style="width:8mm;height:8mm;object-fit:contain;" />
+          <span style="font-size:9pt;font-weight:900;letter-spacing:1px;">FLYP POS</span>
+        </div>
       </div>
     </div>
   `;
@@ -402,7 +408,8 @@ export const generateInvoice = (invoiceData) => {
     businessAddress,
     gstNumber,
     fssaiNumber,
-    timestamp 
+    timestamp,
+    logoUrl
   } = invoiceData;
   
   const date = new Date(timestamp || Date.now());
@@ -410,6 +417,7 @@ export const generateInvoice = (invoiceData) => {
   return `
     <div class="thermal-receipt" id="thermal-invoice">
       <div class="thermal-header">
+        ${logoUrl ? `<img src="${logoUrl}" alt="logo" class="thermal-logo" />` : ''}
         <div class="thermal-title">${businessName || 'RESTAURANT'}</div>
         ${businessAddress ? `<div class="thermal-info">${businessAddress}</div>` : ''}
         ${gstNumber ? `<div class="thermal-info">GST: ${gstNumber}</div>` : ''}
@@ -493,7 +501,10 @@ export const generateInvoice = (invoiceData) => {
       
       <div class="thermal-footer">
         <div style="margin-bottom: 2mm;">Thank you for dining with us!</div>
-        <div>Powered by FLYP POS</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:3mm;margin-top:2mm;">
+          <img src="assets/flyp_logo.png" alt="FLYP" style="width:10mm;height:10mm;object-fit:contain;" />
+          <span style="font-size:9pt;font-weight:900;letter-spacing:1px;">Powered by FLYP POS</span>
+        </div>
       </div>
     </div>
   `;

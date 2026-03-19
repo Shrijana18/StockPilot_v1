@@ -62,10 +62,11 @@ const StatCard = ({ icon, label, value, sub, color = "emerald", trend }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 function SalesTab() {
   const { tc } = usePOSTheme();
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState("30d");
-  const [activeTab, setActiveTab] = useState("sales"); // sales | expenses // 7d | 30d | 90d | all
+  const [orders, setOrders]     = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [range, setRange]       = useState("30d");
+  const [activeTab, setActiveTab] = useState("sales"); // sales | expenses
 
   // Reactive uid — covers auth race when component mounts before IndexedDB restores
   const [uidVal, setUidVal] = useState(() => uid() || null);
@@ -82,37 +83,50 @@ function SalesTab() {
     return unsubscribe;
   }, [uidVal]);
 
+  // Load finalized invoices for payment breakdown
+  useEffect(() => {
+    if (!uidVal) return;
+    const ref = collection(db, "businesses", uidVal, "finalizedInvoices");
+    const unsubscribe = onSnapshot(ref, (snap) => {
+      setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => { console.warn("[Analytics] invoices error:", err?.message); });
+    return unsubscribe;
+  }, [uidVal]);
+
   const cutoff = useMemo(() => {
     if (range === "all") return 0;
     const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
     return Date.now() - days * 86400000;
   }, [range]);
 
+  // ── Primary data source: finalizedInvoices filtered by range + restaurant-pos source ──
   const filtered = useMemo(
-    () => orders.filter(o => (o.createdAt || 0) >= cutoff),
-    [orders, cutoff]
+    () => invoices.filter(inv =>
+      inv.meta?.source === "restaurant-pos" && (inv.createdAt || 0) >= cutoff
+    ),
+    [invoices, cutoff]
   );
 
-  // ── Revenue by day ──────────────────────────────────────────────────────
+  // ── Revenue by day ──────────────────────────────────────
   const dailyRevenue = useMemo(() => {
     const map = {};
-    filtered.forEach(o => {
-      const d = new Date(o.createdAt || Date.now());
+    filtered.forEach(inv => {
+      const ts = inv.createdAt;
+      const d = new Date(ts?.toDate ? ts.toDate() : (ts || Date.now()));
       const key = `${d.getDate()}/${d.getMonth()+1}`;
-      const rev = o.totals?.grandTotal || o.totals?.subTotal || 0;
-      map[key] = (map[key] || 0) + rev;
+      map[key] = (map[key] || 0) + (inv.totals?.grandTotal || 0);
     });
     return Object.entries(map).map(([date, revenue]) => ({ date, revenue: +revenue.toFixed(2) })).slice(-14);
   }, [filtered]);
 
-  // ── Top items ───────────────────────────────────────────────────────────
+  // ── Top items ───────────────────────────────────────
   const topItems = useMemo(() => {
     const map = {};
-    filtered.forEach(o => {
-      (o.items || o.lines || []).forEach(line => {
-        const name = line.product?.name || line.name || "Unknown";
-        const price = Number(line.product?.price || 0);
-        const qty = line.qty || 1;
+    filtered.forEach(inv => {
+      (inv.cartItems || inv.lines || []).forEach(line => {
+        const name = line.product?.name || line.name || line.itemName || "Unknown";
+        const price = Number(line.product?.price ?? line.price ?? 0);
+        const qty = Number(line.qty ?? line.quantity ?? 1);
         if (!map[name]) map[name] = { name, qty: 0, revenue: 0 };
         map[name].qty += qty;
         map[name].revenue += price * qty;
@@ -121,13 +135,13 @@ function SalesTab() {
     return Object.values(map).sort((a, b) => b.qty - a.qty).slice(0, 10);
   }, [filtered]);
 
-  // ── Low sellers ─────────────────────────────────────────────────────────
+  // ── Low sellers ───────────────────────────────────────
   const lowItems = useMemo(
     () => [...topItems].sort((a, b) => a.qty - b.qty).slice(0, 5),
     [topItems]
   );
 
-  // ── Sales by hour bucket ─────────────────────────────────────────────────
+  // ── Sales by hour bucket ───────────────────────────────────
   const salesByTime = useMemo(() => {
     const buckets = [
       { label: "Morning\n6–11", key: "morning", range: [6,11], orders: 0, revenue: 0 },
@@ -136,22 +150,23 @@ function SalesTab() {
       { label: "Dinner\n20–23", key: "dinner",  range: [20,23], orders: 0, revenue: 0 },
       { label: "Late Night\n0–5", key: "late",  range: [0,5],  orders: 0, revenue: 0 },
     ];
-    filtered.forEach(o => {
-      const hr = new Date(o.createdAt || Date.now()).getHours();
+    filtered.forEach(inv => {
+      const ts = inv.createdAt;
+      const hr = new Date(ts?.toDate ? ts.toDate() : (ts || Date.now())).getHours();
       const b = buckets.find(b => hr >= b.range[0] && hr <= b.range[1]);
-      if (b) { b.orders++; b.revenue += o.totals?.grandTotal || 0; }
+      if (b) { b.orders++; b.revenue += inv.totals?.grandTotal || 0; }
     });
     return buckets.map(b => ({ label: b.label, orders: b.orders, revenue: +b.revenue.toFixed(0) }));
   }, [filtered]);
 
-  // ── Customer stats ───────────────────────────────────────────────────────
+  // ── Customer stats ──────────────────────────────────────
   const customerStats = useMemo(() => {
     const custMap = {};
-    filtered.forEach(o => {
-      const cid = o.customerId || o.tableName || `table-${o.tableId}` || "walk-in";
+    filtered.forEach(inv => {
+      const cid = inv.customer?.name || inv.meta?.tableName || `table-${inv.meta?.tableId}` || "walk-in";
       if (!custMap[cid]) custMap[cid] = { id: cid, visits: 0, revenue: 0 };
       custMap[cid].visits++;
-      custMap[cid].revenue += o.totals?.grandTotal || 0;
+      custMap[cid].revenue += inv.totals?.grandTotal || 0;
     });
     const list = Object.values(custMap).sort((a, b) => b.revenue - a.revenue);
     const returning = list.filter(c => c.visits > 1).length;
@@ -159,52 +174,53 @@ function SalesTab() {
     return { top: list.slice(0, 5), retentionRate, total: list.length, returning };
   }, [filtered]);
 
-  // ── Summary stats ───────────────────────────────────────────────────────
+  // ── Summary stats (all invoices incl. credit) ───────────────────
   const summary = useMemo(() => {
-    const revenue = filtered.reduce((s, o) => s + (o.totals?.grandTotal || 0), 0);
+    const revenue = filtered.reduce((s, inv) => s + (inv.totals?.grandTotal || 0), 0);
+    const creditRevenue = filtered
+      .filter(inv => inv.paymentStatus === "credit")
+      .reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
+    const collectedRevenue = revenue - creditRevenue;
     const ordersCount = filtered.length;
     const avgOrder = ordersCount ? revenue / ordersCount : 0;
-    const itemsSold = filtered.reduce((s, o) => s + (o.items || o.lines || []).reduce((a, l) => a + (l.qty || 1), 0), 0);
-    return { revenue, ordersCount, avgOrder, itemsSold };
+    const itemsSold = filtered.reduce((s, inv) =>
+      s + (inv.cartItems || inv.lines || []).reduce((a, l) => a + Number(l.qty ?? l.quantity ?? 1), 0), 0);
+    return { revenue, collectedRevenue, creditRevenue, ordersCount, avgOrder, itemsSold };
   }, [filtered]);
 
-  // ── Payment mode breakdown ──────────────────────────────────────────────
+  // ── Payment mode breakdown (from finalizedInvoices — the only source with payment data) ──
   const paymentBreakdown = useMemo(() => {
     const modes = {};
-    filtered.forEach(o => {
-      const payments = o.payments || [];
-      if (payments.length > 0) {
-        payments.forEach(p => {
-          const method = (p.method || p.type || "Other").toLowerCase();
-          const normalizedMethod = 
-            method.includes("cash") ? "Cash" :
-            method.includes("upi") ? "UPI" :
-            method.includes("card") || method.includes("pos") ? "Card/POS" :
-            "Other";
-          const amount = Number(p.amount || 0);
-          modes[normalizedMethod] = (modes[normalizedMethod] || 0) + amount;
+    const invoicesCutoff = cutoff;
+    const filteredInvoices = invoices.filter(inv =>
+      inv.meta?.source === "restaurant-pos" && (inv.createdAt || 0) >= invoicesCutoff
+    );
+    filteredInvoices.forEach(inv => {
+      const normalise = (m = "") => {
+        const ml = m.toLowerCase();
+        if (ml.includes("cash"))    return "Cash";
+        if (ml.includes("upi"))     return "UPI";
+        if (ml.includes("card") || ml.includes("pos")) return "Card/POS";
+        if (ml.includes("credit"))  return "Credit";
+        if (ml.includes("advance")) return "Advance";
+        return "Other";
+      };
+      const pmts = inv.payments || [];
+      if (pmts.length > 0) {
+        pmts.forEach(p => {
+          const key = normalise(p.method || p.type);
+          modes[key] = (modes[key] || 0) + Number(p.amount || 0);
         });
       } else {
-        const method = o.meta?.paymentMethod || o.paymentMode || "Other";
-        const normalizedMethod = 
-          method.toLowerCase().includes("cash") ? "Cash" :
-          method.toLowerCase().includes("upi") ? "UPI" :
-          method.toLowerCase().includes("card") || method.toLowerCase().includes("pos") ? "Card/POS" :
-          "Other";
-        const amount = o.totals?.grandTotal || 0;
-        modes[normalizedMethod] = (modes[normalizedMethod] || 0) + amount;
+        const key = normalise(inv.meta?.paymentMethod || inv.paymentMode);
+        modes[key] = (modes[key] || 0) + (inv.totals?.grandTotal || 0);
       }
     });
+    const COLOR = { Cash: "#10b981", UPI: "#8b5cf6", "Card/POS": "#3b82f6", Credit: "#ef4444", Advance: "#f59e0b", Other: "#64748b" };
     return Object.entries(modes).map(([method, amount]) => ({
-      method,
-      amount: +amount.toFixed(2),
-      color: 
-        method === "Cash" ? "#10b981" :
-        method === "UPI" ? "#8b5cf6" :
-        method === "Card/POS" ? "#3b82f6" :
-        "#f59e0b"
+      method, amount: +amount.toFixed(2), color: COLOR[method] || "#64748b",
     })).sort((a, b) => b.amount - a.amount);
-  }, [filtered]);
+  }, [invoices, cutoff]);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -261,7 +277,7 @@ function SalesTab() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className={`text-xl font-black ${tc.textPrimary}`}>Sales Analytics</h2>
-          <p className={`text-xs mt-0.5 ${tc.textMuted}`}>{filtered.length} orders in selected period</p>
+          <p className={`text-xs mt-0.5 ${tc.textMuted}`}>{filtered.length} invoice{filtered.length !== 1 ? "s" : ""} in selected period</p>
         </div>
         <div className={`flex gap-1 p-1 rounded-xl border backdrop-blur-sm ${tc.themeBtn}`}>
           {[["7d","7 Days"],["30d","30 Days"],["90d","90 Days"],["all","All Time"]].map(([k,l]) => (
@@ -278,8 +294,18 @@ function SalesTab() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon="💰" label="Total Revenue"  value={fmtK(summary.revenue)}     color="emerald" />
-        <StatCard icon="📦" label="Total Orders"    value={summary.ordersCount}        color="blue" />
+        <div className={`rounded-2xl border p-4 shadow-sm ${tc.cardBg}`}>
+          <div className="text-2xl mb-2">💰</div>
+          <p className={`text-[11px] font-semibold mb-1 ${tc.textMuted}`}>Total Revenue</p>
+          <p className="text-2xl font-black text-emerald-400">{fmtK(summary.revenue)}</p>
+          {summary.creditRevenue > 0 && (
+            <div className="mt-1.5 space-y-0.5">
+              <p className="text-[10px] text-emerald-300/60">Collected: {fmtK(summary.collectedRevenue)}</p>
+              <p className="text-[10px] text-red-400/80">+ Credit due: {fmtK(summary.creditRevenue)}</p>
+            </div>
+          )}
+        </div>
+        <StatCard icon="📦" label="Total Invoices"  value={summary.ordersCount}        color="blue" />
         <StatCard icon="🧾" label="Avg Order Value" value={fmt(summary.avgOrder)}      color="violet" />
         <StatCard icon="🍽️" label="Items Sold"       value={summary.itemsSold}          color="amber" />
       </div>
@@ -370,7 +396,7 @@ function SalesTab() {
                 }}
               >
                 <div className="text-2xl mb-2">
-                  {pm.method === "Cash" ? "💵" : pm.method === "UPI" ? "📲" : pm.method === "Card/POS" ? "💳" : "🔄"}
+                  {pm.method === "Cash" ? "💵" : pm.method === "UPI" ? "📲" : pm.method === "Card/POS" ? "💳" : pm.method === "Credit" ? "📋" : pm.method === "Advance" ? "⬆️" : pm.method === "Split" ? "✂️" : "🔄"}
                 </div>
                 <p className="text-xs font-semibold mb-1" style={{ color: pm.color }}>{pm.method}</p>
                 <p className="text-lg font-black" style={{ color: pm.color }}>{fmt(pm.amount)}</p>

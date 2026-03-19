@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import { ProductSwitcher } from '../pages/POSLandingPage';
 import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { app } from "../firebase/firebaseConfig";
@@ -16,7 +18,9 @@ const ENABLE_OTP_VERIFICATION = false;
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { platform } = usePlatform();
+  const isPOSMode = new URLSearchParams(location.search).get('product')?.toLowerCase() === 'pos';
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -437,10 +441,19 @@ const Login = () => {
   return (
     <div className="min-h-[100dvh] w-full relative overflow-hidden bg-[#0B0F14]">
       <LoadBarKeyframes />
-      {/* Aurora / brand glow */}
+      {/* Aurora / brand glow — adapts to product mode */}
       <div className="pointer-events-none absolute inset-0 opacity-40">
-        <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
-        <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
+        {isPOSMode ? (
+          <>
+            <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-orange-500/40 via-amber-400/30 to-yellow-400/20" />
+            <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-amber-500/30 via-orange-400/20 to-red-400/20" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-24 -left-24 w-[60vmax] h-[60vmax] rounded-full blur-3xl bg-gradient-to-tr from-emerald-500/40 via-teal-400/30 to-cyan-400/30" />
+            <div className="absolute -bottom-24 -right-24 w-[50vmax] h-[50vmax] rounded-full blur-3xl bg-gradient-to-tr from-cyan-500/30 via-sky-400/20 to-emerald-400/30" />
+          </>
+        )}
       </div>
 
       {/* Centered glass card - safe area for iOS notch/home indicator */}
@@ -458,17 +471,28 @@ const Login = () => {
             </div>
           )}
           <div className="px-4 sm:px-7 md:px-8 pt-6 sm:pt-8 pb-4 sm:pb-6 text-center">
+            {/* Product Switcher embedded at top of card */}
+            <div className="flex justify-center mb-5">
+              <ProductSwitcher
+                active={isPOSMode ? 'pos' : 'supplychain'}
+                scTo="/auth?type=login"
+                posTo="/auth?type=login&product=pos"
+              />
+            </div>
             <div className="mx-auto mb-3 sm:mb-4 inline-flex items-center gap-3">
               <img 
                 src="/assets/flyp_logo.png" 
                 alt="FLYP" 
-                className="h-16 w-16 sm:h-20 sm:w-20 object-contain"
+                className="h-12 w-12 sm:h-14 sm:w-14 object-contain"
                 onError={(e) => e.target.style.display = 'none'}
               />
-              <span className="text-xs px-2 py-0.5 rounded-full border border-white/20 text-white/80">Sign In</span>
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-white">Welcome back</h2>
-            <p className="mt-1 text-xs sm:text-sm text-white/70">Continue to your dashboard</p>
+            <h2 className="text-xl sm:text-2xl font-bold text-white">
+              {isPOSMode ? 'Sign in to Restaurant POS' : 'Welcome back'}
+            </h2>
+            <p className="mt-1 text-xs sm:text-sm text-white/70">
+              {isPOSMode ? 'Access your restaurant dashboard' : 'Continue to your dashboard'}
+            </p>
           </div>
 
           {error && (
