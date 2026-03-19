@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  collection, doc, getDoc, getDocs, addDoc, onSnapshot,
+  collection, doc, getDoc, addDoc, onSnapshot,
 } from "firebase/firestore";
 import { db } from "../firebase/firebaseConfig";
 
@@ -324,35 +324,20 @@ export default function QROrderPage() {
   const [errMsg, setErrMsg]     = useState("");
   const catBarRef = useRef(null);
 
-  // Load data
+  // Load business + table info (one-time)
   useEffect(() => {
     if (!bizUid || !tableId) { setErrMsg("Invalid QR code — missing restaurant or table info."); setPhase("error"); return; }
-
     (async () => {
       try {
-        // Business info
         const bizSnap = await getDoc(doc(db, "businesses", bizUid));
         if (!bizSnap.exists()) { setErrMsg("Restaurant not found."); setPhase("error"); return; }
         const bd = bizSnap.data();
         setBizName(bd?.businessInfo?.name || bd?.businessName || bd?.name || "Restaurant");
         setBizTagline(bd?.tagline || bd?.businessInfo?.tagline || "");
 
-        // Table info
         const tableSnap = await getDoc(doc(db, "businesses", bizUid, "tables", tableId));
         if (!tableSnap.exists()) { setErrMsg("Table not found."); setPhase("error"); return; }
         setTable({ id: tableSnap.id, ...tableSnap.data() });
-
-        // Categories
-        const catSnap = await getDocs(collection(db, "businesses", bizUid, "categories"));
-        const cats = catSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setCats(cats);
-        if (cats.length) setSelCat(cats[0].id);
-
-        // Items (available only)
-        const itemSnap = await getDocs(collection(db, "businesses", bizUid, "items"));
-        setItems(itemSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(it => it.available !== false));
-
-        setPhase("splash");
       } catch (e) {
         console.error(e);
         setErrMsg("Failed to load menu. Please try again.");
@@ -360,6 +345,35 @@ export default function QROrderPage() {
       }
     })();
   }, [bizUid, tableId]);
+
+  // Real-time categories listener
+  useEffect(() => {
+    if (!bizUid) return;
+    const unsub = onSnapshot(
+      collection(db, "businesses", bizUid, "categories"),
+      snap => {
+        const cats = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setCats(cats);
+        setSelCat(prev => prev || cats[0]?.id || "");
+      },
+      err => console.warn("[QROrder] categories:", err?.message)
+    );
+    return unsub;
+  }, [bizUid]);
+
+  // Real-time items listener — triggers splash when data is ready
+  useEffect(() => {
+    if (!bizUid) return;
+    const unsub = onSnapshot(
+      collection(db, "businesses", bizUid, "items"),
+      snap => {
+        setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(it => it.available !== false));
+        setPhase(prev => prev === "loading" ? "splash" : prev);
+      },
+      err => console.warn("[QROrder] items:", err?.message)
+    );
+    return unsub;
+  }, [bizUid]);
 
   const addItem    = useCallback((id) => setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 })), []);
   const removeItem = useCallback((id) => setCart(c => { const n = { ...c }; if ((n[id] || 0) > 1) n[id]--; else delete n[id]; return n; }), []);
@@ -509,10 +523,12 @@ export default function QROrderPage() {
         {/* Search */}
         <div className="px-4 pb-3">
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25 text-xs">🔍</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px]" style={{ color: 'rgba(255,255,255,0.35)' }}>🔍</span>
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search dishes…"
-              className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-white/6 border border-white/8 text-white text-sm placeholder:text-white/20 focus:outline-none focus:ring-1 focus:ring-emerald-400/40"
+              autoComplete="off" autoCorrect="off" spellCheck="false"
+              className="w-full pl-8 pr-3 py-2.5 rounded-xl border border-white/10 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-400/50 placeholder:text-white/25"
+              style={{ background: 'rgba(255,255,255,0.07)', color: 'white', WebkitTextFillColor: 'white' }}
             />
           </div>
         </div>
