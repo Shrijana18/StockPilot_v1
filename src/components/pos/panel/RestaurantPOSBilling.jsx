@@ -840,7 +840,7 @@ export default function RestaurantPOSBilling({
           if (existing >= 0) {
             allItems[existing] = { ...allItems[existing], qty: (allItems[existing].qty || 1) + (line.qty || 1) };
           } else {
-            allItems.push({ cartKey: lineKey, product: line.product, qty: line.qty || 1, addons: line.addons || [], addonTotal: line.addonTotal || 0 });
+            allItems.push({ cartKey: lineKey, product: line.product, qty: line.qty || 1, addons: line.addons || [], addonTotal: line.addonTotal || 0, note: line.note || "" });
           }
         });
       });
@@ -893,7 +893,7 @@ export default function RestaurantPOSBilling({
         tax: Number(line.product?.tax || 0),
         cartKey: line.cartKey,
         productId: line.product?.id,
-        notes: itemNotes[line.cartKey] || "",
+        notes: itemNotes[line.cartKey] || line.note || "",
       }));
 
       const invoiceData = {
@@ -1021,11 +1021,11 @@ export default function RestaurantPOSBilling({
   // Build combined item list for pre-checkout preview (excluding voided)
   const preCheckoutItems = React.useMemo(() => {
     const items = [];
-    const addLine = (cartKey, name, price, qty, addons, addonTotal) => {
+    const addLine = (cartKey, name, price, qty, addons, addonTotal, note) => {
       const key = cartKey || name;
       const idx = items.findIndex(i => i.cartKey === key);
       if (idx >= 0) { items[idx].qty += qty; }
-      else items.push({ cartKey: key, name, price, addonTotal: Number(addonTotal) || 0, addons: addons || [], qty });
+      else items.push({ cartKey: key, name, price, addonTotal: Number(addonTotal) || 0, addons: addons || [], qty, note: note || "" });
     };
     kitchenOrders.forEach(order => {
       (order.items || order.lines || []).forEach(line => {
@@ -1036,7 +1036,8 @@ export default function RestaurantPOSBilling({
           Number(line.product?.price || 0),
           line.qty || 1,
           line.addons || [],
-          line.addonTotal || 0
+          line.addonTotal || 0,
+          line.note || ""
         );
       });
     });
@@ -1047,7 +1048,8 @@ export default function RestaurantPOSBilling({
         Number(line.product?.price || 0),
         line.qty || 1,
         line.addons || [],
-        line.addonTotal || 0
+        line.addonTotal || 0,
+        ""
       );
     });
     return items;
@@ -1764,6 +1766,7 @@ export default function RestaurantPOSBilling({
                               ))}
                             </div>
                           )}
+                          {item.note && <p className="text-[9px] italic text-amber-300/60 mt-0.5 leading-tight">📝 {item.note}</p>}
                           <div className={`text-[10px] mt-0.5 ${tc.textMuted}`}>₹{unitPrice.toFixed(0)} × {item.qty}</div>
                         </div>
                         <div className={`text-xs font-bold flex-none shrink-0 ${tc.textSub}`}>₹{lineTotal.toFixed(0)}</div>

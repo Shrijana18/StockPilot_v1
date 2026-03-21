@@ -199,7 +199,7 @@ function AddonBottomSheet({ item, onConfirm, onClose }) {
 }
 
 // ── Order Tracker ──────────────────────────────────────────────────────────────
-function OrderTracker({ orderId, bizUid, tableName, onNewOrder }) {
+function OrderTracker({ orderId, bizUid, tableName, bizName, bizLogo, onNewOrder }) {
   const [order, setOrder] = useState(null);
 
   useEffect(() => {
@@ -220,8 +220,19 @@ function OrderTracker({ orderId, bizUid, tableName, onNewOrder }) {
       <motion.div
         initial={{ scale: 0 }} animate={{ scale: 1 }}
         transition={{ type: "spring", stiffness: 220, damping: 20 }}
-        className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-400/40 flex items-center justify-center text-4xl mb-6"
-      >✅</motion.div>
+        className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-400/40 flex items-center justify-center mb-6 overflow-hidden relative"
+      >
+        {bizLogo ? (
+          <img src={bizLogo} alt={bizName} className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display='none'; e.currentTarget.nextSibling.style.display='flex'; }} />
+        ) : null}
+        <div className={`${bizLogo ? 'hidden' : 'flex'} w-full h-full items-center justify-center`}>
+          <img src="/assets/flyp_logo.png" alt="FLYP" className="w-10 h-10 object-contain" onError={e => { e.currentTarget.parentElement.innerHTML = '\u2705'; }} />
+        </div>
+        <motion.div className="absolute inset-0 rounded-full border-2 border-emerald-400"
+          initial={{ scale: 0, opacity: 1 }} animate={{ scale: 1.5, opacity: 0 }}
+          transition={{ duration: 0.7, ease: "easeOut" }}
+        />
+      </motion.div>
 
       <h2 className="text-2xl font-black text-white mb-1">Order Placed!</h2>
       <p className="text-white/40 text-sm mb-8 text-center">Your order has been sent to the kitchen · <strong className="text-white/60">{tableName}</strong></p>
@@ -283,7 +294,7 @@ function OrderTracker({ orderId, bizUid, tableName, onNewOrder }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 // ── Splash Screen ────────────────────────────────────────────────────────────
-function SplashScreen({ bizName, bizTagline, tableName, tableZone, onEnter }) {
+function SplashScreen({ bizName, bizTagline, bizLogo, bizAddress, tableName, tableZone, onEnter }) {
   const [step, setStep] = useState(0); // 0=logo, 1=name, 2=table
 
   useEffect(() => {
@@ -308,17 +319,25 @@ function SplashScreen({ bizName, bizTagline, tableName, tableZone, onEnter }) {
       </div>
 
       <div className="relative z-10 flex flex-col items-center">
-        {/* FLYP Logo */}
+        {/* Business Logo or FLYP Logo */}
         <motion.div
           initial={{ opacity: 0, scale: 0.5, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 280, damping: 22, delay: 0.1 }}
           className="mb-5"
         >
-          <img src="/assets/flyp_logo.png" alt="FLYP"
-            className="w-20 h-20 object-contain drop-shadow-[0_0_30px_rgba(16,185,129,0.5)]"
-            onError={e => { e.target.style.display = "none"; }}
-          />
+          {bizLogo ? (
+            <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-emerald-400/30 shadow-[0_0_30px_rgba(16,185,129,0.4)]">
+              <img src={bizLogo} alt={bizName} className="w-full h-full object-cover"
+                onError={e => { e.currentTarget.parentElement.style.display='none'; }}
+              />
+            </div>
+          ) : (
+            <img src="/assets/flyp_logo.png" alt="FLYP"
+              className="w-20 h-20 object-contain drop-shadow-[0_0_30px_rgba(16,185,129,0.5)]"
+              onError={e => { e.target.style.display = "none"; }}
+            />
+          )}
         </motion.div>
 
         {/* FLYP POS label */}
@@ -346,6 +365,9 @@ function SplashScreen({ bizName, bizTagline, tableName, tableZone, onEnter }) {
               </h2>
               {bizTagline && (
                 <p className="text-white/40 text-sm mt-2">{bizTagline}</p>
+              )}
+              {bizAddress && (
+                <p className="text-white/25 text-[10px] mt-1">{bizAddress}</p>
               )}
             </motion.div>
           )}
@@ -403,6 +425,8 @@ export default function QROrderPage() {
   const [phase, setPhase]           = useState("loading"); // loading | splash | menu | tracking | error
   const [bizName, setBizName]       = useState("");
   const [bizTagline, setBizTagline] = useState("");
+  const [bizLogo, setBizLogo]       = useState("");
+  const [bizAddress, setBizAddress] = useState("");
   const [table,   setTable]         = useState(null);
   const [categories, setCats]   = useState([]);
   const [items,   setItems]     = useState([]);
@@ -414,6 +438,8 @@ export default function QROrderPage() {
   const [showCart, setShowCart] = useState(false);
   const [custName, setCustName] = useState("");
   const [custNote, setCustNote] = useState("");
+  const [itemNotes, setItemNotes] = useState({}); // { [cartKey]: string }
+  const [showNoteFor, setShowNoteFor] = useState(null); // cartKey
   const [submitting, setSubmitting] = useState(false);
   const [orderId, setOrderId]   = useState(null);
   const [errMsg, setErrMsg]     = useState("");
@@ -424,13 +450,18 @@ export default function QROrderPage() {
     if (!bizUid || !tableId) { setErrMsg("Invalid QR code — missing restaurant or table info."); setPhase("error"); return; }
     (async () => {
       try {
-        const bizSnap = await getDoc(doc(db, "businesses", bizUid));
+        const [bizSnap, settingsSnap, tableSnap] = await Promise.all([
+          getDoc(doc(db, "businesses", bizUid)),
+          getDoc(doc(db, "businesses", bizUid, "posConfig", "restaurantSettings")),
+          getDoc(doc(db, "businesses", bizUid, "tables", tableId)),
+        ]);
         if (!bizSnap.exists()) { setErrMsg("Restaurant not found."); setPhase("error"); return; }
         const bd = bizSnap.data();
-        setBizName(bd?.businessInfo?.name || bd?.businessName || bd?.name || "Restaurant");
-        setBizTagline(bd?.tagline || bd?.businessInfo?.tagline || "");
-
-        const tableSnap = await getDoc(doc(db, "businesses", bizUid, "tables", tableId));
+        const rs = settingsSnap.data()?.business || {};
+        setBizName(rs.name || bd?.businessInfo?.name || bd?.businessName || bd?.name || "Restaurant");
+        setBizTagline(rs.tagline || bd?.tagline || bd?.businessInfo?.tagline || "");
+        setBizLogo(rs.logoUrl || bd?.businessInfo?.logoUrl || bd?.logoUrl || "");
+        setBizAddress([rs.address, rs.city].filter(Boolean).join(", ") || bd?.address || "");
         if (!tableSnap.exists()) { setErrMsg("Table not found."); setPhase("error"); return; }
         setTable({ id: tableSnap.id, ...tableSnap.data() });
       } catch (e) {
@@ -537,7 +568,7 @@ export default function QROrderPage() {
           addons: line.addons || [],
           addonTotal: line.addonTotal || 0,
           cartKey: line.cartKey,
-          note: "",
+          note: itemNotes[line.cartKey] || "",
         })),
         totals: {
           subTotal: +cartTotal.toFixed(2),
@@ -560,6 +591,7 @@ export default function QROrderPage() {
       );
       setOrderId(ref.id);
       setCart([]);
+      setItemNotes({});
       setShowCart(false);
       setPhase("tracking");
     } catch (e) {
@@ -602,6 +634,8 @@ export default function QROrderPage() {
       <SplashScreen
         bizName={bizName}
         bizTagline={bizTagline}
+        bizLogo={bizLogo}
+        bizAddress={bizAddress}
         tableName={tableName}
         tableZone={tableZone}
         onEnter={() => setPhase("menu")}
@@ -614,16 +648,22 @@ export default function QROrderPage() {
     <div className="min-h-screen" style={{ background: "linear-gradient(180deg,#080e18 0%,#050a10 100%)" }}>
       <div className="sticky top-0 z-10 px-4 pt-4 pb-3 flex items-center gap-3 border-b border-white/6"
         style={{ background: "rgba(8,14,24,0.95)", backdropFilter: "blur(12px)" }}>
-        <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-base">🍽️</div>
-        <div>
-          <p className="text-white font-black text-sm">{bizName}</p>
-          <p className="text-white/35 text-[10px]">{tableName}</p>
+        <div className="w-9 h-9 rounded-xl overflow-hidden bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-base shrink-0">
+          {bizLogo
+            ? <img src={bizLogo} alt={bizName} className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display='none'; }}/>
+            : <span>🍽️</span>}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white font-black text-sm truncate">{bizName}</p>
+          <p className="text-white/35 text-[10px]">{tableName}{bizAddress ? ` · ${bizAddress}` : ""}</p>
         </div>
       </div>
       <OrderTracker
         orderId={orderId}
         bizUid={bizUid}
         tableName={tableName}
+        bizName={bizName}
+        bizLogo={bizLogo}
         onNewOrder={() => setPhase("menu")}
       />
     </div>
@@ -637,12 +677,17 @@ export default function QROrderPage() {
       <div className="sticky top-0 z-20 border-b border-white/6"
         style={{ background: "rgba(8,14,24,0.95)", backdropFilter: "blur(16px)" }}>
         <div className="px-4 pt-4 pb-3 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500/25 to-teal-500/10 border border-emerald-500/20 flex items-center justify-center text-xl">🍽️</div>
+          <div className="w-10 h-10 rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-500/25 to-teal-500/10 border border-emerald-500/20 flex items-center justify-center text-xl shrink-0">
+            {bizLogo
+              ? <img src={bizLogo} alt={bizName} className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display='none'; }}/>
+              : <span>🍽️</span>}
+          </div>
           <div className="flex-1 min-w-0">
             <p className="text-white font-black text-sm truncate">{bizName}</p>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] text-white/35">{tableName}</span>
               {table?.zone && <><span className="text-white/15">·</span><span className="text-[10px] text-white/25 capitalize">{table.zone}</span></>}
+              {bizAddress && <><span className="text-white/10">·</span><span className="text-[10px] text-white/20 truncate">{bizAddress}</span></>}
             </div>
           </div>
           {cartCount > 0 && (
@@ -753,27 +798,60 @@ export default function QROrderPage() {
               <div className="overflow-y-auto px-5 pb-2" style={{ maxHeight: "40vh" }}>
                 {cart.map(line => {
                   const linePrice = Number(line.item.price || 0) + Number(line.addonTotal || 0);
+                  const hasNote = showNoteFor === line.cartKey;
                   return (
-                  <div key={line.cartKey} className="flex items-center gap-3 py-2.5 border-b border-white/5">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white/85 font-semibold truncate">{line.item.name}</p>
-                      {(line.addons || []).length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-0.5">
-                          {line.addons.map((a, i) => (
-                            <span key={i} className="px-1.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-[9px] font-medium">
-                              +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
-                            </span>
-                          ))}
+                  <div key={line.cartKey} className="py-2.5 border-b border-white/5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white/85 font-semibold truncate">{line.item.name}</p>
+                        {(line.addons || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {line.addons.map((a, i) => (
+                              <span key={i} className="px-1.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-[9px] font-medium">
+                                +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {itemNotes[line.cartKey] && !hasNote && (
+                          <p className="text-[10px] italic text-amber-300/60 mt-0.5 truncate">📝 {itemNotes[line.cartKey]}</p>
+                        )}
+                        <p className="text-xs text-white/35 mt-0.5">₹{linePrice.toFixed(0)} × {line.qty}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setShowNoteFor(hasNote ? null : line.cartKey)}
+                          className={`w-7 h-7 rounded-xl border flex items-center justify-center text-sm transition ${hasNote || itemNotes[line.cartKey] ? 'bg-amber-500/20 border-amber-500/30 text-amber-300' : 'bg-white/5 border-white/10 text-white/30 hover:bg-white/10'}`}
+                          title="Add note"
+                        >📝</button>
+                        <div className="flex items-center gap-1.5 bg-white/8 border border-white/10 rounded-full px-1.5 py-1">
+                          <button onClick={() => removeItemFromCart(line.cartKey)} className="w-5 h-5 rounded-full bg-white/10 text-white text-sm flex items-center justify-center font-black">−</button>
+                          <span className="text-sm font-black text-white min-w-[16px] text-center">{line.qty}</span>
+                          <button onClick={() => { if ((line.item.addonGroups || []).length > 0) { setAddonSheetItem(line.item); setShowAddonSheet(true); } else { addItemToCart(line.item); } }} className="w-5 h-5 rounded-full bg-emerald-500 text-white text-sm flex items-center justify-center font-black">+</button>
                         </div>
+                        <span className="text-sm font-black text-white/70 w-14 text-right">₹{(linePrice * line.qty).toFixed(0)}</span>
+                      </div>
+                    </div>
+                    <AnimatePresence initial={false}>
+                      {hasNote && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.18 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="pt-2 pb-0.5">
+                            <input
+                              autoFocus
+                              value={itemNotes[line.cartKey] || ""}
+                              onChange={e => setItemNotes(p => ({ ...p, [line.cartKey]: e.target.value }))}
+                              onKeyDown={e => { if (e.key === 'Enter') setShowNoteFor(null); }}
+                              placeholder="e.g. Extra spicy, no onion, less salt…"
+                              className="w-full px-3 py-2 rounded-xl bg-amber-500/[0.07] border border-amber-500/20 text-amber-100 text-xs placeholder:text-white/25 focus:outline-none focus:border-amber-400/40"
+                            />
+                          </div>
+                        </motion.div>
                       )}
-                      <p className="text-xs text-white/35 mt-0.5">₹{linePrice.toFixed(0)} × {line.qty}</p>
-                    </div>
-                    <div className="flex items-center gap-2 bg-white/8 border border-white/10 rounded-full px-1.5 py-1 shrink-0">
-                      <button onClick={() => removeItemFromCart(line.cartKey)} className="w-5 h-5 rounded-full bg-white/10 text-white text-sm flex items-center justify-center font-black">−</button>
-                      <span className="text-sm font-black text-white min-w-[16px] text-center">{line.qty}</span>
-                      <button onClick={() => { if ((line.item.addonGroups || []).length > 0) { setAddonSheetItem(line.item); setShowAddonSheet(true); } else { addItemToCart(line.item); } }} className="w-5 h-5 rounded-full bg-emerald-500 text-white text-sm flex items-center justify-center font-black">+</button>
-                    </div>
-                    <span className="text-sm font-black text-white/70 w-16 text-right shrink-0">₹{(linePrice * line.qty).toFixed(0)}</span>
+                    </AnimatePresence>
                   </div>
                   );
                 })}

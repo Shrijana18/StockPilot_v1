@@ -98,6 +98,8 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
   const [editedItems, setEditedItems] = React.useState([]);
   const [dialog, setDialog] = React.useState(null); // { type, title, message, onConfirm, onCancel }
   const [saveError, setSaveError] = React.useState(null);
+  const [addAddonFor, setAddAddonFor] = React.useState(null); // item idx
+  const [addonInput, setAddonInput] = React.useState({ name: "", price: "" });
 
   const items = batch.items || batch.lines || [];
 
@@ -307,74 +309,170 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
                   animate={{ opacity: isCancelled ? 0.45 : 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ duration: 0.16 }}
-                  className={`flex items-center justify-between gap-2 text-xs ${
+                  className={`flex flex-col gap-0 text-xs ${
                     editMode ? `rounded-lg px-2 py-1.5 border ${
-                      isCancelled ? "border-red-500/20 bg-red-500/[0.06]" : "border-white/5 bg-white/5"
+                      isCancelled ? "border-red-500/20 bg-red-500/[0.06]" : "border-white/5 bg-white/[0.04]"
                     }` : ""
                   }`}
                 >
-                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
+                  {/* ── Top row: qty + name + price + void btn ── */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                       <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-none ${isCancelled ? "bg-red-500/15 text-red-400/60" : `${tc.mutedBg} ${tc.textSub}`}`}>{qty}</span>
-                      <span className={`truncate ${isCancelled ? "line-through text-red-400/60" : tc.textPrimary}`}>{name}</span>
+                      <span className={`truncate text-xs ${isCancelled ? "line-through text-red-400/60" : tc.textPrimary}`}>{name}</span>
                       {isCancelled && <span className="text-[8px] font-black text-red-400/70 bg-red-500/10 px-1 rounded ml-1 shrink-0">VOID</span>}
-                      {!isCancelled && item.note && <span className="text-orange-300/70 italic truncate text-[10px] ml-1">· {item.note}</span>}
+                      {!isCancelled && item.note && <span className="text-orange-300/60 italic truncate text-[9px] ml-1 shrink-0">· {item.note}</span>}
                     </div>
-                    {!isCancelled && (item.addons || []).length > 0 && (
-                      <div className="flex flex-wrap gap-1 pl-6">
-                        {(item.addons || []).map((a, ai) => (
-                          editMode ? (
-                            <span key={ai} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/20 text-orange-300/80 text-[9px] font-medium">
-                              +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
-                              <button
-                                onClick={() => setEditedItems(prev => prev.map((it, i) => i === idx ? {
+                    <div className="flex items-center gap-1.5 flex-none">
+                      {price > 0 && <span className={`text-[11px] font-semibold ${isCancelled ? "line-through text-red-400/50" : tc.textMuted}`}>₹{money(price * qty)}</span>}
+                      {editMode && !isCancelled && (
+                        <motion.button
+                          whileTap={{ scale: 0.85 }}
+                          onClick={() => {
+                            setDialog({
+                              type: "confirm",
+                              title: "Void Item",
+                              message: `Void "${name}"? It will be struck out but kept for reference.`,
+                              onConfirm: () => {
+                                setEditedItems(prev => prev.map((it, i) => i === idx ? { ...it, cancelled: true } : it));
+                                setDialog(null);
+                              },
+                              onCancel: () => setDialog(null),
+                            });
+                          }}
+                          className="w-6 h-6 rounded-lg bg-red-500/15 hover:bg-red-500/30 border border-red-500/25 text-red-400 flex items-center justify-center text-[11px] transition"
+                          title="Void item"
+                        >✕</motion.button>
+                      )}
+                      {editMode && isCancelled && (
+                        <motion.button
+                          whileTap={{ scale: 0.85 }}
+                          onClick={() => setEditedItems(prev => prev.map((it, i) => i === idx ? { ...it, cancelled: false } : it))}
+                          className="w-6 h-6 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-500/25 text-emerald-400 flex items-center justify-center text-[11px] transition"
+                          title="Restore item"
+                        >↩</motion.button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── Addon badges ── */}
+                  {!isCancelled && (item.addons || []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 pl-6 mt-1">
+                      {(item.addons || []).map((a, ai) => (
+                        editMode ? (
+                          <span key={ai} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/20 text-orange-300/80 text-[9px] font-medium">
+                            +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
+                            <button
+                              onClick={() => setEditedItems(prev => prev.map((it, i) => i === idx ? {
+                                ...it,
+                                addons: (it.addons || []).filter((_, j) => j !== ai),
+                                addonTotal: Math.max(0, (Number(it.addonTotal) || 0) - (Number(a.price) || 0)),
+                              } : it))}
+                              className="ml-0.5 w-3 h-3 rounded-full bg-red-500/30 hover:bg-red-500/60 text-red-400 text-[7px] flex items-center justify-center transition flex-none"
+                            >✕</button>
+                          </span>
+                        ) : (
+                          <span key={ai} className="px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/20 text-orange-300/80 text-[9px] font-medium">
+                            +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
+                          </span>
+                        )
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── Addon add row (full width, below item row) ── */}
+                  {editMode && !isCancelled && (
+                    <div className="mt-1.5 pl-6">
+                      {addAddonFor !== idx ? (
+                        <button
+                          onClick={() => { setAddAddonFor(idx); setAddonInput({ name: "", price: "" }); }}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold transition"
+                          style={{ color: "rgba(52,211,153,0.6)", letterSpacing: "0.01em" }}
+                        >
+                          <span style={{ fontSize: 11, lineHeight: 1 }}>+</span> Add addon
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1.5 mt-0.5 pr-1">
+                          <input
+                            autoFocus
+                            value={addonInput.name}
+                            onChange={e => setAddonInput(p => ({ ...p, name: e.target.value }))}
+                            placeholder="Add-on name…"
+                            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-[11px] font-medium outline-none transition placeholder:text-white/20"
+                            style={{
+                              background: "rgba(10,18,32,0.85)",
+                              border: "1px solid rgba(52,211,153,0.3)",
+                              color: "#fff",
+                              caretColor: "#34d399",
+                              boxShadow: "0 0 0 2px rgba(52,211,153,0.08)",
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === 'Escape') setAddAddonFor(null);
+                              if (e.key === 'Enter' && addonInput.name.trim()) {
+                                const p = Number(addonInput.price) || 0;
+                                setEditedItems(prev => prev.map((it, i) => i === idx ? {
                                   ...it,
-                                  addons: (it.addons || []).filter((_, j) => j !== ai),
-                                  addonTotal: Math.max(0, (Number(it.addonTotal) || 0) - (Number(a.price) || 0)),
-                                } : it))}
-                                className="ml-0.5 w-3 h-3 rounded-full bg-red-500/30 hover:bg-red-500/60 text-red-400 text-[7px] flex items-center justify-center transition flex-none"
-                                title={`Remove ${a.name}`}
-                              >✕</button>
-                            </span>
-                          ) : (
-                            <span key={ai} className="px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/20 text-orange-300/80 text-[9px] font-medium">
-                              +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
-                            </span>
-                          )
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-none">
-                    {price > 0 && <span className={`${isCancelled ? "line-through text-red-400/50" : tc.textMuted}`}>₹{money(price * qty)}</span>}
-                    {editMode && !isCancelled && (
-                      <motion.button
-                        whileTap={{ scale: 0.85 }}
-                        onClick={() => {
-                          setDialog({
-                            type: "confirm",
-                            title: "Void Item",
-                            message: `Void "${name}"? It will be struck out but kept for reference.`,
-                            onConfirm: () => {
-                              setEditedItems(prev => prev.map((it, i) => i === idx ? { ...it, cancelled: true } : it));
-                              setDialog(null);
-                            },
-                            onCancel: () => setDialog(null),
-                          });
-                        }}
-                        className="w-6 h-6 rounded-lg bg-red-500/15 hover:bg-red-500/30 border border-red-500/25 text-red-400 flex items-center justify-center text-[11px] transition"
-                        title="Void item (keeps record)"
-                      >✕</motion.button>
-                    )}
-                    {editMode && isCancelled && (
-                      <motion.button
-                        whileTap={{ scale: 0.85 }}
-                        onClick={() => setEditedItems(prev => prev.map((it, i) => i === idx ? { ...it, cancelled: false } : it))}
-                        className="w-6 h-6 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-500/25 text-emerald-400 flex items-center justify-center text-[11px] transition"
-                        title="Restore item"
-                      >↩</motion.button>
-                    )}
-                  </div>
+                                  addons: [...(it.addons || []), { name: addonInput.name.trim(), price: p, groupId: 'manual', groupName: 'Added', optionId: `manual_${Date.now()}` }],
+                                  addonTotal: (Number(it.addonTotal) || 0) + p,
+                                } : it));
+                                setAddAddonFor(null);
+                                setAddonInput({ name: '', price: '' });
+                              }
+                            }}
+                          />
+                          <div className="relative flex-none">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] pointer-events-none" style={{ color: "rgba(255,255,255,0.35)" }}>₹</span>
+                            <input
+                              value={addonInput.price}
+                              onChange={e => setAddonInput(p => ({ ...p, price: e.target.value }))}
+                              placeholder="0"
+                              type="number" min="0"
+                              className="w-14 pl-5 pr-1.5 py-1.5 rounded-lg text-[11px] font-medium outline-none transition placeholder:text-white/20"
+                              style={{
+                                background: "rgba(10,18,32,0.85)",
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                color: "#fff",
+                                caretColor: "#34d399",
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Escape') setAddAddonFor(null);
+                                if (e.key === 'Enter' && addonInput.name.trim()) {
+                                  const p = Number(addonInput.price) || 0;
+                                  setEditedItems(prev => prev.map((it, i) => i === idx ? {
+                                    ...it,
+                                    addons: [...(it.addons || []), { name: addonInput.name.trim(), price: p, groupId: 'manual', groupName: 'Added', optionId: `manual_${Date.now()}` }],
+                                    addonTotal: (Number(it.addonTotal) || 0) + p,
+                                  } : it));
+                                  setAddAddonFor(null);
+                                  setAddonInput({ name: '', price: '' });
+                                }
+                              }}
+                            />
+                          </div>
+                          <button
+                            onClick={() => {
+                              if (!addonInput.name.trim()) return;
+                              const p = Number(addonInput.price) || 0;
+                              setEditedItems(prev => prev.map((it, i) => i === idx ? {
+                                ...it,
+                                addons: [...(it.addons || []), { name: addonInput.name.trim(), price: p, groupId: 'manual', groupName: 'Added', optionId: `manual_${Date.now()}` }],
+                                addonTotal: (Number(it.addonTotal) || 0) + p,
+                              } : it));
+                              setAddAddonFor(null);
+                              setAddonInput({ name: '', price: '' });
+                            }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center flex-none font-bold text-xs transition"
+                            style={{ background: "rgba(52,211,153,0.2)", border: "1px solid rgba(52,211,153,0.4)", color: "#6ee7b7" }}
+                          >✓</button>
+                          <button
+                            onClick={() => setAddAddonFor(null)}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center flex-none text-[10px] transition"
+                            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.35)" }}
+                          >✕</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               );
             })}
