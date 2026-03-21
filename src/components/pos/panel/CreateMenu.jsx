@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import ReactDOM from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePOSTheme } from "../POSThemeContext";
 
@@ -19,6 +20,7 @@ import {
 // NEW: Food Icons (token-based icon system)
 import { IconTokens, getIconSVG, getIconEmoji } from "./foodIcons";
 import fetchGoogleImages from "../../../utils/fetchGoogleImages";
+import { estimateIngredients, INGREDIENT_CATEGORIES } from "../../../utils/ingredientEstimator";
 
 /**
  * Firestore shape used here:
@@ -371,6 +373,7 @@ const CreateMenu = ({ onBack }) => {
     description: "",
     ingredients: "",
     calories: "",
+    addonGroups: [],
   });
   const [itemModalTab, setItemModalTab] = useState("basic"); // basic | details | images
   const [aiDescKeywords, setAiDescKeywords] = useState("");
@@ -379,6 +382,7 @@ const CreateMenu = ({ onBack }) => {
   const [itemContextMenu, setItemContextMenu] = useState(null); // { itemId, x, y }
   const [showTemplatePreview, setShowTemplatePreview] = useState(null); // template key
   const [aiCalorieGenerating, setAiCalorieGenerating] = useState(false);
+  const [aiIngredientSuggestions, setAiIngredientSuggestions] = useState([]); // suggested ingredient names
   const [imgSubTab, setImgSubTab] = useState("pick"); // "pick" | "upload" | "url"
   const [imgPickSearch, setImgPickSearch] = useState("");
   const [imgPickCat, setImgPickCat] = useState("all");
@@ -1055,9 +1059,19 @@ const CreateMenu = ({ onBack }) => {
       description: "",
       ingredients: "",
       calories: "",
+      addonGroups: [],
     });
+    setAiIngredientSuggestions([]);
     setShowItemModal(true);
   };
+
+  const generateAddonId = () => `addon_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const addAddonGroup = () => setItemModalValue(v => ({ ...v, addonGroups: [...(v.addonGroups || []), { id: generateAddonId(), name: "", required: false, multiSelect: true, options: [{ id: generateAddonId(), name: "", price: "" }] }] }));
+  const removeAddonGroup = (gIdx) => setItemModalValue(v => ({ ...v, addonGroups: (v.addonGroups || []).filter((_, i) => i !== gIdx) }));
+  const updateAddonGroup = (gIdx, patch) => setItemModalValue(v => ({ ...v, addonGroups: (v.addonGroups || []).map((g, i) => i === gIdx ? { ...g, ...patch } : g) }));
+  const addAddonOption = (gIdx) => setItemModalValue(v => ({ ...v, addonGroups: (v.addonGroups || []).map((g, i) => i === gIdx ? { ...g, options: [...(g.options || []), { id: generateAddonId(), name: "", price: "" }] } : g) }));
+  const removeAddonOption = (gIdx, oIdx) => setItemModalValue(v => ({ ...v, addonGroups: (v.addonGroups || []).map((g, i) => i === gIdx ? { ...g, options: (g.options || []).filter((_, oi) => oi !== oIdx) } : g) }));
+  const updateAddonOption = (gIdx, oIdx, patch) => setItemModalValue(v => ({ ...v, addonGroups: (v.addonGroups || []).map((g, i) => i === gIdx ? { ...g, options: (g.options || []).map((o, oi) => oi === oIdx ? { ...o, ...patch } : o) } : g) }));
 
   const handleEditItem = (item) => {
     setItemModalMode("edit");
@@ -1073,6 +1087,7 @@ const CreateMenu = ({ onBack }) => {
       ingredients: item.ingredients || "",
       calories: item.calories || "",
     });
+    setAiIngredientSuggestions([]);
     setShowItemModal(true);
   };
 
@@ -1089,6 +1104,22 @@ const CreateMenu = ({ onBack }) => {
     }
   };
 
+  // Helper: parse comma-separated ingredient string → structured array for grocery list
+  const parseIngredientsToStructured = (itemName, ingredientsStr) => {
+    if (!ingredientsStr?.trim()) return null;
+    // First try AI estimate for the item name (it knows qty/unit/category)
+    const estimated = estimateIngredients(itemName);
+    if (estimated.length > 0) return estimated;
+    // Fallback: parse comma-separated names, map to known categories using estimator per name
+    return ingredientsStr.split(",").map(raw => {
+      const name = raw.trim();
+      if (!name) return null;
+      const single = estimateIngredients(name);
+      if (single.length > 0) return { ...single[0], name };
+      return { name, unit: "pcs", qtyPerUnit: 1, category: "Other" };
+    }).filter(Boolean);
+  };
+
   const handleItemModalSave = async () => {
     if (!itemModalValue.name.trim() || itemModalValue.price === "" || itemModalValue.price === null) return;
     const uid = getUid();
@@ -1102,6 +1133,7 @@ const CreateMenu = ({ onBack }) => {
           tax: parseFloat(itemModalValue.tax) || 0,
           type: normalizeType(itemModalValue.type),
           available: itemModalValue.available !== false,
+          addonGroups: (itemModalValue.addonGroups || []).filter(g => g.name?.trim()).map(g => ({ ...g, options: (g.options || []).filter(o => o.name?.trim()).map(o => ({ ...o, price: parseFloat(o.price) || 0 })) })),
         };
         delete data.id; // Don't store id in doc
         const itemsRef = collection(db, "businesses", uid, "items");
@@ -1113,13 +1145,30 @@ const CreateMenu = ({ onBack }) => {
           price: parseFloat(itemModalValue.price),
           tax: parseFloat(itemModalValue.tax) || 0,
           type: normalizeType(itemModalValue.type),
+          addonGroups: (itemModalValue.addonGroups || []).filter(g => g.name?.trim()).map(g => ({ ...g, options: (g.options || []).filter(o => o.name?.trim()).map(o => ({ ...o, price: parseFloat(o.price) || 0 })) })),
         };
         const { id, ...updateData } = data;
         const itemDocRef = doc(db, "businesses", uid, "items", id);
         await updateDoc(itemDocRef, updateData);
         setItems((prev) => prev.map((i) => (i.id === id ? { ...data } : i)));
       }
+
+      // Sync ingredients to posConfig/groceryIngredients so Grocery List picks them up
+      if (itemModalValue.ingredients?.trim() || itemModalValue.name) {
+        const structured = parseIngredientsToStructured(itemModalValue.name, itemModalValue.ingredients);
+        if (structured?.length > 0) {
+          try {
+            await setDoc(
+              doc(db, "businesses", uid, "posConfig", "groceryIngredients"),
+              { [itemModalValue.name]: structured },
+              { merge: true }
+            );
+          } catch (_) {} // non-critical
+        }
+      }
+
       setShowItemModal(false);
+      setAiIngredientSuggestions([]);
     } catch (err) {
       console.error("Error saving item:", err);
     }
@@ -1135,14 +1184,14 @@ const CreateMenu = ({ onBack }) => {
   });
 
   return (
-    <div className="relative w-full h-full min-h-screen overflow-y-auto" style={tc.bg}>
+    <div className="relative w-full h-full flex flex-col overflow-hidden" style={tc.bg}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-32 -left-16 w-[60%] h-[60%] rounded-full blur-[120px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob2} 0%, transparent 65%)` }} />
         <div className="absolute -bottom-32 -right-16 w-[55%] h-[55%] rounded-full blur-[120px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
       </div>
 
       {/* Top Bar */}
-      <div className={`sticky top-0 z-30 ${tc.headerBg}`}>
+      <div className={`flex-none z-30 ${tc.headerBg}`}>
         <div className="px-4 py-3 flex items-center gap-3">
           {onBack && (
             <motion.button
@@ -1247,9 +1296,12 @@ const CreateMenu = ({ onBack }) => {
         </div>
       </div>
 
+      {/* Content area */}
+      <div className="flex-1 overflow-hidden flex flex-col relative z-20">
+
       {/* Manual Tab */}
       {activeTab === "manual" && (
-        <div className="relative z-20 flex min-h-[calc(100vh-160px)] px-4 md:px-6 pb-4">
+        <div className="flex-1 flex overflow-hidden px-4 md:px-6 pb-4">
           {/* Left Pane: Categories */}
           <div className={`w-1/4 min-w-[210px] backdrop-blur flex flex-col rounded-xl border ${tc.cardBg}`}>
             <div className={`flex items-center justify-between p-4 border-b ${tc.borderSoft}`}>
@@ -1489,6 +1541,7 @@ const CreateMenu = ({ onBack }) => {
 
       {/* Quick Start Panel */}
       {activeTab === "quick" && (
+        <div className="flex-1 overflow-y-auto">
         <div className="relative z-20 mx-4 md:mx-6 mb-6 space-y-6">
           {/* Header */}
           <div className="flex items-center gap-4">
@@ -1597,10 +1650,12 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
             </div>
           </div>
         </div>
+        </div>
       )}
 
       {/* Smart Import Tab — WOW redesign */}
       {activeTab === "import" && (
+        <div className="flex-1 overflow-y-auto">
         <div className="relative z-20 mx-4 md:mx-6 mb-6">
           {/* Toast */}
           <AnimatePresence>
@@ -2024,6 +2079,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
             </div>
           </div>
         </div>
+        </div>
       )}
 
       {/* Modals */}
@@ -2112,10 +2168,11 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
       </AnimatePresence>
 
       {/* Item Modal — full redesign */}
+      {ReactDOM.createPortal(
       <AnimatePresence>
         {showItemModal && (
           <motion.div
-            className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2126,7 +2183,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.93, opacity: 0, y: 20 }}
               transition={{ type: "spring", stiffness: 260, damping: 26 }}
-              className={`relative w-full max-w-3xl rounded-3xl border shadow-[0_32px_80px_rgba(0,0,0,0.6)] overflow-hidden ${tc.modalBg}`}
+              className={`relative w-full max-w-3xl max-h-[92vh] flex flex-col rounded-3xl border shadow-[0_32px_80px_rgba(0,0,0,0.6)] overflow-hidden ${tc.modalBg}`}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Glow accent */}
@@ -2164,7 +2221,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
 
               {/* Tabs */}
               <div className="flex gap-1 px-6 pt-4 pb-0">
-                {[["basic","✏️ Basic Info"],["details","✨ Description & Nutrition"],["images","🖼️ Photos"]].map(([t,label]) => (
+                {[["basic","✏️ Basic Info"],["details","✨ Description & Nutrition"],["images","🖼️ Photos"],["addons","🧩 Add-ons"]].map(([t,label]) => (
                   <button
                     key={t}
                     type="button"
@@ -2178,7 +2235,8 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                 ))}
               </div>
 
-              <form onSubmit={(e) => { e.preventDefault(); handleItemModalSave(); }} className="p-6">
+              <form onSubmit={(e) => { e.preventDefault(); handleItemModalSave(); }} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-y-auto p-6">
 
                 {/* ── Tab: Basic Info ── */}
                 {itemModalTab === "basic" && (
@@ -2364,16 +2422,47 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
 
                     {/* Ingredients */}
                     <div>
-                      <label className={`block text-xs mb-1.5 font-medium ${tc.textSub}`}>Ingredients <span className={`font-normal ${tc.textMuted}`}>(comma-separated)</span></label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className={`text-xs font-medium ${tc.textSub}`}>Ingredients <span className={`font-normal ${tc.textMuted}`}>(comma-separated)</span></label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const suggested = estimateIngredients(itemModalValue.name);
+                            if (suggested.length > 0) {
+                              const names = suggested.map(s => s.name).join(", ");
+                              setItemModalValue(v => ({ ...v, ingredients: v.ingredients ? v.ingredients : names }));
+                              setAiIngredientSuggestions(suggested);
+                            }
+                          }}
+                          disabled={!itemModalValue.name.trim()}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 transition disabled:opacity-40"
+                        >
+                          ✨ AI Suggest
+                        </button>
+                      </div>
                       <input
                         type="text"
                         value={itemModalValue.ingredients}
-                        onChange={e => setItemModalValue(v => ({ ...v, ingredients: e.target.value }))}
+                        onChange={e => { setItemModalValue(v => ({ ...v, ingredients: e.target.value })); setAiIngredientSuggestions([]); }}
                         placeholder="Paneer, Butter, Tomatoes, Cream, Spices…"
                         className={`w-full px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40 ${tc.inputBg}`}
                       />
+                      {/* AI suggestions with qty info */}
+                      {aiIngredientSuggestions.length > 0 && (
+                        <div className="mt-2 p-2.5 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
+                          <p className="text-[9px] font-bold text-emerald-400/70 uppercase tracking-wider mb-1.5">AI Estimated — per serving</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {aiIngredientSuggestions.map((s, i) => (
+                              <span key={i} className="px-2 py-0.5 rounded-full bg-emerald-500/12 border border-emerald-500/20 text-[10px] text-emerald-300">
+                                {s.name} · {s.qtyPerUnit}{s.unit}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[9px] text-emerald-400/50 mt-1.5">✅ These will auto-appear in Grocery List when forecasting</p>
+                        </div>
+                      )}
                       {/* Tag preview */}
-                      {itemModalValue.ingredients && (
+                      {itemModalValue.ingredients && aiIngredientSuggestions.length === 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {itemModalValue.ingredients.split(",").map((ing, i) => ing.trim() && (
                             <span key={i} className={`px-2 py-0.5 rounded-full border text-[11px] ${tc.mutedBg} ${tc.borderSoft} ${tc.textSub}`}>{ing.trim()}</span>
@@ -2754,17 +2843,96 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
                   </div>
                 )}
 
+                {/* ── Tab: Add-ons ── */}
+                {itemModalTab === "addons" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className={`text-sm font-semibold ${tc.textPrimary}`}>Add-on Groups</p>
+                        <p className={`text-xs mt-0.5 ${tc.textMuted}`}>Extra Cheese, Sauces, Espresso Shots…</p>
+                      </div>
+                      <button type="button" onClick={addAddonGroup} className="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold hover:bg-emerald-500/30 transition">+ Add Group</button>
+                    </div>
+
+                    {(itemModalValue.addonGroups || []).length === 0 ? (
+                      <div className={`flex flex-col items-center justify-center py-8 rounded-2xl border border-dashed ${tc.borderSoft}`}>
+                        <div className="text-3xl mb-2 opacity-25">🧩</div>
+                        <p className={`text-xs font-semibold ${tc.textSub}`}>No add-ons yet</p>
+                        <p className={`text-[11px] mt-0.5 ${tc.textMuted}`}>e.g. Extra Cheese +₹30, No Onion (free)</p>
+                        <button type="button" onClick={addAddonGroup} className="mt-3 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-xs font-bold hover:bg-emerald-500/25 transition">+ Create First Group</button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {(itemModalValue.addonGroups || []).map((group, gIdx) => (
+                          <div key={group.id} className={`rounded-2xl border overflow-hidden ${tc.cardBg} border-white/10`}>
+                            {/* Group header */}
+                            <div className={`flex items-center gap-2 px-3 py-2.5 border-b ${tc.borderSoft}`}>
+                              <input
+                                type="text" value={group.name}
+                                onChange={e => updateAddonGroup(gIdx, { name: e.target.value })}
+                                placeholder="Group name e.g. Extra Toppings"
+                                className={`flex-1 min-w-0 bg-transparent text-sm font-semibold focus:outline-none placeholder:font-normal ${tc.textPrimary}`}
+                              />
+                              <div className="flex items-center gap-3 shrink-0">
+                                <label className={`flex items-center gap-1.5 text-[10px] cursor-pointer select-none ${tc.textMuted}`}>
+                                  <input type="checkbox" checked={!!group.required} onChange={e => updateAddonGroup(gIdx, { required: e.target.checked })} className="rounded accent-emerald-400 w-3 h-3" />
+                                  Required
+                                </label>
+                                <label className={`flex items-center gap-1.5 text-[10px] cursor-pointer select-none ${tc.textMuted}`}>
+                                  <input type="checkbox" checked={group.multiSelect !== false} onChange={e => updateAddonGroup(gIdx, { multiSelect: e.target.checked })} className="rounded accent-emerald-400 w-3 h-3" />
+                                  Multi
+                                </label>
+                                <button type="button" onClick={() => removeAddonGroup(gIdx)} className="w-6 h-6 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs flex items-center justify-center transition">✕</button>
+                              </div>
+                            </div>
+                            {/* Options */}
+                            <div className="p-3 space-y-1.5">
+                              {(group.options || []).map((opt, oIdx) => (
+                                <div key={opt.id} className="flex items-center gap-2">
+                                  <input
+                                    type="text" value={opt.name}
+                                    onChange={e => updateAddonOption(gIdx, oIdx, { name: e.target.value })}
+                                    placeholder="Option name"
+                                    className={`flex-1 px-2.5 py-1.5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400/40 ${tc.inputBg}`}
+                                  />
+                                  <div className="relative shrink-0">
+                                    <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs ${tc.textMuted}`}>₹</span>
+                                    <input
+                                      type="number" min="0" step="0.01" value={opt.price}
+                                      onChange={e => updateAddonOption(gIdx, oIdx, { price: e.target.value })}
+                                      placeholder="0"
+                                      className={`pl-5 pr-2 py-1.5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400/40 ${tc.inputBg}`}
+                                      style={{ width: "72px" }}
+                                    />
+                                  </div>
+                                  <button type="button" onClick={() => removeAddonOption(gIdx, oIdx)} className="w-6 h-6 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] flex items-center justify-center transition shrink-0">✕</button>
+                                </div>
+                              ))}
+                              <button
+                                type="button" onClick={() => addAddonOption(gIdx)}
+                                className={`w-full py-1.5 rounded-lg border border-dashed text-[11px] transition hover:bg-white/5 ${tc.borderSoft} ${tc.textMuted}`}
+                              >+ Add Option</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className={`text-[10px] ${tc.textMuted}`}>💡 Options appear when ordering. Price ₹0 = free modification.</p>
+                  </div>
+                )}
+
+                </div>
                 {/* Footer actions */}
-                <div className={`flex items-center justify-between mt-6 pt-5 border-t ${tc.borderSoft}`}>
+                <div className={`flex items-center justify-between px-6 py-4 border-t shrink-0 ${tc.borderSoft} ${tc.headerBg}`}>
                   <div className="flex gap-2">
                     {itemModalTab !== "basic" && (
-                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "details" ? "basic" : "details")} className={`px-3 py-2 rounded-xl text-xs font-medium hover:bg-white/8 transition ${tc.textMuted}`}>← Back</button>
+                      <button type="button" onClick={() => { const order = ["basic","details","images","addons"]; const i = order.indexOf(itemModalTab); setItemModalTab(order[Math.max(0, i - 1)]); }} className={`px-3 py-2 rounded-xl text-xs font-medium hover:bg-white/8 transition ${tc.textMuted}`}>← Back</button>
                     )}
                   </div>
                   <div className="flex gap-2 items-center">
                     <button type="button" onClick={() => setShowItemModal(false)} className={`px-4 py-2 rounded-xl text-sm hover:bg-white/8 transition ${tc.textMuted}`}>Cancel</button>
-                    {itemModalTab !== "images" ? (
-                      <button type="button" onClick={() => setItemModalTab(itemModalTab === "basic" ? "details" : "images")} className={`px-4 py-2 rounded-xl text-sm font-semibold border hover:bg-white/8 transition ${tc.borderSoft} ${tc.textSub}`}>Next →</button>
+                    {itemModalTab !== "addons" ? (
+                      <button type="button" onClick={() => { const order = ["basic","details","images","addons"]; const i = order.indexOf(itemModalTab); setItemModalTab(order[Math.min(order.length - 1, i + 1)]); }} className={`px-4 py-2 rounded-xl text-sm font-semibold border hover:bg-white/8 transition ${tc.borderSoft} ${tc.textSub}`}>Next →</button>
                     ) : null}
                     <motion.button
                       whileHover={{ scale: 1.03 }}
@@ -2781,6 +2949,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
           </motion.div>
         )}
       </AnimatePresence>
+      , document.body)}
 
       {/* Preview Modal — Next-Gen Restaurant App Style */}
       <AnimatePresence>
@@ -3025,6 +3194,7 @@ Chicken Curry,nonveg,260,5,nonveg,,true`}
           );
         })()}
       </AnimatePresence>
+      </div>
     </div>
   );
 };

@@ -600,6 +600,11 @@ service cloud.firestore {
         allow read, write: if isAuthed() && isSelf(userId) && isEmailVerified();
       }
 
+      // --- GROCERY LISTS (Saved procurement/shopping lists) ---
+      match /groceryLists/{listId} {
+        allow read, write, delete: if isAuthed() && isSelf(userId) && isEmailVerified();
+      }
+
       // --- Connected Distributors (for Product Owners) ---
       match /connectedDistributors/{docId} {
         // READ: Product owner can read their connected distributors, distributor can read their own connection

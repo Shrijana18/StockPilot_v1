@@ -124,8 +124,8 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
   const statusIdx = PIPELINE.findIndex(p => p.key === batch.status);
   const activeItems = items.filter(it => !it.cancelled);
   const savedTotal = batch.totals?.grandTotal
-    ?? activeItems.reduce((s, it) => s + Number(it.product?.price || it.price || 0) * (it.qty || 1), 0);
-  const editedTotal = editedItems.filter(it => !it.cancelled).reduce((s, it) => s + Number(it.product?.price || it.price || 0) * (it.qty || 1), 0);
+    ?? activeItems.reduce((s, it) => s + (Number(it.product?.price || it.price || 0) + Number(it.addonTotal || 0)) * (it.qty || 1), 0);
+  const editedTotal = editedItems.filter(it => !it.cancelled).reduce((s, it) => s + (Number(it.product?.price || it.price || 0) + Number(it.addonTotal || 0)) * (it.qty || 1), 0);
   const batchTotal = editMode ? editedTotal : savedTotal;
 
   return (
@@ -298,7 +298,7 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
             {(editMode ? editedItems : items).map((item, idx) => {
               const name  = item.product?.name || item.product?.productName || item.name || "Item";
               const qty   = item.qty || item.quantity || 1;
-              const price = Number(item.product?.price || item.price || 0);
+              const price = Number(item.product?.price || item.price || 0) + Number(item.addonTotal || 0);
               const isCancelled = !!item.cancelled;
               return (
                 <motion.div
@@ -313,11 +313,37 @@ function BatchRow({ batch, batchNum, isLatest, now, updating, onAdvance, isNewAd
                     }` : ""
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-none ${isCancelled ? "bg-red-500/15 text-red-400/60" : `${tc.mutedBg} ${tc.textSub}`}`}>{qty}</span>
-                    <span className={`truncate ${isCancelled ? "line-through text-red-400/60" : tc.textPrimary}`}>{name}</span>
-                    {isCancelled && <span className="text-[8px] font-black text-red-400/70 bg-red-500/10 px-1 rounded ml-1 shrink-0">VOID</span>}
-                    {!isCancelled && item.note && <span className="text-orange-300/70 italic truncate text-[10px] ml-1">· {item.note}</span>}
+                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-none ${isCancelled ? "bg-red-500/15 text-red-400/60" : `${tc.mutedBg} ${tc.textSub}`}`}>{qty}</span>
+                      <span className={`truncate ${isCancelled ? "line-through text-red-400/60" : tc.textPrimary}`}>{name}</span>
+                      {isCancelled && <span className="text-[8px] font-black text-red-400/70 bg-red-500/10 px-1 rounded ml-1 shrink-0">VOID</span>}
+                      {!isCancelled && item.note && <span className="text-orange-300/70 italic truncate text-[10px] ml-1">· {item.note}</span>}
+                    </div>
+                    {!isCancelled && (item.addons || []).length > 0 && (
+                      <div className="flex flex-wrap gap-1 pl-6">
+                        {(item.addons || []).map((a, ai) => (
+                          editMode ? (
+                            <span key={ai} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/20 text-orange-300/80 text-[9px] font-medium">
+                              +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
+                              <button
+                                onClick={() => setEditedItems(prev => prev.map((it, i) => i === idx ? {
+                                  ...it,
+                                  addons: (it.addons || []).filter((_, j) => j !== ai),
+                                  addonTotal: Math.max(0, (Number(it.addonTotal) || 0) - (Number(a.price) || 0)),
+                                } : it))}
+                                className="ml-0.5 w-3 h-3 rounded-full bg-red-500/30 hover:bg-red-500/60 text-red-400 text-[7px] flex items-center justify-center transition flex-none"
+                                title={`Remove ${a.name}`}
+                              >✕</button>
+                            </span>
+                          ) : (
+                            <span key={ai} className="px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/20 text-orange-300/80 text-[9px] font-medium">
+                              +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
+                            </span>
+                          )
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 flex-none">
                     {price > 0 && <span className={`${isCancelled ? "line-through text-red-400/50" : tc.textMuted}`}>₹{money(price * qty)}</span>}
@@ -539,7 +565,7 @@ export default function KitchenOrderBoard() {
     setUpdating(u => ({ ...u, [orderId]: true }));
     try {
       const subTotal = editedItems.filter(it => !it.cancelled).reduce((sum, item) => {
-        const price = Number(item.product?.price || item.price || 0);
+        const price = Number(item.product?.price || item.price || 0) + Number(item.addonTotal || 0);
         const qty = item.qty || item.quantity || 1;
         return sum + (price * qty);
       }, 0);
@@ -691,14 +717,14 @@ export default function KitchenOrderBoard() {
   }
 
   return (
-    <div className="relative w-full h-full min-h-screen overflow-y-auto" style={tc.bg}>
+    <div className="relative w-full h-full flex flex-col overflow-hidden" style={tc.bg}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-32 -right-16 w-[55%] h-[55%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob1} 0%, transparent 65%)` }} />
         <div className="absolute -bottom-32 -left-16 w-[50%] h-[50%] rounded-full blur-[110px]" style={{ background: `radial-gradient(circle, ${tc.auroraBlob2} 0%, transparent 65%)` }} />
       </div>
 
       {/* Top Bar */}
-      <div className={`sticky top-0 z-20 ${tc.headerBg}`}>
+      <div className={`flex-none z-20 ${tc.headerBg}`}>
         <div className="px-5 py-3 flex items-center gap-4 flex-wrap">
           <div className="flex-1 min-w-0">
             <div className={`text-sm font-bold flex items-center gap-2 ${tc.textPrimary}`}>
@@ -757,7 +783,8 @@ export default function KitchenOrderBoard() {
       </div>
 
       {/* Tables Grid */}
-      <div className="relative z-10 p-5">
+      <div className="flex-1 overflow-y-auto relative z-10">
+      <div className="p-5">
         <div className="max-w-7xl mx-auto">
           {filteredGroups.length === 0 ? (
             <div className={`flex flex-col items-center justify-center py-24 ${tc.textMuted}`}>
@@ -857,6 +884,7 @@ export default function KitchenOrderBoard() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

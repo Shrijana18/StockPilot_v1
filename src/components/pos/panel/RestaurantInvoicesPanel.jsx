@@ -56,10 +56,12 @@ const getPayment   = (inv) => {
   return inv.paymentMode || inv.settings?.paymentMode || "—";
 };
 // Item field normalizers — handles both {product:{name,price},qty} and flat {name,price,quantity}
-const iName  = (it) => it.product?.name || it.product?.productName || it.name || it.itemName || "Item";
-const iPrice = (it) => Number(it.product?.price ?? it.price ?? it.unitPrice ?? 0);
-const iQty   = (it) => Number(it.qty ?? it.quantity ?? 1);
-const iTotal = (it) => iPrice(it) * iQty(it);
+const iName   = (it) => it.product?.name || it.product?.productName || it.name || it.itemName || "Item";
+const iPrice  = (it) => it.price != null ? Number(it.price) : Number(it.product?.price ?? it.unitPrice ?? 0) + Number(it.addonTotal || 0);
+const iQty    = (it) => Number(it.qty ?? it.quantity ?? 1);
+const iTotal  = (it) => iPrice(it) * iQty(it);
+const iAddons = (it) => it.addons || [];
+const iNotes  = (it) => it.notes || it.note || "";
 
 // ── Thermal Print ────────────────────────────────────────────────────────────
 function printInvoice(inv, businessName, bizAddress, bizCity, bizGST, bizFSSAI, logoUrl) {
@@ -78,14 +80,18 @@ function printInvoice(inv, businessName, bizAddress, bizCity, bizGST, bizFSSAI, 
       name: iName(it),
       price: iPrice(it),
       qty: iQty(it),
+      addons: iAddons(it),
+      notes: iNotes(it),
       product: { name: iName(it), price: iPrice(it) }
     })),
     totals: {
       subTotal: subtotal,
       tax: tax,
       grandTotal: total,
-      extraCharge: 0,
-      discount: 0
+      extraCharge: Number(inv.totals?.extraCharge || 0),
+      extraLabel: inv.totals?.extraLabel || "Service Charge",
+      discount: Number(inv.totals?.discount || 0),
+      discountLabel: inv.totals?.discountLabel || "Discount",
     },
     customer: inv.customer || {},
     tableName: table,
@@ -491,15 +497,27 @@ function InvoiceDetailModal({ inv, bizName, uid, onClose, onMarkPaid }) {
           <div className={`px-4 py-2 flex items-center text-[9px] font-black uppercase tracking-widest border-b ${tc.textMuted} ${tc.borderSoft}`}>
             <span className="flex-1">Item</span><span className="w-8 text-center">Qty</span><span className="w-20 text-right">Amount</span>
           </div>
-          <div className="max-h-52 overflow-y-auto">
+          <div className="max-h-60 overflow-y-auto">
             {items.map((it, i) => (
-              <div key={i} className={`px-4 py-2 flex items-center border-b last:border-0 ${tc.borderSoft}`}>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${tc.textSub}`}>{iName(it)}</p>
-                  {iPrice(it) > 0 && <p className={`text-[10px] ${tc.textMuted}`}>₹{iPrice(it).toFixed(2)} each</p>}
+              <div key={i} className={`px-4 py-2 border-b last:border-0 ${tc.borderSoft}`}>
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium ${tc.textSub}`}>{iName(it)}</p>
+                    {iAddons(it).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {iAddons(it).map((a, ai) => (
+                          <span key={ai} className="px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/20 text-orange-300 text-[8px] font-medium">
+                            +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {iNotes(it) && <p className={`text-[9px] italic mt-0.5 text-amber-300/60`}>📝 {iNotes(it)}</p>}
+                    {iPrice(it) > 0 && <p className={`text-[10px] mt-0.5 ${tc.textMuted}`}>₹{iPrice(it).toFixed(2)} each</p>}
+                  </div>
+                  <span className={`w-8 text-center text-sm shrink-0 ${tc.textMuted}`}>{iQty(it)}</span>
+                  <span className={`w-20 text-right text-sm font-black shrink-0 ${tc.textSub}`}>₹{iTotal(it).toFixed(2)}</span>
                 </div>
-                <span className={`w-8 text-center text-sm shrink-0 ${tc.textMuted}`}>{iQty(it)}</span>
-                <span className={`w-20 text-right text-sm font-black shrink-0 ${tc.textSub}`}>₹{iTotal(it).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -515,6 +533,17 @@ function InvoiceDetailModal({ inv, bizName, uid, onClose, onMarkPaid }) {
           {tax > 0 && (
             <div className={`flex justify-between text-sm ${tc.textSub}`}>
               <span>Tax / GST</span><span>₹{tax.toFixed(2)}</span>
+            </div>
+          )}
+          {Number(inv.totals?.extraCharge || 0) > 0 && (
+            <div className={`flex justify-between text-sm ${tc.textSub}`}>
+              <span>{inv.totals?.extraLabel || "Service Charge"}</span>
+              <span>₹{Number(inv.totals.extraCharge).toFixed(2)}</span>
+            </div>
+          )}
+          {Number(inv.totals?.discount || 0) > 0 && (
+            <div className="flex justify-between text-sm text-red-400/70">
+              <span>{inv.totals?.discountLabel || "Discount"}</span><span>−₹{Number(inv.totals.discount).toFixed(2)}</span>
             </div>
           )}
           <div className={`flex justify-between items-center pt-1.5 border-t ${tc.borderSoft}`}>

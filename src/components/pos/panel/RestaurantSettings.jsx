@@ -194,6 +194,7 @@ export default function RestaurantSettings() {
     setSaving(true);
     try {
       await setDoc(doc(db, "businesses", uid, "posConfig", "restaurantSettings"), { ...settings, updatedAt: Date.now() }, { merge: true });
+      invalidateBizCache(uid);
       setSaved(true);
       showMsg("Settings saved successfully");
     } catch (e) {

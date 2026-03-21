@@ -1,35 +1,39 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import ProductHeader from "../components/common/ProductHeader";
-import { motion, AnimatePresence, useScroll, useTransform, useInView } from "framer-motion";
+import { motion, useInView, useScroll, useTransform } from "framer-motion";
 
-// ─── Product Switcher (Swiggy-style sliding pill) ────────────────────────────
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  fire:  "#FF4D00",
+  amber: "#FFAA00",
+  cream: "#FFF5E4",
+  d1:    "#0A0705",
+  d2:    "#120E0A",
+  d3:    "#1E1710",
+  muted: "#8A7A6A",
+  dim:   "#3A2E24",
+  green: "#00C864",
+};
+
+// ── Product Switcher ──────────────────────────────────────────────────────────
 export function ProductSwitcher({ active = "pos", className = "", scTo = "/", posTo = "/pos-landing" }) {
   const navigate = useNavigate();
   const tabs = [
-    { id: "supplychain", label: "Supply Chain", shortLabel: "SC", icon: "🔗", to: scTo,  activeColor: "from-emerald-500 to-teal-500", glow: "shadow-emerald-500/40" },
+    { id: "supplychain", label: "Supply Chain",  shortLabel: "SC",  icon: "🔗", to: scTo,  activeColor: "from-emerald-500 to-teal-500", glow: "shadow-emerald-500/40" },
     { id: "pos",         label: "Restaurant POS", shortLabel: "POS", icon: "🍽️", to: posTo, activeColor: "from-orange-500 to-amber-500", glow: "shadow-orange-500/40" },
   ];
-
   return (
     <div className={`relative flex items-center p-1 rounded-2xl bg-black/30 border border-white/10 backdrop-blur-xl ${className}`}>
-      {/* Sliding background pill */}
-      {tabs.map(tab =>
-        tab.id === active ? (
-          <motion.div
-            key="active-pill"
-            layoutId="product-switcher-pill"
-            className={`absolute inset-1 rounded-xl bg-gradient-to-r ${tab.activeColor} shadow-lg ${tab.glow}`}
-            style={{ width: "calc(50% - 2px)", left: tab.id === "pos" ? "calc(50% + 2px)" : "4px" }}
-            transition={{ type: "spring", stiffness: 500, damping: 38 }}
-          />
-        ) : null
-      )}
-
+      {tabs.map(tab => tab.id === active ? (
+        <motion.div key="active-pill" layoutId="product-switcher-pill"
+          className={`absolute inset-1 rounded-xl bg-gradient-to-r ${tab.activeColor} shadow-lg ${tab.glow}`}
+          style={{ width: "calc(50% - 2px)", left: tab.id === "pos" ? "calc(50% + 2px)" : "4px" }}
+          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+        />
+      ) : null)}
       {tabs.map(tab => (
-        <button
-          key={tab.id}
-          onClick={() => navigate(tab.to)}
+        <button key={tab.id} onClick={() => navigate(tab.to)}
           className={`relative z-10 flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-[11px] sm:text-xs font-bold transition-colors duration-200 select-none flex-1 ${
             active === tab.id ? "text-white" : "text-white/40 hover:text-white/70"
           }`}
@@ -43,36 +47,15 @@ export function ProductSwitcher({ active = "pos", className = "", scTo = "/", po
   );
 }
 
-// ─── Floating particles ───────────────────────────────────────────────────────
-const FOOD_EMOJIS = ["🍕","🍔","🍜","🍣","🥗","🍰","☕","🍷","🥩","🌮","🍝","🧆"];
-function FloatingParticles() {
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-      {FOOD_EMOJIS.map((emoji, i) => (
-        <motion.span
-          key={i}
-          className="absolute text-2xl select-none"
-          style={{ left: `${(i * 8.3) % 100}%`, top: `${(i * 13 + 10) % 90}%` }}
-          animate={{ y: [0, -18, 0], rotate: [0, 8, -8, 0], opacity: [0.08, 0.18, 0.08] }}
-          transition={{ duration: 4 + i * 0.7, repeat: Infinity, ease: "easeInOut", delay: i * 0.4 }}
-        >
-          {emoji}
-        </motion.span>
-      ))}
-    </div>
-  );
-}
-
-// ─── Animated section wrapper ─────────────────────────────────────────────────
-function FadeUp({ children, delay = 0, className = "" }) {
+// ── Scroll-triggered reveal ───────────────────────────────────────────────────
+function Reveal({ children, delay = 0, className = "" }) {
   const ref = useRef(null);
-  const inView = useInView(ref, { once: true, margin: "-80px" });
+  const inView = useInView(ref, { once: true, margin: "-60px" });
   return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 32 }}
+    <motion.div ref={ref}
+      initial={{ opacity: 0, y: 28 }}
       animate={inView ? { opacity: 1, y: 0 } : {}}
-      transition={{ duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.65, delay, ease: [0.22, 1, 0.36, 1] }}
       className={className}
     >
       {children}
@@ -80,126 +63,329 @@ function FadeUp({ children, delay = 0, className = "" }) {
   );
 }
 
-// ─── Feature Card ─────────────────────────────────────────────────────────────
-function FeatureCard({ icon, title, desc, accent, delay }) {
-  const colors = {
-    orange: "from-orange-500/20 to-amber-500/20 border-orange-500/20 shadow-orange-500/10",
-    blue:   "from-blue-500/20 to-cyan-500/20 border-blue-500/20 shadow-blue-500/10",
-    purple: "from-purple-500/20 to-violet-500/20 border-purple-500/20 shadow-purple-500/10",
-    emerald:"from-emerald-500/20 to-teal-500/20 border-emerald-500/20 shadow-emerald-500/10",
-    pink:   "from-pink-500/20 to-rose-500/20 border-pink-500/20 shadow-pink-500/10",
-    amber:  "from-amber-500/20 to-yellow-500/20 border-amber-500/20 shadow-amber-500/10",
-  };
+// ── Section eyebrow label ─────────────────────────────────────────────────────
+function SectionLabel({ children }) {
   return (
-    <FadeUp delay={delay}>
-      <div className={`group h-full rounded-2xl border bg-gradient-to-br ${colors[accent]} p-6 backdrop-blur-sm hover:scale-[1.03] hover:shadow-xl transition-all duration-300`}>
-        <div className="text-3xl mb-4">{icon}</div>
-        <h3 className="text-base font-bold text-white mb-2">{title}</h3>
-        <p className="text-sm text-white/50 leading-relaxed">{desc}</p>
-      </div>
-    </FadeUp>
+    <div className="flex items-center gap-2.5 mb-4"
+      style={{ fontSize: 10, color: C.fire, letterSpacing: "4px", textTransform: "uppercase" }}>
+      <span style={{ width: 24, height: 1, background: C.fire, flexShrink: 0, display: "block" }} />
+      {children}
+    </div>
   );
 }
 
-// ─── Step Card ────────────────────────────────────────────────────────────────
-function StepCard({ step, icon, title, desc, delay }) {
+
+// ── Phone mockup with floating animation ────────────────────────────────────
+function PhoneMockup() {
+  const bars = [30, 40, 35, 48, 50];
   return (
-    <FadeUp delay={delay} className="text-center">
-      <div className="relative inline-flex items-center justify-center mb-5">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30 flex items-center justify-center text-3xl shadow-xl shadow-orange-500/10">
-          {icon}
+    <motion.div
+      animate={{ y: [0, -12, 0] }}
+      transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
+      style={{ width: 280, height: 560, background: "#151210", borderRadius: 38, border: "2px solid #2A2018", padding: "18px 14px", boxShadow: `0 60px 120px rgba(0,0,0,0.8), 0 0 0 1px ${C.fire}12`, margin: "0 auto", position: "relative" }}
+    >
+      {/* Glow effect */}
+      <div className="absolute -inset-4 bg-gradient-to-b from-orange-500/20 to-transparent blur-2xl rounded-full" />
+      
+      {/* Notch */}
+      <div style={{ width: 48, height: 6, background: C.d1, borderRadius: 3, margin: "0 auto 14px", position: "relative", zIndex: 1 }} />
+      {/* Screen */}
+      <div style={{ background: "#0D0A07", borderRadius: 20, height: 488, overflow: "hidden", padding: "14px 12px", position: "relative", zIndex: 1 }}>
+        {/* Topbar */}
+        <motion.div
+          initial={{ scaleX: 0.8, opacity: 0 }}
+          animate={{ scaleX: 1, opacity: 1 }}
+          transition={{ delay: 0.3, duration: 0.5 }}
+          style={{ background: C.fire, borderRadius: 7, height: 28, display: "flex", alignItems: "center", padding: "0 10px", marginBottom: 10, gap: 6 }}
+        >
+          <div style={{ width: 8, height: 8, background: "rgba(255,255,255,.4)", borderRadius: "50%" }} />
+          <div style={{ fontSize: 9, color: "#fff", fontWeight: 600, letterSpacing: "1.5px", flex: 1, textAlign: "center" }}>FLYP POS</div>
+          <div style={{ width: 8, height: 8, background: "rgba(255,255,255,.4)", borderRadius: "50%" }} />
+        </motion.div>
+        {/* Orders */}
+        {[["Cappuccino ×2", "₹360"], ["Veg Pasta", "₹220"], ["Garlic Bread", "₹120"]].map(([name, price], idx) => (
+          <motion.div
+            key={name}
+            initial={{ x: -20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.4 + idx * 0.1, duration: 0.4 }}
+            style={{ background: "rgba(255,255,255,.04)", borderRadius: 6, padding: "7px 10px", marginBottom: 5, display: "flex", justifyContent: "space-between" }}
+          >
+            <span style={{ fontSize: 9, color: "#C4A882" }}>{name}</span>
+            <span style={{ fontSize: 9, color: C.amber, fontWeight: 500 }}>{price}</span>
+          </motion.div>
+        ))}
+        {/* Total */}
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ delay: 0.8, duration: 0.4 }}
+          style={{ background: `${C.fire}1F`, border: `1px solid ${C.fire}40`, borderRadius: 6, padding: "7px 10px", display: "flex", justifyContent: "space-between", margin: "7px 0" }}
+        >
+          <span style={{ fontSize: 8, color: C.fire, letterSpacing: "1px", textTransform: "uppercase" }}>Total</span>
+          <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 16, color: C.cream }}>₹700</span>
+        </motion.div>
+        {/* Button */}
+        <motion.div
+          initial={{ y: 10, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.9, duration: 0.4 }}
+          whileHover={{ scale: 1.02 }}
+          style={{ background: `linear-gradient(90deg, ${C.fire}, #FF8C00)`, borderRadius: 6, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 600, letterSpacing: "2px", cursor: "pointer" }}
+        >
+          PLACE ORDER →
+        </motion.div>
+        {/* Divider */}
+        <div style={{ height: 1, background: "rgba(255,255,255,.04)", margin: "10px 0" }} />
+        {/* Stats label */}
+        <div style={{ fontSize: 8, color: C.dim, letterSpacing: "2px", textTransform: "uppercase", marginBottom: 7 }}>Today's Performance</div>
+        {/* Mini stats */}
+        <div style={{ display: "flex", gap: 5 }}>
+          {[["34", "Orders"], ["₹14K", "Revenue"], ["0%", "Commission"]].map(([num, lbl], idx) => (
+            <motion.div
+              key={lbl}
+              initial={{ y: 10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 1.1 + idx * 0.1, duration: 0.3 }}
+              style={{ flex: 1, background: "rgba(255,255,255,.03)", borderRadius: 5, padding: "7px 6px", textAlign: "center" }}
+            >
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 18, color: C.amber }}>{num}</div>
+              <div style={{ fontSize: 7, color: C.dim, letterSpacing: ".5px" }}>{lbl}</div>
+            </motion.div>
+          ))}
         </div>
-        <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 text-white text-[10px] font-black flex items-center justify-center shadow-lg">
-          {step}
+        {/* Chart bars */}
+        <div style={{ display: "flex", gap: 4, alignItems: "flex-end", marginTop: 10, height: 50 }}>
+          {bars.map((h, i) => (
+            <motion.div
+              key={i}
+              initial={{ height: 0 }}
+              animate={{ height: h }}
+              transition={{ delay: 1.4 + i * 0.08, duration: 0.5, ease: "easeOut" }}
+              style={{ flex: 1, borderRadius: "2px 2px 0 0",
+                background: i === 4
+                  ? `linear-gradient(180deg, ${C.amber}, rgba(255,170,0,0.3))`
+                  : `linear-gradient(180deg, ${C.fire}, rgba(255,77,0,0.3))` }}
+            />
+          ))}
         </div>
       </div>
-      <h3 className="text-base font-bold text-white mb-2">{title}</h3>
-      <p className="text-sm text-white/50 leading-relaxed max-w-[200px] mx-auto">{desc}</p>
-    </FadeUp>
+    </motion.div>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ── Commission calculator ─────────────────────────────────────────────────────
+function fmt(n) {
+  if (n >= 100000) return "₹" + (n / 100000).toFixed(1) + "L";
+  if (n >= 1000)   return "₹" + Math.round(n / 1000) + "K";
+  return "₹" + n;
+}
+function CommissionCalc() {
+  const [rev, setRev] = useState(100000);
+  const zLoss = Math.round(rev * 0.28);
+  const sLoss = Math.round(rev * 0.30);
+  return (
+    <div style={{ background: C.d3, border: "1px solid #2A2018", borderRadius: 6, padding: 40, marginTop: 32 }}>
+      {/* Slider row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 24 }}>
+        <span style={{ fontSize: 13, color: C.muted, letterSpacing: "1px", width: 200, flexShrink: 0 }}>Monthly Revenue (₹)</span>
+        <input type="range" min={10000} max={500000} step={5000} value={rev}
+          onChange={e => setRev(parseInt(e.target.value))}
+          style={{ flex: 1, appearance: "none", WebkitAppearance: "none", height: 3, background: "#2A2018", borderRadius: 2, outline: "none", cursor: "pointer" }}
+        />
+        <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, color: C.cream, width: 80, textAlign: "right", letterSpacing: "1px" }}>
+          {fmt(rev)}
+        </span>
+      </div>
+      {/* Result cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
+        {[
+          { name: "Zomato", loss: fmt(zLoss) + " lost", sub: "Lost per month @ 28%", bg: "rgba(255,77,0,.06)",  border: "rgba(255,77,0,.15)",  col: C.fire  },
+          { name: "Swiggy", loss: fmt(sLoss) + " lost", sub: "Lost per month @ 30%", bg: "rgba(255,100,0,.06)", border: "rgba(255,100,0,.12)", col: "#FF6A00" },
+          { name: "FLYP",   loss: "₹0",                 sub: "Commission saved",      bg: "rgba(0,200,100,.06)", border: "rgba(0,200,100,.2)",  col: C.green  },
+        ].map(({ name, loss, sub, bg, border, col }) => (
+          <div key={name} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: 20, textAlign: "center" }}>
+            <div style={{ fontSize: 10, color: col, letterSpacing: "2px", textTransform: "uppercase", marginBottom: 6 }}>{name}</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 36, color: col, lineHeight: 1 }}>{loss}</div>
+            <div style={{ fontSize: 10, color: col === C.green ? C.green : C.muted, marginTop: 4 }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Feature card ──────────────────────────────────────────────────────────────
+function FeatCard({ icon, title, desc, delay = 0 }) {
+  return (
+    <Reveal delay={delay} className="h-full">
+      <div className="group relative h-full overflow-hidden transition-colors duration-200"
+        style={{ background: "rgba(255,255,255,.025)", padding: "28px 26px", border: "1px solid rgba(255,255,255,.04)" }}
+        onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,.04)"}
+        onMouseOut={e => e.currentTarget.style.background = "rgba(255,255,255,.025)"}
+      >
+        {/* Orange top-bar on hover */}
+        <div className="absolute top-0 left-0 right-0 h-[2px] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"
+          style={{ background: `linear-gradient(90deg, ${C.fire}, ${C.amber})` }} />
+        <div style={{ fontSize: 28, marginBottom: 14 }}>{icon}</div>
+        <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 15, fontWeight: 700, color: C.cream, marginBottom: 8 }}>{title}</div>
+        <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, fontWeight: 300 }}>{desc}</div>
+      </div>
+    </Reveal>
+  );
+}
+
+// ── Showcase block (alternating text + image slot) ────────────────────────────
+function ShowcaseBlock({ tag, title, titleEm, desc, bullets, children, reverse = false }) {
+  return (
+    <Reveal className="mb-28 last:mb-0">
+      <div className={`flex flex-col ${reverse ? "md:flex-row-reverse" : "md:flex-row"} items-center gap-16`}>
+        {/* Text */}
+        <div className="flex-1">
+          <div className="inline-flex items-center gap-2 mb-5"
+            style={{ fontSize: 10, color: C.fire, letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 600,
+              background: `${C.fire}1A`, border: `1px solid ${C.fire}33`, padding: "4px 12px", borderRadius: 100 }}>
+            {tag}
+          </div>
+          <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(32px,3vw,48px)", lineHeight: 1, letterSpacing: "1px", marginBottom: 16, color: C.cream }}>
+            {title}<br /><span style={{ color: C.fire }}>{titleEm}</span>
+          </h3>
+          <p style={{ fontSize: 15, color: C.muted, lineHeight: 1.7, marginBottom: 20 }}>{desc}</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {bullets.map((b, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: C.muted }}>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${C.green}26`, border: `1px solid ${C.green}4D`,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                  <span style={{ fontSize: 9, color: C.green, fontWeight: 700 }}>✓</span>
+                </div>
+                {b}
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Image slot */}
+        <div className="flex-1 w-full relative">{children}</div>
+      </div>
+    </Reveal>
+  );
+}
+
+// ── Step card ─────────────────────────────────────────────────────────────────
+function StepCard({ step, title, desc, delay = 0 }) {
+  return (
+    <Reveal delay={delay} className="text-center relative z-10">
+      <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.d1, border: `2px solid ${C.fire}`,
+        display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bebas Neue', sans-serif",
+        fontSize: 24, color: C.fire, margin: "0 auto 16px" }}>
+        {step}
+      </div>
+      <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 14, fontWeight: 700, color: C.cream, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, padding: "0 12px" }}>{desc}</div>
+    </Reveal>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 export default function POSLandingPage() {
   const navigate = useNavigate();
   const heroRef = useRef(null);
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
-  const heroY = useTransform(scrollYProgress, [0, 1], [0, 80]);
+  const heroY       = useTransform(scrollYProgress, [0, 1], [0, 60]);
   const heroOpacity = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
-  const [scrollProgress, setScrollProgress] = useState(0);
+  const [scrollProg,  setScrollProg]  = useState(0);
   const [shrinkHeader, setShrinkHeader] = useState(false);
+
+  // Load Bebas Neue + Syne fonts
+  useEffect(() => {
+    const id = "flyp-fonts";
+    if (!document.getElementById(id)) {
+      const link = document.createElement("link");
+      link.id   = id;
+      link.rel  = "stylesheet";
+      link.href = "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap";
+      document.head.appendChild(link);
+    }
+  }, []);
 
   useEffect(() => {
     const onScroll = () => {
       const el = document.documentElement;
       const total = el.scrollHeight - el.clientHeight;
-      setScrollProgress(total > 0 ? (el.scrollTop / total) * 100 : 0);
+      setScrollProg(total > 0 ? (el.scrollTop / total) * 100 : 0);
       setShrinkHeader(el.scrollTop > 60);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const STATS = [
-    { value: "500+", label: "Restaurants" },
-    { value: "2M+",  label: "Orders Processed" },
-    { value: "< 0.3s", label: "Load Time" },
-    { value: "99.9%", label: "Uptime" },
-  ];
-
   const FEATURES = [
-    { icon: "🪑", title: "Table & Zone Management",   desc: "Assign orders to tables, track occupancy and floor zones in real-time. Multi-floor support built in.", accent: "orange" },
-    { icon: "📺", title: "Kitchen Display (KDS)",     desc: "Orders appear on the kitchen screen instantly. No tickets, no delays — chefs see everything live.", accent: "blue"   },
-    { icon: "📜", title: "Digital Menu Builder",      desc: "Build your menu with photos, prices and categories. Update items in seconds without reprinting.", accent: "purple" },
-    { icon: "📱", title: "QR Self-Ordering",          desc: "Guests scan a QR code and order from their phone. Zero wait time, bigger average order value.", accent: "emerald"},
-    { icon: "📊", title: "Sales Analytics",           desc: "Real-time charts for revenue, top items, peak hours, and staff performance. Data that drives decisions.", accent: "pink"  },
-    { icon: "👥", title: "Staff Management",          desc: "PIN-based logins for staff, role permissions, attendance tracking and shift reports.", accent: "amber" },
+    { icon: "🛍️", title: "Digital Storefront",      desc: "Your own branded online store with shareable menu link. No tech skills needed. Live in 5 minutes." },
+    { icon: "📋", title: "Menu Builder",              desc: "Add items, photos, prices, variants and combos in under 1 minute. Update anytime from your phone." },
+    { icon: "🖥️", title: "Kitchen Display System",   desc: "Orders route directly to your kitchen screen in real-time. No paper slips. No missed tickets." },
+    { icon: "👥", title: "Multi-Staff Access",        desc: "Role-based logins for cashier, chef, and manager. Everyone works from their own screen." },
+    { icon: "💳", title: "All Payment Modes",         desc: "UPI, card, cash, credit — unified in one dashboard. Auto reconciliation, no manual work." },
+    { icon: "🛵", title: "Your Own Delivery",         desc: "Take delivery orders directly. Keep 100% of your revenue. No Zomato, no Swiggy cuts." },
+    { icon: "📊", title: "Live Analytics",            desc: "Real-time revenue, top dishes, peak hours, and customer trends — all on your dashboard." },
+    { icon: "🧾", title: "Smart Billing",             desc: "Auto-calculate GST, generate invoices, and share receipts via WhatsApp in one tap." },
+    { icon: "🔔", title: "Order Notifications",       desc: "Instant alerts for new orders, kitchen delays, and delivery status — for your whole team." },
   ];
 
   const STEPS = [
-    { step: 1, icon: "📜", title: "Build Your Menu",   desc: "Add categories, items, prices and photos in minutes." },
-    { step: 2, icon: "🪑", title: "Set Up Tables",     desc: "Map your floor plan. Assign zones, table numbers and capacity." },
-    { step: 3, icon: "⚡", title: "Go Live",           desc: "Start taking orders, sending to kitchen and settling bills instantly." },
+    { step: 1, title: "Register Your Store", desc: "Add your business name, category, location. Your storefront is created instantly." },
+    { step: 2, title: "Add Your Menu",        desc: "Type or scan your menu. Add photos, prices, variants. Go live in 1 minute." },
+    { step: 3, title: "Take Orders",          desc: "Share your store link. Orders flow in, kitchen gets notified, you get paid." },
+    { step: 4, title: "Grow Revenue",         desc: "Use analytics, run offers, expand delivery zones — all from FLYP dashboard." },
   ];
 
   return (
-    <div className="text-white min-h-screen bg-[#020617] overflow-x-hidden">
-      {/* Progress bar */}
-      <div className="fixed top-0 left-0 h-[2px] bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400 z-50 transition-[width] duration-100"
-        style={{ width: `${scrollProgress}%` }} />
+    <div style={{ minHeight: "100vh", background: C.d1, color: C.cream, fontFamily: "'DM Sans', sans-serif", overflowX: "hidden" }}>
 
-      {/* Aurora background */}
-      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
-        <div className="absolute -top-40 right-0 w-[60vw] h-[60vh] rounded-full blur-[120px] opacity-20"
-          style={{ background: "radial-gradient(circle, rgba(249,115,22,0.6) 0%, transparent 70%)" }} />
-        <div className="absolute bottom-0 -left-24 w-[50vw] h-[50vh] rounded-full blur-[120px] opacity-15"
-          style={{ background: "radial-gradient(circle, rgba(245,158,11,0.5) 0%, transparent 70%)" }} />
+      {/* ── Scroll progress bar ── */}
+      <div className="fixed top-0 left-0 h-[2px] z-50 transition-[width] duration-100"
+        style={{ width: `${scrollProg}%`, background: `linear-gradient(90deg, ${C.fire}, ${C.amber})` }} />
+
+      {/* ── BG radial glow ── */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2"
+          style={{ width: 900, height: 600, background: `radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,77,0,.2) 0%, transparent 60%)` }} />
       </div>
 
-      {/* ── Header ── */}
+      {/* ── BG grid ── */}
+      <div className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px)`,
+          backgroundSize: "60px 60px",
+        }} />
+
+      {/* ══════════════ HEADER ══════════════ */}
       <ProductHeader
         active="pos"
         shrink={shrinkHeader}
         scTo="/"
         posTo="/pos-landing"
         navLinks={[
-          { label: "Features",     href: "#features"    },
-          { label: "How it works", href: "#how-it-works" },
-          { label: "Pricing",      href: "#cta"         },
+          { label: "Features",    href: "#features"    },
+          { label: "How it Works", href: "#how-it-works" },
+          { label: "Pricing",     href: "#cta"         },
         ]}
         cta={
           <>
-            <button
-              onClick={() => navigate("/auth?type=login&product=pos")}
-              className="px-4 py-1.5 rounded-xl text-sm border border-white/20 hover:border-orange-400/60 text-white/80 hover:text-white transition-all"
+            <button onClick={() => navigate("/auth?type=login&product=pos")}
+              style={{ padding: "9px 18px", borderRadius: 2, border: "1px solid rgba(255,255,255,.15)", background: "transparent",
+                color: C.muted, fontSize: 12, letterSpacing: "1px", cursor: "pointer" }}
+              onMouseOver={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,.35)"; e.currentTarget.style.color = C.cream; }}
+              onMouseOut={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,.15)"; e.currentTarget.style.color = C.muted; }}
             >
-              Sign In
+              SIGN IN
             </button>
             <motion.button
-              whileHover={{ scale: 1.04 }}
+              whileHover={{ scale: 1.02, backgroundColor: "#FF6A00" }}
               whileTap={{ scale: 0.97 }}
               onClick={() => navigate("/auth?type=register&product=pos")}
-              className="px-4 py-1.5 rounded-xl text-sm font-bold bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 transition-all"
+              style={{ padding: "9px 22px", borderRadius: 2, background: C.fire, color: "#fff", fontSize: 12, fontWeight: 500, letterSpacing: "2px", border: "none", cursor: "pointer", textTransform: "uppercase" }}
             >
               Get Started Free
             </motion.button>
@@ -207,283 +393,467 @@ export default function POSLandingPage() {
         }
       />
 
-      {/* ── Hero ── */}
-      <section ref={heroRef} className="relative min-h-[92vh] flex flex-col items-center justify-center px-5 py-20 overflow-hidden">
-        <FloatingParticles />
-        <motion.div style={{ y: heroY, opacity: heroOpacity }} className="relative z-10 text-center max-w-4xl mx-auto">
-          {/* Badge */}
-          <motion.div
-            initial={{ opacity: 0, y: -16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/10 text-[11px] font-bold text-orange-400 tracking-widest uppercase mb-8"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-            India's First Restaurant OS
-          </motion.div>
+      {/* ══════════════ HERO ══════════════ */}
+      <section ref={heroRef} className="relative overflow-hidden"
+        style={{ minHeight: "100vh", display: "flex", alignItems: "center", paddingTop: 60 }}>
 
-          {/* Headline */}
-          <motion.h1
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.65, delay: 0.1 }}
-            className="text-5xl md:text-7xl font-black tracking-tight leading-[1.05] mb-6"
-          >
-            Your Restaurant's
-            <br />
-            <span className="bg-gradient-to-r from-orange-400 via-amber-400 to-yellow-300 bg-clip-text text-transparent">
-              Operating System
-            </span>
-          </motion.h1>
-
-          {/* Sub */}
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-lg md:text-xl text-white/55 leading-relaxed max-w-2xl mx-auto mb-10"
-          >
-            Tables, kitchen display, digital menu, QR ordering and analytics —
-            all in one beautiful, blazing-fast POS built for restaurants and cafés.
-          </motion.p>
-
-          {/* CTAs */}
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, delay: 0.3 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-3"
-          >
-            <motion.button
-              whileHover={{ scale: 1.05, boxShadow: "0 20px 60px rgba(249,115,22,0.4)" }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => navigate("/auth?type=register&product=pos")}
-              className="px-8 py-3.5 rounded-2xl font-bold text-lg text-white bg-gradient-to-r from-orange-500 to-amber-500 shadow-[0_10px_40px_rgba(249,115,22,0.3)] transition-all"
+        <motion.div style={{ y: heroY, opacity: heroOpacity, maxWidth: 1200 }}
+          className="relative z-10 flex items-center gap-16 w-full mx-auto px-16"
+        >
+          {/* ── Left: text ── */}
+          <div style={{ flex: 1 }}>
+            <motion.div
+              initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}
+              className="flex items-center gap-2.5 mb-5"
+              style={{ fontSize: 11, color: C.fire, letterSpacing: "4px", textTransform: "uppercase" }}
             >
-              Start Free — No Card Needed →
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => navigate("/auth?type=login&product=pos")}
-              className="px-8 py-3.5 rounded-2xl font-semibold text-sm border border-white/20 text-white/80 hover:border-orange-400/40 hover:text-white transition-all"
-            >
-              Sign In to POS
-            </motion.button>
-          </motion.div>
+              <span style={{ width: 28, height: 1, background: C.fire, display: "block" }} />
+              For Restaurants &amp; Cafes in India
+            </motion.div>
 
-          {/* Trust pills */}
+            <motion.h1
+              initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.1 }}
+              style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(70px,8vw,110px)", lineHeight: 0.88, marginBottom: 20 }}
+            >
+              GET YOUR<br />
+              <span style={{ color: C.fire }}>CAFÉ</span><br />
+              ONLINE<br />
+              <span style={{ color: C.dim }}>IN 5 MIN</span>
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}
+              style={{ fontSize: 16, color: C.muted, lineHeight: 1.7, maxWidth: 480, marginBottom: 32, fontWeight: 300 }}
+            >
+              The complete operating system for your food business. From{" "}
+              <strong style={{ color: C.cream, fontWeight: 400 }}>kitchen display to delivery</strong> — with{" "}
+              <strong style={{ color: C.cream, fontWeight: 400 }}>zero commission, always.</strong>
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, delay: 0.3 }}
+              style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 40 }}
+            >
+              <motion.button
+                whileHover={{ backgroundColor: "#FF6A00", y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => navigate("/auth?type=register&product=pos")}
+                style={{ background: C.fire, color: "#fff", fontSize: 13, fontWeight: 500, letterSpacing: "2px", padding: "14px 32px", borderRadius: 2, border: "none", cursor: "pointer", textTransform: "uppercase" }}
+              >
+                Start Free Today →
+              </motion.button>
+              <button
+                onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+                style={{ border: "1px solid rgba(255,255,255,.15)", color: C.muted, fontSize: 13, letterSpacing: "1px", padding: "14px 28px", borderRadius: 2, background: "transparent", cursor: "pointer" }}
+                onMouseOver={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,.35)"; e.currentTarget.style.color = C.cream; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,.15)"; e.currentTarget.style.color = C.muted; }}
+              >
+                See How It Works
+              </button>
+            </motion.div>
+
+            {/* Hero stats */}
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
+              style={{ display: "flex", gap: 32 }}
+            >
+              {[["5min", "Go Live"], ["0%", "Commission"], ["1min", "Add Menu"]].map(([num, lbl]) => (
+                <div key={lbl}>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 44, color: C.fire, lineHeight: 1 }}>{num}</div>
+                  <div style={{ fontSize: 10, color: C.dim, letterSpacing: "2px", textTransform: "uppercase" }}>{lbl}</div>
+                </div>
+              ))}
+            </motion.div>
+          </div>
+
+          {/* ── Right: phone mockup ── */}
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="flex flex-wrap items-center justify-center gap-3 mt-10 text-xs text-white/35"
+            initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8, delay: 0.2 }}
+            style={{ width: 320, flexShrink: 0 }}
           >
-            {["✓ Free setup", "✓ No hardware lock-in", "✓ Works on any tablet or PC", "✓ Indian GST billing"].map(t => (
-              <span key={t} className="px-3 py-1 rounded-full border border-white/10 bg-white/5">{t}</span>
-            ))}
+            <PhoneMockup />
           </motion.div>
         </motion.div>
 
         {/* Scroll indicator */}
-        <motion.div
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1"
-          animate={{ y: [0, 6, 0] }} transition={{ repeat: Infinity, duration: 1.5 }}
-        >
-          <span className="text-[10px] text-white/25 tracking-widest uppercase">Scroll</span>
-          <div className="w-px h-6 bg-gradient-to-b from-white/20 to-transparent" />
+        <motion.div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1"
+          animate={{ y: [0, 6, 0] }} transition={{ repeat: Infinity, duration: 1.5 }}>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,.2)", letterSpacing: "3px", textTransform: "uppercase" }}>Scroll</span>
+          <div style={{ width: 1, height: 20, background: "linear-gradient(to bottom, rgba(255,255,255,.15), transparent)" }} />
         </motion.div>
       </section>
 
-      {/* ── Stats Bar ── */}
-      <FadeUp>
-        <section className="relative z-10 py-10 border-y border-white/8">
-          <div className="max-w-5xl mx-auto px-5 grid grid-cols-2 md:grid-cols-4 gap-6">
-            {STATS.map((s, i) => (
+      {/* ══════════════ HERO DASHBOARD SCREENSHOT ══════════════ */}
+      <div style={{ padding: "0 80px 120px", background: C.d1 }}>
+        <Reveal delay={0.1}>
+          <div className="relative group">
+            {/* Animated glow */}
+            <motion.div
+              className="absolute -bottom-12 left-1/2 -translate-x-1/2 w-3/4 h-32 pointer-events-none"
+              animate={{ opacity: [0.3, 0.6, 0.3], scale: [0.95, 1.05, 0.95] }}
+              transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+              style={{ background: `radial-gradient(ellipse, ${C.fire}60 0%, transparent 70%)`, filter: "blur(40px)" }}
+            />
+            
+            {/* Main image container */}
+            <motion.div
+              whileHover={{ y: -8, scale: 1.01 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              style={{ borderRadius: 20, overflow: "hidden", border: "1px solid rgba(255,255,255,.08)",
+                boxShadow: `0 40px 120px rgba(0,0,0,.8), 0 0 0 1px ${C.fire}12` }}
+            >
+              <img src="/assets/Hero_dashboard.png" alt="FLYP POS Dashboard"
+                style={{ width: "100%", height: "auto", display: "block", transition: "transform 0.4s ease" }}
+                className="group-hover:scale-105" />
+            </motion.div>
+            
+            {/* Floating badge */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="absolute -bottom-6 left-8"
+              style={{ background: C.d1, border: `2px solid ${C.fire}`, borderRadius: 12, padding: "12px 20px",
+                boxShadow: "0 12px 40px rgba(0,0,0,.6)" }}
+            >
+              <div style={{ fontSize: 10, color: C.fire, letterSpacing: "2px", textTransform: "uppercase", marginBottom: 4 }}>Live Dashboard</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 24, color: C.cream }}>Real-Time Updates</div>
+            </motion.div>
+          </div>
+        </Reveal>
+      </div>
+
+      {/* ══════════════ COMMISSION LOSS CALCULATOR ══════════════ */}
+      <section style={{ background: C.d2, borderTop: `1px solid ${C.d3}`, borderBottom: `1px solid ${C.d3}`, padding: "80px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <Reveal>
+            <SectionLabel>See what you're losing</SectionLabel>
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(40px,5vw,56px)", lineHeight: 1, color: C.cream }}>
+              COMMISSION<br /><span style={{ color: C.fire }}>LOSS CALCULATOR</span>
+            </h2>
+          </Reveal>
+          <Reveal delay={0.1}>
+            <CommissionCalc />
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ══════════════ FEATURES GRID ══════════════ */}
+      <section id="features" style={{ padding: "100px 80px", background: C.d1 }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <Reveal>
+            <SectionLabel>Everything in one place</SectionLabel>
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(44px,5vw,64px)", lineHeight: 1, color: C.cream, marginBottom: 32 }}>
+              COMPLETE OPERATION.<br /><span style={{ color: C.fire }}>ZERO COMPLEXITY.</span>
+            </h2>
+          </Reveal>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 2 }}>
+            {FEATURES.map((f, i) => <FeatCard key={f.title} {...f} delay={i * 0.06} />)}
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════ SHOWCASE BLOCKS (text + image slots) ══════════════
+          ▼▼▼ Replace each ImgSlot with your actual screenshot ▼▼▼ */}
+      <section style={{ background: C.d2, padding: "100px 80px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+
+          {/* Block 1: Table Management */}
+          <ShowcaseBlock
+            tag="Table Management"
+            title="EVERY TABLE, EVERY ZONE"
+            titleEm="ALL IN ONE VIEW"
+            desc="See your entire floor plan at a glance. Main Dining, Outdoor, Walk-in — tap any table to start an order. Real-time occupancy as your team works."
+            bullets={[
+              "Multi-zone floor plan with live occupancy status",
+              "Walk-in orders without table assignment",
+              "Table capacity and round tracking",
+            ]}
+          >
+            <motion.div
+              className="relative group"
+              style={{ paddingBottom: 16 }}
+              whileHover={{ scale: 1.02 }}
+              transition={{ duration: 0.3 }}
+            >
+              {/* Glow effect on hover */}
+              <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              
+              <img src="/assets/Table.png" alt="FLYP POS — Table Management"
+                style={{ width: "100%", height: "auto", display: "block", borderRadius: 16,
+                  filter: "drop-shadow(0 32px 64px rgba(0,0,0,0.6))" }} />
+              
               <motion.div
-                key={s.label}
-                initial={{ opacity: 0, scale: 0.85 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.45, delay: i * 0.08 }}
-                className="text-center"
+                className="absolute"
+                style={{ bottom: -4, left: 8 }}
+                initial={{ opacity: 0, y: 10 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
               >
-                <div className="text-3xl md:text-4xl font-black bg-gradient-to-r from-orange-400 to-amber-400 bg-clip-text text-transparent">{s.value}</div>
-                <div className="text-xs text-white/40 mt-1 font-medium">{s.label}</div>
+                <div className="rounded-lg px-4 py-3 backdrop-blur-xl"
+                  style={{ background: "rgba(10,7,5,0.95)", border: `1px solid ${C.fire}40`, boxShadow: "0 8px 24px rgba(0,0,0,.6)" }}>
+                  <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 3 }}>Live Status</div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, color: C.cream }}>
+                    <motion.span
+                      animate={{ opacity: [1, 0.5, 1] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                      style={{ color: C.green }}
+                    >●</motion.span> <span style={{ color: C.green }}>3</span> Available
+                  </div>
+                </div>
               </motion.div>
-            ))}
-          </div>
-        </section>
-      </FadeUp>
+            </motion.div>
+          </ShowcaseBlock>
 
-      {/* ── Features ── */}
-      <section id="features" className="relative z-10 py-24 px-5">
-        <div className="max-w-6xl mx-auto">
-          <FadeUp className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-orange-500/20 bg-orange-500/8 text-[11px] font-bold text-orange-400 tracking-widest uppercase mb-5">
-              Everything you need
-            </div>
-            <h2 className="text-4xl md:text-5xl font-black text-white leading-tight">
-              Built for every corner
-              <br />
-              <span className="bg-gradient-to-r from-orange-400 to-amber-400 bg-clip-text text-transparent">of your restaurant</span>
+          {/* Block 2: Smart Billing (reversed) */}
+          <ShowcaseBlock
+            tag="Smart Billing"
+            title="TAP, ADD, SEND"
+            titleEm="DONE IN SECONDS"
+            desc="The fastest billing experience for your team. Browse the full menu grid, add items with one tap, send to kitchen or checkout instantly. GST auto-calculated."
+            bullets={[
+              "Full menu grid with category filters",
+              "One-tap add to order with quantity control",
+              "Auto GST calculation and instant digital receipt",
+            ]}
+            reverse
+          >
+            <motion.div
+              className="relative group"
+              style={{ paddingTop: 16 }}
+              whileHover={{ scale: 1.02 }}
+              transition={{ duration: 0.3 }}
+            >
+              {/* Animated gradient border */}
+              <motion.div
+                className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                style={{ background: `linear-gradient(135deg, ${C.fire}20, ${C.amber}20)`, filter: "blur(20px)" }}
+              />
+              
+              <img src="/assets/Checkout.png" alt="FLYP POS — Smart Billing"
+                style={{ width: "100%", height: "auto", display: "block", borderRadius: 16,
+                  filter: "drop-shadow(0 32px 64px rgba(0,0,0,0.6))" }} />
+              
+              <motion.div
+                className="absolute"
+                style={{ top: -4, right: 8 }}
+                initial={{ opacity: 0, y: -10 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                <div className="rounded-lg px-4 py-3 backdrop-blur-xl"
+                  style={{ background: "rgba(10,7,5,0.95)", border: `1px solid ${C.fire}40`, boxShadow: "0 8px 24px rgba(0,0,0,.6)" }}>
+                  <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 3 }}>Checkout Total</div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, color: C.cream }}>
+                    ₹<motion.span
+                      initial={{ opacity: 0 }}
+                      whileInView={{ opacity: 1 }}
+                      transition={{ delay: 0.5 }}
+                      style={{ color: C.fire }}
+                    >708</motion.span>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          </ShowcaseBlock>
+
+          {/* Block 3: Kitchen Display */}
+          <ShowcaseBlock
+            tag="Kitchen Display"
+            title="ZERO TICKETS,"
+            titleEm="ZERO MISSED ORDERS"
+            desc="Your kitchen team sees every order the moment it's placed. Status flows from New → Preparing → Ready in real-time with sound alerts and visual highlights."
+            bullets={[
+              "Instant order routing to the kitchen screen",
+              "Status tracking: New, Preparing, Ready",
+              "Sound alerts and visual highlights for new tickets",
+            ]}
+          >
+            <motion.div
+              className="relative group"
+              style={{ paddingBottom: 16 }}
+              whileHover={{ scale: 1.02 }}
+              transition={{ duration: 0.3 }}
+            >
+              {/* Pulsing glow */}
+              <motion.div
+                className="absolute inset-0 rounded-2xl"
+                animate={{ opacity: [0, 0.15, 0] }}
+                transition={{ repeat: Infinity, duration: 2.5 }}
+                style={{ background: `radial-gradient(circle at center, ${C.amber}60, transparent 70%)`, filter: "blur(30px)" }}
+              />
+              
+              <img src="/assets/KDS.png" alt="FLYP POS — Kitchen Display"
+                style={{ width: "100%", height: "auto", display: "block", borderRadius: 16,
+                  filter: "drop-shadow(0 32px 64px rgba(0,0,0,0.6))" }} />
+              
+              <motion.div
+                className="absolute"
+                style={{ bottom: -4, left: 8 }}
+                initial={{ opacity: 0, y: 10 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                <div className="rounded-lg px-4 py-3 backdrop-blur-xl"
+                  style={{ background: "rgba(10,7,5,0.95)", border: `1px solid ${C.amber}40`, boxShadow: "0 8px 24px rgba(0,0,0,.6)" }}>
+                  <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 3 }}>Kitchen</div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, color: C.cream }}>
+                    <motion.span
+                      animate={{ scale: [1, 1.1, 1] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                      style={{ color: C.amber }}
+                    >2</motion.span> Active
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          </ShowcaseBlock>
+        </div>
+      </section>
+
+      {/* ══════════════ HOW IT WORKS ══════════════ */}
+      <section id="how-it-works" style={{ background: C.d2, padding: "80px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <Reveal>
+            <SectionLabel>Simple as 1-2-3</SectionLabel>
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(44px,5vw,64px)", lineHeight: 1, color: C.cream, marginBottom: 0 }}>
+              HOW IT WORKS
             </h2>
-            <p className="text-white/45 text-base mt-4 max-w-xl mx-auto">From the front-of-house to the kitchen — every team member has exactly what they need.</p>
-          </FadeUp>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {FEATURES.map((f, i) => (
-              <FeatureCard key={f.title} {...f} delay={i * 0.07} />
-            ))}
+          </Reveal>
+          <div style={{ display: "flex", gap: 0, marginTop: 40, position: "relative" }}>
+            {/* Connector line */}
+            <div style={{ position: "absolute", top: 28, left: 28, right: 28, height: 1, background: `linear-gradient(90deg, ${C.fire}, ${C.amber}, rgba(255,77,0,.1))`, zIndex: 0 }} />
+            {STEPS.map((s, i) => <StepCard key={s.step} {...s} delay={i * 0.1} />)}
           </div>
         </div>
       </section>
 
-      {/* ── How it works ── */}
-      <section id="how-it-works" className="relative z-10 py-24 px-5 bg-white/[0.02] border-y border-white/8">
-        <div className="max-w-4xl mx-auto">
-          <FadeUp className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/8 text-[11px] font-bold text-amber-400 tracking-widest uppercase mb-5">
-              Get running in minutes
-            </div>
-            <h2 className="text-4xl md:text-5xl font-black text-white">3 steps to live</h2>
-          </FadeUp>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12 relative">
-            {/* Connector lines */}
-            <div className="hidden md:block absolute top-8 left-[33%] right-[33%] h-px bg-gradient-to-r from-orange-500/30 via-amber-500/30 to-orange-500/30" />
-            {STEPS.map((s, i) => <StepCard key={s.step} {...s} delay={i * 0.12} />)}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Live Demo Preview ── */}
-      <section className="relative z-10 py-24 px-5">
-        <div className="max-w-5xl mx-auto">
-          <FadeUp className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-black text-white mb-4">
-              See it in action
+      {/* ══════════════ LIVE PREVIEW ══════════════ */}
+      <section id="preview" style={{ background: C.d1, padding: "100px 80px", textAlign: "center", position: "relative", overflow: "hidden" }}>
+        {/* Animated background elements */}
+        <motion.div
+          className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full"
+          animate={{ scale: [1, 1.2, 1], opacity: [0.05, 0.1, 0.05] }}
+          transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+          style={{ background: `radial-gradient(circle, ${C.fire}40, transparent)`, filter: "blur(60px)" }}
+        />
+        <motion.div
+          className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full"
+          animate={{ scale: [1.2, 1, 1.2], opacity: [0.1, 0.05, 0.1] }}
+          transition={{ repeat: Infinity, duration: 8, ease: "easeInOut", delay: 1 }}
+          style={{ background: `radial-gradient(circle, ${C.amber}40, transparent)`, filter: "blur(60px)" }}
+        />
+        
+        <div style={{ maxWidth: 1000, margin: "0 auto", position: "relative", zIndex: 1 }}>
+          <Reveal style={{ marginBottom: 48 }}>
+            <SectionLabel>See it in action</SectionLabel>
+            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(44px,5vw,64px)", lineHeight: 1, color: C.cream, marginBottom: 8 }}>
+              EVERYTHING YOUR TEAM NEEDS<br /><span style={{ color: C.fire }}>ON A SINGLE SCREEN</span>
             </h2>
-            <p className="text-white/45 text-base max-w-lg mx-auto">Everything your team needs, on a single screen — no training required.</p>
-          </FadeUp>
-
-          {/* Mock POS UI card */}
-          <FadeUp delay={0.1}>
-            <div className="relative rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 via-orange-500/5 to-amber-500/5 backdrop-blur-xl p-8 overflow-hidden shadow-2xl">
-              <div className="absolute inset-0 pointer-events-none">
-                <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-[80px] bg-orange-500/10" />
-                <div className="absolute bottom-0 left-0 w-48 h-48 rounded-full blur-[60px] bg-amber-500/8" />
-              </div>
-
-              <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  { icon: "🪑", label: "Tables",    value: "12 / 15", sub: "3 available",    color: "orange" },
-                  { icon: "📺", label: "Kitchen",   value: "8 Orders", sub: "2 ready",        color: "blue"   },
-                  { icon: "💰", label: "Today",     value: "₹42,800",  sub: "+18% vs yesterday", color: "emerald"},
-                  { icon: "⏱️", label: "Avg. Time", value: "14 min",   sub: "table to bill",  color: "amber"  },
-                ].map((c) => (
-                  <motion.div
-                    key={c.label}
-                    whileHover={{ scale: 1.04, y: -2 }}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center cursor-default"
-                  >
-                    <div className="text-2xl mb-2">{c.icon}</div>
-                    <div className="text-lg font-black text-white">{c.value}</div>
-                    <div className="text-[10px] text-white/40 mt-0.5">{c.sub}</div>
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="relative z-10 mt-4 grid grid-cols-3 md:grid-cols-6 gap-2">
-                {[1,2,3,4,5,6].map(n => (
-                  <motion.div
-                    key={n}
-                    whileHover={{ scale: 1.06 }}
-                    className={`rounded-xl border p-3 text-center text-xs font-bold cursor-pointer transition-all ${
-                      n === 2 || n === 5
-                        ? "bg-gradient-to-br from-orange-500/30 to-amber-500/20 border-orange-500/40 text-orange-300"
-                        : n === 4
-                        ? "bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-400"
-                        : "bg-white/5 border-white/10 text-white/50"
-                    }`}
-                  >
-                    <div className="text-base mb-0.5">🪑</div>
-                    Table {n}
-                    <div className={`text-[9px] mt-0.5 ${n === 2 || n === 5 ? "text-orange-400" : n === 4 ? "text-emerald-400" : "text-white/30"}`}>
-                      {n === 2 ? "Ordering" : n === 4 ? "Ready" : n === 5 ? "Occupied" : "Free"}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </FadeUp>
+            <p style={{ fontSize: 15, color: C.muted, maxWidth: 500, margin: "0 auto" }}>
+              No training required — intuitive for cashiers, chefs, and managers alike.
+            </p>
+          </Reveal>
+          <Reveal delay={0.1}>
+            <motion.div
+              className="group"
+              whileHover={{ y: -10 }}
+              transition={{ duration: 0.4 }}
+              style={{ borderRadius: 20, overflow: "hidden", border: "1px solid rgba(255,255,255,.1)",
+                boxShadow: "0 40px 100px rgba(0,0,0,.8)", position: "relative" }}
+            >
+              {/* Animated overlay */}
+              <motion.div
+                className="absolute inset-0 pointer-events-none"
+                animate={{ opacity: [0.1, 0.2, 0.1] }}
+                transition={{ repeat: Infinity, duration: 3 }}
+                style={{ background: `radial-gradient(ellipse 60% 40% at 50% 50%, ${C.fire}20 0%, transparent 70%)`, zIndex: 10 }}
+              />
+              
+              <img src="/assets/KDS.png" alt="FLYP POS — Live View"
+                style={{ width: "100%", height: "auto", display: "block", transition: "transform 0.4s ease" }}
+                className="group-hover:scale-105" />
+            </motion.div>
+          </Reveal>
         </div>
       </section>
 
-      {/* ── Testimonial ── */}
-      <section className="relative z-10 py-16 px-5">
-        <FadeUp>
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="text-5xl mb-6">⭐⭐⭐⭐⭐</div>
-            <blockquote className="text-xl md:text-2xl font-semibold text-white/85 leading-relaxed italic mb-6">
-              "We switched from a legacy POS to FLYP in one evening. The kitchen display alone saved us 20 minutes per shift — orders stopped getting missed."
+      {/* ══════════════ TESTIMONIAL ══════════════ */}
+      <section style={{ background: C.d2, padding: "80px" }}>
+        <Reveal>
+          <div style={{ maxWidth: 700, margin: "0 auto", textAlign: "center" }}>
+            <div style={{ fontSize: 20, letterSpacing: "2px", marginBottom: 20 }}>⭐⭐⭐⭐⭐</div>
+            <blockquote style={{ fontSize: "clamp(17px,2.5vw,22px)", color: C.cream, lineHeight: 1.65, fontStyle: "italic", marginBottom: 28, fontWeight: 400 }}>
+              <span style={{ color: C.fire, fontSize: 40, lineHeight: 0, verticalAlign: "-14px", marginRight: 6 }}>"</span>
+              We switched from a legacy POS to FLYP in one evening. The kitchen display alone saved us 20 minutes per shift — orders stopped getting missed.
             </blockquote>
-            <div className="flex items-center justify-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-white font-black text-sm">R</div>
-              <div className="text-left">
-                <div className="text-sm font-bold text-white">Rahul Sharma</div>
-                <div className="text-xs text-white/40">Owner, Café Roots · Mumbai</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg, ${C.fire}, ${C.amber})`,
+                display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: "#fff" }}>
+                R
+              </div>
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontWeight: 600, fontSize: 15, color: C.cream }}>Rahul Sharma</div>
+                <div style={{ fontSize: 12, color: C.muted }}>Owner, Café Roots · Mumbai</div>
               </div>
             </div>
           </div>
-        </FadeUp>
+        </Reveal>
       </section>
 
-      {/* ── CTA ── */}
-      <section id="cta" className="relative z-10 py-24 px-5">
-        <FadeUp>
-          <div className="max-w-4xl mx-auto text-center relative rounded-3xl border border-orange-500/20 bg-gradient-to-br from-orange-500/10 via-amber-500/5 to-transparent p-12 md:p-16 overflow-hidden">
-            <div className="pointer-events-none absolute inset-0">
-              <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full blur-[80px] bg-orange-500/20" />
-              <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full blur-[60px] bg-amber-500/15" />
-            </div>
-            <div className="relative z-10">
-              <div className="text-5xl mb-6">🚀</div>
-              <h2 className="text-4xl md:text-5xl font-black text-white mb-4">Ready to modernize<br />your restaurant?</h2>
-              <p className="text-white/50 text-base mb-10 max-w-lg mx-auto">Free forever for up to 1 location. No credit card. No lock-in. Just a better restaurant.</p>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-                <motion.button
-                  whileHover={{ scale: 1.05, boxShadow: "0 20px 60px rgba(249,115,22,0.4)" }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => navigate("/auth?type=register&product=pos")}
-                  className="px-10 py-4 rounded-2xl font-bold text-lg text-white bg-gradient-to-r from-orange-500 to-amber-500 shadow-[0_10px_40px_rgba(249,115,22,0.3)]"
-                >
-                  Create Free Account →
-                </motion.button>
-                <button
-                  onClick={() => navigate("/")}
-                  className="px-8 py-4 rounded-2xl font-semibold text-sm text-white/60 hover:text-white border border-white/15 hover:border-white/30 transition-all"
-                >
-                  See Supply Chain product ↗
-                </button>
-              </div>
-            </div>
+      {/* ══════════════ CTA FOOTER ══════════════ */}
+      <section id="cta" className="relative overflow-hidden text-center"
+        style={{ background: `linear-gradient(135deg, ${C.fire} 0%, #FF8C00 60%, ${C.amber} 100%)`, padding: "80px" }}>
+        {/* Grid overlay */}
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
+        <Reveal className="relative z-10">
+          <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(56px,7vw,80px)", lineHeight: 0.9, color: "#fff", marginBottom: 16 }}>
+            START TODAY.<br />IT'S FREE.
+          </h2>
+          <p style={{ fontSize: 15, color: "rgba(255,255,255,.75)", marginBottom: 32, fontWeight: 300 }}>
+            No setup fee. No contracts. No commission. Ever.
+          </p>
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 28 }}>
+            <motion.button
+              whileHover={{ backgroundColor: C.cream }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => navigate("/auth?type=register&product=pos")}
+              style={{ background: "#fff", color: C.fire, fontSize: 13, fontWeight: 600, letterSpacing: "2px", padding: "14px 36px", borderRadius: 2, border: "none", cursor: "pointer", textTransform: "uppercase" }}
+            >
+              Create Free Account
+            </motion.button>
+            <button
+              onClick={() => navigate("/")}
+              style={{ border: "2px solid rgba(255,255,255,.5)", color: "#fff", fontSize: 13, letterSpacing: "2px", padding: "14px 32px", borderRadius: 2, background: "transparent", cursor: "pointer", textTransform: "uppercase" }}
+              onMouseOver={e => e.currentTarget.style.borderColor = "#fff"}
+              onMouseOut={e => e.currentTarget.style.borderColor = "rgba(255,255,255,.5)"}
+            >
+              See Supply Chain ↗
+            </button>
           </div>
-        </FadeUp>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,.5)", letterSpacing: "2px", textTransform: "uppercase" }}>
+            Free Setup · India's Smartest POS · Trusted by Retailers Nationwide
+          </div>
+        </Reveal>
       </section>
 
-      {/* ── Footer ── */}
-      <footer className="relative z-10 border-t border-white/8 py-10 px-5">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <img src="/assets/flyp_logo.png" alt="FLYP" className="h-6 w-6 object-contain"
-              onError={e => { e.target.style.display = "none"; }} />
-            <span className="text-sm font-black tracking-widest uppercase text-white/60">FLYP POS</span>
-          </div>
-          <ProductSwitcher active="pos" />
-          <div className="text-xs text-white/25">© {new Date().getFullYear()} FLYP Technologies. All rights reserved.</div>
+      {/* ══════════════ FOOTER ══════════════ */}
+      <footer className="flex flex-col md:flex-row items-center justify-between gap-4"
+        style={{ background: C.d2, borderTop: `1px solid ${C.d3}`, padding: "32px 80px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <img src="/assets/flyp_logo.png" alt="FLYP" className="h-6 w-6 object-contain"
+            onError={e => { e.target.style.display = "none"; }} />
+          <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 20, letterSpacing: "3px", color: C.cream }}>
+            <span style={{ color: C.fire }}>F</span>LYP POS
+          </span>
+        </div>
+        <ProductSwitcher active="pos" />
+        <div style={{ fontSize: 12, color: C.muted }}>
+          © {new Date().getFullYear()} FLYP Technologies. All rights reserved.
         </div>
       </footer>
+
     </div>
   );
 }

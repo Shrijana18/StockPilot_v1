@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-B-P843kh.js","assets/index-D-8Ym41t.js","assets/router-0IH_jsSi.js","assets/firebase-qx4TTTgi.js","assets/index.esm-BncurwSs.js","assets/index-D4VbQ5Xj.css"])))=>i.map(i=>d[i]);
+import{B as r,_ as t}from"./index-D-8Ym41t.js";import"./router-0IH_jsSi.js";import"./firebase-qx4TTTgi.js";import"./index.esm-BncurwSs.js";const m=r("Badge",{web:()=>t(()=>import("./web-B-P843kh.js"),__vite__mapDeps([0,1,2,3,4,5])).then(e=>new e.BadgeWeb)});export{m as Badge};

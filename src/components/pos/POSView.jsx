@@ -14,6 +14,7 @@ import AnalyticsPanel from "./panel/AnalyticsPanel";
 import StaffManagement from "./panel/StaffManagement";
 import RestaurantSettings from "./panel/RestaurantSettings";
 import HelpPanel from "./panel/HelpPanel";
+import GroceryListPanelV3 from "./panel/GroceryListPanelV3";
 import { collection, query, where, getDocs, orderBy, limit, startAfter, doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../../firebase/firebaseConfig";
 import { signOut } from "firebase/auth";
@@ -428,6 +429,7 @@ function RestaurantHub({ onBack, inventory, isRestaurantOnly }) {
     { key: "qr",         icon: "📱", label: "QR Orders",              accent: "emerald" },
     { key: "online",     icon: "🛵", label: "Online Orders",           accent: "orange"  },
     { key: "analytics",  icon: "📊", label: "Analytics",               accent: "violet"  },
+    { key: "grocery",    icon: "🛒", label: "Grocery List",             accent: "emerald" },
     { key: "staff",      icon: "👥", label: "Staff",                   accent: "blue"    },
     { key: "settings",   icon: "⚙️", label: "Settings",               accent: "emerald" },
     { key: "help",       icon: "🚨", label: "Help & Support",         accent: "violet"  },
@@ -459,6 +461,8 @@ function RestaurantHub({ onBack, inventory, isRestaurantOnly }) {
         return wrap("Online Orders", <OnlineOrdersPanel />);
       case "analytics":
         return wrap("Analytics", <AnalyticsPanel />);
+      case "grocery":
+        return wrap("Grocery List", <GroceryListPanelV3 />);
       case "staff":
         return wrap("Staff", <StaffManagement />);
       case "settings":

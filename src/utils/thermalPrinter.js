@@ -445,14 +445,18 @@ export const generateInvoice = (invoiceData) => {
         ${items.map(item => {
           const name = item.product?.name || item.name || 'Item';
           const qty = item.qty || item.quantity || 1;
-          const price = Number(item.product?.price || item.price || 0);
-          const total = qty * price;
+          const basePrice = item.price != null ? Number(item.price) : Number(item.product?.price || 0) + Number(item.addonTotal || 0);
+          const total = qty * basePrice;
+          const addons = item.addons || [];
+          const notes = item.notes || item.note || '';
           
           return `
             <div class="thermal-item-row">
               <div class="thermal-item-name">${name}</div>
+              ${addons.length ? `<div style="font-size:9pt;padding-left:3mm;color:#444;margin-top:0.5mm">${addons.map(a => `+${a.name}${Number(a.price)>0?' \u20b9'+Number(a.price).toFixed(0):''}`).join(' \u00b7 ')}</div>` : ''}
+              ${notes ? `<div style="font-size:9pt;padding-left:3mm;font-style:italic;color:#555;">Note: ${notes}</div>` : ''}
               <div class="thermal-item-details">
-                <span>${qty} x ${formatMoney(price)}</span>
+                <span>${qty} x ${formatMoney(basePrice)}</span>
                 <span>${formatMoney(total)}</span>
               </div>
             </div>
@@ -473,13 +477,13 @@ export const generateInvoice = (invoiceData) => {
         ` : ''}
         ${totals.extraCharge ? `
           <div class="thermal-row">
-            <span>Service Charge:</span>
+            <span>${totals.extraLabel || 'Service Charge'}:</span>
             <span>${formatMoney(totals.extraCharge)}</span>
           </div>
         ` : ''}
         ${totals.discount ? `
           <div class="thermal-row">
-            <span>Discount:</span>
+            <span>${totals.discountLabel || 'Discount'}:</span>
             <span>-${formatMoney(totals.discount)}</span>
           </div>
         ` : ''}

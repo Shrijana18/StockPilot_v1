@@ -105,7 +105,100 @@ function ItemCard({ item, qty, onAdd, onRemove }) {
   );
 }
 
-// ── Order Tracker ─────────────────────────────────────────────────────────────
+// ── Addon Bottom Sheet ───────────────────────────────────────────────────────────
+function AddonBottomSheet({ item, onConfirm, onClose }) {
+  const [selections, setSelections] = useState({});
+  const groups = item?.addonGroups || [];
+
+  const toggle = (groupId, optionId, isMulti) => {
+    setSelections(prev => {
+      if (isMulti) {
+        const curr = prev[groupId] || [];
+        const exists = curr.includes(optionId);
+        return { ...prev, [groupId]: exists ? curr.filter(id => id !== optionId) : [...curr, optionId] };
+      }
+      return { ...prev, [groupId]: [optionId] };
+    });
+  };
+
+  const canConfirm = groups.every(g => !g.required || (selections[g.id] || []).length > 0);
+
+  const handleConfirm = () => {
+    const addons = [];
+    let addonTotal = 0;
+    groups.forEach(g => {
+      (selections[g.id] || []).forEach(optId => {
+        const opt = (g.options || []).find(o => o.id === optId);
+        if (opt) { addons.push({ groupId: g.id, groupName: g.name, optionId: opt.id, name: opt.name, price: Number(opt.price) || 0 }); addonTotal += Number(opt.price) || 0; }
+      });
+    });
+    const optionIds = addons.map(a => a.optionId).sort().join(",");
+    const cartKey = optionIds ? `${item.id}::${optionIds}` : item.id;
+    onConfirm({ addons, addonTotal, cartKey });
+  };
+
+  return (
+    <motion.div className="fixed inset-0 z-[60] flex flex-col justify-end"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    >
+      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
+      <motion.div
+        initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+        transition={{ type: "spring", stiffness: 300, damping: 32 }}
+        className="relative rounded-t-3xl border-t border-white/10 overflow-y-auto"
+        style={{ background: "linear-gradient(170deg,#0d1a1a 0%,#070d0d 100%)", maxHeight: "82vh" }}
+      >
+        <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-white/15" /></div>
+        <div className="px-5 pb-3 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-white font-black text-base">{item.name}</h3>
+            <p className="text-white/40 text-xs mt-0.5">Customize your order</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-full bg-white/8 hover:bg-white/15 text-white/50 text-xs flex items-center justify-center shrink-0">✕</button>
+        </div>
+        <div className="px-5 pb-4 space-y-4">
+          {groups.map(group => (
+            <div key={group.id}>
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-white/60">{group.name}</p>
+                {group.required && <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-red-500/20 text-red-400 border border-red-500/30">Required</span>}
+                {!group.required && <span className="text-[10px] text-white/30">Optional</span>}
+              </div>
+              <div className="space-y-1.5">
+                {(group.options || []).map(opt => {
+                  const isSelected = (selections[group.id] || []).includes(opt.id);
+                  return (
+                    <button key={opt.id} type="button"
+                      onClick={() => toggle(group.id, opt.id, group.multiSelect !== false)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl border text-left transition ${
+                        isSelected ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300" : "bg-white/[0.04] border-white/8 text-white/70 hover:bg-white/8"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          isSelected ? "border-emerald-400 bg-emerald-400" : "border-white/25"
+                        }`}>{isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}</span>
+                        <span className="text-sm font-medium">{opt.name}</span>
+                      </div>
+                      {Number(opt.price) > 0 && <span className={`text-xs font-bold ${isSelected ? "text-emerald-300" : "text-white/40"}`}>+₹{Number(opt.price).toFixed(0)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="sticky bottom-0 px-5 pb-8 pt-3 border-t border-white/6" style={{ background: "rgba(7,13,13,0.97)" }}>
+          <motion.button whileTap={{ scale: 0.97 }} onClick={handleConfirm} disabled={!canConfirm}
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 text-white font-black text-sm shadow-[0_4px_20px_rgba(16,185,129,0.35)] disabled:opacity-50 transition"
+          >Add to Order</motion.button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ── Order Tracker ──────────────────────────────────────────────────────────────
 function OrderTracker({ orderId, bizUid, tableName, onNewOrder }) {
   const [order, setOrder] = useState(null);
 
@@ -314,7 +407,9 @@ export default function QROrderPage() {
   const [categories, setCats]   = useState([]);
   const [items,   setItems]     = useState([]);
   const [selCat,  setSelCat]    = useState("");
-  const [cart,    setCart]      = useState({}); // { itemId: qty }
+  const [cart,    setCart]      = useState([]); // [{ cartKey, itemId, item, qty, addons, addonTotal }]
+  const [showAddonSheet, setShowAddonSheet] = useState(false);
+  const [addonSheetItem, setAddonSheetItem] = useState(null);
   const [search,  setSearch]    = useState("");
   const [showCart, setShowCart] = useState(false);
   const [custName, setCustName] = useState("");
@@ -375,16 +470,51 @@ export default function QROrderPage() {
     return unsub;
   }, [bizUid]);
 
-  const addItem    = useCallback((id) => setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 })), []);
-  const removeItem = useCallback((id) => setCart(c => { const n = { ...c }; if ((n[id] || 0) > 1) n[id]--; else delete n[id]; return n; }), []);
+  const addItemToCart = useCallback((item, qty = 1, addons = [], addonTotal = 0, cartKey = null) => {
+    const key = cartKey || item.id;
+    setCart(prev => {
+      const existing = prev.findIndex(l => l.cartKey === key);
+      if (existing >= 0) {
+        return prev.map((l, i) => i === existing ? { ...l, qty: l.qty + qty } : l);
+      }
+      return [...prev, { cartKey: key, itemId: item.id, item, qty, addons, addonTotal }];
+    });
+  }, []);
 
-  const cartItems = useMemo(() =>
-    items.filter(it => cart[it.id] > 0).map(it => ({ ...it, qty: cart[it.id] })),
-    [items, cart]
-  );
-  const cartCount = useMemo(() => Object.values(cart).reduce((s, v) => s + v, 0), [cart]);
+  const removeItemFromCart = useCallback((cartKey) => {
+    setCart(prev => {
+      const line = prev.find(l => l.cartKey === cartKey);
+      if (!line) return prev;
+      if (line.qty > 1) return prev.map(l => l.cartKey === cartKey ? { ...l, qty: l.qty - 1 } : l);
+      return prev.filter(l => l.cartKey !== cartKey);
+    });
+  }, []);
+
+  const addItem = useCallback((item) => {
+    if ((item.addonGroups || []).length > 0) {
+      setAddonSheetItem(item);
+      setShowAddonSheet(true);
+    } else {
+      addItemToCart(item);
+    }
+  }, [addItemToCart]);
+
+  const removeItem = useCallback((itemId) => {
+    setCart(prev => {
+      const entries = prev.filter(l => l.itemId === itemId);
+      if (entries.length === 0) return prev;
+      const last = entries[entries.length - 1];
+      if (last.qty > 1) return prev.map(l => l.cartKey === last.cartKey ? { ...l, qty: l.qty - 1 } : l);
+      return prev.filter(l => l.cartKey !== last.cartKey);
+    });
+  }, []);
+
+  const getItemQty = useCallback((itemId) => cart.filter(l => l.itemId === itemId).reduce((s, l) => s + l.qty, 0), [cart]);
+
+  const cartItems = cart;
+  const cartCount = useMemo(() => cart.reduce((s, l) => s + l.qty, 0), [cart]);
   const cartTotal = useMemo(() =>
-    cartItems.reduce((s, it) => s + it.price * it.qty, 0), [cartItems]
+    cart.reduce((s, l) => s + (Number(l.item.price || 0) + Number(l.addonTotal || 0)) * l.qty, 0), [cart]
   );
 
   const filteredItems = useMemo(() => {
@@ -397,13 +527,16 @@ export default function QROrderPage() {
   }, [items, selCat, search]);
 
   const placeOrder = async () => {
-    if (cartItems.length === 0) return;
+    if (cart.length === 0) return;
     setSubmitting(true);
     try {
       const orderData = {
-        items: cartItems.map(it => ({
-          product: { id: it.id, name: it.name, price: it.price, tax: it.tax || 0 },
-          qty: it.qty,
+        items: cart.map(line => ({
+          product: { id: line.item.id, name: line.item.name, price: line.item.price, tax: line.item.tax || 0 },
+          qty: line.qty,
+          addons: line.addons || [],
+          addonTotal: line.addonTotal || 0,
+          cartKey: line.cartKey,
           note: "",
         })),
         totals: {
@@ -426,7 +559,7 @@ export default function QROrderPage() {
         orderData
       );
       setOrderId(ref.id);
-      setCart({});
+      setCart([]);
       setShowCart(false);
       setPhase("tracking");
     } catch (e) {
@@ -566,8 +699,8 @@ export default function QROrderPage() {
                 transition={{ delay: i * 0.03, duration: 0.22 }}
               >
                 <ItemCard item={item}
-                  qty={cart[item.id] || 0}
-                  onAdd={() => addItem(item.id)}
+                  qty={getItemQty(item.id)}
+                  onAdd={() => addItem(item)}
                   onRemove={() => removeItem(item.id)}
                 />
               </motion.div>
@@ -618,20 +751,32 @@ export default function QROrderPage() {
               </div>
 
               <div className="overflow-y-auto px-5 pb-2" style={{ maxHeight: "40vh" }}>
-                {cartItems.map(it => (
-                  <div key={it.id} className="flex items-center gap-3 py-2.5 border-b border-white/5">
+                {cart.map(line => {
+                  const linePrice = Number(line.item.price || 0) + Number(line.addonTotal || 0);
+                  return (
+                  <div key={line.cartKey} className="flex items-center gap-3 py-2.5 border-b border-white/5">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white/85 font-semibold truncate">{it.name}</p>
-                      <p className="text-xs text-white/35">₹{it.price} × {it.qty}</p>
+                      <p className="text-sm text-white/85 font-semibold truncate">{line.item.name}</p>
+                      {(line.addons || []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {line.addons.map((a, i) => (
+                            <span key={i} className="px-1.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-[9px] font-medium">
+                              +{a.name}{Number(a.price) > 0 ? ` ₹${Number(a.price).toFixed(0)}` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs text-white/35 mt-0.5">₹{linePrice.toFixed(0)} × {line.qty}</p>
                     </div>
                     <div className="flex items-center gap-2 bg-white/8 border border-white/10 rounded-full px-1.5 py-1 shrink-0">
-                      <button onClick={() => removeItem(it.id)} className="w-5 h-5 rounded-full bg-white/10 text-white text-sm flex items-center justify-center font-black">−</button>
-                      <span className="text-sm font-black text-white min-w-[16px] text-center">{it.qty}</span>
-                      <button onClick={() => addItem(it.id)} className="w-5 h-5 rounded-full bg-emerald-500 text-white text-sm flex items-center justify-center font-black">+</button>
+                      <button onClick={() => removeItemFromCart(line.cartKey)} className="w-5 h-5 rounded-full bg-white/10 text-white text-sm flex items-center justify-center font-black">−</button>
+                      <span className="text-sm font-black text-white min-w-[16px] text-center">{line.qty}</span>
+                      <button onClick={() => { if ((line.item.addonGroups || []).length > 0) { setAddonSheetItem(line.item); setShowAddonSheet(true); } else { addItemToCart(line.item); } }} className="w-5 h-5 rounded-full bg-emerald-500 text-white text-sm flex items-center justify-center font-black">+</button>
                     </div>
-                    <span className="text-sm font-black text-white/70 w-14 text-right shrink-0">₹{(it.price * it.qty).toFixed(0)}</span>
+                    <span className="text-sm font-black text-white/70 w-16 text-right shrink-0">₹{(linePrice * line.qty).toFixed(0)}</span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Customer name + note */}
@@ -667,6 +812,21 @@ export default function QROrderPage() {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Addon Bottom Sheet */}
+      <AnimatePresence>
+        {showAddonSheet && addonSheetItem && (
+          <AddonBottomSheet
+            item={addonSheetItem}
+            onClose={() => { setShowAddonSheet(false); setAddonSheetItem(null); }}
+            onConfirm={({ addons, addonTotal, cartKey }) => {
+              addItemToCart(addonSheetItem, 1, addons, addonTotal, cartKey);
+              setShowAddonSheet(false);
+              setAddonSheetItem(null);
+            }}
+          />
         )}
       </AnimatePresence>
     </div>
